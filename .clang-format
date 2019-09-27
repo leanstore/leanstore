@@ -1,0 +1,6 @@
+﻿---
+BasedOnStyle: Chromium
+BreakBeforeBraces: Linux
+SpaceInEmptyParentheses: 'false'
+
+...
