@@ -1,7 +1,8 @@
 # ---------------------------------------------------------------------------
-# cengine
+# Leanstore DB
 # ---------------------------------------------------------------------------
 
+project(leanstoredb)
 cmake_minimum_required(VERSION 3.7)
 
 # ---------------------------------------------------------------------------
@@ -37,26 +38,26 @@ find_package(Threads REQUIRED)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
-include("${CMAKE_SOURCE_DIR}/vendor/benchmark.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/googletest.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/gflags.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/rapidjson.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/yaml-cpp.cmake")
-include("${CMAKE_SOURCE_DIR}/cmake/clang-tidy.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/fastpfor.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/spdlog.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/tbb.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/croaring.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/psql.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/gdouble.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/turbo.cmake")
-include("${CMAKE_SOURCE_DIR}/vendor/lz4.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/benchmark.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/googletest.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/gflags.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/rapidjson.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/yaml-cpp.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/fastpfor.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/spdlog.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/tbb.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/croaring.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/psql.cmake")
+#include("${CMAKE_SOURCE_DIR}/libs/gdouble.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/turbo.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/lz4.cmake")
 
 # ---------------------------------------------------------------------------
 # Includes
 # ---------------------------------------------------------------------------
 
 include("${CMAKE_SOURCE_DIR}/shared-headers/local.cmake")
+
 include_directories(
         ${CMAKE_SOURCE_DIR}/include
         ${FLEX_INCLUDE_DIRS}
@@ -68,9 +69,10 @@ include_directories(
 # Sources
 # ---------------------------------------------------------------------------
 
-#include("${CMAKE_SOURCE_DIR}/playground/local.cmake")
-#include("${CMAKE_SOURCE_DIR}/cengine/local.cmake")
-#include("${CMAKE_SOURCE_DIR}/tools/local.cmake")
+add_subdirectory("src")
+add_subdirectory("tests")
+add_subdirectory("tools")
+add_subdirectory("playground")
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -88,10 +90,8 @@ include_directories(
 # Executable
 # ---------------------------------------------------------------------------
 
-add_executable(frontend frontend.cpp)
-add_dependencies(frontend leanstore)
-target_link_libraries(frontend leanstore psql)
-target_include_directories(harbook PRIVATE ${CENGINE_INCLUDE_DIR})
+add_subdirectory("frontend")
+
 # ---------------------------------------------------------------------------
 # Linting
 # ---------------------------------------------------------------------------
@@ -99,9 +99,10 @@ target_include_directories(harbook PRIVATE ${CENGINE_INCLUDE_DIR})
 
 #todo
 
-list(APPEND lint_targets lint_src)
-add_custom_target(lint)
-add_dependencies(lint ${lint_targets})
+#include("${CMAKE_SOURCE_DIR}/cmake/clang-tidy.cmake")
+#list(APPEND lint_targets lint_src)
+#add_custom_target(lint)
+#add_dependencies(lint ${lint_targets})
 
 # ---------------------------------------------------------------------------
 # Configuration
