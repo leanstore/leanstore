@@ -25,11 +25,13 @@ private:
    u32 buffer_frame_size;
    // -------------------------------------------------------------------------------------
    // DRAM Pages
-   std::queue<BufferFrame*> free_buffer_frames;
-   std::queue<BufferFrame*> used_buffer_frames;
+   std::queue<BufferFrame*> dram_free_bfs;
+   std::queue<BufferFrame*> dram_used_bfs;
    // -------------------------------------------------------------------------------------
    // SSD Pages
+   std::mutex ssd_lists_mutex;
    std::queue<u64> ssd_free_pages;
+   std::queue<u64> ssd_used_pages;
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
    std::mutex global_mutex;

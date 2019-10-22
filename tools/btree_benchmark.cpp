@@ -1,5 +1,6 @@
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/storage/btree/BTreeOptimistic.hpp"
+#include "btree/BTree.hpp"
 // -------------------------------------------------------------------------------------
 #include <tbb/tbb.h>
 #include "PerfEvent.hpp"
@@ -20,6 +21,24 @@ int main(int argc, char **argv)
 
    tbb::task_scheduler_init taskScheduler(threads);
    PerfEvent e;
+   {
+      libgcc::BTree<uint32_t, uint32_t> btree;
+      // lookup
+      {
+         PerfEventBlock b(e, n);
+         e.setParam("workload", "lookup");
+         e.setParam("approach", "libgcc_opt");
+         e.setParam("threads", threads);
+
+         tbb::parallel_for(tbb::blocked_range<uint32_t>(0, n), [&](const tbb::blocked_range<uint32_t> &range) {
+            for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
+               uint32_t result;
+               bool success = btree.lookup(work[i], result);
+               assert(success && result == work[i]);
+            }
+         });
+      }
+   }
    {
 
       optimistic::BTree<uint32_t, uint32_t> btree;
