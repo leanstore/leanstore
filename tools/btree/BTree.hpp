@@ -1,5 +1,6 @@
 #pragma once
 #include "Primitives.hpp"
+#include <random>
 
 namespace libgcc {
 struct NodeBase {
@@ -111,14 +112,12 @@ struct BTreeInner : public BTreeInnerBase {
          unsigned mid = ((upper - lower) / 2) + lower;
          if ( k < keys[mid] ) {
             if ( !(mid <= upper)) {
-               cout << " weird" << endl;
-               return -1;
+               throw OptimisticLockException();
             }
             upper = mid;
          } else if ( k > keys[mid] ) {
             if ( !(lower <= mid)) {
-               cout << " weird" << endl;
-               return -1;
+               throw OptimisticLockException();
             }
             lower = mid + 1;
          } else {
@@ -154,13 +153,15 @@ struct BTreeInner : public BTreeInnerBase {
 template<class Key, class Value>
 struct BTree {
    atomic<NodeBase *> root;
-   NodeBase root_lock;
+   lock_t root_version;
+   atomic<u64> restarts_counter = 0;
 
    BTree()
    {
       root = new BTreeLeaf<Key, Value>();
+      root_version = 0;
    }
-
+   // -------------------------------------------------------------------------------------
    void makeRoot(Key k, NodeBase *leftChild, NodeBase *rightChild)
    {
       auto inner = new BTreeInner<Key>();
@@ -170,202 +171,121 @@ struct BTree {
       inner->children[1] = rightChild;
       root = inner;
    }
-//
-//   void insert(Key k, Value v)
-//   {
-//      SharedLock root_lock(root_lock);
-//
-//      insert_start:
-//
-//      u64 root_version;
-//
-//      if ( !(root_version = readLockOrRestart(root_lock))) {
-//         goto insert_start;
-//      }
-//
-//      u64 version;
-//      u64 parent_version = 0;
-//      uint16_t level = 0; // more for debugging
-//
-//      NodeBase *node = root.load(), *parent_node = nullptr;
-//
-//      if ( !(version = readLockOrRestart(*node))) {
-//         goto insert_start;
-//      }
-//
-//      while ( node->type == PageType::BTreeInner ) {
-//         auto inner = static_cast<BTreeInner<Key> *>(node);
-//
-//         if ( inner->count == inner->maxEntries - 1 ) { // Split inner eagerly
-//            if ( parent_node ) {
-//               if ( !upgradeToWriteLockOrRestart(*parent_node, parent_version)) {
-//                  goto insert_start;
-//               }
-//            } else {
-//               if ( !upgradeToWriteLockOrRestart(root_lock, root_version)) {
-//                  goto insert_start;
-//               }
-//            }
-//            if ( !upgradeToWriteLockOrRestart(*node, version)) {
-//               if ( parent_node ) {
-//                  writeUnlock(*parent_node);
-//               } else {
-//                  writeUnlock(root_lock);
-//               }
-//               goto insert_start;
-//            }
-//
-//            Key sep;
-//            BTreeInner<Key> *newInner = inner->split(sep);
-//
-//            auto parent_inner = static_cast<BTreeInner<Key> *>(parent_node);
-//
-//            if ( parent_node ) {
-//               parent_inner->insert(sep, newInner);
-//               writeUnlock(*node);
-//               writeUnlock(*parent_node);
-//            } else {
-//               makeRoot(sep, inner, newInner);
-//               writeUnlock(*node);
-//               writeUnlock(root_lock);
-//            }
-//            goto insert_start;
-//         }
-//
-//         if ( parent_node ) {
-//            if ( !readUnlockOrRestart(*parent_node, parent_version)) {
-//               goto insert_start;
-//            }
-//         } else {
-//            if ( !readUnlockOrRestart(root_lock, root_version)) {
-//               goto insert_start;
-//            }
-//         }
-//
-//         int64_t pos;
-//         if ((pos = inner->lowerBound(k)) == -1 ) {
-//            goto insert_start;
-//         }
-//
-//         parent_node = node;
-//         parent_version = version;
-//
-//         node = inner->children[pos];
-//         assert(node);
-//
-//         if ( level == 0 && !checkOrRestart(root_lock, root_version)) {
-//            goto insert_start;
-//         }
-//
-//         if ( !checkOrRestart(*parent_node, parent_version)) { // it refers to current node
-//            goto insert_start;
-//         }
-//
-//         if ( !(version = readLockOrRestart(*node))) {
-//            goto insert_start;
-//         }
-//
-//         level++;
-//      }
-//
-//      BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(node);
-//
-//      if ( parent_node ) {
-//         if ( !upgradeToWriteLockOrRestart(*parent_node, parent_version)) {
-//            goto insert_start;
-//         }
-//      } else {
-//         if ( !upgradeToWriteLockOrRestart(root_lock, root_version)) {
-//            goto insert_start;
-//         }
-//      }
-//      if ( !upgradeToWriteLockOrRestart(*node, version)) {
-//         goto insert_start;
-//      }
-//
-//      if ( leaf->count == leaf->maxEntries ) {
-//         auto parent_inner = static_cast<BTreeInner<Key> *>(parent_node);
-//         // Leaf is full, split it
-//         Key sep;
-//         BTreeLeaf<Key, Value> *newLeaf = leaf->split(sep);
-//         if ( parent_node ) {
-//            parent_inner->insert(sep, newLeaf);
-//         } else {
-//            makeRoot(sep, leaf, newLeaf);
-//         }
-//
-//         writeUnlock(*node);
-//         if ( parent_node ) {
-//            writeUnlock(*parent_node);
-//         } else {
-//            writeUnlock(root_lock);
-//         }
-//         goto insert_start;
-//      }
-//      leaf->insert(k, v);
-//
-//      writeUnlock(*node);
-//      if ( parent_node ) {
-//         writeUnlock(*parent_node);
-//      } else {
-//         writeUnlock(root_lock);
-//      }
-//   }
-
-   bool lookup(Key k, Value &result)
+   struct TestObject{
+      TestObject() {
+         throw OptimisticLockException();
+      }
+   };
+   // -------------------------------------------------------------------------------------
+   void insert(Key k, Value v)
    {
       while (true) {
          try {
+            //TestObject o1;
+            SharedLock r_lock(root_version);
+            NodeBase *c_node = root;
+            BTreeInner<Key> *p_node = nullptr;
+            SharedLock c_lock(c_node->version);
+            SharedLock p_lock;
 
-            bool is_root = true;
-            NodeBase *node = root.load(), *parent_node;
+            while ( c_node->type == PageType::BTreeInner ) {
+               auto inner = static_cast<BTreeInner<Key> *>(c_node);
+               // -------------------------------------------------------------------------------------
+               if ( inner->count == inner->maxEntries - 1 ) {
+                  // Split inner eagerly
+                  ExclusiveLock p_x_lock((p_node) ? p_lock : r_lock);
+                  ExclusiveLock c_x_lock(c_lock);
+                  Key sep;
+                  BTreeInner<Key> *newInner = inner->split(sep);
+                  if ( p_node  != nullptr)
+                     p_node->insert(sep, newInner);
+                  else
+                     makeRoot(sep, inner, newInner);
 
-            SharedLock lock(node->version);
-            SharedLock parent_lock;
-
-            while ( node->type == PageType::BTreeInner ) {
-               BTreeInner<Key> *inner = static_cast<BTreeInner<Key> *>(node);
-
-               if ( is_root ) {
-                  is_root = false;
-               } else {
-                  parent_lock.unlock();
+                  throw OptimisticLockException(); //restart
                }
-
-               int64_t pos;
-               if ((pos = inner->lowerBound(k)) == -1 ) {
-                  throw OptimisticLockException();
-               }
-
-               parent_node = node;
-               parent_lock = lock;
-               node = inner->children[pos];
-               parent_lock.verify();
-               lock = SharedLock(node->version);
+               // -------------------------------------------------------------------------------------
+               p_lock.recheck(); // ^release^ parent before searching in the current node
+               unsigned pos = inner->lowerBound(k);
+               p_node = inner;
+               c_node = inner->children[pos];
+               c_lock.recheck();
+               // -------------------------------------------------------------------------------------
+               p_lock = c_lock;
+               c_lock = SharedLock(c_node->version);
+               assert(c_node);
             }
 
-            if ( !is_root ) {
-               parent_lock.unlock();
-            }
+            BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(c_node);
+            ExclusiveLock p_x_lock((p_node != nullptr) ? p_lock : r_lock);
+            ExclusiveLock c_x_lock(c_lock);
+            if ( leaf->count == leaf->maxEntries ) {
+               // Leaf is full, split it
+               Key sep;
+               BTreeLeaf<Key, Value> *newLeaf = leaf->split(sep);
+               if ( p_node  != nullptr)
+                  p_node->insert(sep, newLeaf);
+               else
+                  makeRoot(sep, leaf, newLeaf);
+               if ( k >= sep )
+                  leaf = newLeaf;
 
-            BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(node);
-            int64_t pos;
-
-            if ((pos = leaf->lowerBound(k)) == -1 ) {
                throw OptimisticLockException();
             }
+            // -------------------------------------------------------------------------------------
+            if(rand() % 10 >=5){
+               throw OptimisticLockException();
+            }
+            // -------------------------------------------------------------------------------------
+            leaf->insert(k, v);
+            return;
+         } catch ( OptimisticLockException e ) {
+            restarts_counter++;
+         }
+      }
+   }
+   bool lookup(Key k, Value &result)
+   {
+      while ( true ) {
+         try {
+            NodeBase *c_node = root.load();
 
+            SharedLock c_lock(c_node->version);
+            SharedLock p_lock;
+
+            while ( c_node->type == PageType::BTreeInner ) {
+               BTreeInner<Key> *inner = static_cast<BTreeInner<Key> *>(c_node);
+
+               if ( p_lock ) {
+                  p_lock.recheck();
+               }
+
+               int64_t pos = inner->lowerBound(k);
+               c_node = inner->children[pos];
+               c_lock.recheck();
+               p_lock = c_lock;
+               c_lock = SharedLock(c_node->version);
+            }
+
+            if ( p_lock ) {
+               p_lock.recheck();
+            }
+
+            BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(c_node);
+            int64_t pos = leaf->lowerBound(k);
             if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
                result = leaf->payloads[pos];
-
-               lock.verify();
+               c_lock.recheck();
                return true;
             }
             return false;
-         } catch (OptimisticLockException e) {
-
+         } catch ( OptimisticLockException e ) {
+            restarts_counter++;
          }
       }
+   }
+   ~BTree() {
+      cout << "restarts counter = " << restarts_counter << endl;
    }
 };
 }

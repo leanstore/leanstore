@@ -149,7 +149,7 @@ template<class Key, class Value>
 struct BTree {
    atomic<NodeBase *> root;
    NodeBase root_lock;
-
+   atomic<uint64_t > restarts_counter = 0;
    BTree()
    {
        root = new BTreeLeaf<Key, Value>();
@@ -167,8 +167,13 @@ struct BTree {
 
    void insert(Key k, Value v)
    {
+      bool first = true;
       insert_start:
-
+       if(!first) {
+          restarts_counter++;
+       } else {
+          first = false;
+       }
        ub8 root_version;
 
        if (!(root_version = readLockOrRestart(root_lock))) {
@@ -294,7 +299,19 @@ struct BTree {
            }
            goto insert_start;
        }
-       leaf->insert(k, v);
+      // -------------------------------------------------------------------------------------
+      if(rand() % 10 >=5){
+
+         writeUnlock(*node);
+         if (parent_node) {
+            writeUnlock(*parent_node);
+         } else {
+            writeUnlock(root_lock);
+         }
+         goto insert_start;
+      }
+      // -------------------------------------------------------------------------------------
+      leaf->insert(k, v);
 
        writeUnlock(*node);
        if (parent_node) {
@@ -306,8 +323,13 @@ struct BTree {
 
    bool lookup(Key k, Value &result)
    {
+      bool first = true;
       lookup_start:
-
+         if(!first) {
+            restarts_counter++;
+         } else {
+            first = false;
+         }
        ub8 version;
        ub8 parent_version;
        bool is_root = true;
@@ -368,6 +390,10 @@ struct BTree {
        }
 
        return false;
+   }
+
+   ~BTree() {
+      cout << "restarts counter = " << restarts_counter << endl;
    }
 };
 }

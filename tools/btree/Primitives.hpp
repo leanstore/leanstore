@@ -3,83 +3,80 @@
 #include "Units.hpp"
 using namespace std;
 // -------------------------------------------------------------------------------------
-struct OptimisticLockException {};
+
+struct OptimisticLockException {
+public:
+   OptimisticLockException() {
+
+   }
+   OptimisticLockException(int code) {
+      cout << code << endl;
+   }
+};
 // -------------------------------------------------------------------------------------
 class SharedLock;
 class ExclusiveLock;
+using lock_version_t = u64;
+using lock_t = atomic<lock_version_t>;
 // -------------------------------------------------------------------------------------
 class SharedLock {
+   friend class ExclusiveLock;
 private:
-   atomic<u64> *lock = nullptr;
+   atomic<u64> *version_ptr = nullptr;
    u64 local_version;
-   bool locked = true;
+   bool locked = false;
 public:
-   SharedLock() {
-      locked = false;
-   }
-   SharedLock(atomic<u64> &lock)
-           : lock(&lock)
+   // -------------------------------------------------------------------------------------
+   SharedLock() = default;
+   // -------------------------------------------------------------------------------------
+   SharedLock(lock_t &lock)
+           : version_ptr(&lock)
    {
-      local_version = lock;
-      while ((local_version & 2) == 2) { //spin lock
+      local_version = version_ptr->load();
+      while ((local_version & 2) == 2 ) { //spin lock
          usleep(5);
-         local_version = lock.load();
+         local_version = version_ptr->load();
       }
+      locked = true;
    }
    // -------------------------------------------------------------------------------------
-   ~SharedLock()
+   void recheck()
    {
-      if ( locked && local_version != *lock ) {
+      if ( locked && local_version != *version_ptr ) {
          throw OptimisticLockException();
       }
    }
    // -------------------------------------------------------------------------------------
-   void unlock() {
-      if ( locked && local_version != *lock ) {
-         throw OptimisticLockException();
-      }
-      locked = false;
-   }
-   // -------------------------------------------------------------------------------------
-   void verify() {
-      if ( locked && local_version != *lock ) {
-         throw OptimisticLockException();
-      }
-   }
-   // -------------------------------------------------------------------------------------
-   SharedLock &operator=(const SharedLock &other) {
-      if ( locked && local_version != *lock ) {
-         throw OptimisticLockException();
-      }
-      lock = other.lock;
-      local_version = *lock;
+   SharedLock &operator=(const SharedLock &other) = default;
+   operator bool() const
+   {
+      return locked;
    }
    // -------------------------------------------------------------------------------------
 };
 // -------------------------------------------------------------------------------------
 class ExclusiveLock {
 private:
-   atomic<u64> *lock;
-   bool locked = true;
+   SharedLock &ref_lock; //our basis
 public:
-   ExclusiveLock() {
-      locked = false;
-   }
    // -------------------------------------------------------------------------------------
-   ExclusiveLock(u64 version, atomic<u64> &lock) : lock(&lock) {
-      if (!lock.compare_exchange_strong(version, version +2)) {
+   ExclusiveLock(SharedLock &shared_lock)
+           : ref_lock(shared_lock)
+   {
+      assert(ref_lock.version_ptr != nullptr);
+      lock_version_t new_version = ref_lock.local_version + 2;
+      if ( !std::atomic_compare_exchange_strong(ref_lock.version_ptr, &ref_lock.local_version, new_version)) {
          throw OptimisticLockException();
       }
+      ref_lock.local_version = new_version;
    }
    // -------------------------------------------------------------------------------------
-   void unlock() {
-      if(locked) {
-         lock->fetch_add(2);
+   ~ExclusiveLock()
+   {
+      assert(ref_lock.version_ptr != nullptr);
+      if(ref_lock.version_ptr != nullptr) {
+         ref_lock.local_version = 2 + ref_lock.version_ptr->fetch_add(2);
       }
-   }
-   // -------------------------------------------------------------------------------------
-   ~ExclusiveLock() {
-      unlock();
    }
 };
 // -------------------------------------------------------------------------------------
