@@ -52,7 +52,7 @@ struct BTreeLeaf : public BTreeLeafBase {
        if (count) {
            unsigned pos = lowerBound(k);
            if (pos < count && keys[pos] == k) {
-               // overwrite payload
+               // overwrite page
                payloads[pos] = p;
                return;
            }

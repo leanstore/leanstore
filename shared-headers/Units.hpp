@@ -71,3 +71,6 @@ inline string ConvertTypeToString(const ColumnType type_str) {
 // -------------------------------------------------------------------------------------
 using BytesArray = std::unique_ptr<u8[]>;
 #define check(expr) if (!(expr)) { perror(#expr); assert(false); }
+// -------------------------------------------------------------------------------------
+template<int s> struct getTheSizeOf;
+// -------------------------------------------------------------------------------------

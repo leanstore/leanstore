@@ -18,7 +18,7 @@ public:
 class SharedLock;
 class ExclusiveLock;
 using lock_version_t = u64;
-using lock_t = atomic<lock_version_t>;
+using OptimisticLock = atomic<lock_version_t>;
 // -------------------------------------------------------------------------------------
 class SharedLock {
    friend class ExclusiveLock;
@@ -30,7 +30,7 @@ public:
    // -------------------------------------------------------------------------------------
    SharedLock() = default;
    // -------------------------------------------------------------------------------------
-   SharedLock(lock_t &lock)
+   SharedLock(OptimisticLock &lock)
            : version_ptr(&lock)
    {
       local_version = version_ptr->load();

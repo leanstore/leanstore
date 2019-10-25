@@ -13,10 +13,9 @@ TEST(BufferManager, HelloWorld)
    Swizzle swizzle(0);
 
    auto &bf = bufferManager.fixPage(swizzle);
-   std::memcpy(bf.payload, test, 12);
+   std::memcpy(bf.page, test, 12);
    auto &bf2 = bufferManager.fixPage(swizzle);
-
-   cout << bf2.payload << endl;
+   cout << bf2.page << endl;
 }
 // -------------------------------------------------------------------------------------
 }

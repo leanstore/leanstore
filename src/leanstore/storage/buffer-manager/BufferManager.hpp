@@ -14,10 +14,16 @@
 namespace leanstore {
 // -------------------------------------------------------------------------------------
 class BufferManager {
-   struct IOFrame {
+   struct CIOFrame {
+      enum class State {
+         READING,
+         COOLING
+      };
       std::mutex mutex;
       bool loaded = false;
       BufferFrame *bf = nullptr;
+      std::list<BufferFrame*>::iterator fifo_itr;
+      State state;
    };
 private:
    u8 *dram;
@@ -25,22 +31,17 @@ private:
    u32 buffer_frame_size;
    // -------------------------------------------------------------------------------------
    // DRAM Pages
+   atomic<u64> dram_free_bfs_counter = 0;
    std::queue<BufferFrame*> dram_free_bfs;
    std::queue<BufferFrame*> dram_used_bfs;
    // -------------------------------------------------------------------------------------
    // SSD Pages
-   std::mutex ssd_lists_mutex;
    std::queue<u64> ssd_free_pages;
-   std::queue<u64> ssd_used_pages;
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
    std::mutex global_mutex;
-   // Cooling stage section
-   std::list<BufferFrame*> cooling_queue;
-   std::unordered_map<PID, std::list<BufferFrame*>::iterator> cooling_ht;
-   // -------------------------------------------------------------------------------------
-   // InFlight IO
-   std::unordered_map<PID, IOFrame> inflight_io;
+   std::list<BufferFrame*> cooling_fifo_queue;
+   std::unordered_map<PID, CIOFrame> cooling_io_ht;
    // -------------------------------------------------------------------------------------
 public:
    BufferManager();

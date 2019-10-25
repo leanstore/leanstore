@@ -15,7 +15,7 @@ endif ()
 # Library
 # ---------------------------------------------------------------------------
 
-add_library(leanstore STATIC ${LEANSTORE_CC} leanstore/storage/sync-primitives/OptimisticLock.hpp)
+add_library(leanstore STATIC ${LEANSTORE_CC} )
 
 if (CMAKE_BUILD_TYPE MATCHES Debug)
     # CMAKE_<LANG>_STANDARD_LIBRARIES
@@ -25,7 +25,7 @@ target_link_libraries(leanstore gflags Threads::Threads yaml tbb)
 
 #asan
 target_include_directories(leanstore PUBLIC ${SHARED_INCLUDE_DIRECTORY})
-target_include_directories(leanstore PRIVATE leanstore)
+target_include_directories(leanstore PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 set(LEANSTORE_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR})
 
 set_property(TARGET leanstore APPEND PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${LEANSTORE_INCLUDE_DIR})

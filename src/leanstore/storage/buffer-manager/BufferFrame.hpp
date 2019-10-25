@@ -1,7 +1,7 @@
 #pragma once
 #include "Units.hpp"
 #include "Swizzle.hpp"
-#include "../optimistic-lock/OptimisticLock.hpp"
+#include "leanstore/sync-primitives/OptimisticLock.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
@@ -9,35 +9,32 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
-enum class BufferFrameType : u8 {
-   BTREE
-};
-// -------------------------------------------------------------------------------------
 enum class SwizzlingCallbackCommand : u8 {
    ITERATE,
    PARENT
 };
 // -------------------------------------------------------------------------------------
-using SwizzlingCallback = std::vector<Swizzle*> (*)(u8 *payload);
+using SwizzlingCallback = std::vector<Swizzle*> (*)(u8 *payload, SwizzlingCallbackCommand command);
 // -------------------------------------------------------------------------------------
-std::vector<Swizzle*> dummyCallback(u8* payload) {
-   return {};
-}
+std::vector<Swizzle*> dummyCallback(u8* payload, SwizzlingCallbackCommand command);
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
-   bool dirty = false;
-   bool fixed = false;
+   struct Header {
+      bool dirty = false;
+      bool fixed = false;
+      // -------------------------------------------------------------------------------------
+      // Swizzling Maintenance
+      SwizzlingCallback callback_function = &dummyCallback;
+      Swizzle *parent_pointer; // the PageID in parent nodes that references to this BF
+      PID pid; //not really necessary we can calculate it usings its offset to dram pointer
+      // -------------------------------------------------------------------------------------
+      OptimisticLock lock;
+   };
+   struct Header header;
    // -------------------------------------------------------------------------------------
-   // Swizzling Maintenance
-   BufferFrameType type;
-   SwizzlingCallback callback_function = &dummyCallback;
-   Swizzle *parent_pointer; // the PageID in parent nodes that references to this BF
-   PID pid; //not really necessary we can calculate it usings its offset to dram pointer
-   // -------------------------------------------------------------------------------------
-   OptimisticLock lock;
-   // -------------------------------------------------------------------------------------
-   u8 padding[512 - 40];
-   u8 payload[];
+   u8 padding[512 - sizeof(struct Header)];
+   // --------------------------------------------------------------------------------
+   u8 page[];
    // -------------------------------------------------------------------------------------
    BufferFrame(PID pid);
 };

@@ -1,5 +1,6 @@
 #include "BufferManager.hpp"
 #include "BufferFrame.hpp"
+#include "leanstore/random-generator/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 // -------------------------------------------------------------------------------------
@@ -42,15 +43,18 @@ BufferManager::BufferManager()
    // -------------------------------------------------------------------------------------
    for ( u64 pid = 0; pid < FLAGS_dram_pages; pid++ ) {
       dram_free_bfs.push(new(dram + (pid * buffer_frame_size)) BufferFrame(pid));
-      inflight_io.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple());
    }
    for ( u64 pid = 0; pid < FLAGS_ssd_pages; pid++ ) {
+      cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple());
       ssd_free_pages.push(pid);
    }
    // -------------------------------------------------------------------------------------
    std::srand(std::time(nullptr));
-   tbb::tbb_thread myThread([]() {
+   tbb::tbb_thread background_thread([&]() {
       while ( true ) {
+         // -------------------------------------------------------------------------------------
+         // Check if we are running out of free pages
+         checkCoolingThreshold();
          // TODO: take a bf from the cooling stage, flush it if dirty and clear the dirty flag
          // does not imply removing it form the FIFO queue
          usleep(FLAGS_background_write_sleep);
@@ -66,6 +70,8 @@ BufferManager::~BufferManager()
    munmap(dram, dram_total_size);
    close(ssd_fd);
    ssd_fd = -1;
+   // -------------------------------------------------------------------------------------
+   // TODO: save states in YAML
 }
 // -------------------------------------------------------------------------------------
 // Buffer Frames Management
@@ -83,17 +89,17 @@ void BufferManager::checkCoolingThreshold()
    check_again:
    // -------------------------------------------------------------------------------------
    // Check if we are running out of free pages
-   if ((dram_free_bfs.size() * 100.0 / FLAGS_dram_pages) <= FLAGS_cooling_threshold ) {
+   if ((dram_free_bfs_counter * 100.0 / FLAGS_dram_pages) <= FLAGS_cooling_threshold ) {
       //TODO: pick a page, unswizzle it and move it to cooling stage
-      PID cool_pid = std::rand() % dram_used_bfs.size();
+      PID cool_pid = RandomGenerator::getRand<PID>(0, FLAGS_dram_pages - dram_free_bfs_counter);
       BufferFrame *cool_bf = getLoadedBF(cool_pid);
       // Make sure the BF is hot by checking whether its parent swizzle is swizzled
-      while ( !cool_bf->parent_pointer->isSwizzled()) {
+      while ( !cool_bf->header.parent_pointer->isSwizzled()) {
          cool_pid = std::rand() % dram_used_bfs.size();
          cool_bf = getLoadedBF(cool_pid);
       }
       bool all_children_unswizzled = true;
-      for ( auto &swizzle: cool_bf->callback_function(cool_bf->payload)) {
+      for ( auto &swizzle: cool_bf->header.callback_function(cool_bf->page, SwizzlingCallbackCommand::ITERATE)) {
          if ( swizzle->isSwizzled()) {
             all_children_unswizzled = false;
             break;
@@ -110,23 +116,16 @@ void BufferManager::checkCoolingThreshold()
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::accquirePage()
 {
-   checkCoolingThreshold();
-   global_mutex.lock();
+   std::lock_guard lock(global_mutex);
    auto free_bf = dram_free_bfs.front();
    dram_free_bfs.pop();
    dram_used_bfs.push(free_bf);
-   global_mutex.unlock();
    return *free_bf;
 }
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::fixPage(Swizzle &swizzle)
 {
    //TODO: wrong, fix it not equal to allocate !!!
-   fix_again:
-   // -------------------------------------------------------------------------------------
-   // Check if we are running out of free pages
-   checkCoolingThreshold();
-   // -------------------------------------------------------------------------------------
    // Now, we can talk about fixing
    if ( swizzle.isSwizzled()) {
       return swizzle.getBufferFrame();
@@ -134,22 +133,30 @@ BufferFrame &BufferManager::fixPage(Swizzle &swizzle)
       BufferFrame *return_bf = nullptr;
       global_mutex.lock();
       if (swizzle.isSwizzled()) { // maybe another thread has already fixed it
+         //TODO: is it really possible ?
          return swizzle.getBufferFrame();
       }
-      IOFrame &IOFrame = inflight_io.find(swizzle.asInteger())->second;
-      IOFrame.mutex.lock();
-      global_mutex.unlock();
-      if ( IOFrame.loaded ) {
-         IOFrame.mutex.unlock();
-         return_bf = IOFrame.bf;
+      CIOFrame &cio_frame = cooling_io_ht.find(swizzle.asInteger())->second;
+      if(cio_frame.state== CIOFrame::State::COOLING) {
+
+      } else {
+         cio_frame.mutex.lock();
+         cio_frame.state = CIOFrame::State::READING;
+         global_mutex.unlock();
+
+
+      }
+      if ( cio_frame.loaded ) {
+         cio_frame.mutex.unlock();
+         return_bf = cio_frame.bf;
       } else {
          auto free_bf = dram_free_bfs.front();
          dram_free_bfs.pop();
          dram_used_bfs.push(free_bf);
-         IOFrame.bf = free_bf;
-         readPage(swizzle.asInteger(),free_bf->payload);
-         IOFrame.loaded = true;
-         IOFrame.mutex.unlock();
+         cio_frame.bf = free_bf;
+         readPage(swizzle.asInteger(),free_bf->page);
+         cio_frame.loaded = true;
+         cio_frame.mutex.unlock();
          return_bf = free_bf;
       }
       swizzle.swizzle(return_bf);
