@@ -10,11 +10,11 @@
 DEFINE_uint32(dram_pages, 1024, "");
 DEFINE_uint32(ssd_pages, 1024, "");
 DEFINE_uint32(page_size, 16 * 1024, "");
-DEFINE_string(ssd_path, "/tmp/leanstore", "");
+DEFINE_string(ssd_path, "leanstore", "");
 DEFINE_bool(ssd_truncate, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(cooling_threshold, 10, "Start cooling pages when 100-x% are free");
-DEFINE_uint32(background_write_sleep, 10, "ms");
+DEFINE_uint32(background_write_sleep, 10, "us");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 BufferManager::BufferManager()

@@ -1,5 +1,5 @@
 #include "leanstore/LeanStore.hpp"
-#include "leanstore/storage/btree/BTreeOptimistic.hpp"
+#include "btree-legacy/BTreeOptimistic.hpp"
 #include "btree/BTreePreAllocated.hpp"
 // -------------------------------------------------------------------------------------
 #include <tbb/tbb.h>
