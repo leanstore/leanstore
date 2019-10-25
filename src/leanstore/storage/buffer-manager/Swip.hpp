@@ -9,7 +9,7 @@ namespace leanstore {
 // -------------------------------------------------------------------------------------
 struct BufferFrame; // Forward declaration
 // -------------------------------------------------------------------------------------
-struct Swizzle {
+struct Swip {
    // -------------------------------------------------------------------------------------
    static const u64 swizzle_bit = u64(1) << 63;
    static const u64 unswizzle_mask = ~(u64(1) << 63);
@@ -18,13 +18,13 @@ struct Swizzle {
 public:
    std::atomic<PID> pid;
    // -------------------------------------------------------------------------------------
-   Swizzle(u64 pid );
+   Swip(u64 pid );
    // -------------------------------------------------------------------------------------
    bool isSwizzled();
    u64 asInteger();
    void swizzle(BufferFrame *);
    BufferFrame &getBufferFrame();
-   bool operator==(const Swizzle &other) const
+   bool operator==(const Swip &other) const
    {
       return (pid == other.pid);
    }
@@ -34,8 +34,8 @@ public:
 // -------------------------------------------------------------------------------------
 namespace std {
 template<>
-struct hash<leanstore::Swizzle> {
-   size_t operator()(const leanstore::Swizzle &k) const
+struct hash<leanstore::Swip> {
+   size_t operator()(const leanstore::Swip &k) const
    {
       // Compute individual hash values for two data members and combine them using XOR and bit shifting
       return hash<u64>()(k.pid);

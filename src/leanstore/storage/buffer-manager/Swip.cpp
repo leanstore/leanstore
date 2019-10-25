@@ -1,21 +1,21 @@
-#include "Swizzle.hpp"
+#include "Swip.hpp"
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
-Swizzle::Swizzle(u64 pid): pid(pid) {}
+Swip::Swip(u64 pid): pid(pid) {}
 // -------------------------------------------------------------------------------------
-bool Swizzle::isSwizzled()
+bool Swip::isSwizzled()
 {
    return (pid & swizzle_bit) == swizzle_bit;
 }
 // -------------------------------------------------------------------------------------
-u64 Swizzle::asInteger() { return pid; }
+u64 Swip::asInteger() { return pid; }
 // -------------------------------------------------------------------------------------
-void Swizzle::swizzle(BufferFrame *bf) {
+void Swip::swizzle(BufferFrame *bf) {
    pid.store(u64(bf) | swizzle_bit);
 }
 // -------------------------------------------------------------------------------------
-BufferFrame& Swizzle::getBufferFrame() {
+BufferFrame& Swip::getBufferFrame() {
    return *reinterpret_cast<BufferFrame*>(pid & unswizzle_mask);
 }
 // -------------------------------------------------------------------------------------

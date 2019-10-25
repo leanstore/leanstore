@@ -10,7 +10,7 @@ TEST(BufferManager, HelloWorld)
 {
    BufferManager bufferManager;
    char *test = "Hello World";
-   Swizzle swizzle(0);
+   Swip swizzle(0);
 
    auto &bf = bufferManager.fixPage(swizzle);
    std::memcpy(bf.page, test, 12);

@@ -1,11 +1,14 @@
 #pragma once
-#include "storage/buffer-manager/BufferManager.hpp"
+#include "BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 namespace leanstore{
-class LeanStore{
+class SmartPointer {
 public:
-   LeanStore();
+   Swip &swip;
+   SharedLock lock;
+   BufferFrame *bf;
+   SmartPointer(Swip &swip);
 };
 }

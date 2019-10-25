@@ -1,11 +1,17 @@
-#include "LeanStore.hpp"
+#include "SmartPointer.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 namespace leanstore {
-LeanStore::LeanStore()
+SmartPointer::SmartPointer(leanstore::Swip &swip)
+        : swip(swip)
 {
-   BMC::start();
+   while ( true ) {
+      try {
+         bf = &BMC::global_bf->fixPage(swip);
+         lock = SharedLock(bf->header.lock);
+      } catch ( OptimisticLockException e ) {
+      }
+   }
 }
 }
-// -------------------------------------------------------------------------------------

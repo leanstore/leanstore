@@ -94,7 +94,7 @@ void BufferManager::checkCoolingThreshold()
       PID cool_pid = RandomGenerator::getRand<PID>(0, FLAGS_dram_pages - dram_free_bfs_counter);
       BufferFrame *cool_bf = getLoadedBF(cool_pid);
       // Make sure the BF is hot by checking whether its parent swizzle is swizzled
-      while ( !cool_bf->header.parent_pointer->isSwizzled()) {
+      while ( !cool_bf->header.swip_in_parent->isSwizzled()) {
          cool_pid = std::rand() % dram_used_bfs.size();
          cool_bf = getLoadedBF(cool_pid);
       }
@@ -123,7 +123,7 @@ BufferFrame &BufferManager::accquirePage()
    return *free_bf;
 }
 // -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::fixPage(Swizzle &swizzle)
+BufferFrame &BufferManager::fixPage(Swip &swizzle)
 {
    //TODO: wrong, fix it not equal to allocate !!!
    // Now, we can talk about fixing
@@ -163,7 +163,6 @@ BufferFrame &BufferManager::fixPage(Swizzle &swizzle)
       return *return_bf;
    }
 }
-
 // -------------------------------------------------------------------------------------
 // SSD management
 // -------------------------------------------------------------------------------------
@@ -184,5 +183,11 @@ void BufferManager::flush()
 {
    fdatasync(ssd_fd);
 }
+// -------------------------------------------------------------------------------------
+unique_ptr<BufferManager> BMC::global_bf(nullptr);
+void BMC::start() {
+   global_bf = make_unique<BufferManager>();
+}
+// -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------

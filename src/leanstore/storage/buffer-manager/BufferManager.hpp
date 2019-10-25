@@ -1,6 +1,6 @@
 #pragma once
 #include "Units.hpp"
-#include "Swizzle.hpp"
+#include "Swip.hpp"
 #include "BufferFrame.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -50,8 +50,8 @@ public:
    BufferFrame *getLoadedBF(PID pid);
    void checkCoolingThreshold();
    BufferFrame &accquirePage();
-   BufferFrame &fixPage(Swizzle &swizzle);
-   void unfixPage(Swizzle &swizzle);
+   BufferFrame &fixPage(Swip &swizzle);
+   void unfixPage(Swip &swizzle);
    /*
     * Life cycle of a fix:
     * 1- Check if the pid is swizzled, if yes then store the BufferFrame address temporarily
@@ -67,5 +67,10 @@ public:
    // -------------------------------------------------------------------------------------
 };
 // -------------------------------------------------------------------------------------
+class BMC {
+public:
+   static unique_ptr<BufferManager> global_bf;
+   static void start();
+};
 }
 // -------------------------------------------------------------------------------------
