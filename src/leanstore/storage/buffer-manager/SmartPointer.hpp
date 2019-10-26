@@ -6,9 +6,10 @@
 namespace leanstore{
 class SmartPointer {
 public:
+   BufferFrame &swip_holder;
    Swip &swip;
    SharedLock lock;
    BufferFrame *bf;
-   SmartPointer(Swip &swip);
+   SmartPointer(BufferFrame &swip_holder, Swip &swip);
 };
 }

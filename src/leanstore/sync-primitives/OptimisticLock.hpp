@@ -7,10 +7,10 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
-struct OptimisticLockException {
+struct RestartException {
 public:
-   OptimisticLockException() {}
-   OptimisticLockException(int code) {
+   RestartException() {}
+   RestartException(int code) {
       cout << code << endl;
    }
 };
@@ -44,7 +44,7 @@ public:
    void recheck()
    {
       if ( locked && local_version != *version_ptr ) {
-         throw OptimisticLockException();
+         throw RestartException();
       }
    }
    // -------------------------------------------------------------------------------------
@@ -67,7 +67,7 @@ public:
       assert(ref_lock.version_ptr != nullptr);
       lock_version_t new_version = ref_lock.local_version + 2;
       if ( !std::atomic_compare_exchange_strong(ref_lock.version_ptr, &ref_lock.local_version, new_version)) {
-         throw OptimisticLockException();
+         throw RestartException();
       }
       ref_lock.local_version = new_version;
    }

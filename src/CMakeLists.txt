@@ -19,9 +19,9 @@ add_library(leanstore STATIC ${LEANSTORE_CC} )
 
 if (CMAKE_BUILD_TYPE MATCHES Debug)
     # CMAKE_<LANG>_STANDARD_LIBRARIES
-    #    target_compile_options(leanstore PUBLIC -fsanitize=address)
+    target_compile_options(leanstore PUBLIC -fsanitize=address)
 endif ()
-target_link_libraries(leanstore gflags Threads::Threads yaml tbb)
+target_link_libraries(leanstore gflags Threads::Threads yaml  aio asan) #tbb
 
 #asan
 target_include_directories(leanstore PUBLIC ${SHARED_INCLUDE_DIRECTORY})

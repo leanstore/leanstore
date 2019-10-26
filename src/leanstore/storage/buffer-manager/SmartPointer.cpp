@@ -3,14 +3,15 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 namespace leanstore {
-SmartPointer::SmartPointer(leanstore::Swip &swip)
-        : swip(swip)
+SmartPointer::SmartPointer(BufferFrame &swip_holder, leanstore::Swip &swip)
+        : swip_holder(swip_holder), swip(swip)
 {
    while ( true ) {
       try {
-         bf = &BMC::global_bf->fixPage(swip);
+         bf = &BMC::global_bf->fixPage(swip_holder,swip);
          lock = SharedLock(bf->header.lock);
-      } catch ( OptimisticLockException e ) {
+         break;
+      } catch ( RestartException e ) {
       }
    }
 }

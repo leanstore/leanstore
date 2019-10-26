@@ -9,13 +9,15 @@ namespace leanstore {
 TEST(BufferManager, HelloWorld)
 {
    BufferManager bufferManager;
-   char *test = "Hello World";
-   Swip swizzle(0);
+   auto pid = bufferManager.accquirePage();
+   auto &root_bf = bufferManager.accquireBufferFrame();
 
-   auto &bf = bufferManager.fixPage(swizzle);
-   std::memcpy(bf.page, test, 12);
-   auto &bf2 = bufferManager.fixPage(swizzle);
-   cout << bf2.page << endl;
+   auto child_pid = bufferManager.accquirePage();
+   auto &child_bf = bufferManager.accquireBufferFrame();
+   Swip swizzle(child_pid);
+   char *test = "Hello World";
+   std::memcpy(child_bf.page, test, 12);
+   cout << child_bf.page << endl;
 }
 // -------------------------------------------------------------------------------------
 }

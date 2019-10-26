@@ -19,9 +19,8 @@ using SwizzlingCallback = std::vector<Swip*> (*)(u8 *payload, SwizzlingCallbackC
 std::vector<Swip*> dummyCallback(u8* payload, SwizzlingCallbackCommand command);
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
-   struct Header {
+   struct BFHeader {
       // TODO: for logging
-      atomic<u64> LSN = 0;
       atomic<u64> lastWrittenLSN = 0; // TODO: move to the inside of the page
       bool isWB;
       // -------------------------------------------------------------------------------------
@@ -30,13 +29,20 @@ struct BufferFrame {
       Swip *swip_in_parent; // the PageID in parent nodes that references to this BF
       PID pid; //not really necessary we can calculate it usings its offset to dram pointer
       // -------------------------------------------------------------------------------------
-      OptimisticLock lock;
+      OptimisticLock lock = 0;
    };
-   struct Header header;
+   struct Page {
+      atomic<u64> LSN = 0;
+      u8 dt[]; // Datastruture
+      operator u8*() {
+         return reinterpret_cast<u8*>(this);
+      }
+   };
    // -------------------------------------------------------------------------------------
-   u8 padding[512 - sizeof(struct Header)];
-   // --------------------------------------------------------------------------------
-   u8 page[];
+   struct BFHeader header;
+   u8 padding[512 - sizeof(struct BFHeader) - sizeof(Page)];
+   // -------------------------------------------------------------------------------------
+   struct Page page; // The persisted part
    // -------------------------------------------------------------------------------------
    BufferFrame(PID pid);
 };

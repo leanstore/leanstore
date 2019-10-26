@@ -118,12 +118,12 @@ struct BTreeInner : public BTreeInnerBase {
          unsigned mid = ((upper - lower) / 2) + lower;
          if ( k < keys[mid] ) {
             if ( !(mid <= upper)) {
-               throw OptimisticLockException();
+               throw RestartException();
             }
             upper = mid;
          } else if ( k > keys[mid] ) {
             if ( !(lower <= mid)) {
-               throw OptimisticLockException();
+               throw RestartException();
             }
             lower = mid + 1;
          } else {
@@ -179,7 +179,7 @@ struct BTree {
    }
    struct TestObject{
       TestObject() {
-         throw OptimisticLockException();
+         throw RestartException();
       }
    };
    // -------------------------------------------------------------------------------------
@@ -208,7 +208,7 @@ struct BTree {
                   else
                      makeRoot(sep, inner, newInner);
 
-                  throw OptimisticLockException(); //restart
+                  throw RestartException(); //restart
                }
                // -------------------------------------------------------------------------------------
                p_lock.recheck(); // ^release^ parent before searching in the current node
@@ -236,16 +236,16 @@ struct BTree {
                if ( k >= sep )
                   leaf = newLeaf;
 
-               throw OptimisticLockException();
+               throw RestartException();
             }
             // -------------------------------------------------------------------------------------
             if(rand() % 10 >=5){
-               throw OptimisticLockException();
+               throw RestartException();
             }
             // -------------------------------------------------------------------------------------
             leaf->insert(k, v);
             return;
-         } catch ( OptimisticLockException e ) {
+         } catch ( RestartException e ) {
             restarts_counter++;
          }
       }
@@ -285,7 +285,7 @@ struct BTree {
                return true;
             }
             return false;
-         } catch ( OptimisticLockException e ) {
+         } catch ( RestartException e ) {
             restarts_counter++;
          }
       }
