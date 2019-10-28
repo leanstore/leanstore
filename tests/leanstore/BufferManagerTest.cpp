@@ -9,24 +9,17 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
-TEST(BufferManager, HelloWorld)
+TEST(BufferManager, BTree)
 {
    BMC::start();
    BufferManager &bufferManager = *BMC::global_bf;
+   bufferManager.stopBackgroundThreads();
 
-   auto pid = bufferManager.accquirePage();
-   auto &root_bf = bufferManager.accquireBufferFrame();
+   // BTree
+   auto &btree_root_bf = bufferManager.accquireBufferFrame();
+   btree::BTree<uint32_t, uint32_t> btree(&btree_root_bf);
+   btree.init();
 
-   auto child_pid = bufferManager.accquirePage();
-   auto &child_bf = bufferManager.accquireBufferFrame();
-   Swip swizzle(child_pid);
-   char *test = "Hello World";
-   std::memcpy(child_bf.page, test, 12);
-   cout << child_bf.page << endl;
-
-   auto btree_root_pid = bufferManager.accquirePage();
-
-   btree::BTree<uint32_t, uint32_t> btree(btree_root_pid);
    uint32_t result;
    bool res = btree.lookup(10, result);
    assert(res == false);
@@ -34,8 +27,8 @@ TEST(BufferManager, HelloWorld)
    res = btree.lookup(10, result);
    assert(res == true && result == 10);
 
-   uint32_t n = getenv("N") ? atoi(getenv("N")) : 10e2;
-   uint32_t threads = getenv("T") ? atoi(getenv("T")) : 1;
+   uint32_t n = getenv("N") ? atoi(getenv("N")) : 10e4;
+   uint32_t threads = getenv("T") ? atoi(getenv("T")) : 10;
 
    std::vector<uint32_t> work(n);
    for ( uint32_t i = 0; i < n; i++ )
@@ -44,7 +37,6 @@ TEST(BufferManager, HelloWorld)
    tbb::task_scheduler_init taskScheduler(threads);
    PerfEvent e;
    {
-
       // insert
       {
          PerfEventBlock b(e, n);
@@ -73,7 +65,6 @@ TEST(BufferManager, HelloWorld)
             }
          });
       }
-
       // mixed workload
       std::atomic<uint32_t> total(0);
       {

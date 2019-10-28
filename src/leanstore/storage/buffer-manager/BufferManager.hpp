@@ -73,8 +73,6 @@ public:
    ~BufferManager();
    // -------------------------------------------------------------------------------------
    BufferFrame *getLoadedBF(PID pid);
-   void checkCoolingThreshold();
-   PID accquirePage();
    BufferFrame &accquireBufferFrame();
    BufferFrame &accquireBufferFrame(SharedLock &swip_lock, Swip &swip);
    BufferFrame &fixPage(SharedLock &swip_lock, Swip &swip);

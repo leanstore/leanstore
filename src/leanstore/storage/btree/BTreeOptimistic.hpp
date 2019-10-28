@@ -14,19 +14,20 @@ enum class NodeType : u8 {
 
 struct NodeBase {
    NodeType type;
-   uint16_t count;
-   NodeBase()  {}
+   u16 count;
+   NodeBase() {}
 };
 
 struct BTreeLeafBase : public NodeBase {
-static const NodeType typeMarker = NodeType::BTreeLeaf;
+   static const NodeType typeMarker = NodeType::BTreeLeaf;
 };
+
+static const u64 pageSize = 16 * 1024;
 
 using Node = NodeBase;
 template<class Key, class Payload>
 struct BTreeLeaf : public BTreeLeafBase {
-   static const u64 pageSizeLeaf = 4 * 1024;
-   static const u64 maxEntries = ((pageSizeLeaf - sizeof(NodeBase)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
+   static const u64 maxEntries = ((pageSize - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
 
    Key keys[maxEntries];
    Payload payloads[maxEntries];
@@ -45,12 +46,12 @@ struct BTreeLeaf : public BTreeLeafBase {
          unsigned mid = ((upper - lower) / 2) + lower;
          if ( k < keys[mid] ) {
             if ( !(mid <= upper)) {
-               return -1;
+               throw RestartException();
             }
             upper = mid;
          } else if ( k > keys[mid] ) {
             if ( !(lower <= mid)) {
-               return -1;
+               throw RestartException();
             }
             lower = mid + 1;
          } else {
@@ -80,15 +81,14 @@ struct BTreeLeaf : public BTreeLeafBase {
       count++;
    }
 
-   BTreeLeaf *split(Key &sep)
+   void split(Key &sep, BufferFrame &new_bf)
    {
-      BTreeLeaf *newLeaf = new BTreeLeaf();
+      BTreeLeaf *newLeaf = new(new_bf.page.dt) BTreeLeaf();
       newLeaf->count = count - (count / 2);
       count = count - newLeaf->count;
       memcpy(newLeaf->keys, keys + count, sizeof(Key) * newLeaf->count);
       memcpy(newLeaf->payloads, payloads + count, sizeof(Payload) * newLeaf->count);
       sep = keys[count - 1];
-      return newLeaf;
    }
 };
 
@@ -98,8 +98,7 @@ struct BTreeInnerBase : public NodeBase {
 
 template<class Key>
 struct BTreeInner : public BTreeInnerBase {
-   static const u64 pageSizeInner = 4 * 1024;
-   static const u64 maxEntries = ((pageSizeInner - sizeof(NodeBase)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
+   static const u64 maxEntries = ((pageSize - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
 
    Swip children[maxEntries];
    Key keys[maxEntries];
@@ -133,18 +132,17 @@ struct BTreeInner : public BTreeInnerBase {
       return lower;
    }
 
-   BTreeInner *split(Key &sep) // BTreeInner *
+   void split(Key &sep, BufferFrame &new_inner_bf) // BTreeInner *
    {
-      BTreeInner *newInner = new BTreeInner();
+      BTreeInner *newInner = new(new_inner_bf.page.dt) BTreeInner();
       newInner->count = count - (count / 2);
       count = count - newInner->count - 1;
       sep = keys[count];
       memcpy(newInner->keys, keys + count + 1, sizeof(Key) * (newInner->count + 1));
       memcpy(newInner->children, children + count + 1, sizeof(Swip) * (newInner->count + 1));
-      return newInner;
    }
 
-   void insert(Key k, NodeBase *child)
+   void insert(Key k, Swip child)
    {
       unsigned pos = lowerBound(k);
       memmove(keys + pos + 1, keys + pos, sizeof(Key) * (count - pos + 1));
@@ -164,22 +162,24 @@ struct BTree {
 
    BufferManager &buffer_manager;
    // -------------------------------------------------------------------------------------
-   BTree(PID root_pid)
-   : root_swip(root_pid), buffer_manager(*BMC::global_bf)
+   BTree(BufferFrame *root_bf)
+           : root_swip(root_bf)
+             , buffer_manager(*BMC::global_bf)
    {
    }
    // -------------------------------------------------------------------------------------
-   void init() {
+   void init()
+   {
       SharedLock lock(root_lock);
       auto &root_bf = buffer_manager.fixPage(lock, root_swip);
       new(root_bf.page.dt) BTreeLeaf<Key, Value>();
    }
    // -------------------------------------------------------------------------------------
-   void makeRoot(Key k, NodeBase *leftChild, NodeBase *rightChild, SharedLock &lock)
+   void makeRoot(Key k, Swip leftChild, Swip rightChild)
    {
-      root_swip = buffer_manager.accquirePage();
-      auto &root_bf = buffer_manager.accquireBufferFrame(lock, root_swip);
-      auto inner = new(root_bf.page.dt) BTreeInner<Key>();
+      auto &new_root_bf = buffer_manager.accquireBufferFrame();
+      root_swip.swizzle(&new_root_bf);
+      auto inner = new(new_root_bf.page.dt) BTreeInner<Key>();
       inner->count = 1;
       inner->keys[0] = k;
       inner->children[0] = leftChild;
@@ -188,7 +188,7 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    void insert(Key k, Value v)
    {
-      while (true) {
+      while ( true ) {
          try {
             SharedLock r_lock(root_lock);
             BufferFrame *c_bf = &buffer_manager.fixPage(r_lock, root_swip);
@@ -205,11 +205,12 @@ struct BTree {
                   ExclusiveLock p_x_lock((p_node) ? p_lock : r_lock);
                   ExclusiveLock c_x_lock(c_lock);
                   Key sep;
-                  BTreeInner<Key> *newInner = inner->split(sep);
+                  auto &new_inner_bf = buffer_manager.accquireBufferFrame();
+                  inner->split(sep, new_inner_bf);
                   if ( p_node )
-                     p_node->insert(sep, newInner);
+                     p_node->insert(sep, &new_inner_bf);
                   else
-                     makeRoot(sep, inner, newInner, r_lock);
+                     makeRoot(sep, c_bf, &new_inner_bf);
 
                   throw RestartException(); //restart
                }
@@ -219,7 +220,7 @@ struct BTree {
                p_node = inner;
                Swip &c_swip = inner->children[pos];
                // -------------------------------------------------------------------------------------
-               c_bf = &buffer_manager.fixPage(c_lock,c_swip);
+               c_bf = &buffer_manager.fixPage(c_lock, c_swip);
                c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
                // -------------------------------------------------------------------------------------
                c_lock.recheck();
@@ -229,18 +230,17 @@ struct BTree {
             }
 
             BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(c_node);
-            ExclusiveLock p_x_lock((p_node != nullptr) ? p_lock : r_lock);
+            ExclusiveLock p_x_lock((p_node) ? p_lock : r_lock);  // TODO: move it to the inside of if
             ExclusiveLock c_x_lock(c_lock);
             if ( leaf->count == leaf->maxEntries ) {
                // Leaf is full, split it
                Key sep;
-               BTreeLeaf<Key, Value> *newLeaf = leaf->split(sep);
+               auto &new_leaf_bf = buffer_manager.accquireBufferFrame();
+               leaf->split(sep, new_leaf_bf);
                if ( p_node )
-                  p_node->insert(sep, newLeaf);
+                  p_node->insert(sep, &new_leaf_bf);
                else
-                  makeRoot(sep, leaf, newLeaf, r_lock);
-               if ( k >= sep )
-                  leaf = newLeaf;
+                  makeRoot(sep, c_bf, &new_leaf_bf);
 
                throw RestartException();
             }
@@ -272,7 +272,7 @@ struct BTree {
                int64_t pos = inner->lowerBound(k);
                Swip &c_swip = inner->children[pos];
                // -------------------------------------------------------------------------------------
-               c_bf = &buffer_manager.fixPage(c_lock,c_swip);
+               c_bf = &buffer_manager.fixPage(c_lock, c_swip);
                c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
                // -------------------------------------------------------------------------------------
                c_lock.recheck();
@@ -297,7 +297,8 @@ struct BTree {
          }
       }
    }
-   ~BTree() {
+   ~BTree()
+   {
       cout << "restarts counter = " << restarts_counter << endl;
    }
 };

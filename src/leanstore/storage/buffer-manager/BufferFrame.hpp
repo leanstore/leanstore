@@ -22,11 +22,12 @@ struct BufferFrame {
    struct Header {
       // TODO: for logging
       atomic<u64> lastWrittenLSN = 0; // TODO: move to the inside of the page
-      bool isWB;
+      bool isWB = false;
       // -------------------------------------------------------------------------------------
       // Swizzling Maintenance
       SwizzlingCallback callback_function = &dummyCallback;
-      Swip *swip_in_parent; // the PageID in parent nodes that references to this BF
+      Swip *swip_in_parent = nullptr; // the PageID in parent nodes that references to this BF
+      // nullptr means the bufferframe is sticky, e.g. BTree root
       PID pid; //not really necessary we can calculate it usings its offset to dram pointer
       // -------------------------------------------------------------------------------------
       OptimisticLock lock = 0;
@@ -44,6 +45,7 @@ struct BufferFrame {
    struct Page page; // The persisted part
    // -------------------------------------------------------------------------------------
    BufferFrame(PID pid);
+   BufferFrame(){}
 };
 // -------------------------------------------------------------------------------------
 static_assert((sizeof(BufferFrame) - sizeof(BufferFrame::Page)) == 512, "");

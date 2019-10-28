@@ -1,15 +1,14 @@
 #include "BufferManager.hpp"
 #include "BufferFrame.hpp"
 #include "leanstore/random-generator/RandomGenerator.hpp"
-#include "leanstore/storage/buffer-manager/SmartPointer.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 // -------------------------------------------------------------------------------------
 #include <fcntl.h>
 #include <unistd.h>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(dram_pages, 1024 , "");
-DEFINE_uint32(ssd_pages, 2048, "");
+DEFINE_uint32(dram_pages, 50 * 1000, "");
+DEFINE_uint32(ssd_pages, 100 * 1000, "");
 DEFINE_uint32(page_size, 16 * 1024, "");
 DEFINE_string(ssd_path, "leanstore", "");
 DEFINE_bool(ssd_truncate, true, "");
@@ -24,7 +23,7 @@ BufferManager::BufferManager()
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
    buffer_frame_size = FLAGS_page_size + sizeof(BufferFrame);
-   const u64 dram_total_size = buffer_frame_size * FLAGS_dram_pages;
+   const u64 dram_total_size = u64(buffer_frame_size) * u64(FLAGS_dram_pages);
    dram = reinterpret_cast<u8 *>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
    madvise(dram, dram_total_size, MADV_HUGEPAGE);
    memset(dram, 0, dram_total_size);
@@ -50,8 +49,9 @@ BufferManager::BufferManager()
       write_buffer_free_slots.push_front(i);
    }
    // -------------------------------------------------------------------------------------
-   for ( u64 pid = 0; pid < FLAGS_dram_pages; pid++ ) {
-      dram_free_bfs.push(new(dram + (pid * buffer_frame_size)) BufferFrame(pid));
+   for ( u64 bf_i = 0; bf_i < FLAGS_dram_pages; bf_i++ ) {
+      assert((bf_i * buffer_frame_size) <= dram_total_size);
+      dram_free_bfs.push(new(dram + (bf_i * buffer_frame_size)) BufferFrame());
    }
    for ( u64 pid = 0; pid < FLAGS_ssd_pages; pid++ ) {
       cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple());
@@ -99,9 +99,9 @@ BufferManager::BufferManager()
                ssd_aio_mutex.lock();
                for ( auto i = 0; i < polled_events_nr; i++ ) {
                   BufferFrame *bf = std::get<1>(ssd_aio_ht[events[i].obj->key]);
-                  auto write_buffer_slot = std::get<0> (ssd_aio_ht[events[i].obj->key]);
+                  auto write_buffer_slot = std::get<0>(ssd_aio_ht[events[i].obj->key]);
                   auto page_buffer = write_buffer.get() + (FLAGS_page_size * write_buffer_slot);
-                  while(true) {
+                  while ( true ) {
                      try {
                         SharedLock lock(bf->header.lock);
                         ExclusiveLock x_lock(lock);
@@ -110,7 +110,7 @@ BufferManager::BufferManager()
                         memset(page_buffer, 0, FLAGS_page_size);
                         write_buffer_free_slots.push_front(write_buffer_slot);
                         break;
-                     } catch(RestartException e) {
+                     } catch ( RestartException e ) {
 
                      }
                   }
@@ -136,43 +136,32 @@ BufferFrame *BufferManager::getLoadedBF(PID pid)
    return reinterpret_cast<BufferFrame *>(dram + (pid * buffer_frame_size));
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::checkCoolingThreshold()
-{
-
-}
-// -------------------------------------------------------------------------------------
-PID BufferManager::accquirePage()
-{
-   std::lock_guard lock(reservoir_mutex);
-   auto free_bf = ssd_free_pages.front();
-   ssd_free_pages.pop();
-   return free_bf;
-}
-// -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::accquireBufferFrame()
 {
    std::lock_guard lock(reservoir_mutex);
+   assert(ssd_free_pages.size());
+   assert(dram_free_bfs.size());
+   auto free_pid = ssd_free_pages.front();
+   ssd_free_pages.pop();
    auto free_bf = dram_free_bfs.front();
    dram_free_bfs.pop();
+   // -------------------------------------------------------------------------------------
    dram_used_bfs.push(free_bf);
+   free_bf->header.pid = free_pid;
    return *free_bf;
 }
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::accquireBufferFrame(SharedLock &swip_lock, Swip &swip)
 {
    assert(!swip.isSwizzled());
-   while(true) {
+   while ( true ) {
       try {
-         std::lock_guard lock(reservoir_mutex);
          ExclusiveLock x_lock(swip_lock);
-         auto free_bf = dram_free_bfs.front();
-         dram_free_bfs.pop();
-         dram_used_bfs.push(free_bf);
-         free_bf->header.pid = swip.asInteger();
-         swip.swizzle(free_bf);
-         return *free_bf;
-      } catch(RestartException e) {
-
+         std::lock_guard lock(reservoir_mutex);
+         BufferFrame &free_bf = accquireBufferFrame();
+         free_bf.header.swip_in_parent = &swip;
+         return free_bf;
+      } catch ( RestartException e ) {
       }
    }
 }
@@ -193,6 +182,7 @@ BufferFrame &BufferManager::fixPage(SharedLock &swip_lock, Swip &swip)
       cio_frame.mutex.lock();
       global_mutex.unlock();
       BufferFrame &bf = accquireBufferFrame();
+      bf.header.swip_in_parent = &swip;
       readPageSync(swip.asInteger(), bf.page);
       // move to cooling stage
       global_mutex.lock();
@@ -282,8 +272,9 @@ void BMC::start()
    global_bf = make_unique<BufferManager>();
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::stopBackgroundThreads() {
-   for(const auto &handle: threads_handle){
+void BufferManager::stopBackgroundThreads()
+{
+   for ( const auto &handle: threads_handle ) {
       pthread_cancel(handle);
    }
 }
