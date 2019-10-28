@@ -15,8 +15,7 @@ enum class NodeType : u8 {
 struct NodeBase {
    NodeType type;
    uint16_t count;
-   atomic<u64> version;
-   NodeBase() : version(8) {}
+   NodeBase()  {}
 };
 
 struct BTreeLeafBase : public NodeBase {
@@ -102,7 +101,7 @@ struct BTreeInner : public BTreeInnerBase {
    static const u64 pageSizeInner = 4 * 1024;
    static const u64 maxEntries = ((pageSizeInner - sizeof(NodeBase)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
 
-   NodeBase *children[maxEntries];
+   Swip children[maxEntries];
    Key keys[maxEntries];
 
    BTreeInner()
@@ -134,14 +133,14 @@ struct BTreeInner : public BTreeInnerBase {
       return lower;
    }
 
-   BTreeInner *split(Key &sep)
+   BTreeInner *split(Key &sep) // BTreeInner *
    {
       BTreeInner *newInner = new BTreeInner();
       newInner->count = count - (count / 2);
       count = count - newInner->count - 1;
       sep = keys[count];
       memcpy(newInner->keys, keys + count + 1, sizeof(Key) * (newInner->count + 1));
-      memcpy(newInner->children, children + count + 1, sizeof(NodeBase *) * (newInner->count + 1));
+      memcpy(newInner->children, children + count + 1, sizeof(Swip) * (newInner->count + 1));
       return newInner;
    }
 
@@ -149,7 +148,7 @@ struct BTreeInner : public BTreeInnerBase {
    {
       unsigned pos = lowerBound(k);
       memmove(keys + pos + 1, keys + pos, sizeof(Key) * (count - pos + 1));
-      memmove(children + pos + 1, children + pos, sizeof(NodeBase *) * (count - pos + 1));
+      memmove(children + pos + 1, children + pos, sizeof(Swip) * (count - pos + 1));
       keys[pos] = k;
       children[pos] = child;
       std::swap(children[pos], children[pos + 1]);
@@ -159,46 +158,43 @@ struct BTreeInner : public BTreeInnerBase {
 
 template<class Key, class Value>
 struct BTree {
-   atomic<NodeBase *> root;
-   OptimisticLock root_version = 0;
+   Swip root_swip;
+   OptimisticLock root_lock = 0;
    atomic<u64> restarts_counter = 0; // for debugging
 
    BufferManager &buffer_manager;
    // -------------------------------------------------------------------------------------
-   BTree(BufferFrame::Page *root_page, bool init = false)
-   : buffer_manager(*BMC::global_bf)
+   BTree(PID root_pid)
+   : root_swip(root_pid), buffer_manager(*BMC::global_bf)
    {
-      if(init) {
-         root = new(root_page) BTreeLeaf<Key, Value>();
-      } else {
-         root = reinterpret_cast<BTreeLeaf<Key, Value>*>(root_page);
-      }
    }
    // -------------------------------------------------------------------------------------
-   void makeRoot(Key k, NodeBase *leftChild, NodeBase *rightChild)
+   void init() {
+      SharedLock lock(root_lock);
+      auto &root_bf = buffer_manager.fixPage(lock, root_swip);
+      new(root_bf.page.dt) BTreeLeaf<Key, Value>();
+   }
+   // -------------------------------------------------------------------------------------
+   void makeRoot(Key k, NodeBase *leftChild, NodeBase *rightChild, SharedLock &lock)
    {
-      auto inner = new BTreeInner<Key>();
+      root_swip = buffer_manager.accquirePage();
+      auto &root_bf = buffer_manager.accquireBufferFrame(lock, root_swip);
+      auto inner = new(root_bf.page.dt) BTreeInner<Key>();
       inner->count = 1;
       inner->keys[0] = k;
       inner->children[0] = leftChild;
       inner->children[1] = rightChild;
-      root = inner;
    }
-   struct TestObject{
-      TestObject() {
-         throw RestartException();
-      }
-   };
    // -------------------------------------------------------------------------------------
    void insert(Key k, Value v)
    {
       while (true) {
          try {
-            //TestObject o1;
-            SharedLock r_lock(root_version);
-            NodeBase *c_node = root;
+            SharedLock r_lock(root_lock);
+            BufferFrame *c_bf = &buffer_manager.fixPage(r_lock, root_swip);
+            auto c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
             BTreeInner<Key> *p_node = nullptr;
-            SharedLock c_lock(c_node->version);
+            SharedLock c_lock(c_bf->header.lock);
             SharedLock p_lock;
 
             while ( c_node->type == NodeType::BTreeInner ) {
@@ -210,10 +206,10 @@ struct BTree {
                   ExclusiveLock c_x_lock(c_lock);
                   Key sep;
                   BTreeInner<Key> *newInner = inner->split(sep);
-                  if ( p_node  != nullptr)
+                  if ( p_node )
                      p_node->insert(sep, newInner);
                   else
-                     makeRoot(sep, inner, newInner);
+                     makeRoot(sep, inner, newInner, r_lock);
 
                   throw RestartException(); //restart
                }
@@ -221,11 +217,14 @@ struct BTree {
                p_lock.recheck(); // ^release^ parent before searching in the current node
                unsigned pos = inner->lowerBound(k);
                p_node = inner;
-               c_node = inner->children[pos];
-               c_lock.recheck();
+               Swip &c_swip = inner->children[pos];
                // -------------------------------------------------------------------------------------
+               c_bf = &buffer_manager.fixPage(c_lock,c_swip);
+               c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
+               // -------------------------------------------------------------------------------------
+               c_lock.recheck();
                p_lock = c_lock;
-               c_lock = SharedLock(c_node->version);
+               c_lock = SharedLock(c_bf->header.lock);
                assert(c_node);
             }
 
@@ -236,17 +235,13 @@ struct BTree {
                // Leaf is full, split it
                Key sep;
                BTreeLeaf<Key, Value> *newLeaf = leaf->split(sep);
-               if ( p_node  != nullptr)
+               if ( p_node )
                   p_node->insert(sep, newLeaf);
                else
-                  makeRoot(sep, leaf, newLeaf);
+                  makeRoot(sep, leaf, newLeaf, r_lock);
                if ( k >= sep )
                   leaf = newLeaf;
 
-               throw RestartException();
-            }
-            // -------------------------------------------------------------------------------------
-            if(rand() % 10 >=5){
                throw RestartException();
             }
             // -------------------------------------------------------------------------------------
@@ -257,14 +252,15 @@ struct BTree {
          }
       }
    }
+   // -------------------------------------------------------------------------------------
    bool lookup(Key k, Value &result)
    {
       while ( true ) {
          try {
-            NodeBase *c_node = root.load();
-
-            SharedLock c_lock(c_node->version);
+            SharedLock c_lock(root_lock);
+            BufferFrame *c_bf = &buffer_manager.fixPage(c_lock, root_swip);
             SharedLock p_lock;
+            auto c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
 
             while ( c_node->type == NodeType::BTreeInner ) {
                BTreeInner<Key> *inner = static_cast<BTreeInner<Key> *>(c_node);
@@ -274,10 +270,14 @@ struct BTree {
                }
 
                int64_t pos = inner->lowerBound(k);
-               c_node = inner->children[pos];
+               Swip &c_swip = inner->children[pos];
+               // -------------------------------------------------------------------------------------
+               c_bf = &buffer_manager.fixPage(c_lock,c_swip);
+               c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
+               // -------------------------------------------------------------------------------------
                c_lock.recheck();
                p_lock = c_lock;
-               c_lock = SharedLock(c_node->version);
+               c_lock = SharedLock(c_bf->header.lock);
             }
 
             if ( p_lock ) {

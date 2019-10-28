@@ -16,9 +16,14 @@ struct Swip {
    static_assert(swizzle_bit == 0x8000000000000000, "");
    static_assert(unswizzle_mask == 0x7FFFFFFFFFFFFFFF, "");
 public:
-   std::atomic<PID> pid;
+   PID pid;
    // -------------------------------------------------------------------------------------
    Swip(u64 pid );
+   template <typename T>
+   Swip(T* ptr ) {
+      pid = u64(ptr) | swizzle_bit;
+   }
+   Swip() : pid(0) {}
    // -------------------------------------------------------------------------------------
    bool isSwizzled();
    u64 asInteger();

@@ -8,7 +8,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(dram_pages, 1024, "");
+DEFINE_uint32(dram_pages, 1024 , "");
 DEFINE_uint32(ssd_pages, 2048, "");
 DEFINE_uint32(page_size, 16 * 1024, "");
 DEFINE_string(ssd_path, "leanstore", "");
@@ -36,8 +36,8 @@ BufferManager::BufferManager()
       flags |= O_TRUNC;
    }
    ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
-   ftruncate(ssd_fd, ssd_total_size);
    check(ssd_fd > -1);
+   check(ftruncate(ssd_fd, ssd_total_size) == 0);
    if ( fcntl(ssd_fd, F_GETFL) == -1 ) {
       throw Generic_Exception("Can not initialize SSD storage: " + FLAGS_ssd_path);
    }
@@ -141,7 +141,7 @@ void BufferManager::checkCoolingThreshold()
 
 }
 // -------------------------------------------------------------------------------------
-u64 BufferManager::accquirePage()
+PID BufferManager::accquirePage()
 {
    std::lock_guard lock(reservoir_mutex);
    auto free_bf = ssd_free_pages.front();
@@ -158,7 +158,26 @@ BufferFrame &BufferManager::accquireBufferFrame()
    return *free_bf;
 }
 // -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::fixPage(BufferFrame &swip_holder, Swip &swip)
+BufferFrame &BufferManager::accquireBufferFrame(SharedLock &swip_lock, Swip &swip)
+{
+   assert(!swip.isSwizzled());
+   while(true) {
+      try {
+         std::lock_guard lock(reservoir_mutex);
+         ExclusiveLock x_lock(swip_lock);
+         auto free_bf = dram_free_bfs.front();
+         dram_free_bfs.pop();
+         dram_used_bfs.push(free_bf);
+         free_bf->header.pid = swip.asInteger();
+         swip.swizzle(free_bf);
+         return *free_bf;
+      } catch(RestartException e) {
+
+      }
+   }
+}
+// -------------------------------------------------------------------------------------
+BufferFrame &BufferManager::fixPage(SharedLock &swip_lock, Swip &swip)
 {
    if ( swip.isSwizzled()) {
       return swip.getBufferFrame();
@@ -170,10 +189,17 @@ BufferFrame &BufferManager::fixPage(BufferFrame &swip_holder, Swip &swip)
    CIOFrame &cio_frame = cooling_io_ht.find(swip.asInteger())->second;
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
       cio_frame.readers_counter++;
+      cio_frame.state = CIOFrame::State::READING;
       cio_frame.mutex.lock();
       global_mutex.unlock();
       BufferFrame &bf = accquireBufferFrame();
       readPageSync(swip.asInteger(), bf.page);
+      // move to cooling stage
+      global_mutex.lock();
+      cio_frame.state = CIOFrame::State::COOLING;
+      cooling_fifo_queue.push_back(&bf);
+      cio_frame.fifo_itr = --cooling_fifo_queue.end();
+      global_mutex.unlock();
       cio_frame.mutex.unlock();
       throw RestartException();
       // TODO: do we really need to clean up ?
@@ -188,8 +214,7 @@ BufferFrame &BufferManager::fixPage(BufferFrame &swip_holder, Swip &swip)
    if ( cio_frame.state == CIOFrame::State::COOLING ) {
       while ( true ) {
          try {
-            SharedLock lock(swip_holder.header.lock);
-            ExclusiveLock x_lock(lock);
+            ExclusiveLock x_lock(swip_lock);
             BufferFrame *bf = *cio_frame.fifo_itr;
             cooling_fifo_queue.erase(cio_frame.fifo_itr);
             swip.swizzle(bf);
@@ -206,6 +231,7 @@ BufferFrame &BufferManager::fixPage(BufferFrame &swip_holder, Swip &swip)
 // -------------------------------------------------------------------------------------
 void BufferManager::readPageSync(u64 pid, u8 *destination)
 {
+   assert(u64(destination) % 512 == 0);
    s64 read_bytes = pread(ssd_fd, destination, FLAGS_page_size, pid * FLAGS_page_size);
    check(read_bytes == FLAGS_page_size);
 }
@@ -256,11 +282,15 @@ void BMC::start()
    global_bf = make_unique<BufferManager>();
 }
 // -------------------------------------------------------------------------------------
-BufferManager::~BufferManager()
-{
+void BufferManager::stopBackgroundThreads() {
    for(const auto &handle: threads_handle){
       pthread_cancel(handle);
    }
+}
+// -------------------------------------------------------------------------------------
+BufferManager::~BufferManager()
+{
+   stopBackgroundThreads();
    u32 dram_page_size = FLAGS_page_size + sizeof(BufferFrame);
    const u32 dram_total_size = dram_page_size * FLAGS_dram_pages;
    munmap(dram, dram_total_size);

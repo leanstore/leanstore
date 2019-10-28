@@ -35,7 +35,7 @@ class BufferManager {
       bool loaded = false;
       BufferFrame *bf = nullptr;
       std::list<BufferFrame*>::iterator fifo_itr;
-      State state;
+      State state = State::NOT_LOADED;
       // -------------------------------------------------------------------------------------
       // Everything in CIOFrame is protected by global lock except the following counter
       atomic<u64> readers_counter = 0;
@@ -74,10 +74,11 @@ public:
    // -------------------------------------------------------------------------------------
    BufferFrame *getLoadedBF(PID pid);
    void checkCoolingThreshold();
-   u64 accquirePage();
+   PID accquirePage();
    BufferFrame &accquireBufferFrame();
-   BufferFrame &fixPage(BufferFrame &swip_holder, Swip &swip);
-   void unfixPage(Swip &swizzle);
+   BufferFrame &accquireBufferFrame(SharedLock &swip_lock, Swip &swip);
+   BufferFrame &fixPage(SharedLock &swip_lock, Swip &swip);
+   void stopBackgroundThreads();
    /*
     * Life cycle of a fix:
     * 1- Check if the pid is swizzled, if yes then store the BufferFrame address temporarily

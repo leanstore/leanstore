@@ -19,7 +19,7 @@ using SwizzlingCallback = std::vector<Swip*> (*)(u8 *payload, SwizzlingCallbackC
 std::vector<Swip*> dummyCallback(u8* payload, SwizzlingCallbackCommand command);
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
-   struct BFHeader {
+   struct Header {
       // TODO: for logging
       atomic<u64> lastWrittenLSN = 0; // TODO: move to the inside of the page
       bool isWB;
@@ -31,7 +31,7 @@ struct BufferFrame {
       // -------------------------------------------------------------------------------------
       OptimisticLock lock = 0;
    };
-   struct Page {
+   struct alignas(512) Page {
       atomic<u64> LSN = 0;
       u8 dt[]; // Datastruture
       operator u8*() {
@@ -39,15 +39,14 @@ struct BufferFrame {
       }
    };
    // -------------------------------------------------------------------------------------
-   struct BFHeader header;
-   u8 padding[512 - sizeof(struct BFHeader) - sizeof(Page)];
+   struct Header header;
    // -------------------------------------------------------------------------------------
    struct Page page; // The persisted part
    // -------------------------------------------------------------------------------------
    BufferFrame(PID pid);
 };
 // -------------------------------------------------------------------------------------
-static_assert(sizeof(BufferFrame) == 512, "");
+static_assert((sizeof(BufferFrame) - sizeof(BufferFrame::Page)) == 512, "");
 // -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------

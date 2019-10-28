@@ -12,7 +12,7 @@ bool Swip::isSwizzled()
 u64 Swip::asInteger() { return pid; }
 // -------------------------------------------------------------------------------------
 void Swip::swizzle(BufferFrame *bf) {
-   pid.store(u64(bf) | swizzle_bit);
+   pid = u64(bf) | swizzle_bit;
 }
 // -------------------------------------------------------------------------------------
 BufferFrame& Swip::getBufferFrame() {
