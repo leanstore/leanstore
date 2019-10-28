@@ -1,25 +1,26 @@
 #pragma once
 #include "leanstore/sync-primitives/OptimisticLock.hpp"
+#include "leanstore/storage/buffer-manager/BufferFrame.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 using namespace std;
 namespace leanstore {
 namespace btree {
-enum class PageType : u8 {
+enum class NodeType : u8 {
    BTreeInner = 1,
    BTreeLeaf = 2
 };
 
 struct NodeBase {
-   PageType type;
+   NodeType type;
    uint16_t count;
    atomic<u64> version;
    NodeBase() : version(8) {}
 };
 
 struct BTreeLeafBase : public NodeBase {
-static const PageType typeMarker = PageType::BTreeLeaf;
+static const NodeType typeMarker = NodeType::BTreeLeaf;
 };
 
 using Node = NodeBase;
@@ -93,7 +94,7 @@ struct BTreeLeaf : public BTreeLeafBase {
 };
 
 struct BTreeInnerBase : public NodeBase {
-   static const PageType typeMarker = PageType::BTreeInner;
+   static const NodeType typeMarker = NodeType::BTreeInner;
 };
 
 template<class Key>
@@ -159,13 +160,19 @@ struct BTreeInner : public BTreeInnerBase {
 template<class Key, class Value>
 struct BTree {
    atomic<NodeBase *> root;
-   lock_t root_version;
-   atomic<u64> restarts_counter = 0;
+   OptimisticLock root_version = 0;
+   atomic<u64> restarts_counter = 0; // for debugging
 
-   BTree()
+   BufferManager &buffer_manager;
+   // -------------------------------------------------------------------------------------
+   BTree(BufferFrame::Page *root_page, bool init = false)
+   : buffer_manager(*BMC::global_bf)
    {
-      root = new BTreeLeaf<Key, Value>();
-      root_version = 0;
+      if(init) {
+         root = new(root_page) BTreeLeaf<Key, Value>();
+      } else {
+         root = reinterpret_cast<BTreeLeaf<Key, Value>*>(root_page);
+      }
    }
    // -------------------------------------------------------------------------------------
    void makeRoot(Key k, NodeBase *leftChild, NodeBase *rightChild)
@@ -194,7 +201,7 @@ struct BTree {
             SharedLock c_lock(c_node->version);
             SharedLock p_lock;
 
-            while ( c_node->type == PageType::BTreeInner ) {
+            while ( c_node->type == NodeType::BTreeInner ) {
                auto inner = static_cast<BTreeInner<Key> *>(c_node);
                // -------------------------------------------------------------------------------------
                if ( inner->count == inner->maxEntries - 1 ) {
@@ -259,7 +266,7 @@ struct BTree {
             SharedLock c_lock(c_node->version);
             SharedLock p_lock;
 
-            while ( c_node->type == PageType::BTreeInner ) {
+            while ( c_node->type == NodeType::BTreeInner ) {
                BTreeInner<Key> *inner = static_cast<BTreeInner<Key> *>(c_node);
 
                if ( p_lock ) {

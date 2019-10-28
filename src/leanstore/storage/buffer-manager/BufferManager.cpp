@@ -212,7 +212,6 @@ void BufferManager::readPageSync(u64 pid, u8 *destination)
 // -------------------------------------------------------------------------------------
 void BufferManager::writePageAsync(BufferFrame &bf)
 {
-   return;
    write_buffer = make_unique<u8[]>(FLAGS_page_size * FLAGS_write_buffer_size);
    while ( true ) {
       try {
