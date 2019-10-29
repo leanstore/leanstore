@@ -22,12 +22,10 @@ struct BTreeLeafBase : public NodeBase {
    static const NodeType typeMarker = NodeType::BTreeLeaf;
 };
 
-static const u64 pageSize = 16 * 1024;
-
 using Node = NodeBase;
 template<class Key, class Payload>
 struct BTreeLeaf : public BTreeLeafBase {
-   static const u64 maxEntries = ((pageSize - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
+   static const u64 maxEntries = ((PAGE_SIZE - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
 
    Key keys[maxEntries];
    Payload payloads[maxEntries];
@@ -98,7 +96,7 @@ struct BTreeInnerBase : public NodeBase {
 
 template<class Key>
 struct BTreeInner : public BTreeInnerBase {
-   static const u64 maxEntries = ((pageSize - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
+   static const u64 maxEntries = ((PAGE_SIZE - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
 
    Swip children[maxEntries];
    Key keys[maxEntries];
@@ -171,13 +169,13 @@ struct BTree {
    void init()
    {
       SharedLock lock(root_lock);
-      auto &root_bf = buffer_manager.fixPage(lock, root_swip);
+      auto &root_bf = buffer_manager.resolveSwip(lock, root_swip);
       new(root_bf.page.dt) BTreeLeaf<Key, Value>();
    }
    // -------------------------------------------------------------------------------------
    void makeRoot(Key k, Swip leftChild, Swip rightChild)
    {
-      auto &new_root_bf = buffer_manager.accquireBufferFrame();
+      auto &new_root_bf = buffer_manager.accquirePageAndBufferFrame();
       root_swip.swizzle(&new_root_bf);
       auto inner = new(new_root_bf.page.dt) BTreeInner<Key>();
       inner->count = 1;
@@ -191,7 +189,7 @@ struct BTree {
       while ( true ) {
          try {
             SharedLock r_lock(root_lock);
-            BufferFrame *c_bf = &buffer_manager.fixPage(r_lock, root_swip);
+            BufferFrame *c_bf = &buffer_manager.resolveSwip(r_lock, root_swip);
             auto c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
             BTreeInner<Key> *p_node = nullptr;
             SharedLock c_lock(c_bf->header.lock);
@@ -204,7 +202,7 @@ struct BTree {
                   ExclusiveLock p_x_lock(p_lock);
                   ExclusiveLock c_x_lock(c_lock);
                   Key sep;
-                  auto &new_inner_bf = buffer_manager.accquireBufferFrame();
+                  auto &new_inner_bf = buffer_manager.accquirePageAndBufferFrame();
                   inner->split(sep, new_inner_bf);
                   if ( p_node )
                      p_node->insert(sep, &new_inner_bf);
@@ -219,7 +217,7 @@ struct BTree {
                p_node = inner;
                Swip &c_swip = inner->children[pos];
                // -------------------------------------------------------------------------------------
-               c_bf = &buffer_manager.fixPage(c_lock, c_swip);
+               c_bf = &buffer_manager.resolveSwip(c_lock, c_swip);
                c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
                // -------------------------------------------------------------------------------------
                c_lock.recheck();
@@ -234,7 +232,7 @@ struct BTree {
                ExclusiveLock p_x_lock(p_lock);  // TODO: correct ?
                // Leaf is full, split it
                Key sep;
-               auto &new_leaf_bf = buffer_manager.accquireBufferFrame();
+               auto &new_leaf_bf = buffer_manager.accquirePageAndBufferFrame();
                leaf->split(sep, new_leaf_bf);
                if ( p_node )
                   p_node->insert(sep, &new_leaf_bf);
@@ -257,7 +255,7 @@ struct BTree {
       while ( true ) {
          try {
             SharedLock c_lock(root_lock);
-            BufferFrame *c_bf = &buffer_manager.fixPage(c_lock, root_swip);
+            BufferFrame *c_bf = &buffer_manager.resolveSwip(c_lock, root_swip);
             SharedLock p_lock;
             auto c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
 
@@ -271,10 +269,9 @@ struct BTree {
                int64_t pos = inner->lowerBound(k);
                Swip &c_swip = inner->children[pos];
                // -------------------------------------------------------------------------------------
-               c_bf = &buffer_manager.fixPage(c_lock, c_swip);
+               c_bf = &buffer_manager.resolveSwip(c_lock, c_swip);
                c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
                // -------------------------------------------------------------------------------------
-               c_lock.recheck();
                p_lock = c_lock;
                c_lock = SharedLock(c_bf->header.lock);
             }

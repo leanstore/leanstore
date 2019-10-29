@@ -12,10 +12,10 @@ namespace leanstore {
 TEST(BufferManager, BTree)
 {
    BMC::start();
-   BufferManager &bufferManager = *BMC::global_bf;
+   BufferManager &buffer_manager = *BMC::global_bf;
 
    // BTree
-   auto &btree_root_bf = bufferManager.accquireBufferFrame();
+   auto &btree_root_bf = buffer_manager.accquirePageAndBufferFrame();
    btree::BTree<uint32_t, uint32_t> btree(&btree_root_bf);
    btree.init();
 

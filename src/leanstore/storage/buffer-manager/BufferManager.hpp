@@ -56,7 +56,6 @@ private:
    // DRAM Pages
    atomic<u64> dram_free_bfs_counter = 0;
    std::queue<BufferFrame*> dram_free_bfs;
-   std::queue<BufferFrame*> dram_used_bfs;
    // SSD Pages
    std::queue<u64> ssd_free_pages;
    // -------------------------------------------------------------------------------------
@@ -73,9 +72,8 @@ public:
    ~BufferManager();
    // -------------------------------------------------------------------------------------
    BufferFrame *getLoadedBF(PID pid);
-   BufferFrame &accquireBufferFrame();
-   BufferFrame &accquireBufferFrame(SharedLock &swip_lock, Swip &swip);
-   BufferFrame &fixPage(SharedLock &swip_lock, Swip &swip);
+   BufferFrame &accquirePageAndBufferFrame();
+   BufferFrame &resolveSwip(SharedLock &swip_lock, Swip &swip);
    void stopBackgroundThreads();
    /*
     * Life cycle of a fix:

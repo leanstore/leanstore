@@ -38,6 +38,7 @@ public:
       local_version = version_ptr->load();
       int mask = 1;
       int const max = 64; //MAX_BACKOFF
+      //TODO: move to separate compilation unit
       while ((local_version & 2) == 2 ) { //spin lock
          for ( int i = mask; i; --i ) {
             _mm_pause();

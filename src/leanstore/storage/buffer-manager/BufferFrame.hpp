@@ -9,24 +9,13 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
-enum class SwizzlingCallbackCommand : u8 {
-   ITERATE,
-   PARENT
-};
-// -------------------------------------------------------------------------------------
-using SwizzlingCallback = std::vector<Swip*> (*)(u8 *payload, SwizzlingCallbackCommand command);
-// -------------------------------------------------------------------------------------
-std::vector<Swip*> dummyCallback(u8* payload, SwizzlingCallbackCommand command);
+const u64 PAGE_SIZE = 16 * 1024;
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
    struct Header {
       // TODO: for logging
-      atomic<u64> lastWrittenLSN = 0; // TODO: move to the inside of the page
+      atomic<u64> lastWrittenLSN = 0;
       bool isWB = false;
-      // -------------------------------------------------------------------------------------
-      // Swizzling Maintenance
-      SwizzlingCallback callback_function = &dummyCallback;
-      // nullptr means the bufferframe is sticky, e.g. BTree root
       PID pid; //not really necessary we can calculate it usings its offset to dram pointer
       // -------------------------------------------------------------------------------------
       OptimisticLock lock = 0;

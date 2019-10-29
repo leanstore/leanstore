@@ -9,7 +9,6 @@
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(dram_pages, 50 * 1000, "");
 DEFINE_uint32(ssd_pages, 100 * 1000, "");
-DEFINE_uint32(page_size, 16 * 1024, "");
 DEFINE_string(ssd_path, "leanstore", "");
 DEFINE_bool(ssd_truncate, true, "");
 // -------------------------------------------------------------------------------------
@@ -22,14 +21,14 @@ BufferManager::BufferManager()
 {
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
-   buffer_frame_size = FLAGS_page_size + sizeof(BufferFrame);
+   buffer_frame_size = PAGE_SIZE + sizeof(BufferFrame);
    const u64 dram_total_size = u64(buffer_frame_size) * u64(FLAGS_dram_pages);
    dram = reinterpret_cast<u8 *>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
    madvise(dram, dram_total_size, MADV_HUGEPAGE);
    memset(dram, 0, dram_total_size);
    // -------------------------------------------------------------------------------------
    /// Init SSD pool
-   const u32 ssd_total_size = FLAGS_ssd_pages * FLAGS_page_size;
+   const u32 ssd_total_size = FLAGS_ssd_pages * PAGE_SIZE;
    int flags = O_RDWR | O_DIRECT | O_CREAT;
    if ( FLAGS_ssd_truncate ) {
       flags |= O_TRUNC;
@@ -41,6 +40,7 @@ BufferManager::BufferManager()
       throw Generic_Exception("Can not initialize SSD storage: " + FLAGS_ssd_path);
    }
    // Init AIO stack
+   write_buffer = make_unique<u8[]>(PAGE_SIZE * FLAGS_write_buffer_size);
    memset(&ssd_aio_context, 0, sizeof(ssd_aio_context));
    if ( io_setup(10, &ssd_aio_context) != 0 ) {
       throw Generic_Exception("io_setup failed");
@@ -100,14 +100,14 @@ BufferManager::BufferManager()
                for ( auto i = 0; i < polled_events_nr; i++ ) {
                   BufferFrame *bf = std::get<1>(ssd_aio_ht[events[i].obj->key]);
                   auto write_buffer_slot = std::get<0>(ssd_aio_ht[events[i].obj->key]);
-                  auto page_buffer = write_buffer.get() + (FLAGS_page_size * write_buffer_slot);
+                  auto page_buffer = write_buffer.get() + (PAGE_SIZE * write_buffer_slot);
                   while ( true ) {
                      try {
                         SharedLock lock(bf->header.lock);
                         ExclusiveLock x_lock(lock);
                         bf->header.isWB = false;
                         bf->header.lastWrittenLSN = reinterpret_cast<BufferFrame::Page *>(page_buffer)->LSN.load();
-                        memset(page_buffer, 0, FLAGS_page_size);
+                        memset(page_buffer, 0, PAGE_SIZE);
                         write_buffer_free_slots.push_front(write_buffer_slot);
                         break;
                      } catch ( RestartException e ) {
@@ -136,8 +136,9 @@ BufferFrame *BufferManager::getLoadedBF(PID pid)
    return reinterpret_cast<BufferFrame *>(dram + (pid * buffer_frame_size));
 }
 // -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::accquireBufferFrame()
+BufferFrame &BufferManager::accquirePageAndBufferFrame()
 {
+   //TODO: ex lock
    std::lock_guard lock(reservoir_mutex);
    assert(ssd_free_pages.size());
    assert(dram_free_bfs.size());
@@ -146,27 +147,11 @@ BufferFrame &BufferManager::accquireBufferFrame()
    auto free_bf = dram_free_bfs.front();
    dram_free_bfs.pop();
    // -------------------------------------------------------------------------------------
-   dram_used_bfs.push(free_bf);
    free_bf->header.pid = free_pid;
    return *free_bf;
 }
 // -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::accquireBufferFrame(SharedLock &swip_lock, Swip &swip)
-{
-   assert(!swip.isSwizzled());
-   while ( true ) {
-      try {
-         ExclusiveLock x_lock(swip_lock);
-         std::lock_guard lock(reservoir_mutex);
-         BufferFrame &free_bf = accquireBufferFrame();
-         free_bf.header.swip_in_parent = &swip;
-         return free_bf;
-      } catch ( RestartException e ) {
-      }
-   }
-}
-// -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::fixPage(SharedLock &swip_lock, Swip &swip) // throws RestartException
+BufferFrame &BufferManager::resolveSwip(SharedLock &swip_lock, Swip &swip) // throws RestartException
 {
    if ( swip.isSwizzled()) {
       auto &bf =swip.getBufferFrame();
@@ -184,10 +169,16 @@ BufferFrame &BufferManager::fixPage(SharedLock &swip_lock, Swip &swip) // throws
       cio_frame.readers_counter++;
       cio_frame.state = CIOFrame::State::READING;
       cio_frame.mutex.lock();
+      // -------------------------------------------------------------------------------------
+      reservoir_mutex.lock(); //TODO: deadlock ?
       global_mutex.unlock();
-      BufferFrame &bf = accquireBufferFrame();
-      bf.header.swip_in_parent = &swip;
+      assert(dram_free_bfs.size());
+      BufferFrame &bf = *dram_free_bfs.front();
+      dram_free_bfs.pop();
+      reservoir_mutex.unlock();
+      // -------------------------------------------------------------------------------------
       readPageSync(swip.asInteger(), bf.page);
+      // -------------------------------------------------------------------------------------
       // move to cooling stage
       global_mutex.lock();
       cio_frame.state = CIOFrame::State::COOLING;
@@ -226,13 +217,12 @@ BufferFrame &BufferManager::fixPage(SharedLock &swip_lock, Swip &swip) // throws
 void BufferManager::readPageSync(u64 pid, u8 *destination)
 {
    assert(u64(destination) % 512 == 0);
-   s64 read_bytes = pread(ssd_fd, destination, FLAGS_page_size, pid * FLAGS_page_size);
-   check(read_bytes == FLAGS_page_size);
+   s64 read_bytes = pread(ssd_fd, destination, PAGE_SIZE, pid * PAGE_SIZE);
+   check(read_bytes == PAGE_SIZE);
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::writePageAsync(BufferFrame &bf)
 {
-   write_buffer = make_unique<u8[]>(FLAGS_page_size * FLAGS_write_buffer_size);
    while ( true ) {
       try {
          ssd_aio_mutex.lock();
@@ -246,12 +236,12 @@ void BufferManager::writePageAsync(BufferFrame &bf)
          auto buffer_slot = write_buffer_free_slots.front();
          write_buffer_free_slots.pop_front();
          ssd_aio_mutex.unlock();
-         auto write_buffer_copy = write_buffer.get() + (FLAGS_page_size * buffer_slot);
-         std::memcpy(write_buffer_copy, src, FLAGS_page_size);
+         auto write_buffer_copy = write_buffer.get() + (PAGE_SIZE * buffer_slot);
+         std::memcpy(write_buffer_copy, src, PAGE_SIZE);
          {
             struct iocb iocb;
             struct iocb *iocbs[1];
-            io_prep_pwrite(&iocb, ssd_fd, (void *) write_buffer_copy, FLAGS_page_size, bf.header.pid * FLAGS_page_size);
+            io_prep_pwrite(&iocb, ssd_fd, (void *) write_buffer_copy, PAGE_SIZE, bf.header.pid * PAGE_SIZE);
             iocb.data = (void *) write_buffer_copy;
             iocbs[0] = &iocb;
             if ( io_submit(ssd_aio_context, 1, iocbs) != 1 ) {
@@ -288,7 +278,7 @@ void BufferManager::stopBackgroundThreads()
 BufferManager::~BufferManager()
 {
    stopBackgroundThreads();
-   u32 dram_page_size = FLAGS_page_size + sizeof(BufferFrame);
+   u32 dram_page_size = PAGE_SIZE + sizeof(BufferFrame);
    const u32 dram_total_size = dram_page_size * FLAGS_dram_pages;
    munmap(dram, dram_total_size);
    close(ssd_fd);
