@@ -195,14 +195,13 @@ struct BTree {
             auto c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
             BTreeInner<Key> *p_node = nullptr;
             SharedLock c_lock(c_bf->header.lock);
-            SharedLock p_lock;
-
+            SharedLock p_lock = r_lock;
             while ( c_node->type == NodeType::BTreeInner ) {
                auto inner = static_cast<BTreeInner<Key> *>(c_node);
                // -------------------------------------------------------------------------------------
                if ( inner->count == inner->maxEntries - 1 ) {
                   // Split inner eagerly
-                  ExclusiveLock p_x_lock((p_node) ? p_lock : r_lock);
+                  ExclusiveLock p_x_lock(p_lock);
                   ExclusiveLock c_x_lock(c_lock);
                   Key sep;
                   auto &new_inner_bf = buffer_manager.accquireBufferFrame();
@@ -230,7 +229,7 @@ struct BTree {
             }
 
             BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(c_node);
-            ExclusiveLock p_x_lock((p_node) ? p_lock : r_lock);  // TODO: move it to the inside of if
+            ExclusiveLock p_x_lock(p_lock);  // TODO: move it to the inside of if
             ExclusiveLock c_x_lock(c_lock);
             if ( leaf->count == leaf->maxEntries ) {
                // Leaf is full, split it

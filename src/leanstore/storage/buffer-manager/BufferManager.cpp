@@ -166,14 +166,18 @@ BufferFrame &BufferManager::accquireBufferFrame(SharedLock &swip_lock, Swip &swi
    }
 }
 // -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::fixPage(SharedLock &swip_lock, Swip &swip)
+BufferFrame &BufferManager::fixPage(SharedLock &swip_lock, Swip &swip) // throws RestartException
 {
    if ( swip.isSwizzled()) {
-      return swip.getBufferFrame();
+      auto &bf =swip.getBufferFrame();
+      swip_lock.recheck();
+      return bf;
    }
    global_mutex.lock();
    if ( swip.isSwizzled()) { // maybe another thread has already fixed it
-      return swip.getBufferFrame();
+      auto &bf =swip.getBufferFrame();
+      swip_lock.recheck();
+      return bf;
    }
    CIOFrame &cio_frame = cooling_io_ht.find(swip.asInteger())->second;
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
@@ -277,6 +281,7 @@ void BufferManager::stopBackgroundThreads()
    for ( const auto &handle: threads_handle ) {
       pthread_cancel(handle);
    }
+   threads_handle.clear();
 }
 // -------------------------------------------------------------------------------------
 BufferManager::~BufferManager()
