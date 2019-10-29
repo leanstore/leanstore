@@ -258,6 +258,7 @@ void BufferManager::writePageAsync(BufferFrame &bf)
                throw Generic_Exception("io_submit failed");
             }
             ssd_aio_ht.insert({iocb.key, {buffer_slot, &bf}});
+            return;
          }
       } catch ( RestartException e ) {
 

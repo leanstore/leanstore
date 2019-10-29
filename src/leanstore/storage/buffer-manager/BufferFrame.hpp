@@ -26,7 +26,6 @@ struct BufferFrame {
       // -------------------------------------------------------------------------------------
       // Swizzling Maintenance
       SwizzlingCallback callback_function = &dummyCallback;
-      Swip *swip_in_parent = nullptr; // the PageID in parent nodes that references to this BF
       // nullptr means the bufferframe is sticky, e.g. BTree root
       PID pid; //not really necessary we can calculate it usings its offset to dram pointer
       // -------------------------------------------------------------------------------------
@@ -34,6 +33,7 @@ struct BufferFrame {
    };
    struct alignas(512) Page {
       atomic<u64> LSN = 0;
+      u32 dt_id; //datastructure id TODO
       u8 dt[]; // Datastruture
       operator u8*() {
          return reinterpret_cast<u8*>(this);

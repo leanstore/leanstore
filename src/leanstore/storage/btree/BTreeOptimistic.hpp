@@ -229,9 +229,9 @@ struct BTree {
             }
 
             BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(c_node);
-            ExclusiveLock p_x_lock(p_lock);  // TODO: move it to the inside of if
             ExclusiveLock c_x_lock(c_lock);
             if ( leaf->count == leaf->maxEntries ) {
+               ExclusiveLock p_x_lock(p_lock);  // TODO: correct ?
                // Leaf is full, split it
                Key sep;
                auto &new_leaf_bf = buffer_manager.accquireBufferFrame();

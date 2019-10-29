@@ -4,13 +4,15 @@
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <unistd.h>
+#include <emmintrin.h>
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
 struct RestartException {
 public:
    RestartException() {}
-   RestartException(int code) {
+   RestartException(int code)
+   {
       cout << code << endl;
    }
 };
@@ -34,8 +36,13 @@ public:
            : version_ptr(&lock)
    {
       local_version = version_ptr->load();
+      int mask = 1;
+      int const max = 64; //MAX_BACKOFF
       while ((local_version & 2) == 2 ) { //spin lock
-         usleep(5);
+         for ( int i = mask; i; --i ) {
+            _mm_pause();
+         }
+         mask = mask < max ? mask << 1 : max;
          local_version = version_ptr->load();
       }
       locked = true;
@@ -49,7 +56,8 @@ public:
    }
    // -------------------------------------------------------------------------------------
    SharedLock &operator=(const SharedLock &other) = default;
-   operator bool() const
+   operator bool()
+   const
    {
       return locked;
    }
@@ -75,7 +83,7 @@ public:
    ~ExclusiveLock()
    {
       assert(ref_lock.version_ptr != nullptr);
-      if(ref_lock.version_ptr != nullptr) {
+      if ( ref_lock.version_ptr != nullptr ) {
          ref_lock.local_version = 2 + ref_lock.version_ptr->fetch_add(2);
       }
    }

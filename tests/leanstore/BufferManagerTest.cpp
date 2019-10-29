@@ -13,7 +13,6 @@ TEST(BufferManager, BTree)
 {
    BMC::start();
    BufferManager &bufferManager = *BMC::global_bf;
-   bufferManager.stopBackgroundThreads();
 
    // BTree
    auto &btree_root_bf = bufferManager.accquireBufferFrame();
@@ -50,6 +49,7 @@ TEST(BufferManager, BTree)
             }
          });
       }
+      return;
       // lookup
       {
          PerfEventBlock b(e, n);
