@@ -33,7 +33,7 @@ public:
            : version_ptr(&lock)
    {
       local_version = version_ptr->load();
-      while ((local_version & 2) == 2 ) { //spin lock
+      while ((local_version & 2) == 2 ) { //spin bf_s_lock
          usleep(5);
          local_version = version_ptr->load();
       }

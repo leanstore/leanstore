@@ -18,7 +18,7 @@ struct BufferFrame {
       bool isWB = false;
       PID pid; //not really necessary we can calculate it usings its offset to dram pointer
       // -------------------------------------------------------------------------------------
-      OptimisticLock lock = 0;
+      OptimisticVersion lock = 0;
    };
    struct alignas(512) Page {
       atomic<u64> LSN = 0;

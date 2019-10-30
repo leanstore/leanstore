@@ -1,6 +1,7 @@
 #pragma once
 #include "leanstore/sync-primitives/OptimisticLock.hpp"
 #include "leanstore/storage/buffer-manager/BufferFrame.hpp"
+#include "leanstore/storage/buffer-manager/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -155,7 +156,7 @@ struct BTreeInner : public BTreeInnerBase {
 template<class Key, class Value>
 struct BTree {
    Swip root_swip;
-   OptimisticLock root_lock = 0;
+   OptimisticVersion root_lock = 0;
    atomic<u64> restarts_counter = 0; // for debugging
 
    BufferManager &buffer_manager;
@@ -175,7 +176,7 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    void makeRoot(Key k, Swip leftChild, Swip rightChild)
    {
-      auto &new_root_bf = buffer_manager.accquirePageAndBufferFrame();
+      auto &new_root_bf = buffer_manager.allocatePage();
       root_swip.swizzle(&new_root_bf);
       auto inner = new(new_root_bf.page.dt) BTreeInner<Key>();
       inner->count = 1;
@@ -202,7 +203,7 @@ struct BTree {
                   ExclusiveLock p_x_lock(p_lock);
                   ExclusiveLock c_x_lock(c_lock);
                   Key sep;
-                  auto &new_inner_bf = buffer_manager.accquirePageAndBufferFrame();
+                  auto &new_inner_bf = buffer_manager.allocatePage();
                   inner->split(sep, new_inner_bf);
                   if ( p_node )
                      p_node->insert(sep, &new_inner_bf);
@@ -232,7 +233,7 @@ struct BTree {
                ExclusiveLock p_x_lock(p_lock);  // TODO: correct ?
                // Leaf is full, split it
                Key sep;
-               auto &new_leaf_bf = buffer_manager.accquirePageAndBufferFrame();
+               auto &new_leaf_bf = buffer_manager.allocatePage();
                leaf->split(sep, new_leaf_bf);
                if ( p_node )
                   p_node->insert(sep, &new_leaf_bf);
@@ -254,37 +255,21 @@ struct BTree {
    {
       while ( true ) {
          try {
-            SharedLock c_lock(root_lock);
-            BufferFrame *c_bf = &buffer_manager.resolveSwip(c_lock, root_swip);
-            SharedLock p_lock;
-            auto c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
+            PageGuard<BTreeInner<Key>> c_guard(root_lock, root_swip);
+            PageGuard<BTreeInner<Key>> p_guard;
 
-            while ( c_node->type == NodeType::BTreeInner ) {
-               BTreeInner<Key> *inner = static_cast<BTreeInner<Key> *>(c_node);
-
-               if ( p_lock ) {
-                  p_lock.recheck();
-               }
-
-               int64_t pos = inner->lowerBound(k);
-               Swip &c_swip = inner->children[pos];
+            while ( c_guard->type == NodeType::BTreeInner ) {
+               int64_t pos = c_guard->lowerBound(k);
+               Swip &c_swip = c_guard->children[pos];
                // -------------------------------------------------------------------------------------
-               c_bf = &buffer_manager.resolveSwip(c_lock, c_swip);
-               c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
-               // -------------------------------------------------------------------------------------
-               p_lock = c_lock;
-               c_lock = SharedLock(c_bf->header.lock);
+               p_guard = std::move(c_guard);
+               c_guard = PageGuard<BTreeInner<Key>>(p_guard, c_swip);
             }
 
-            if ( p_lock ) {
-               p_lock.recheck();
-            }
-
-            BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(c_node);
+            PageGuard<BTreeLeaf<Key, Value>> leaf(std::move(c_guard));
             int64_t pos = leaf->lowerBound(k);
             if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
                result = leaf->payloads[pos];
-               c_lock.recheck();
                return true;
             }
             return false;

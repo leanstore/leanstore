@@ -93,7 +93,7 @@ uint64_t awaitNodeUnlocked(Node &n)
 {
     uint64_t v = n.version.load();
 
-    while ((v & 2) == 2) { //spin lock
+    while ((v & 2) == 2) { //spin bf_s_lock
         //usleep(5);
         v = n.version.load();
     }

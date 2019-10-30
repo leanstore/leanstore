@@ -6,9 +6,6 @@
 // -------------------------------------------------------------------------------------
 int main(int argc, char *argv[])
 {
-   gflags::SetUsageMessage("Leanstore Frontend");
-   gflags::ParseCommandLineFlags(&argc, &argv, true);
-   // -------------------------------------------------------------------------------------
    testing::InitGoogleTest(&argc, argv);
    // -------------------------------------------------------------------------------------
    gflags::ParseCommandLineFlags(&argc, &argv, true);

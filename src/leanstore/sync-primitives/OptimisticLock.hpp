@@ -19,11 +19,15 @@ public:
 // -------------------------------------------------------------------------------------
 class SharedLock;
 class ExclusiveLock;
+template<typename T>
+class PageGuard;
 using lock_version_t = u64;
-using OptimisticLock = atomic<lock_version_t>;
+using OptimisticVersion = atomic<lock_version_t>;
 // -------------------------------------------------------------------------------------
 class SharedLock {
    friend class ExclusiveLock;
+   template<typename T>
+   friend class PageGuard;
 private:
    atomic<u64> *version_ptr = nullptr;
    u64 local_version;
@@ -32,14 +36,14 @@ public:
    // -------------------------------------------------------------------------------------
    SharedLock() = default;
    // -------------------------------------------------------------------------------------
-   SharedLock(OptimisticLock &lock)
+   SharedLock(OptimisticVersion &lock)
            : version_ptr(&lock)
    {
       local_version = version_ptr->load();
       int mask = 1;
       int const max = 64; //MAX_BACKOFF
       //TODO: move to separate compilation unit
-      while ((local_version & 2) == 2 ) { //spin lock
+      while ((local_version & 2) == 2 ) { //spin bf_s_lock
          for ( int i = mask; i; --i ) {
             _mm_pause();
          }

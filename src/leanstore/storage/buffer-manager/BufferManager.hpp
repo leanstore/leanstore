@@ -17,9 +17,9 @@ namespace leanstore {
 // -------------------------------------------------------------------------------------
 /*
  * Swizzle a page:
- * 1- lock global lock
+ * 1- bf_s_lock global bf_s_lock
  * 2- if it is in cooling stage:
- *    a- yes: lock write (spin till you can), remove from stage, swizzle in
+ *    a- yes: bf_s_lock write (spin till you can), remove from stage, swizzle in
  *    b- no: set the state to IO, increment the counter, hold the mutex, p_read
  * 3- if it is in IOFlight:
  *    a- increment counter,
@@ -37,7 +37,7 @@ class BufferManager {
       std::list<BufferFrame*>::iterator fifo_itr;
       State state = State::NOT_LOADED;
       // -------------------------------------------------------------------------------------
-      // Everything in CIOFrame is protected by global lock except the following counter
+      // Everything in CIOFrame is protected by global bf_s_lock except the following counter
       atomic<u64> readers_counter = 0;
    };
 private:
@@ -72,7 +72,7 @@ public:
    ~BufferManager();
    // -------------------------------------------------------------------------------------
    BufferFrame *getLoadedBF(PID pid);
-   BufferFrame &accquirePageAndBufferFrame();
+   BufferFrame &allocatePage();
    BufferFrame &resolveSwip(SharedLock &swip_lock, Swip &swip);
    void stopBackgroundThreads();
    /*

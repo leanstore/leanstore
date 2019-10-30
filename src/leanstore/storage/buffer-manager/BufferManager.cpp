@@ -136,9 +136,9 @@ BufferFrame *BufferManager::getLoadedBF(PID pid)
    return reinterpret_cast<BufferFrame *>(dram + (pid * buffer_frame_size));
 }
 // -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::accquirePageAndBufferFrame()
+BufferFrame &BufferManager::allocatePage()
 {
-   //TODO: ex lock
+   //TODO: ex bf_s_lock
    std::lock_guard lock(reservoir_mutex);
    assert(ssd_free_pages.size());
    assert(dram_free_bfs.size());

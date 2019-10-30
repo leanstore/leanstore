@@ -13,9 +13,10 @@ TEST(BufferManager, BTree)
 {
    BMC::start();
    BufferManager &buffer_manager = *BMC::global_bf;
+   buffer_manager.stopBackgroundThreads();
 
    // BTree
-   auto &btree_root_bf = buffer_manager.accquirePageAndBufferFrame();
+   auto &btree_root_bf = buffer_manager.allocatePage();
    btree::BTree<uint32_t, uint32_t> btree(&btree_root_bf);
    btree.init();
 
@@ -49,7 +50,6 @@ TEST(BufferManager, BTree)
             }
          });
       }
-      return;
       // lookup
       {
          PerfEventBlock b(e, n);
@@ -65,6 +65,7 @@ TEST(BufferManager, BTree)
             }
          });
       }
+      return;
       // mixed workload
       std::atomic<uint32_t> total(0);
       {
