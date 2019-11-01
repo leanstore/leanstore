@@ -27,7 +27,6 @@ using Node = NodeBase;
 template<class Key, class Payload>
 struct BTreeLeaf : public BTreeLeafBase {
    static const u64 maxEntries = ((PAGE_SIZE - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
-
    Key keys[maxEntries];
    Payload payloads[maxEntries];
 
@@ -189,61 +188,49 @@ struct BTree {
    {
       while ( true ) {
          try {
-            SharedLock p_lock(root_lock);
-            BufferFrame *c_bf = &buffer_manager.resolveSwip(p_lock, root_swip);
-            auto c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
-            BTreeInner<Key> *p_node = nullptr;
-            SharedLock c_lock(c_bf->header.lock);
-            while ( c_node->type == NodeType::BTreeInner ) {
-               auto inner = static_cast<BTreeInner<Key> *>(c_node);
+            auto p_guard = PageGuard<BTreeInner<Key>>::makeRootGuard(root_lock, root_swip);
+            PageGuard<BTreeInner<Key>> c_guard(root_lock, root_swip);
+            while ( c_guard->type == NodeType::BTreeInner ) {
                // -------------------------------------------------------------------------------------
-               if ( inner->count == inner->maxEntries - 1 ) {
+               if ( c_guard->count == c_guard->maxEntries - 1 ) {
                   // Split inner eagerly
-                  ExclusiveLock p_x_lock(p_lock);
-                  ExclusiveLock c_x_lock(c_lock);
+                  auto p_x_lock = p_guard.writeLock();
+                  auto c_x_lock = c_guard.writeLock();
                   Key sep;
                   auto &new_inner_bf = buffer_manager.allocatePage();
-                  inner->split(sep, new_inner_bf);
-                  if ( p_node )
-                     p_node->insert(sep, &new_inner_bf);
+                  c_guard->split(sep, new_inner_bf);
+                  if ( p_guard )
+                     p_guard->insert(sep, &new_inner_bf);
                   else
-                     makeRoot(sep, c_bf, &new_inner_bf);
+                     makeRoot(sep, c_guard.bf, &new_inner_bf);
 
                   throw RestartException(); //restart
                }
                // -------------------------------------------------------------------------------------
-               p_lock.recheck(); // ^release^ parent before searching in the current node
-               unsigned pos = inner->lowerBound(k);
-               p_node = inner;
-               Swip &c_swip = inner->children[pos];
+               unsigned pos = c_guard->lowerBound(k);
+               Swip &c_swip = c_guard->children[pos];
                // -------------------------------------------------------------------------------------
-               c_bf = &buffer_manager.resolveSwip(c_lock, c_swip);
-               c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
-               // -------------------------------------------------------------------------------------
-               c_lock.recheck();
-               p_lock = c_lock;
-               c_lock = SharedLock(c_bf->header.lock);
-               assert(c_node);
+               p_guard = std::move(c_guard);
+               c_guard = PageGuard<BTreeInner<Key>>(p_guard, c_swip);
             }
 
-            BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(c_node);
+            PageGuard<BTreeLeaf<Key, Value>> leaf(std::move(c_guard));
             if ( leaf->count == leaf->maxEntries ) {
-               ExclusiveLock p_x_lock(p_lock);
-               ExclusiveLock c_x_lock(c_lock);
+               auto p_x_lock = p_guard.writeLock();
+               auto c_x_lock = leaf.writeLock();
                // Leaf is full, split it
                Key sep;
                auto &new_leaf_bf = buffer_manager.allocatePage();
                leaf->split(sep, new_leaf_bf);
-               if ( p_node )
-                  p_node->insert(sep, &new_leaf_bf);
+               if ( p_guard )
+                  p_guard->insert(sep, &new_leaf_bf);
                else
-                  makeRoot(sep, c_bf, &new_leaf_bf);
+                  makeRoot(sep, leaf.bf, &new_leaf_bf);
 
                throw RestartException();
             }
             // -------------------------------------------------------------------------------------
-            ExclusiveLock c_x_lock(c_lock);
-            p_lock.recheck();
+            auto c_x_lock = c_guard.writeLock();
             leaf->insert(k, v);
             return;
          } catch ( RestartException e ) {
@@ -256,8 +243,8 @@ struct BTree {
    {
       while ( true ) {
          try {
+            auto p_guard = PageGuard<BTreeInner<Key>>::makeRootGuard(root_lock, root_swip);
             PageGuard<BTreeInner<Key>> c_guard(root_lock, root_swip);
-            PageGuard<BTreeInner<Key>> p_guard;
 
             while ( c_guard->type == NodeType::BTreeInner ) {
                int64_t pos = c_guard->lowerBound(k);

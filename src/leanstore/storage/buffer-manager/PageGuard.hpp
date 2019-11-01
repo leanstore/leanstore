@@ -14,27 +14,27 @@ class PageGuard {
       WriteLock(PageGuard &guard)
               : guard(guard)
       {
-         if ( guard.write_lock_counter++ == 0 ) {
-            lock_version_t new_version = guard.bf_s_lock.local_version + 2;
-            if ( !std::atomic_compare_exchange_strong(guard.bf_s_lock.version_ptr, &guard.bf_s_lock.local_version, new_version)) {
-               throw RestartException();
-            }
-            guard.bf_s_lock.local_version = new_version;
+         assert (guard.write_lock_counter++ == 0);
+         lock_version_t new_version = guard.bf_s_lock.local_version + 2;
+         if ( !std::atomic_compare_exchange_strong(guard.bf_s_lock.version_ptr, &guard.bf_s_lock.local_version, new_version)) {
+            throw RestartException();
          }
+         guard.bf_s_lock.local_version = new_version;
       }
       ~WriteLock()
       {
          assert(guard.bf_s_lock.version_ptr != nullptr);
-         if ( --guard.write_lock_counter == 0 ) {
-            guard.bf_s_lock.local_version = 2 + guard.bf_s_lock.version_ptr->fetch_add(2);
-         }
+         assert(--guard.write_lock_counter == 0);
+         guard.bf_s_lock.local_version = 2 + guard.bf_s_lock.version_ptr->fetch_add(2);
       }
    };
    // -------------------------------------------------------------------------------------
+   PageGuard() {}
 public:
    BufferFrame *bf = nullptr;
    SharedLock bf_s_lock;
    u8 write_lock_counter = 0;
+
    template<typename O>
    PageGuard(PageGuard<O> &&other)
    {
@@ -53,7 +53,6 @@ public:
       return *this;
    }
 
-   PageGuard() {}
 
    //used only by buffer manager
    PageGuard(BufferFrame &bf)
@@ -66,11 +65,23 @@ public:
       SharedLock swip_lock(swip_version);
       bf = &BMC::global_bf->resolveSwip(swip_lock, swip);
       bf_s_lock = SharedLock(bf->header.lock);
+      swip_lock.recheck();
+   }
+   static  PageGuard makeRootGuard(OptimisticVersion &swip_version, Swip &swip)
+   {
+      PageGuard root_page;
+      root_page.bf_s_lock = SharedLock(swip_version);
+      return root_page;
    }
    PageGuard(PageGuard &p_guard, Swip &swip)
    {
-      bf_s_lock = SharedLock(p_guard.bf_s_lock);
-      bf = &BMC::global_bf->resolveSwip(bf_s_lock, swip);
+      bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip);
+      bf_s_lock = SharedLock(bf->header.lock);
+      p_guard.recheck();
+   }
+   void recheck()
+   {
+      bf_s_lock.recheck();
    }
    WriteLock writeLock()
    {
@@ -80,6 +91,11 @@ public:
    {
       return reinterpret_cast<T *>(bf->page.dt);
    }
+   operator bool() const
+   {
+      return bf != nullptr;
+   }
+
 };
 // -------------------------------------------------------------------------------------
 }

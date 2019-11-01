@@ -65,7 +65,6 @@ TEST(BufferManager, BTree)
             }
          });
       }
-      return;
       // mixed workload
       std::atomic<uint32_t> total(0);
       {
