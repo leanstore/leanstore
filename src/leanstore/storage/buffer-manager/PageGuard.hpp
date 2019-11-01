@@ -60,13 +60,6 @@ public:
    {
       bf_s_lock = SharedLock(bf.header.lock);
    }
-   PageGuard(OptimisticVersion &swip_version, Swip &swip)
-   {
-      SharedLock swip_lock(swip_version);
-      bf = &BMC::global_bf->resolveSwip(swip_lock, swip);
-      bf_s_lock = SharedLock(bf->header.lock);
-      swip_lock.recheck();
-   }
    static PageGuard makeRootGuard(OptimisticVersion &swip_version, Swip &swip)
    {
       PageGuard root_page;
@@ -94,6 +87,97 @@ public:
    operator bool() const
    {
       return bf != nullptr;
+   }
+};
+// -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
+
+template<typename T>
+class WritePageGuard;
+
+template<typename T>
+class ReadPageGuard {
+   ReadPageGuard() {}
+public:
+   BufferFrame *bf = nullptr;
+   SharedLock bf_s_lock;
+
+
+   // I: Root case
+   static ReadPageGuard makeRootGuard(OptimisticVersion &swip_version, Swip &swip)
+   {
+      ReadPageGuard root_page;
+      root_page.bf_s_lock = SharedLock(swip_version);
+      return root_page;
+   }
+   // I: Lock coupling
+   ReadPageGuard(ReadPageGuard &p_guard, Swip &swip)
+   {
+      bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip);
+      bf_s_lock = SharedLock(bf->header.lock);
+      p_guard.recheck();
+   }
+
+   // I: Downgrade
+   ReadPageGuard &operator=(WritePageGuard<T> &&other)
+   {
+      bf = other.bf;
+      bf_s_lock = other.bf_s_lock;
+      bf_s_lock.local_version = 2 + bf_s_lock.version_ptr->fetch_add(2);
+      return *this;
+   }
+   // Casting helpers
+   template<typename O>
+   ReadPageGuard(ReadPageGuard<O> &&other)
+   {
+      assert(other.write_lock_counter == 0);
+      bf = other.bf;
+      bf_s_lock = other.bf_s_lock;
+      bf_s_lock.recheck();
+   }
+   ReadPageGuard &operator=(ReadPageGuard &&other)
+   {
+      assert(other.write_lock_counter == 0);
+      bf = other.bf;
+      bf_s_lock = other.bf_s_lock;
+      bf_s_lock.recheck();
+      return *this;
+   }
+
+   void recheck()
+   {
+      bf_s_lock.recheck();
+   }
+   T *operator->()
+   {
+      return reinterpret_cast<T *>(bf->page.dt);
+   }
+   // Is the bufferframe loaded
+   operator bool() const
+   {
+      return bf != nullptr;
+   }
+};
+// -------------------------------------------------------------------------------------
+template<typename T>
+class WritePageGuard {
+   BufferFrame *bf = nullptr;
+   SharedLock bf_s_lock;
+public:
+   WritePageGuard(ReadPageGuard<T> &&read_guard) {
+      assert(read_guard);
+      bf = read_guard.bf;
+      bf_s_lock = read_guard.bf_s_lock;
+      lock_version_t new_version = bf_s_lock.local_version + 2;
+      if ( !std::atomic_compare_exchange_strong(bf_s_lock.version_ptr, &bf_s_lock.local_version, new_version)) {
+         throw RestartException();
+      }
+      bf_s_lock.local_version = new_version;
+   }
+
+   ~WritePageGuard() {
+      assert((bf_s_lock.version_ptr->load() & 2) != 2);
    }
 };
 // -------------------------------------------------------------------------------------

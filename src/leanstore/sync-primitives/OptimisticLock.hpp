@@ -20,7 +20,7 @@ public:
 class SharedLock;
 class ExclusiveLock;
 template<typename T>
-class PageGuard;
+class ReadPageGuard;
 using lock_version_t = u64;
 using OptimisticVersion = atomic<lock_version_t>;
 // -------------------------------------------------------------------------------------
@@ -28,6 +28,10 @@ class SharedLock {
    friend class ExclusiveLock;
    template<typename T>
    friend class PageGuard;
+   template<typename T>
+   friend class ReadPageGuard;
+   template<typename T>
+   friend class WritePageGuard;
 private:
    atomic<u64> *version_ptr = nullptr;
    u64 local_version;

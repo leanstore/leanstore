@@ -187,7 +187,7 @@ struct BTree {
       while ( true ) {
          try {
             auto p_guard = PageGuard<BTreeInner<Key>>::makeRootGuard(root_lock, root_swip);
-            PageGuard<BTreeInner<Key>> c_guard(root_lock, root_swip);
+            PageGuard<BTreeInner<Key>> c_guard(p_guard, root_swip);
             while ( c_guard->type == NodeType::BTreeInner ) {
                // -------------------------------------------------------------------------------------
                if ( c_guard->count == c_guard->maxEntries - 1 ) {
@@ -242,7 +242,7 @@ struct BTree {
       while ( true ) {
          try {
             auto p_guard = PageGuard<BTreeInner<Key>>::makeRootGuard(root_lock, root_swip);
-            PageGuard<BTreeInner<Key>> c_guard(root_lock, root_swip);
+            PageGuard<BTreeInner<Key>> c_guard(p_guard, root_swip);
 
             while ( c_guard->type == NodeType::BTreeInner ) {
                int64_t pos = c_guard->lowerBound(k);
