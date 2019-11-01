@@ -5,104 +5,16 @@ namespace leanstore {
 // -------------------------------------------------------------------------------------
 // Objects of this class must be thread local !
 template<typename T>
-class PageGuard {
-   // -------------------------------------------------------------------------------------
-   struct WriteLock {
-      // -------------------------------------------------------------------------------------
-      PageGuard &guard;
-      // -------------------------------------------------------------------------------------
-      WriteLock(PageGuard &guard)
-              : guard(guard)
-      {
-         assert (guard.write_lock_counter++ == 0);
-         lock_version_t new_version = guard.bf_s_lock.local_version + 2;
-         if ( !std::atomic_compare_exchange_strong(guard.bf_s_lock.version_ptr, &guard.bf_s_lock.local_version, new_version)) {
-            throw RestartException();
-         }
-         guard.bf_s_lock.local_version = new_version;
-      }
-      ~WriteLock()
-      {
-         assert(guard.bf_s_lock.version_ptr != nullptr);
-         assert(--guard.write_lock_counter == 0);
-         guard.bf_s_lock.local_version = 2 + guard.bf_s_lock.version_ptr->fetch_add(2);
-      }
-   };
-   // -------------------------------------------------------------------------------------
-   PageGuard() {}
-public:
-   BufferFrame *bf = nullptr;
-   SharedLock bf_s_lock;
-   u8 write_lock_counter = 0;
-
-   template<typename O>
-   PageGuard(PageGuard<O> &&other)
-   {
-      assert(other.write_lock_counter == 0);
-      bf = other.bf;
-      bf_s_lock = other.bf_s_lock;
-      bf_s_lock.recheck();
-   }
-
-   PageGuard &operator=(PageGuard &&other)
-   {
-      assert(other.write_lock_counter == 0);
-      bf = other.bf;
-      bf_s_lock = other.bf_s_lock;
-      bf_s_lock.recheck();
-      return *this;
-   }
-
-
-   //used only by buffer manager
-   PageGuard(BufferFrame &bf)
-           : bf(&bf)
-   {
-      bf_s_lock = SharedLock(bf.header.lock);
-   }
-   static PageGuard makeRootGuard(OptimisticVersion &swip_version, Swip &swip)
-   {
-      PageGuard root_page;
-      root_page.bf_s_lock = SharedLock(swip_version);
-      return root_page;
-   }
-   PageGuard(PageGuard &p_guard, Swip &swip)
-   {
-      bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip);
-      bf_s_lock = SharedLock(bf->header.lock);
-      p_guard.recheck();
-   }
-   void recheck()
-   {
-      bf_s_lock.recheck();
-   }
-   WriteLock writeLock()
-   {
-      return WriteLock(*this);
-   }
-   T *operator->()
-   {
-      return reinterpret_cast<T *>(bf->page.dt);
-   }
-   operator bool() const
-   {
-      return bf != nullptr;
-   }
-};
-// -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
-
-template<typename T>
 class WritePageGuard;
 
 template<typename T>
 class ReadPageGuard {
+protected:
    ReadPageGuard() {}
+   bool moved = false;
 public:
    BufferFrame *bf = nullptr;
    SharedLock bf_s_lock;
-
 
    // I: Root case
    static ReadPageGuard makeRootGuard(OptimisticVersion &swip_version, Swip &swip)
@@ -125,20 +37,20 @@ public:
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
       bf_s_lock.local_version = 2 + bf_s_lock.version_ptr->fetch_add(2);
+      // -------------------------------------------------------------------------------------
+      other.moved = true;
       return *this;
    }
    // Casting helpers
    template<typename O>
    ReadPageGuard(ReadPageGuard<O> &&other)
    {
-      assert(other.write_lock_counter == 0);
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
       bf_s_lock.recheck();
    }
    ReadPageGuard &operator=(ReadPageGuard &&other)
    {
-      assert(other.write_lock_counter == 0);
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
       bf_s_lock.recheck();
@@ -149,6 +61,10 @@ public:
    {
       bf_s_lock.recheck();
    }
+   T &ref() {
+      return *reinterpret_cast<T *>(bf->page.dt);
+   }
+
    T *operator->()
    {
       return reinterpret_cast<T *>(bf->page.dt);
@@ -161,23 +77,38 @@ public:
 };
 // -------------------------------------------------------------------------------------
 template<typename T>
-class WritePageGuard {
-   BufferFrame *bf = nullptr;
-   SharedLock bf_s_lock;
+class WritePageGuard : public ReadPageGuard<T> {
+   using parent = ReadPageGuard<T>;
+protected:
+   WritePageGuard() {};
+   // Called when creating a new page
+   WritePageGuard(BufferFrame *bf) {
+      parent::bf = bf;
+      parent::bf_s_lock = SharedLock(&bf->header.lock, bf->header.lock.load(), true);
+      parent::moved = false;
+   };
 public:
    WritePageGuard(ReadPageGuard<T> &&read_guard) {
-      assert(read_guard);
-      bf = read_guard.bf;
-      bf_s_lock = read_guard.bf_s_lock;
-      lock_version_t new_version = bf_s_lock.local_version + 2;
-      if ( !std::atomic_compare_exchange_strong(bf_s_lock.version_ptr, &bf_s_lock.local_version, new_version)) {
+      parent::bf = read_guard.bf;
+      parent::bf_s_lock = read_guard.bf_s_lock;
+      lock_version_t new_version = parent::bf_s_lock.local_version + 2;
+      if ( !std::atomic_compare_exchange_strong(parent::bf_s_lock.version_ptr, &parent::bf_s_lock.local_version, new_version)) {
          throw RestartException();
       }
-      bf_s_lock.local_version = new_version;
+      parent::bf_s_lock.local_version = new_version;
+   }
+   template<typename... Args>
+   static WritePageGuard allocateNewPage(Args &&... args)
+   {
+      auto bf = &BMC::global_bf->allocatePage();
+      new(bf->page.dt) T(std::forward<Args>(args)...);
+      return WritePageGuard(bf);
    }
 
    ~WritePageGuard() {
-      assert((bf_s_lock.version_ptr->load() & 2) != 2);
+      if(!parent::moved) {
+         parent::bf_s_lock.version_ptr->fetch_add(2);
+      }
    }
 };
 // -------------------------------------------------------------------------------------

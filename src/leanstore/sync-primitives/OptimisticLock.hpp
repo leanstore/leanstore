@@ -36,6 +36,7 @@ private:
    atomic<u64> *version_ptr = nullptr;
    u64 local_version;
    bool locked = false;
+   SharedLock(atomic<u64> *version_ptr, u64 local_version, bool locked) : version_ptr(version_ptr) , local_version(local_version) , locked(locked) {}
 public:
    // -------------------------------------------------------------------------------------
    SharedLock() = default;
@@ -62,13 +63,6 @@ public:
       if ( locked && local_version != *version_ptr ) {
          throw RestartException();
       }
-   }
-   // -------------------------------------------------------------------------------------
-   SharedLock &operator=(const SharedLock &other) = default;
-   operator bool()
-   const
-   {
-      return locked;
    }
    // -------------------------------------------------------------------------------------
 };

@@ -30,11 +30,27 @@ public:
    }
 
 };
+
+template<typename T>
+class IA {
+protected:
+   int x = 10,y;
+};
+template<typename T>
+class IB: public  IA<T> {
+public:
+   IB(int tata) {
+      cout << tata << endl;
+      cout << IA<T>::x << endl;
+   }
+};
 int main(int argc, char **argv) {
-   A a(1), b(2);
-   A c(3);
-   c = a;
-   c = std::move(a);
-   c = std::move(a);
+//   A a(1), b(2);
+//   A c(3);
+//   c = a;
+//   c = std::move(a);
+//   c = std::move(a);
+
+   IB<char> ib(20);
    return 0;
 }
