@@ -21,6 +21,7 @@ public:
    Swip(u64 pid );
    template <typename T>
    Swip(T* ptr ) {
+      //exchange
       pid = u64(ptr) | swizzle_bit;
    }
    Swip() : pid(0) {}

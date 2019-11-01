@@ -2,6 +2,7 @@
 #include "leanstore/sync-primitives/OptimisticLock.hpp"
 #include "leanstore/storage/buffer-manager/BufferFrame.hpp"
 #include "leanstore/storage/buffer-manager/PageGuard.hpp"
+#include "leanstore/storage/buffer-manager/NewPageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -79,13 +80,12 @@ struct BTreeLeaf : public BTreeLeafBase {
       count++;
    }
 
-   void split(Key &sep, BufferFrame &new_bf)
+   void split(Key &sep, BTreeLeaf &new_leaf)
    {
-      BTreeLeaf *newLeaf = new(new_bf.page.dt) BTreeLeaf();
-      newLeaf->count = count - (count / 2);
-      count = count - newLeaf->count;
-      memcpy(newLeaf->keys, keys + count, sizeof(Key) * newLeaf->count);
-      memcpy(newLeaf->payloads, payloads + count, sizeof(Payload) * newLeaf->count);
+      new_leaf.count = count - (count / 2);
+      count = count - new_leaf.count;
+      memcpy(new_leaf.keys, keys + count, sizeof(Key) * new_leaf.count);
+      memcpy(new_leaf.payloads, payloads + count, sizeof(Payload) * new_leaf.count);
       sep = keys[count - 1];
    }
 };
@@ -130,14 +130,13 @@ struct BTreeInner : public BTreeInnerBase {
       return lower;
    }
 
-   void split(Key &sep, BufferFrame &new_inner_bf) // BTreeInner *
+   void split(Key &sep, BTreeInner &new_inner) // BTreeInner *
    {
-      BTreeInner *newInner = new(new_inner_bf.page.dt) BTreeInner();
-      newInner->count = count - (count / 2);
-      count = count - newInner->count - 1;
+      new_inner.count = count - (count / 2);
+      count = count - new_inner.count - 1;
       sep = keys[count];
-      memcpy(newInner->keys, keys + count + 1, sizeof(Key) * (newInner->count + 1));
-      memcpy(newInner->children, children + count + 1, sizeof(Swip) * (newInner->count + 1));
+      memcpy(new_inner.keys, keys + count + 1, sizeof(Key) * (new_inner.count + 1));
+      memcpy(new_inner.children, children + count + 1, sizeof(Swip) * (new_inner.count + 1));
    }
 
    void insert(Key k, Swip child)
@@ -175,13 +174,12 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    void makeRoot(Key k, Swip leftChild, Swip rightChild)
    {
-      auto &new_root_bf = buffer_manager.allocatePage();
-      root_swip.swizzle(&new_root_bf);
-      auto inner = new(new_root_bf.page.dt) BTreeInner<Key>();
-      inner->count = 1;
-      inner->keys[0] = k;
-      inner->children[0] = leftChild;
-      inner->children[1] = rightChild;
+      auto new_root_inner = NewPageGuard<BTreeInner<Key>>();
+      root_swip.swizzle(new_root_inner.bf);
+      new_root_inner->count = 1;
+      new_root_inner->keys[0] = k;
+      new_root_inner->children[0] = leftChild;
+      new_root_inner->children[1] = rightChild;
    }
    // -------------------------------------------------------------------------------------
    void insert(Key k, Value v)
@@ -197,12 +195,12 @@ struct BTree {
                   auto p_x_lock = p_guard.writeLock();
                   auto c_x_lock = c_guard.writeLock();
                   Key sep;
-                  auto &new_inner_bf = buffer_manager.allocatePage();
-                  c_guard->split(sep, new_inner_bf);
+                  auto new_inner = NewPageGuard<BTreeInner<Key>>();
+                  c_guard->split(sep, *new_inner.object);
                   if ( p_guard )
-                     p_guard->insert(sep, &new_inner_bf);
+                     p_guard->insert(sep, new_inner.bf);
                   else
-                     makeRoot(sep, c_guard.bf, &new_inner_bf);
+                     makeRoot(sep, c_guard.bf, new_inner.bf);
 
                   throw RestartException(); //restart
                }
@@ -220,12 +218,12 @@ struct BTree {
                auto c_x_lock = leaf.writeLock();
                // Leaf is full, split it
                Key sep;
-               auto &new_leaf_bf = buffer_manager.allocatePage();
-               leaf->split(sep, new_leaf_bf);
+               auto new_leaf = NewPageGuard<BTreeLeaf<Key, Value>>();
+               leaf->split(sep, *new_leaf.object);
                if ( p_guard )
-                  p_guard->insert(sep, &new_leaf_bf);
+                  p_guard->insert(sep, new_leaf.bf);
                else
-                  makeRoot(sep, leaf.bf, &new_leaf_bf);
+                  makeRoot(sep, leaf.bf, new_leaf.bf);
 
                throw RestartException();
             }

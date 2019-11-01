@@ -136,15 +136,18 @@ BufferFrame *BufferManager::getLoadedBF(PID pid)
    return reinterpret_cast<BufferFrame *>(dram + (pid * buffer_frame_size));
 }
 // -------------------------------------------------------------------------------------
+// returns a *write locked* new buffer frame
 BufferFrame &BufferManager::allocatePage()
 {
-   //TODO: ex bf_s_lock
    std::lock_guard lock(reservoir_mutex);
    assert(ssd_free_pages.size());
    assert(dram_free_bfs.size());
    auto free_pid = ssd_free_pages.front();
    ssd_free_pages.pop();
    auto free_bf = dram_free_bfs.front();
+   // -------------------------------------------------------------------------------------
+   free_bf->header.lock = 2; // Write lock
+   // -------------------------------------------------------------------------------------
    dram_free_bfs.pop();
    // -------------------------------------------------------------------------------------
    free_bf->header.pid = free_pid;

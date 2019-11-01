@@ -67,7 +67,7 @@ public:
       bf_s_lock = SharedLock(bf->header.lock);
       swip_lock.recheck();
    }
-   static  PageGuard makeRootGuard(OptimisticVersion &swip_version, Swip &swip)
+   static PageGuard makeRootGuard(OptimisticVersion &swip_version, Swip &swip)
    {
       PageGuard root_page;
       root_page.bf_s_lock = SharedLock(swip_version);
@@ -95,7 +95,6 @@ public:
    {
       return bf != nullptr;
    }
-
 };
 // -------------------------------------------------------------------------------------
 }
