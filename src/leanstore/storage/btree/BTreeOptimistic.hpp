@@ -189,12 +189,11 @@ struct BTree {
    {
       while ( true ) {
          try {
-            SharedLock r_lock(root_lock);
-            BufferFrame *c_bf = &buffer_manager.resolveSwip(r_lock, root_swip);
+            SharedLock p_lock(root_lock);
+            BufferFrame *c_bf = &buffer_manager.resolveSwip(p_lock, root_swip);
             auto c_node = reinterpret_cast<NodeBase *>(c_bf->page.dt);
             BTreeInner<Key> *p_node = nullptr;
             SharedLock c_lock(c_bf->header.lock);
-            SharedLock p_lock = r_lock;
             while ( c_node->type == NodeType::BTreeInner ) {
                auto inner = static_cast<BTreeInner<Key> *>(c_node);
                // -------------------------------------------------------------------------------------
@@ -228,9 +227,9 @@ struct BTree {
             }
 
             BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(c_node);
-            ExclusiveLock c_x_lock(c_lock);
             if ( leaf->count == leaf->maxEntries ) {
-               ExclusiveLock p_x_lock(p_lock);  // TODO: correct ?
+               ExclusiveLock p_x_lock(p_lock);
+               ExclusiveLock c_x_lock(c_lock);
                // Leaf is full, split it
                Key sep;
                auto &new_leaf_bf = buffer_manager.allocatePage();
@@ -243,6 +242,8 @@ struct BTree {
                throw RestartException();
             }
             // -------------------------------------------------------------------------------------
+            ExclusiveLock c_x_lock(c_lock);
+            p_lock.recheck();
             leaf->insert(k, v);
             return;
          } catch ( RestartException e ) {
