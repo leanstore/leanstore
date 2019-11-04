@@ -157,13 +157,13 @@ BufferFrame &BufferManager::allocatePage()
 BufferFrame &BufferManager::resolveSwip(SharedLock &swip_lock, Swip &swip) // throws RestartException
 {
    if ( swip.isSwizzled()) {
-      auto &bf =swip.getBufferFrame();
+      auto &bf = swip.getBufferFrame();
       swip_lock.recheck();
       return bf;
    }
    global_mutex.lock();
    if ( swip.isSwizzled()) { // maybe another thread has already fixed it
-      auto &bf =swip.getBufferFrame();
+      auto &bf = swip.getBufferFrame();
       swip_lock.recheck();
       return bf;
    }

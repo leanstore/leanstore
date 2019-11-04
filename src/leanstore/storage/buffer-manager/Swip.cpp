@@ -2,23 +2,28 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
-Swip::Swip(u64 pid): pid(pid) {
-   cout <<"weird" << pid << endl;
+Swip::Swip(u64 pid)
+        : swizzle_value(pid | unswizzle_bit)
+{
 }
 // -------------------------------------------------------------------------------------
 bool Swip::isSwizzled()
 {
-   return (pid & swizzle_bit) == swizzle_bit;
+   return (swizzle_value & unswizzle_mask);
 }
 // -------------------------------------------------------------------------------------
-u64 Swip::asInteger() { return pid; }
+u64 Swip::asInteger() { return swizzle_value; }
 // -------------------------------------------------------------------------------------
-void Swip::swizzle(BufferFrame *bf) {
-   pid = u64(bf) | swizzle_bit;
+u64 Swip::asPageID() { return swizzle_value & unswizzle_mask; }
+// -------------------------------------------------------------------------------------
+void Swip::swizzle(BufferFrame *bf)
+{
+   swizzle_value = u64(bf);
 }
 // -------------------------------------------------------------------------------------
-BufferFrame& Swip::getBufferFrame() {
-   return *reinterpret_cast<BufferFrame*>(pid & unswizzle_mask);
+BufferFrame &Swip::getBufferFrame()
+{
+   return *reinterpret_cast<BufferFrame *>(swizzle_value);
 }
 // -------------------------------------------------------------------------------------
 }

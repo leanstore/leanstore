@@ -185,7 +185,7 @@ struct BTree {
    {
       while ( true ) {
          try {
-            auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock, root_swip);
+            auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
             ReadPageGuard<BTreeInner<Key>> c_guard(p_guard, root_swip);
             while ( c_guard->type == NodeType::BTreeInner ) {
                // -------------------------------------------------------------------------------------
@@ -200,11 +200,6 @@ struct BTree {
                      p_guard->insert(sep, new_inner.bf);
                   else
                      makeRoot(sep, c_guard.bf, new_inner.bf);
-
-                  // Unlock
-//                  c_guard = std::move(c_x_guard);
-//                  p_guard = std::move(p_x_guard);
-//                  auto new_x_inner = ReadPageGuard(std::move(new_inner));
                   // -------------------------------------------------------------------------------------
                   throw RestartException(); //restart
                }
@@ -232,7 +227,7 @@ struct BTree {
                throw RestartException();
             }
             // -------------------------------------------------------------------------------------
-            auto c_x_lock = WritePageGuard(std::move(c_guard));
+            auto c_x_lock = WritePageGuard(std::move(leaf));
             leaf->insert(k, v);
             return;
          } catch ( RestartException e ) {
@@ -245,7 +240,7 @@ struct BTree {
    {
       while ( true ) {
          try {
-            auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock, root_swip);
+            auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
             ReadPageGuard<BTreeInner<Key>> c_guard(p_guard, root_swip);
 
             while ( c_guard->type == NodeType::BTreeInner ) {
@@ -259,8 +254,10 @@ struct BTree {
             int64_t pos = leaf->lowerBound(k);
             if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
                result = leaf->payloads[pos];
+//               leaf.recheck();
                return true;
             }
+//            leaf.recheck();
             return false;
          } catch ( RestartException e ) {
             restarts_counter++;

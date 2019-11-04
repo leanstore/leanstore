@@ -6,34 +6,36 @@ namespace leanstore {
 // Objects of this class must be thread local !
 template<typename T>
 class WritePageGuard;
-
 template<typename T>
 class ReadPageGuard {
 protected:
    ReadPageGuard() {}
-   bool moved = false;
+   ReadPageGuard(OptimisticVersion &swip_version) {
+      bf_s_lock = SharedLock(swip_version);
+   }
+   bool manually_checked = false;
 public:
+   bool moved = false;
    BufferFrame *bf = nullptr;
    SharedLock bf_s_lock;
 
    // I: Root case
-   static ReadPageGuard makeRootGuard(OptimisticVersion &swip_version, Swip &swip)
+   static ReadPageGuard makeRootGuard(OptimisticVersion &swip_version)
    {
-      ReadPageGuard root_page;
-      root_page.bf_s_lock = SharedLock(swip_version);
-      return root_page;
+      return ReadPageGuard(swip_version);
    }
    // I: Lock coupling
    ReadPageGuard(ReadPageGuard &p_guard, Swip &swip)
    {
+      assert(p_guard.moved == false);
       bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip);
       bf_s_lock = SharedLock(bf->header.lock);
       p_guard.recheck();
    }
-
    // I: Downgrade
    ReadPageGuard &operator=(WritePageGuard<T> &&other)
    {
+      assert(other.moved == false);
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
       bf_s_lock.local_version = 2 + bf_s_lock.version_ptr->fetch_add(2);
@@ -48,17 +50,20 @@ public:
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
       bf_s_lock.recheck();
+      other.moved = true;
    }
    ReadPageGuard &operator=(ReadPageGuard &&other)
    {
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
       bf_s_lock.recheck();
+      other.moved = true;
       return *this;
    }
 
    void recheck()
    {
+      manually_checked = true;
       bf_s_lock.recheck();
    }
    T &ref() {
@@ -74,28 +79,34 @@ public:
    {
       return bf != nullptr;
    }
+   ~ReadPageGuard() noexcept(false) {
+      if(!manually_checked && !moved && std::uncaught_exceptions() == 0) {
+         recheck();
+      }
+   }
 };
 // -------------------------------------------------------------------------------------
 template<typename T>
 class WritePageGuard : public ReadPageGuard<T> {
-   using parent = ReadPageGuard<T>;
+   using ReadGuard = ReadPageGuard<T>;
 protected:
-   WritePageGuard() {};
-   // Called when creating a new page
+   // Called by the buffer manager when allocating a new page
    WritePageGuard(BufferFrame *bf) {
-      parent::bf = bf;
-      parent::bf_s_lock = SharedLock(&bf->header.lock, bf->header.lock.load(), true);
-      parent::moved = false;
-   };
+      ReadGuard::bf = bf;
+      ReadGuard::bf_s_lock = SharedLock(&bf->header.lock, bf->header.lock.load(), true);
+      ReadGuard::moved = false;
+   }
 public:
-   WritePageGuard(ReadPageGuard<T> &&read_guard) {
-      parent::bf = read_guard.bf;
-      parent::bf_s_lock = read_guard.bf_s_lock;
-      lock_version_t new_version = parent::bf_s_lock.local_version + 2;
-      if ( !std::atomic_compare_exchange_strong(parent::bf_s_lock.version_ptr, &parent::bf_s_lock.local_version, new_version)) {
+   // I: Upgrade
+   WritePageGuard(ReadGuard &&read_guard) {
+      ReadGuard::bf = read_guard.bf;
+      ReadGuard::bf_s_lock = read_guard.bf_s_lock;
+      lock_version_t new_version = ReadGuard::bf_s_lock.local_version + 2;
+      if ( !std::atomic_compare_exchange_strong(ReadGuard::bf_s_lock.version_ptr, &ReadGuard::bf_s_lock.local_version, new_version)) {
          throw RestartException();
       }
-      parent::bf_s_lock.local_version = new_version;
+      ReadGuard::bf_s_lock.local_version = new_version;
+      read_guard.moved = true;
    }
    template<typename... Args>
    static WritePageGuard allocateNewPage(Args &&... args)
@@ -106,8 +117,9 @@ public:
    }
 
    ~WritePageGuard() {
-      if(!parent::moved) {
-         parent::bf_s_lock.version_ptr->fetch_add(2);
+      if(!ReadGuard::moved) {
+         ReadGuard::bf_s_lock.local_version = 2 + ReadGuard::bf_s_lock.version_ptr->fetch_add(2);
+         ReadGuard::moved = true;
       }
    }
 };
