@@ -21,9 +21,9 @@ struct BufferFrame {
       OptimisticVersion lock = 0;
    };
    struct alignas(512) Page {
-      atomic<u64> LSN = 0;
+      u64 LSN = 0;
       u32 dt_id; //datastructure id TODO
-      u8 dt[]; // Datastruture
+      u8 dt[ PAGE_SIZE - sizeof(LSN) - sizeof(dt_id)]; // Datastruture
       operator u8*() {
          return reinterpret_cast<u8*>(this);
       }
@@ -33,8 +33,7 @@ struct BufferFrame {
    // -------------------------------------------------------------------------------------
    struct Page page; // The persisted part
    // -------------------------------------------------------------------------------------
-   BufferFrame(PID pid);
-   BufferFrame(){}
+   BufferFrame(PID pid = 0);
 };
 // -------------------------------------------------------------------------------------
 static_assert((sizeof(BufferFrame) - sizeof(BufferFrame::Page)) == 512, "");

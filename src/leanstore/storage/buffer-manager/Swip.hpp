@@ -9,7 +9,9 @@ namespace leanstore {
 // -------------------------------------------------------------------------------------
 struct BufferFrame; // Forward declaration
 // -------------------------------------------------------------------------------------
-struct SwipValue {
+using SwipValue = u64;
+template<typename T>
+class Swip {
    // -------------------------------------------------------------------------------------
    static const u64 unswizzle_bit = u64(1) << 63;
    static const u64 unswizzle_mask = ~(u64(1) << 63);
@@ -18,18 +20,12 @@ struct SwipValue {
 public:
    u64 val;
    // -------------------------------------------------------------------------------------
-   SwipValue(u64 pid)
-           : val(pid | unswizzle_bit)
-   {
-   }
+   Swip() = default;
+   Swip(BufferFrame *bf) : val(u64(bf)) {}
    template<typename T2>
-   SwipValue(T2* ptr ) {
-      //exchange
-      val = u64(ptr);
-   }
-   SwipValue() : val(0) {}
+   Swip(Swip<T2> &other) : val(other.val) {}
    // -------------------------------------------------------------------------------------
-   bool operator==(const SwipValue &other) const
+   bool operator==(const Swip &other) const
    {
       return (val == other.val);
    }
@@ -40,7 +36,9 @@ public:
    }
    u64 asInteger() { return val; }
    u64 asPageID() { return val & unswizzle_mask; }
-   void swizzle(BufferFrame *bf)
+   // -------------------------------------------------------------------------------------
+   template<typename T2>
+   void swizzle(T2 *bf)
    {
       val = u64(bf);
    }
@@ -51,13 +49,10 @@ public:
    {
       return *reinterpret_cast<BufferFrame *>(val);
    }
-};
-// -------------------------------------------------------------------------------------
-template<typename T>
-struct Swip {
-   SwipValue value;
-   template<typename... Args>
-   Swip(Args &&... args) : value(std::forward<Args>(args)...) {
+   // -------------------------------------------------------------------------------------
+   template<typename T2>
+   Swip<T2> &cast() {
+      return *reinterpret_cast<Swip<T2>*>(this);
    }
 };
 // -------------------------------------------------------------------------------------

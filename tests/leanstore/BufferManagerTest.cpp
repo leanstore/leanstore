@@ -16,10 +16,7 @@ TEST(BufferManager, BTree)
    buffer_manager.stopBackgroundThreads();
 
    // BTree
-   auto &btree_root_bf = buffer_manager.allocatePage();
-   btree::BTree<uint32_t, uint32_t> btree(&btree_root_bf);
-   btree.init();
-   btree_root_bf.header.lock.fetch_add(2);
+   btree::BTree<uint32_t, uint32_t> btree;
 
    uint32_t result;
    bool res = btree.lookup(10, result);

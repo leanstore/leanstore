@@ -26,7 +26,7 @@ struct BTreeLeafBase : public NodeBase {
 using Node = NodeBase;
 template<class Key, class Payload>
 struct BTreeLeaf : public BTreeLeafBase {
-   static const u64 maxEntries = ((PAGE_SIZE - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
+   static const u64 maxEntries = ((sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
    Key keys[maxEntries];
    Payload payloads[maxEntries];
 
@@ -95,7 +95,7 @@ struct BTreeInnerBase : public NodeBase {
 
 template<class Key>
 struct BTreeInner : public BTreeInnerBase {
-   static const u64 maxEntries = ((PAGE_SIZE - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
+   static const u64 maxEntries = ((sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
 
    Swip<BTreeInner<Key>> children[maxEntries];
    Key keys[maxEntries];
@@ -158,23 +158,22 @@ struct BTree {
 
    BufferManager &buffer_manager;
    // -------------------------------------------------------------------------------------
-   BTree(BufferFrame *root_bf)
-           : root_swip(root_bf)
-             , buffer_manager(*BMC::global_bf)
+   BTree() : buffer_manager(*BMC::global_bf)
    {
-   }
-   // -------------------------------------------------------------------------------------
-   void init()
-   {
-      SharedLock lock(root_lock);
-      auto &root_bf = buffer_manager.resolveSwip(lock, root_swip.value);
-      new(root_bf.page.dt) BTreeLeaf<Key, Value>();
+      while ( true ) {
+         try {
+            auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage();
+            root_swip = root_write_guard.bf;
+            return;
+         } catch ( RestartException e ) {
+         }
+      }
    }
    // -------------------------------------------------------------------------------------
    void makeRoot(Key k, Swip<BTreeInner<Key>> leftChild, Swip<BTreeInner<Key>> rightChild)
    {
       auto new_root_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage();
-      root_swip.value.swizzle(new_root_inner.bf);
+      root_swip.swizzle(new_root_inner.bf);
       new_root_inner->count = 1;
       new_root_inner->keys[0] = k;
       new_root_inner->children[0] = leftChild;
@@ -183,16 +182,17 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    void insert(Key k, Value v)
    {
+      auto &root_inner_swip = root_swip.cast<BTreeInner<Key>>();
       while ( true ) {
          try {
             auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
-            ReadPageGuard<BTreeInner<Key>> c_guard(p_guard, root_swip);
+            ReadPageGuard c_guard(p_guard, root_inner_swip);
             while ( c_guard->type == NodeType::BTreeInner ) {
                // -------------------------------------------------------------------------------------
                if ( c_guard->count == c_guard->maxEntries - 1 ) {
                   // Split inner eagerly
                   auto p_x_guard = WritePageGuard(std::move(p_guard));
-                  auto c_x_guard =  WritePageGuard(std::move(c_guard));
+                  auto c_x_guard = WritePageGuard(std::move(c_guard));
                   Key sep;
                   auto new_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage();
                   c_guard->split(sep, new_inner.ref());
@@ -214,7 +214,7 @@ struct BTree {
             ReadPageGuard<BTreeLeaf<Key, Value>> leaf(std::move(c_guard));
             if ( leaf->count == leaf->maxEntries ) {
                auto p_x_guard = WritePageGuard(std::move(p_guard));
-               auto c_x_guard =  WritePageGuard(std::move(leaf));
+               auto c_x_guard = WritePageGuard(std::move(leaf));
                // Leaf is full, split it
                Key sep;
                auto new_leaf = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage();
@@ -241,7 +241,8 @@ struct BTree {
       while ( true ) {
          try {
             auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
-            ReadPageGuard<BTreeInner<Key>> c_guard(p_guard, root_swip);
+            Swip<BTreeInner<Key>> root_inner_swip = root_swip;
+            ReadPageGuard c_guard(p_guard, root_inner_swip);
             while ( c_guard->type == NodeType::BTreeInner ) {
                int64_t pos = c_guard->lowerBound(k);
                Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];

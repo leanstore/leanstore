@@ -25,11 +25,11 @@ public:
       return ReadPageGuard(swip_version);
    }
    // I: Lock coupling
-   template<typename T2>
-   ReadPageGuard(ReadPageGuard &p_guard, Swip<T2> &swip)
+   ReadPageGuard(ReadPageGuard &p_guard, Swip<T> &swip)
    {
       assert(p_guard.moved == false);
-      bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip.value);
+      auto &bf_swip = swip.template cast<BufferFrame>();
+      bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
       bf_s_lock = SharedLock(bf->header.lock);
       p_guard.recheck();
    }

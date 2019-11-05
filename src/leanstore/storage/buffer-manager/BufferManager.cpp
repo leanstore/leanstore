@@ -106,7 +106,7 @@ BufferManager::BufferManager()
                         SharedLock lock(bf->header.lock);
                         ExclusiveLock x_lock(lock);
                         bf->header.isWB = false;
-                        bf->header.lastWrittenLSN = reinterpret_cast<BufferFrame::Page *>(page_buffer)->LSN.load();
+                        bf->header.lastWrittenLSN = reinterpret_cast<BufferFrame::Page *>(page_buffer)->LSN;
                         memset(page_buffer, 0, PAGE_SIZE);
                         write_buffer_free_slots.push_front(write_buffer_slot);
                         break;
@@ -154,7 +154,7 @@ BufferFrame &BufferManager::allocatePage()
    return *free_bf;
 }
 // -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::resolveSwip(SharedLock &swip_lock, SwipValue &swip_value) // throws RestartException
+BufferFrame &BufferManager::resolveSwip(SharedLock &swip_lock, Swip<BufferFrame> &swip_value) // throws RestartException
 {
    if(swip_value.isSwizzled()) {
       return *reinterpret_cast<BufferFrame*>(swip_value.val);
