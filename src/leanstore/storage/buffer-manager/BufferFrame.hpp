@@ -12,11 +12,17 @@ namespace leanstore {
 const u64 PAGE_SIZE = 16 * 1024;
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
+   enum class State {
+      FREE,
+      HOT,
+      COLD
+   };
    struct Header {
       // TODO: for logging
-      atomic<u64> lastWrittenLSN = 0;
+      u64 lastWrittenLSN = 0;
+      State state = State::FREE;
       bool isWB = false;
-      PID pid; //not really necessary we can calculate it usings its offset to dram pointer
+      PID pid; //not really necessary we can calculate it usings its offset to bfs pointer
       // -------------------------------------------------------------------------------------
       OptimisticVersion lock = 0;
    };

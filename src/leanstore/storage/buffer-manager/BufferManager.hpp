@@ -41,8 +41,7 @@ class BufferManager {
       atomic<u64> readers_counter = 0;
    };
 private:
-   u8 *dram;
-   u32 buffer_frame_size;
+   BufferFrame *bfs;
    // -------------------------------------------------------------------------------------
    int ssd_fd;
    io_context_t ssd_aio_context;
@@ -67,14 +66,14 @@ private:
    // -------------------------------------------------------------------------------------
    // Threads managements
    std::vector<pthread_t> threads_handle;
+   BufferFrame &randomBufferFrame();
 public:
    BufferManager();
    ~BufferManager();
    // -------------------------------------------------------------------------------------
-   BufferFrame *getLoadedBF(PID pid);
    BufferFrame &allocatePage();
 
-   BufferFrame &resolveSwip(SharedLock &swip_lock, Swip<BufferFrame> &swip_value);
+   BufferFrame &resolveSwip(SharedGuard &swip_lock, Swip<BufferFrame> &swip_value);
 
    void stopBackgroundThreads();
    /*

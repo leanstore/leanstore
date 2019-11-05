@@ -17,15 +17,15 @@ public:
    }
 };
 // -------------------------------------------------------------------------------------
-class SharedLock;
-class ExclusiveLock;
+class SharedGuard;
+class ExclusiveGuard;
 template<typename T>
 class ReadPageGuard;
 using lock_version_t = u64;
 using OptimisticVersion = atomic<lock_version_t>;
 // -------------------------------------------------------------------------------------
-class SharedLock {
-   friend class ExclusiveLock;
+class SharedGuard {
+   friend class ExclusiveGuard;
    template<typename T>
    friend class PageGuard;
    template<typename T>
@@ -36,12 +36,12 @@ private:
    atomic<u64> *version_ptr = nullptr;
    u64 local_version;
    bool locked = false;
-   SharedLock(atomic<u64> *version_ptr, u64 local_version, bool locked) : version_ptr(version_ptr) , local_version(local_version) , locked(locked) {}
+   SharedGuard(atomic<u64> *version_ptr, u64 local_version, bool locked) : version_ptr(version_ptr), local_version(local_version), locked(locked) {}
 public:
    // -------------------------------------------------------------------------------------
-   SharedLock() = default;
+   SharedGuard() = default;
    // -------------------------------------------------------------------------------------
-   SharedLock(OptimisticVersion &lock)
+   SharedGuard(OptimisticVersion &lock)
            : version_ptr(&lock)
    {
       local_version = version_ptr->load();
@@ -67,12 +67,12 @@ public:
    // -------------------------------------------------------------------------------------
 };
 // -------------------------------------------------------------------------------------
-class ExclusiveLock {
+class ExclusiveGuard {
 private:
-   SharedLock &ref_lock; // our basis
+   SharedGuard &ref_lock; // our basis
 public:
    // -------------------------------------------------------------------------------------
-   ExclusiveLock(SharedLock &shared_lock)
+   ExclusiveGuard(SharedGuard &shared_lock)
            : ref_lock(shared_lock)
    {
       assert(ref_lock.version_ptr != nullptr);
@@ -83,7 +83,7 @@ public:
       ref_lock.local_version = new_version;
    }
    // -------------------------------------------------------------------------------------
-   ~ExclusiveLock()
+   ~ExclusiveGuard()
    {
       assert(ref_lock.version_ptr != nullptr);
       if ( ref_lock.version_ptr != nullptr ) {

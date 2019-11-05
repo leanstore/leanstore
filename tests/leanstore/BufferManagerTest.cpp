@@ -13,7 +13,7 @@ TEST(BufferManager, BTree)
 {
    BMC::start();
    BufferManager &buffer_manager = *BMC::global_bf;
-   buffer_manager.stopBackgroundThreads();
+//   buffer_manager.stopBackgroundThreads();
 
    // BTree
    btree::BTree<uint32_t, uint32_t> btree;

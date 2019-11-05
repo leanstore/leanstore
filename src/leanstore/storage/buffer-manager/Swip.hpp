@@ -45,10 +45,6 @@ public:
    void unswizzle(PID pid) {
       val = pid | unswizzle_bit;
    }
-   BufferFrame &getBufferFrame()
-   {
-      return *reinterpret_cast<BufferFrame *>(val);
-   }
    // -------------------------------------------------------------------------------------
    template<typename T2>
    Swip<T2> &cast() {

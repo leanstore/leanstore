@@ -158,16 +158,11 @@ struct BTree {
 
    BufferManager &buffer_manager;
    // -------------------------------------------------------------------------------------
-   BTree() : buffer_manager(*BMC::global_bf)
+   BTree()
+           : buffer_manager(*BMC::global_bf)
    {
-      while ( true ) {
-         try {
-            auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage();
-            root_swip = root_write_guard.bf;
-            return;
-         } catch ( RestartException e ) {
-         }
-      }
+      auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage();
+      root_swip = root_write_guard.bf;
    }
    // -------------------------------------------------------------------------------------
    void makeRoot(Key k, Swip<BTreeInner<Key>> leftChild, Swip<BTreeInner<Key>> rightChild)
@@ -211,7 +206,7 @@ struct BTree {
                c_guard = ReadPageGuard<BTreeInner<Key>>(p_guard, c_swip);
             }
 
-            ReadPageGuard<BTreeLeaf<Key, Value>> leaf(std::move(c_guard));
+            auto &leaf = c_guard.template cast<BTreeLeaf<Key, Value>>();
             if ( leaf->count == leaf->maxEntries ) {
                auto p_x_guard = WritePageGuard(std::move(p_guard));
                auto c_x_guard = WritePageGuard(std::move(leaf));
@@ -238,10 +233,10 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    bool lookup(Key k, Value &result)
    {
+      auto &root_inner_swip = root_swip.cast<BTreeInner<Key>>();
       while ( true ) {
          try {
             auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
-            Swip<BTreeInner<Key>> root_inner_swip = root_swip;
             ReadPageGuard c_guard(p_guard, root_inner_swip);
             while ( c_guard->type == NodeType::BTreeInner ) {
                int64_t pos = c_guard->lowerBound(k);
@@ -250,14 +245,13 @@ struct BTree {
                p_guard = std::move(c_guard);
                c_guard = ReadPageGuard(p_guard, c_swip);
             }
-            ReadPageGuard<BTreeLeaf<Key, Value>> leaf(std::move(c_guard));
+
+            auto &leaf = c_guard.template cast<BTreeLeaf<Key, Value>>();
             int64_t pos = leaf->lowerBound(k);
             if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
                result = leaf->payloads[pos];
-//               leaf.recheck();
                return true;
             }
-//            leaf.recheck();
             return false;
          } catch ( RestartException e ) {
             restarts_counter++;

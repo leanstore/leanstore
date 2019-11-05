@@ -9,15 +9,15 @@ class WritePageGuard;
 template<typename T>
 class ReadPageGuard {
 protected:
-   ReadPageGuard() {}
+   ReadPageGuard() : moved(true) {}
    ReadPageGuard(OptimisticVersion &swip_version) {
-      bf_s_lock = SharedLock(swip_version);
+      bf_s_lock = SharedGuard(swip_version);
    }
    bool manually_checked = false;
 public:
    bool moved = false;
    BufferFrame *bf = nullptr;
-   SharedLock bf_s_lock;
+   SharedGuard bf_s_lock;
 
    // I: Root case
    static ReadPageGuard makeRootGuard(OptimisticVersion &swip_version)
@@ -30,7 +30,7 @@ public:
       assert(p_guard.moved == false);
       auto &bf_swip = swip.template cast<BufferFrame>();
       bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
-      bf_s_lock = SharedLock(bf->header.lock);
+      bf_s_lock = SharedGuard(bf->header.lock);
       p_guard.recheck();
    }
    // I: Downgrade
@@ -45,19 +45,28 @@ public:
       return *this;
    }
    // Casting helpers
-   template<typename O>
+   template<typename O> // TODO: cast is better, but is it really better ?
    ReadPageGuard(ReadPageGuard<O> &&other)
    {
+      UNREACHABLE();
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
-      bf_s_lock.recheck();
+      bf_s_lock.recheck(); //TODO: do we really need to recheck while casting ?
+      moved = false;
       other.moved = true;
    }
+   // -------------------------------------------------------------------------------------
+   template <typename T2>
+   ReadPageGuard<T2> &cast() {
+      return *reinterpret_cast<ReadPageGuard<T2>*>(this);
+   }
+   // -------------------------------------------------------------------------------------
    ReadPageGuard &operator=(ReadPageGuard &&other)
    {
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
       bf_s_lock.recheck();
+      moved = false;
       other.moved = true;
       return *this;
    }
@@ -94,7 +103,7 @@ protected:
    // Called by the buffer manager when allocating a new page
    WritePageGuard(BufferFrame *bf) {
       ReadGuard::bf = bf;
-      ReadGuard::bf_s_lock = SharedLock(&bf->header.lock, bf->header.lock.load(), true);
+      ReadGuard::bf_s_lock = SharedGuard(&bf->header.lock, bf->header.lock.load(), true);
       ReadGuard::moved = false;
    }
 public:
@@ -108,6 +117,7 @@ public:
       }
       ReadGuard::bf_s_lock.local_version = new_version;
       read_guard.moved = true;
+      ReadGuard::moved = false;
    }
    template<typename... Args>
    static WritePageGuard allocateNewPage(Args &&... args)
