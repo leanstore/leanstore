@@ -154,20 +154,14 @@ BufferFrame &BufferManager::allocatePage()
    return *free_bf;
 }
 // -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::resolveSwip(SharedLock &swip_lock, Swip &swip) // throws RestartException
+BufferFrame &BufferManager::resolveSwip(SharedLock &swip_lock, SwipValue &swip_value) // throws RestartException
 {
-   if ( swip.isSwizzled()) {
-      auto &bf = swip.getBufferFrame();
-      swip_lock.recheck();
-      return bf;
+   if(swip_value.isSwizzled()) {
+      return *reinterpret_cast<BufferFrame*>(swip_value.val);
    }
    global_mutex.lock();
-   if ( swip.isSwizzled()) { // maybe another thread has already fixed it
-      auto &bf = swip.getBufferFrame();
-      swip_lock.recheck();
-      return bf;
-   }
-   CIOFrame &cio_frame = cooling_io_ht.find(swip.asInteger())->second;
+   swip_lock.recheck();
+   CIOFrame &cio_frame = cooling_io_ht.find(swip_value.asPageID())->second;
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
       cio_frame.readers_counter++;
       cio_frame.state = CIOFrame::State::READING;
@@ -180,7 +174,7 @@ BufferFrame &BufferManager::resolveSwip(SharedLock &swip_lock, Swip &swip) // th
       dram_free_bfs.pop();
       reservoir_mutex.unlock();
       // -------------------------------------------------------------------------------------
-      readPageSync(swip.asInteger(), bf.page);
+      readPageSync(swip_value.asPageID(), bf.page);
       // -------------------------------------------------------------------------------------
       // move to cooling stage
       global_mutex.lock();
@@ -205,7 +199,7 @@ BufferFrame &BufferManager::resolveSwip(SharedLock &swip_lock, Swip &swip) // th
             ExclusiveLock x_lock(swip_lock);
             BufferFrame *bf = *cio_frame.fifo_itr;
             cooling_fifo_queue.erase(cio_frame.fifo_itr);
-            swip.swizzle(bf);
+            swip_value.swizzle(bf);
             global_mutex.unlock();
             return *bf;
          } catch ( RestartException e ) {

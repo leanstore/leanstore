@@ -97,7 +97,7 @@ template<class Key>
 struct BTreeInner : public BTreeInnerBase {
    static const u64 maxEntries = ((PAGE_SIZE - sizeof(NodeBase) - sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
 
-   Swip children[maxEntries];
+   Swip<BTreeInner<Key>> children[maxEntries];
    Key keys[maxEntries];
 
    BTreeInner()
@@ -135,14 +135,14 @@ struct BTreeInner : public BTreeInnerBase {
       count = count - new_inner.count - 1;
       sep = keys[count];
       memcpy(new_inner.keys, keys + count + 1, sizeof(Key) * (new_inner.count + 1));
-      memcpy(new_inner.children, children + count + 1, sizeof(Swip) * (new_inner.count + 1));
+      memcpy(new_inner.children, children + count + 1, sizeof(Swip<BTreeInner<Key>>) * (new_inner.count + 1));
    }
 
-   void insert(Key k, Swip child)
+   void insert(Key k, Swip<BTreeInner<Key>> child)
    {
       unsigned pos = lowerBound(k);
       memmove(keys + pos + 1, keys + pos, sizeof(Key) * (count - pos + 1));
-      memmove(children + pos + 1, children + pos, sizeof(Swip) * (count - pos + 1));
+      memmove(children + pos + 1, children + pos, sizeof(Swip<BTreeInner<Key>>) * (count - pos + 1));
       keys[pos] = k;
       children[pos] = child;
       std::swap(children[pos], children[pos + 1]);
@@ -152,7 +152,7 @@ struct BTreeInner : public BTreeInnerBase {
 
 template<class Key, class Value>
 struct BTree {
-   Swip root_swip;
+   Swip<NodeBase> root_swip;
    OptimisticVersion root_lock = 0;
    atomic<u64> restarts_counter = 0; // for debugging
 
@@ -167,14 +167,14 @@ struct BTree {
    void init()
    {
       SharedLock lock(root_lock);
-      auto &root_bf = buffer_manager.resolveSwip(lock, root_swip);
+      auto &root_bf = buffer_manager.resolveSwip(lock, root_swip.value);
       new(root_bf.page.dt) BTreeLeaf<Key, Value>();
    }
    // -------------------------------------------------------------------------------------
-   void makeRoot(Key k, Swip leftChild, Swip rightChild)
+   void makeRoot(Key k, Swip<BTreeInner<Key>> leftChild, Swip<BTreeInner<Key>> rightChild)
    {
       auto new_root_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage();
-      root_swip.swizzle(new_root_inner.bf);
+      root_swip.value.swizzle(new_root_inner.bf);
       new_root_inner->count = 1;
       new_root_inner->keys[0] = k;
       new_root_inner->children[0] = leftChild;
@@ -205,7 +205,7 @@ struct BTree {
                }
                // -------------------------------------------------------------------------------------
                unsigned pos = c_guard->lowerBound(k);
-               Swip &c_swip = c_guard->children[pos];
+               Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
                // -------------------------------------------------------------------------------------
                p_guard = std::move(c_guard);
                c_guard = ReadPageGuard<BTreeInner<Key>>(p_guard, c_swip);
@@ -242,13 +242,12 @@ struct BTree {
          try {
             auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
             ReadPageGuard<BTreeInner<Key>> c_guard(p_guard, root_swip);
-
             while ( c_guard->type == NodeType::BTreeInner ) {
                int64_t pos = c_guard->lowerBound(k);
-               Swip &c_swip = c_guard->children[pos];
+               Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
                // -------------------------------------------------------------------------------------
                p_guard = std::move(c_guard);
-               c_guard = ReadPageGuard<BTreeInner<Key>>(p_guard, c_swip);
+               c_guard = ReadPageGuard(p_guard, c_swip);
             }
             ReadPageGuard<BTreeLeaf<Key, Value>> leaf(std::move(c_guard));
             int64_t pos = leaf->lowerBound(k);

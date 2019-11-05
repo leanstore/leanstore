@@ -9,44 +9,57 @@ namespace leanstore {
 // -------------------------------------------------------------------------------------
 struct BufferFrame; // Forward declaration
 // -------------------------------------------------------------------------------------
-struct Swip {
+struct SwipValue {
    // -------------------------------------------------------------------------------------
    static const u64 unswizzle_bit = u64(1) << 63;
    static const u64 unswizzle_mask = ~(u64(1) << 63);
    static_assert(unswizzle_bit == 0x8000000000000000, "");
    static_assert(unswizzle_mask == 0x7FFFFFFFFFFFFFFF, "");
 public:
-   u64 swizzle_value;
+   u64 val;
    // -------------------------------------------------------------------------------------
-   Swip(u64 pid );
-   template <typename T>
-   Swip(T* ptr ) {
+   SwipValue(u64 pid)
+           : val(pid | unswizzle_bit)
+   {
+   }
+   template<typename T2>
+   SwipValue(T2* ptr ) {
       //exchange
-      swizzle_value = u64(ptr);
+      val = u64(ptr);
    }
-   Swip() : swizzle_value(0) {}
+   SwipValue() : val(0) {}
    // -------------------------------------------------------------------------------------
-   bool isSwizzled();
-   u64 asInteger();
-   u64 asPageID();
-   void swizzle(BufferFrame *);
-   BufferFrame &getBufferFrame();
-   bool operator==(const Swip &other) const
+   bool operator==(const SwipValue &other) const
    {
-      return (swizzle_value == other.swizzle_value);
+      return (val == other.val);
+   }
+   // -------------------------------------------------------------------------------------
+   bool isSwizzled()
+   {
+      return (val & unswizzle_mask);
+   }
+   u64 asInteger() { return val; }
+   u64 asPageID() { return val & unswizzle_mask; }
+   void swizzle(BufferFrame *bf)
+   {
+      val = u64(bf);
+   }
+   void unswizzle(PID pid) {
+      val = pid | unswizzle_bit;
+   }
+   BufferFrame &getBufferFrame()
+   {
+      return *reinterpret_cast<BufferFrame *>(val);
    }
 };
 // -------------------------------------------------------------------------------------
-}
-// -------------------------------------------------------------------------------------
-namespace std {
-template<>
-struct hash<leanstore::Swip> {
-   size_t operator()(const leanstore::Swip &k) const
-   {
-      // Compute individual hash values for two data members and combine them using XOR and bit shifting
-      return hash<u64>()(k.swizzle_value);
+template<typename T>
+struct Swip {
+   SwipValue value;
+   template<typename... Args>
+   Swip(Args &&... args) : value(std::forward<Args>(args)...) {
    }
 };
+// -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------

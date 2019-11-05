@@ -73,7 +73,7 @@ public:
    // -------------------------------------------------------------------------------------
    BufferFrame *getLoadedBF(PID pid);
    BufferFrame &allocatePage();
-   BufferFrame &resolveSwip(SharedLock &swip_lock, Swip &swip);
+   BufferFrame &resolveSwip(SharedLock &swip_lock, SwipValue &swip_value);
    void stopBackgroundThreads();
    /*
     * Life cycle of a fix:
