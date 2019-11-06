@@ -1,6 +1,7 @@
 #pragma once
 #include "Units.hpp"
 #include "Swip.hpp"
+#include "DTRegistry.hpp"
 #include "BufferFrame.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -67,6 +68,9 @@ private:
    // Threads managements
    std::vector<pthread_t> threads_handle;
    BufferFrame &randomBufferFrame();
+   // -------------------------------------------------------------------------------------
+   // Datastructures managements
+   DTRegistry dt_registry;
 public:
    BufferManager();
    ~BufferManager();
@@ -89,6 +93,8 @@ public:
    void writePageAsync(BufferFrame &bf);
    void flush();
    // -------------------------------------------------------------------------------------
+   void registerDatastructureType(DTType type, DTRegistry::CallbackFunctions callback_functions);
+   void registerDatastructureInstance(DTID dtid, DTType type,  void *root_object);
 };
 // -------------------------------------------------------------------------------------
 class BMC {

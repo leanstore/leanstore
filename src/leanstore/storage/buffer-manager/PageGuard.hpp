@@ -9,8 +9,10 @@ class WritePageGuard;
 template<typename T>
 class ReadPageGuard {
 protected:
-   ReadPageGuard() : moved(true) {}
-   ReadPageGuard(OptimisticVersion &swip_version) {
+   ReadPageGuard()
+           : moved(true) {}
+   ReadPageGuard(OptimisticVersion &swip_version)
+   {
       bf_s_lock = SharedGuard(swip_version);
    }
    bool manually_checked = false;
@@ -25,7 +27,7 @@ public:
       return ReadPageGuard(swip_version);
    }
    // I: Lock coupling
-   ReadPageGuard(ReadPageGuard &p_guard, Swip<T> &swip)
+   ReadPageGuard(ReadPageGuard &p_guard, Swip <T> &swip)
    {
       assert(p_guard.moved == false);
       auto &bf_swip = swip.template cast<BufferFrame>();
@@ -45,7 +47,8 @@ public:
       return *this;
    }
    // Casting helpers
-   template<typename O> // TODO: cast is better, but is it really better ?
+   template<typename O>
+   // TODO: cast is better, but is it really better ?
    ReadPageGuard(ReadPageGuard<O> &&other)
    {
       UNREACHABLE();
@@ -56,9 +59,10 @@ public:
       other.moved = true;
    }
    // -------------------------------------------------------------------------------------
-   template <typename T2>
-   ReadPageGuard<T2> &cast() {
-      return *reinterpret_cast<ReadPageGuard<T2>*>(this);
+   template<typename T2>
+   ReadPageGuard<T2> &cast()
+   {
+      return *reinterpret_cast<ReadPageGuard<T2> *>(this);
    }
    // -------------------------------------------------------------------------------------
    ReadPageGuard &operator=(ReadPageGuard &&other)
@@ -76,7 +80,8 @@ public:
       manually_checked = true;
       bf_s_lock.recheck();
    }
-   T &ref() {
+   T &ref()
+   {
       return *reinterpret_cast<T *>(bf->page.dt);
    }
 
@@ -85,12 +90,13 @@ public:
       return reinterpret_cast<T *>(bf->page.dt);
    }
    // Is the bufferframe loaded
-   operator bool() const
+   bool hasBf() const
    {
       return bf != nullptr;
    }
-   ~ReadPageGuard() noexcept(false) {
-      if(!manually_checked && !moved && std::uncaught_exceptions() == 0) {
+   ~ReadPageGuard() noexcept(false)
+   {
+      if ( !manually_checked && !moved && std::uncaught_exceptions() == 0 ) {
          recheck();
       }
    }
@@ -101,14 +107,16 @@ class WritePageGuard : public ReadPageGuard<T> {
    using ReadGuard = ReadPageGuard<T>;
 protected:
    // Called by the buffer manager when allocating a new page
-   WritePageGuard(BufferFrame *bf) {
+   WritePageGuard(BufferFrame *bf)
+   {
       ReadGuard::bf = bf;
       ReadGuard::bf_s_lock = SharedGuard(&bf->header.lock, bf->header.lock.load(), true);
       ReadGuard::moved = false;
    }
 public:
    // I: Upgrade
-   WritePageGuard(ReadGuard &&read_guard) {
+   WritePageGuard(ReadGuard &&read_guard)
+   {
       ReadGuard::bf = read_guard.bf;
       ReadGuard::bf_s_lock = read_guard.bf_s_lock;
       lock_version_t new_version = ReadGuard::bf_s_lock.local_version + 2;
@@ -120,19 +128,21 @@ public:
       ReadGuard::moved = false;
    }
 
-   static WritePageGuard allocateNewPage(DTType dt_type)
+   static WritePageGuard allocateNewPage(DTID dt_id)
    {
       auto bf = &BMC::global_bf->allocatePage();
-      bf->page.dt_type = dt_type;
+      bf->page.dt_id = dt_id;
       return WritePageGuard(bf);
    }
 
    template<typename... Args>
-   void init(Args &&... args) {
-      new (ReadGuard::bf->page.dt) T(std::forward<Args>(args)...);
+   void init(Args &&... args)
+   {
+      new(ReadGuard::bf->page.dt) T(std::forward<Args>(args)...);
    }
-   ~WritePageGuard() {
-      if(!ReadGuard::moved) {
+   ~WritePageGuard()
+   {
+      if ( !ReadGuard::moved ) {
          ReadGuard::bf_s_lock.local_version = 2 + ReadGuard::bf_s_lock.version_ptr->fetch_add(2);
          ReadGuard::moved = true;
       }

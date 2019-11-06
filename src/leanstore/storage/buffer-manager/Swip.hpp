@@ -18,32 +18,37 @@ class Swip {
    static_assert(unswizzle_bit == 0x8000000000000000, "");
    static_assert(unswizzle_mask == 0x7FFFFFFFFFFFFFFF, "");
 public:
-   u64 val;
+   union{
+      u64 pid;
+      BufferFrame *bf;
+   };
    // -------------------------------------------------------------------------------------
    Swip() = default;
-   Swip(BufferFrame *bf) : val(u64(bf)) {}
+   Swip(BufferFrame *bf) : bf(bf) {}
    template<typename T2>
-   Swip(Swip<T2> &other) : val(other.val) {}
+   Swip(Swip<T2> &other) : pid(other.pid) {}
    // -------------------------------------------------------------------------------------
    bool operator==(const Swip &other) const
    {
-      return (val == other.val);
+      return (pid == other.val);
    }
    // -------------------------------------------------------------------------------------
    bool isSwizzled()
    {
-      return (val & unswizzle_mask);
+      return (pid & unswizzle_mask);
    }
-   u64 asInteger() { return val; }
-   u64 asPageID() { return val & unswizzle_mask; }
+   u64 asPageID() { return pid & unswizzle_mask; }
+   BufferFrame& asBufferFrame() {
+      return *bf;
+   }
    // -------------------------------------------------------------------------------------
    template<typename T2>
    void swizzle(T2 *bf)
    {
-      val = u64(bf);
+      this->bf = bf;
    }
    void unswizzle(PID pid) {
-      val = pid | unswizzle_bit;
+      this->pid = pid | unswizzle_bit;
    }
    // -------------------------------------------------------------------------------------
    template<typename T2>

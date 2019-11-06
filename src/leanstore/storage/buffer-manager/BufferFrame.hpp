@@ -2,7 +2,6 @@
 #include "Units.hpp"
 #include "Swip.hpp"
 #include "leanstore/sync-primitives/OptimisticLock.hpp"
-#include "leanstore/storage/catalog/DtRegistry.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
@@ -28,11 +27,11 @@ struct BufferFrame {
    };
    struct alignas(512) Page {
       u64 LSN = 0;
-      DTType dt_type; //INIT: datastructure id TODO
-      u8 dt[ PAGE_SIZE - sizeof(LSN) - sizeof(dt_type)]; // Datastruture
+      u64 dt_id; //INIT: datastructure id TODO
+      u8 dt[ PAGE_SIZE - sizeof(LSN) - sizeof(dt_id)]; // Datastruture BE CAREFUL HERE !!!!!
       // -------------------------------------------------------------------------------------
       operator u8*() {
-         assert(false);
+         return reinterpret_cast<u8*> (this);
       }
       // -------------------------------------------------------------------------------------
    };
@@ -42,7 +41,13 @@ struct BufferFrame {
    struct Page page; // The persisted part
    // -------------------------------------------------------------------------------------
    BufferFrame(PID pid = 0);
+   // -------------------------------------------------------------------------------------
+   bool operator==(const BufferFrame &other) {
+      return this  == &other;
+   }
 };
+// -------------------------------------------------------------------------------------
+static constexpr u64 EFFECTIVE_PAGE_SIZE = sizeof(BufferFrame::Page::dt);
 // -------------------------------------------------------------------------------------
 static_assert((sizeof(BufferFrame) - sizeof(BufferFrame::Page)) == 512, "");
 // -------------------------------------------------------------------------------------

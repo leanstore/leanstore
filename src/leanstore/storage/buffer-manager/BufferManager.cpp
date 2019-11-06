@@ -1,6 +1,7 @@
 #include "BufferManager.hpp"
 #include "BufferFrame.hpp"
 #include "leanstore/random-generator/RandomGenerator.hpp"
+#include "leanstore/storage/btree/BTreeOptimistic.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
@@ -8,12 +9,12 @@
 #include <fcntl.h>
 #include <unistd.h>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(dram_pages, 50 * 1000, "");
+DEFINE_uint32(dram_pages, 10 * 1000, "");
 DEFINE_uint32(ssd_pages, 100 * 1000, "");
 DEFINE_string(ssd_path, "leanstore", "");
 DEFINE_bool(ssd_truncate, true, "");
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(cooling_threshold, 10, "Start cooling pages when 100-x% are free");
+DEFINE_uint32(cooling_threshold, 90, "Start cooling pages when 100-x% are free");
 DEFINE_uint32(background_write_sleep, 10, "us");
 DEFINE_uint32(write_buffer_size, 10, "");
 // -------------------------------------------------------------------------------------
@@ -60,28 +61,48 @@ BufferManager::BufferManager()
       ssd_free_pages.push(pid);
    }
    // -------------------------------------------------------------------------------------
+   // Background threads
    std::thread page_provider_thread([&]() {
       while ( true ) {
          try {
             if ( dram_free_bfs_counter * 100.0 / FLAGS_dram_pages <= FLAGS_cooling_threshold ) {
-               BufferFrame *rand_buffer = &randomBufferFrame();
-               SharedGuard guard(rand_buffer->header.lock);
-               if ( rand_buffer->header.isWB ||
-                    rand_buffer->header.state != BufferFrame::State::HOT ) {
-                  continue;
+               spdlog::info("PageProviderThread: am in");
+               BufferFrame *r_buffer = &randomBufferFrame();
+               while ( r_buffer ) {
+                  SharedGuard r_guard(r_buffer->header.lock);
+                  const bool is_cooling_candidate = r_buffer->header.state == BufferFrame::State::HOT; // && !rand_buffer->header.isWB
+                  if ( !is_cooling_candidate ) {
+                     r_buffer = &randomBufferFrame();
+                     continue;
+                  }
+                  spdlog::info("found a candidate for cooling");
+                  bool picked_a_child_instead = false;
+                  dt_registry.iterateChildrenSwips(r_buffer->page.dt_id,
+                                                   *r_buffer, r_guard, [&](Swip<BufferFrame> &swip) {
+                             if ( swip.isSwizzled()) {
+                                picked_a_child_instead = true;
+                                r_buffer = &swip.asBufferFrame();
+                                r_guard.recheck();
+                                return false;
+                             }
+                             return true;
+                          });
+                  if ( picked_a_child_instead ) {
+                     continue; //restart the inner loop
+                  }
+                  {
+                     ExclusiveGuard r_x_guad(r_guard);
+                     ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer, r_guard);
+                     ExclusiveGuard p_x_guard(parent_handler.guard);
+                     std::lock_guard global_guard(global_mutex);
+                     spdlog::info("PageProviderThread: PID {} gonna get cool", r_buffer->header.pid);
+                     parent_handler.swip.unswizzle(r_buffer->header.pid);
+                     CIOFrame &cio_frame = cooling_io_ht[r_buffer->header.pid];
+                     cio_frame.state = CIOFrame::State::COOLING;
+                     r_buffer->header.state = BufferFrame::State::COLD;
+                  }
+                  break;
                }
-               cout << "found a candidate for cooling" << endl;
-               continue;
-               // TODO: iterate children
-               // TODO: get parent
-               // TODO:
-
-               ExclusiveGuard w_guard(guard);
-               global_mutex.lock();
-               CIOFrame &cio_frame = cooling_io_ht.find(rand_buffer->header.pid)->second;
-               cio_frame.state = CIOFrame::State::COOLING;
-               rand_buffer->header.state = BufferFrame::State::COLD;
-               global_mutex.unlock();
             }
          } catch ( RestartException e ) {
 
@@ -99,12 +120,12 @@ BufferManager::BufferManager()
             BufferFrame &rand_buffer = randomBufferFrame();
             SharedGuard lock(rand_buffer.header.lock);
             const bool is_checkpoint_candidate = rand_buffer.header.state != BufferFrame::State::FREE &&
-                                      rand_buffer.header.lastWrittenLSN != rand_buffer.page.LSN;
+                                                 rand_buffer.header.lastWrittenLSN != rand_buffer.page.LSN;
             if ( is_checkpoint_candidate ) {
-               cout <<"found candidate for checkpoint" << rand_buffer.header.lastWrittenLSN << " " << rand_buffer.page.LSN << endl;
+               cout << "found candidate for checkpoint" << rand_buffer.header.lastWrittenLSN << " " << rand_buffer.page.LSN << endl;
                ExclusiveGuard x_lock(lock);
                writePageAsync(rand_buffer);
-               cout <<"async submitted" << endl;
+               cout << "async submitted" << endl;
             }
             usleep(FLAGS_background_write_sleep);
          } catch ( RestartException e ) {
@@ -194,9 +215,10 @@ BufferFrame &BufferManager::allocatePage()
 BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_lock, Swip<BufferFrame> &swip_value) // throws RestartException
 {
    if ( swip_value.isSwizzled()) {
-      return *reinterpret_cast<BufferFrame *>(swip_value.val);
+      return swip_value.asBufferFrame();
    }
    global_mutex.lock();
+   spdlog::info("WorkerThread: checking the CIOTable");
    swip_lock.recheck();
    CIOFrame &cio_frame = cooling_io_ht.find(swip_value.asPageID())->second;
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
@@ -211,10 +233,10 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_lock, Swip<BufferFrame
       dram_free_bfs.pop();
       reservoir_mutex.unlock();
       // -------------------------------------------------------------------------------------
-      readPageSync(swip_value.asPageID(), bf.page.dt);
+      readPageSync(swip_value.asPageID(), bf.page);
       bf.header.lastWrittenLSN = bf.page.LSN;
       // -------------------------------------------------------------------------------------
-      // move to cooling stage
+      // Move to cooling stage
       global_mutex.lock();
       cio_frame.state = CIOFrame::State::COOLING;
       cooling_fifo_queue.push_back(&bf);
@@ -289,6 +311,18 @@ void BufferManager::writePageAsync(BufferFrame &bf)
 void BufferManager::flush()
 {
    fdatasync(ssd_fd);
+}
+// -------------------------------------------------------------------------------------
+// Datastructures management
+// -------------------------------------------------------------------------------------
+void BufferManager::registerDatastructureType(leanstore::DTType type, leanstore::DTRegistry::CallbackFunctions callback_functions)
+{
+   dt_registry.callbacks_ht.insert({type, callback_functions});
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::registerDatastructureInstance(DTID dtid, leanstore::DTType type, void *root_object)
+{
+   dt_registry.dt_meta_ht.insert({dtid, {type, root_object}});
 }
 // -------------------------------------------------------------------------------------
 unique_ptr<BufferManager> BMC::global_bf(nullptr);

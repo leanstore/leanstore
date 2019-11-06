@@ -26,7 +26,7 @@ struct BTreeLeafBase : public NodeBase {
 using Node = NodeBase;
 template<class Key, class Payload>
 struct BTreeLeaf : public BTreeLeafBase {
-   static const u64 maxEntries = ((sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
+   static const u64 maxEntries = ((EFFECTIVE_PAGE_SIZE) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
    Key keys[maxEntries];
    Payload payloads[maxEntries];
 
@@ -95,7 +95,7 @@ struct BTreeInnerBase : public NodeBase {
 
 template<class Key>
 struct BTreeInner : public BTreeInnerBase {
-   static const u64 maxEntries = ((sizeof(BufferFrame::Page)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
+   static const u64 maxEntries = ((EFFECTIVE_PAGE_SIZE) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
 
    Swip<BTreeInner<Key>> children[maxEntries];
    Key keys[maxEntries];
@@ -155,20 +155,21 @@ struct BTree {
    Swip<NodeBase> root_swip;
    OptimisticVersion root_lock = 0;
    atomic<u64> restarts_counter = 0; // for debugging
-
    BufferManager &buffer_manager;
+   const DTID dtid;
    // -------------------------------------------------------------------------------------
    BTree()
            : buffer_manager(*BMC::global_bf)
+             , dtid(0) // TODO: dtid
    {
-      auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(DTType::BTREE);
+      auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
       root_write_guard.init();
       root_swip = root_write_guard.bf;
    }
    // -------------------------------------------------------------------------------------
    void makeRoot(Key k, Swip<BTreeInner<Key>> leftChild, Swip<BTreeInner<Key>> rightChild)
    {
-      auto new_root_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage(DTType::BTREE);
+      auto new_root_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage(dtid);
       new_root_inner.init();
       root_swip.swizzle(new_root_inner.bf);
       new_root_inner->count = 1;
@@ -191,10 +192,10 @@ struct BTree {
                   auto p_x_guard = WritePageGuard(std::move(p_guard));
                   auto c_x_guard = WritePageGuard(std::move(c_guard));
                   Key sep;
-                  auto new_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage(DTType::BTREE);
+                  auto new_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage(dtid);
                   new_inner.init();
                   c_guard->split(sep, new_inner.ref());
-                  if ( p_guard )
+                  if ( p_guard.hasBf())
                      p_guard->insert(sep, new_inner.bf);
                   else
                      makeRoot(sep, c_guard.bf, new_inner.bf);
@@ -215,10 +216,10 @@ struct BTree {
                auto c_x_guard = WritePageGuard(std::move(leaf));
                // Leaf is full, split it
                Key sep;
-               auto new_leaf = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(DTType::BTREE);
+               auto new_leaf = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
                new_leaf.init();
                leaf->split(sep, new_leaf.ref());
-               if ( p_guard )
+               if ( p_guard.hasBf())
                   p_guard->insert(sep, new_leaf.bf);
                else
                   makeRoot(sep, leaf.bf, new_leaf.bf);
@@ -266,6 +267,60 @@ struct BTree {
    {
       cout << "restarts counter = " << restarts_counter << endl;
    }
+   // -------------------------------------------------------------------------------------
+   static void iterateChildSwips(void *btree_object, BufferFrame &bf, SharedGuard &guard, std::function<bool(Swip<BufferFrame> &)> callback)
+   {
+      auto c_node = reinterpret_cast<NodeBase *>(bf.page.dt);
+      if ( c_node->type == NodeType::BTreeLeaf ) {
+         return;
+      }
+      auto inner_node = reinterpret_cast<BTreeInner<Key> *>(bf.page.dt);
+      for ( auto s_i = 0; s_i < inner_node->count; s_i++ ) {
+         if ( !callback(inner_node->children[s_i].template cast<BufferFrame>())) {
+            return;
+         }
+      }
+   }
+   // -------------------------------------------------------------------------------------
+   static ParentSwipHandler findParent(void *btree_object, BufferFrame &bf, SharedGuard &guard)
+   {
+      auto c_node = reinterpret_cast<NodeBase *>(bf.page.dt);
+      Key k;
+      if ( c_node->type == NodeType::BTreeLeaf ) {
+         k = reinterpret_cast<BTreeInner<Key> *>(c_node)->keys[0];
+      } else {
+         k = reinterpret_cast<BTreeLeaf<Key, Value> *>(c_node)->keys[0];
+      }
+      auto &btree = *reinterpret_cast<BTree<Key, Value> *>(btree_object);
+      {
+         auto &root_inner_swip = btree.root_swip.template cast<BTreeInner<Key>>();
+         Swip<BufferFrame> *last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
+         auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(btree.root_lock);
+         if ( last_accessed_swip->asBufferFrame() == bf ) {
+            return {
+                    .swip = *last_accessed_swip, .guard = p_guard.bf_s_lock
+            };
+         }
+         ReadPageGuard c_guard(p_guard, root_inner_swip);
+         while ( c_guard->type == NodeType::BTreeInner ) {
+            int64_t pos = c_guard->lowerBound(k);
+            Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
+            // -------------------------------------------------------------------------------------
+            last_accessed_swip = &c_swip.template cast<BufferFrame>();
+            if ( last_accessed_swip->asBufferFrame() == bf ) {
+               return {
+                       .swip = *last_accessed_swip, .guard = c_guard.bf_s_lock
+               };
+            }
+            // -------------------------------------------------------------------------------------
+            p_guard = std::move(c_guard);
+            c_guard = ReadPageGuard(p_guard, c_swip);
+         }
+         UNREACHABLE();
+      }
+   }
 };
+
+// -------------------------------------------------------------------------------------
 }
 }
