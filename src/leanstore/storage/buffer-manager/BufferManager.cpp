@@ -3,6 +3,7 @@
 #include "leanstore/random-generator/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
 // -------------------------------------------------------------------------------------
 #include <fcntl.h>
 #include <unistd.h>
@@ -52,7 +53,7 @@ BufferManager::BufferManager()
    }
    // -------------------------------------------------------------------------------------
    for ( u64 bf_i = 0; bf_i < FLAGS_dram_pages; bf_i++ ) {
-      dram_free_bfs.push(new(bfs + (bf_i * sizeof(BufferFrame))) BufferFrame());
+      dram_free_bfs.push(new(bfs + bf_i) BufferFrame());
    }
    for ( u64 pid = 0; pid < FLAGS_ssd_pages; pid++ ) {
       cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple());
@@ -69,15 +70,17 @@ BufferManager::BufferManager()
                     rand_buffer->header.state != BufferFrame::State::HOT ) {
                   continue;
                }
+               cout << "found a candidate for cooling" << endl;
+               continue;
                // TODO: iterate children
                // TODO: get parent
                // TODO:
 
                ExclusiveGuard w_guard(guard);
                global_mutex.lock();
-               CIOFrame &cio_frame = cooling_io_ht.find(rand_buffer.header.pid)->second;
+               CIOFrame &cio_frame = cooling_io_ht.find(rand_buffer->header.pid)->second;
                cio_frame.state = CIOFrame::State::COOLING;
-               rand_buffer.header.state = BufferFrame::State::COLD;
+               rand_buffer->header.state = BufferFrame::State::COLD;
                global_mutex.unlock();
             }
          } catch ( RestartException e ) {
@@ -95,9 +98,13 @@ BufferManager::BufferManager()
          try {
             BufferFrame &rand_buffer = randomBufferFrame();
             SharedGuard lock(rand_buffer.header.lock);
-            if ( rand_buffer.header.lastWrittenLSN != rand_buffer.page.LSN ) {
+            const bool is_checkpoint_candidate = rand_buffer.header.state != BufferFrame::State::FREE &&
+                                      rand_buffer.header.lastWrittenLSN != rand_buffer.page.LSN;
+            if ( is_checkpoint_candidate ) {
+               cout <<"found candidate for checkpoint" << rand_buffer.header.lastWrittenLSN << " " << rand_buffer.page.LSN << endl;
                ExclusiveGuard x_lock(lock);
                writePageAsync(rand_buffer);
+               cout <<"async submitted" << endl;
             }
             usleep(FLAGS_background_write_sleep);
          } catch ( RestartException e ) {
@@ -130,6 +137,7 @@ BufferManager::BufferManager()
                         bf->header.isWB = false;
                         const u64 written_lsn = reinterpret_cast<BufferFrame::Page *>(page_buffer)->LSN;
                         if ( bf->header.lastWrittenLSN < written_lsn ) {
+                           spdlog::info("written_lsn = {}", written_lsn);
                            bf->header.lastWrittenLSN = written_lsn;
                         }
                         write_buffer_free_slots.push_front(write_buffer_slot);
@@ -171,13 +179,15 @@ BufferFrame &BufferManager::allocatePage()
    ssd_free_pages.pop();
    auto free_bf = dram_free_bfs.front();
    // -------------------------------------------------------------------------------------
+   // Initialize Buffer Frame
+   free_bf->header.pid = free_pid;
    free_bf->header.lock = 2; // Write lock
    free_bf->header.state = BufferFrame::State::HOT;
+   free_bf->header.lastWrittenLSN = free_bf->page.LSN;
    // -------------------------------------------------------------------------------------
    dram_free_bfs.pop();
    dram_free_bfs_counter--;
    // -------------------------------------------------------------------------------------
-   free_bf->header.pid = free_pid;
    return *free_bf;
 }
 // -------------------------------------------------------------------------------------
@@ -201,7 +211,8 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_lock, Swip<BufferFrame
       dram_free_bfs.pop();
       reservoir_mutex.unlock();
       // -------------------------------------------------------------------------------------
-      readPageSync(swip_value.asPageID(), bf.page);
+      readPageSync(swip_value.asPageID(), bf.page.dt);
+      bf.header.lastWrittenLSN = bf.page.LSN;
       // -------------------------------------------------------------------------------------
       // move to cooling stage
       global_mutex.lock();
@@ -253,6 +264,7 @@ void BufferManager::writePageAsync(BufferFrame &bf)
    auto src = reinterpret_cast<u8 *>(&bf.page);
    assert(u64(src) % 512 == 0);
    if ( write_buffer_free_slots.size() == 0 ) {
+      ssd_aio_mutex.unlock();
       throw RestartException();
    }
    auto buffer_slot = write_buffer_free_slots.front();
@@ -296,8 +308,7 @@ void BufferManager::stopBackgroundThreads()
 BufferManager::~BufferManager()
 {
    stopBackgroundThreads();
-   u32 dram_page_size = PAGE_SIZE + sizeof(BufferFrame);
-   const u32 dram_total_size = dram_page_size * FLAGS_dram_pages;
+   const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram_pages);
    munmap(bfs, dram_total_size);
    close(ssd_fd);
    ssd_fd = -1;

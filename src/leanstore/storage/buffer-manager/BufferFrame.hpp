@@ -2,6 +2,7 @@
 #include "Units.hpp"
 #include "Swip.hpp"
 #include "leanstore/sync-primitives/OptimisticLock.hpp"
+#include "leanstore/storage/catalog/DtRegistry.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
@@ -20,19 +21,20 @@ struct BufferFrame {
    struct Header {
       // TODO: for logging
       u64 lastWrittenLSN = 0;
-      State state = State::FREE;
+      State state = State::FREE; // INIT:
       bool isWB = false;
-      PID pid; //not really necessary we can calculate it usings its offset to bfs pointer
-      // -------------------------------------------------------------------------------------
-      OptimisticVersion lock = 0;
+      PID pid; // INIT:
+      OptimisticVersion lock = 0;  // INIT:
    };
    struct alignas(512) Page {
       u64 LSN = 0;
-      u32 dt_id; //datastructure id TODO
-      u8 dt[ PAGE_SIZE - sizeof(LSN) - sizeof(dt_id)]; // Datastruture
+      DTType dt_type; //INIT: datastructure id TODO
+      u8 dt[ PAGE_SIZE - sizeof(LSN) - sizeof(dt_type)]; // Datastruture
+      // -------------------------------------------------------------------------------------
       operator u8*() {
-         return reinterpret_cast<u8*>(this);
+         assert(false);
       }
+      // -------------------------------------------------------------------------------------
    };
    // -------------------------------------------------------------------------------------
    struct Header header;

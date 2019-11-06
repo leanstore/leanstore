@@ -161,13 +161,15 @@ struct BTree {
    BTree()
            : buffer_manager(*BMC::global_bf)
    {
-      auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage();
+      auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(DTType::BTREE);
+      root_write_guard.init();
       root_swip = root_write_guard.bf;
    }
    // -------------------------------------------------------------------------------------
    void makeRoot(Key k, Swip<BTreeInner<Key>> leftChild, Swip<BTreeInner<Key>> rightChild)
    {
-      auto new_root_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage();
+      auto new_root_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage(DTType::BTREE);
+      new_root_inner.init();
       root_swip.swizzle(new_root_inner.bf);
       new_root_inner->count = 1;
       new_root_inner->keys[0] = k;
@@ -189,7 +191,8 @@ struct BTree {
                   auto p_x_guard = WritePageGuard(std::move(p_guard));
                   auto c_x_guard = WritePageGuard(std::move(c_guard));
                   Key sep;
-                  auto new_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage();
+                  auto new_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage(DTType::BTREE);
+                  new_inner.init();
                   c_guard->split(sep, new_inner.ref());
                   if ( p_guard )
                      p_guard->insert(sep, new_inner.bf);
@@ -212,7 +215,8 @@ struct BTree {
                auto c_x_guard = WritePageGuard(std::move(leaf));
                // Leaf is full, split it
                Key sep;
-               auto new_leaf = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage();
+               auto new_leaf = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(DTType::BTREE);
+               new_leaf.init();
                leaf->split(sep, new_leaf.ref());
                if ( p_guard )
                   p_guard->insert(sep, new_leaf.bf);

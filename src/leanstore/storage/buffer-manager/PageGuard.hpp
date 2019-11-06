@@ -119,14 +119,18 @@ public:
       read_guard.moved = true;
       ReadGuard::moved = false;
    }
-   template<typename... Args>
-   static WritePageGuard allocateNewPage(Args &&... args)
+
+   static WritePageGuard allocateNewPage(DTType dt_type)
    {
       auto bf = &BMC::global_bf->allocatePage();
-      new(bf->page.dt) T(std::forward<Args>(args)...);
+      bf->page.dt_type = dt_type;
       return WritePageGuard(bf);
    }
 
+   template<typename... Args>
+   void init(Args &&... args) {
+      new (ReadGuard::bf->page.dt) T(std::forward<Args>(args)...);
+   }
    ~WritePageGuard() {
       if(!ReadGuard::moved) {
          ReadGuard::bf_s_lock.local_version = 2 + ReadGuard::bf_s_lock.version_ptr->fetch_add(2);

@@ -1,6 +1,7 @@
 #pragma once
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
-enum class DTType {
+enum class DTType : u8 {
    BTREE,
    LSM
 };

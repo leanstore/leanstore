@@ -27,8 +27,6 @@ using OptimisticVersion = atomic<lock_version_t>;
 class SharedGuard {
    friend class ExclusiveGuard;
    template<typename T>
-   friend class PageGuard;
-   template<typename T>
    friend class ReadPageGuard;
    template<typename T>
    friend class WritePageGuard;
