@@ -35,7 +35,7 @@ public:
    // -------------------------------------------------------------------------------------
    bool isSwizzled()
    {
-      return (pid & unswizzle_mask);
+      return !(pid & unswizzle_bit);
    }
    u64 asPageID() { return pid & unswizzle_mask; }
    BufferFrame& asBufferFrame() {

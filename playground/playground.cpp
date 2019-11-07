@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cassert>
 using namespace std;
 void callback(char *payload, uint8_t command) {
    cout << *payload << endl;
@@ -44,13 +45,27 @@ public:
       cout << IA<T>::x << endl;
    }
 };
+
+struct Tata {
+   Tata(){
+      cout <<"contructor" << endl;
+      throw exception();
+   }
+   ~Tata() {
+      cout <<"decontructor" << endl;
+   }
+};
 int main(int argc, char **argv) {
 //   A a(1), b(2);
 //   A c(3);
 //   c = a;
 //   c = std::move(a);
 //   c = std::move(a);
-
    IB<char> ib(20);
+   try {
+      Tata a;
+   } catch(exception e) {
+
+   }
    return 0;
 }

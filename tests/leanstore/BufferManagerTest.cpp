@@ -17,7 +17,9 @@ TEST(BufferManager, BTree)
 
    // BTree
    btree::BTree<uint32_t, uint32_t> btree;
-   DTRegistry::CallbackFunctions btree_callback_funcs = {.iterate_childern=btree.iterateChildSwips, .find_parent = btree.findParent};
+   DTRegistry::CallbackFunctions btree_callback_funcs = {
+           .iterate_childern=btree.iterateChildSwips, .find_parent = btree.findParent
+   };
    buffer_manager.registerDatastructureType(DTType::BTREE, btree_callback_funcs);
    buffer_manager.registerDatastructureInstance(0, DTType::BTREE, &btree);
 
@@ -92,9 +94,7 @@ TEST(BufferManager, BTree)
          });
       }
    }
-   cout << "Main thread sleep" << endl;
-   sleep(5);
-   buffer_manager.stopBackgroundThreads();
+   BMC::global_bf.reset(nullptr);
 }
 // -------------------------------------------------------------------------------------
 }

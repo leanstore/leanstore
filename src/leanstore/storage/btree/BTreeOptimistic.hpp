@@ -185,6 +185,7 @@ struct BTree {
          try {
             auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
             ReadPageGuard c_guard(p_guard, root_inner_swip);
+            assert((c_guard.bf_s_lock.local_version & 2) != 2);
             while ( c_guard->type == NodeType::BTreeInner ) {
                // -------------------------------------------------------------------------------------
                if ( c_guard->count == c_guard->maxEntries - 1 ) {
@@ -206,8 +207,11 @@ struct BTree {
                unsigned pos = c_guard->lowerBound(k);
                Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
                // -------------------------------------------------------------------------------------
+               assert((c_guard.bf_s_lock.local_version & 2) == 0);
                p_guard = std::move(c_guard);
+               assert((p_guard.bf_s_lock.local_version & 2) == 0);
                c_guard = ReadPageGuard<BTreeInner<Key>>(p_guard, c_swip);
+               assert((c_guard.bf_s_lock.local_version & 2) == 0);
             }
 
             auto &leaf = c_guard.template cast<BTreeLeaf<Key, Value>>();
@@ -287,16 +291,19 @@ struct BTree {
       auto c_node = reinterpret_cast<NodeBase *>(bf.page.dt);
       Key k;
       if ( c_node->type == NodeType::BTreeLeaf ) {
-         k = reinterpret_cast<BTreeInner<Key> *>(c_node)->keys[0];
-      } else {
          k = reinterpret_cast<BTreeLeaf<Key, Value> *>(c_node)->keys[0];
+      } else {
+         k = reinterpret_cast<BTreeInner<Key> *>(c_node)->keys[0];
       }
+      // -------------------------------------------------------------------------------------
       auto &btree = *reinterpret_cast<BTree<Key, Value> *>(btree_object);
       {
          auto &root_inner_swip = btree.root_swip.template cast<BTreeInner<Key>>();
          Swip<BufferFrame> *last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
          auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(btree.root_lock);
-         if ( last_accessed_swip->asBufferFrame() == bf ) {
+
+         if ( last_accessed_swip->bf == &bf ) {
+            p_guard.recheck();
             return {
                     .swip = *last_accessed_swip, .guard = p_guard.bf_s_lock
             };
@@ -307,7 +314,8 @@ struct BTree {
             Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
             // -------------------------------------------------------------------------------------
             last_accessed_swip = &c_swip.template cast<BufferFrame>();
-            if ( last_accessed_swip->asBufferFrame() == bf ) {
+            if ( last_accessed_swip->bf == &bf ) {
+               c_guard.recheck();
                return {
                        .swip = *last_accessed_swip, .guard = c_guard.bf_s_lock
                };
@@ -316,7 +324,7 @@ struct BTree {
             p_guard = std::move(c_guard);
             c_guard = ReadPageGuard(p_guard, c_swip);
          }
-         UNREACHABLE();
+         throw RestartException();
       }
    }
 };

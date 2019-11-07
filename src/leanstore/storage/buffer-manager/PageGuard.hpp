@@ -31,6 +31,7 @@ public:
    {
       assert(p_guard.moved == false);
       auto &bf_swip = swip.template cast<BufferFrame>();
+      assert((p_guard.bf_s_lock.local_version & 2) == 0);
       bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
       bf_s_lock = SharedGuard(bf->header.lock);
       p_guard.recheck();
@@ -72,6 +73,7 @@ public:
       bf_s_lock.recheck();
       moved = false;
       other.moved = true;
+      assert((bf_s_lock.local_version & 2) != 2);
       return *this;
    }
 
@@ -104,28 +106,29 @@ public:
 // -------------------------------------------------------------------------------------
 template<typename T>
 class WritePageGuard : public ReadPageGuard<T> {
-   using ReadGuard = ReadPageGuard<T>;
+   using ParentClass = ReadPageGuard<T>;
 protected:
    // Called by the buffer manager when allocating a new page
    WritePageGuard(BufferFrame *bf)
    {
-      ReadGuard::bf = bf;
-      ReadGuard::bf_s_lock = SharedGuard(&bf->header.lock, bf->header.lock.load(), true);
-      ReadGuard::moved = false;
+      ParentClass::bf = bf;
+      ParentClass::bf_s_lock = SharedGuard(&bf->header.lock, bf->header.lock.load(), true);
+      ParentClass::moved = false;
    }
 public:
    // I: Upgrade
-   WritePageGuard(ReadGuard &&read_guard)
+   WritePageGuard(ParentClass &&read_guard)
    {
-      ReadGuard::bf = read_guard.bf;
-      ReadGuard::bf_s_lock = read_guard.bf_s_lock;
-      lock_version_t new_version = ReadGuard::bf_s_lock.local_version + 2;
-      if ( !std::atomic_compare_exchange_strong(ReadGuard::bf_s_lock.version_ptr, &ReadGuard::bf_s_lock.local_version, new_version)) {
+      read_guard.recheck();
+      ParentClass::bf = read_guard.bf;
+      ParentClass::bf_s_lock = read_guard.bf_s_lock;
+      lock_version_t new_version = ParentClass::bf_s_lock.local_version + 2;
+      if ( !std::atomic_compare_exchange_strong(ParentClass::bf_s_lock.version_ptr, &ParentClass::bf_s_lock.local_version, new_version)) {
          throw RestartException();
       }
-      ReadGuard::bf_s_lock.local_version = new_version;
+      ParentClass::bf_s_lock.local_version = new_version;
       read_guard.moved = true;
-      ReadGuard::moved = false;
+      ParentClass::moved = false;
    }
 
    static WritePageGuard allocateNewPage(DTID dt_id)
@@ -138,13 +141,14 @@ public:
    template<typename... Args>
    void init(Args &&... args)
    {
-      new(ReadGuard::bf->page.dt) T(std::forward<Args>(args)...);
+      new(ParentClass::bf->page.dt) T(std::forward<Args>(args)...);
    }
    ~WritePageGuard()
    {
-      if ( !ReadGuard::moved ) {
-         ReadGuard::bf_s_lock.local_version = 2 + ReadGuard::bf_s_lock.version_ptr->fetch_add(2);
-         ReadGuard::moved = true;
+      if ( !ParentClass::moved ) {
+         assert((ParentClass::bf_s_lock.local_version & 2) == 2);
+         ParentClass::bf_s_lock.local_version = 2 + ParentClass::bf_s_lock.version_ptr->fetch_add(2);
+         ParentClass::moved = true;
       }
    }
 };

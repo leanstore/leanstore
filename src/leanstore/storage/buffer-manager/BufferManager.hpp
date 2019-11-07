@@ -26,6 +26,10 @@ namespace leanstore {
  *    a- increment counter,
  */
 class BufferManager {
+   struct Stats {
+      atomic<u64> swizzled_pages_counter = 0;
+      atomic<u64> unswizzled_pages_counter = 0;
+   };
    struct CIOFrame {
       enum class State {
          READING,
@@ -66,18 +70,22 @@ private:
    std::unordered_map<PID, CIOFrame> cooling_io_ht;
    // -------------------------------------------------------------------------------------
    // Threads managements
-   std::vector<pthread_t> threads_handle;
-   BufferFrame &randomBufferFrame();
+   atomic<u64> bg_threads_counter = 0;
+   atomic<bool> bg_threads_keep_running = true;
    // -------------------------------------------------------------------------------------
    // Datastructures managements
    DTRegistry dt_registry;
+   // -------------------------------------------------------------------------------------
+   // Misc
+   BufferFrame &randomBufferFrame();
+   Stats stats;
 public:
    BufferManager();
    ~BufferManager();
    // -------------------------------------------------------------------------------------
    BufferFrame &allocatePage();
 
-   BufferFrame &resolveSwip(SharedGuard &swip_lock, Swip<BufferFrame> &swip_value);
+   BufferFrame &resolveSwip(SharedGuard &swip_guard, Swip<BufferFrame> &swip_value);
 
    void stopBackgroundThreads();
    /*

@@ -300,17 +300,6 @@ struct BTree {
            goto insert_start;
        }
       // -------------------------------------------------------------------------------------
-      if(rand() % 10 >=8){
-
-         writeUnlock(*node);
-         if (parent_node) {
-            writeUnlock(*parent_node);
-         } else {
-            writeUnlock(root_lock);
-         }
-         goto insert_start;
-      }
-      // -------------------------------------------------------------------------------------
       leaf->insert(k, v);
 
        writeUnlock(*node);
