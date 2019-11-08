@@ -147,6 +147,9 @@ public:
    {
       if ( !ParentClass::moved ) {
          assert((ParentClass::bf_s_lock.local_version & 2) == 2);
+         if(ParentClass::hasBf()) {
+            ParentClass::bf->page.LSN++; // TODO: LSN
+         }
          ParentClass::bf_s_lock.local_version = 2 + ParentClass::bf_s_lock.version_ptr->fetch_add(2);
          ParentClass::moved = true;
       }

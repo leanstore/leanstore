@@ -45,6 +45,8 @@ struct BufferFrame {
    bool operator==(const BufferFrame &other) {
       return this  == &other;
    }
+   // -------------------------------------------------------------------------------------
+   bool isDirty() const;
 };
 // -------------------------------------------------------------------------------------
 static constexpr u64 EFFECTIVE_PAGE_SIZE = sizeof(BufferFrame::Page::dt);

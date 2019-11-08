@@ -49,10 +49,10 @@ private:
    BufferFrame *bfs;
    // -------------------------------------------------------------------------------------
    int ssd_fd;
-   io_context_t ssd_aio_context;
    std::mutex ssd_aio_mutex;
    std::list<u64> write_buffer_free_slots;
    std::unique_ptr<u8[]> write_buffer;
+   // IOKey -> {WriteBufferSlot, BF*}
    std::unordered_map<uint32_t, std::tuple<u64, BufferFrame*>> ssd_aio_ht;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
