@@ -125,6 +125,7 @@ TEST(BufferManager, Persistence)
       }
       // lookup
       buffer_manager->flushDropAllPages();
+      EXPECT_FALSE(btree.root_swip.isSwizzled());
       {
          PerfEventBlock b(e, n);
          e.setParam("workload", "lookup");
