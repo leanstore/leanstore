@@ -67,7 +67,7 @@ BufferManager::BufferManager()
       // -------------------------------------------------------------------------------------
       // Init AIO Context
       // TODO: own variable for page provider write buffer size
-      AsyncWriteBuffer async_write_buffer(PAGE_SIZE, FLAGS_write_buffer_size, ssd_fd);
+      AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size);
       // -------------------------------------------------------------------------------------
       BufferFrame *r_buffer = &randomBufferFrame();
       bool to_cooling_stage = 1;
@@ -124,25 +124,35 @@ BufferManager::BufferManager()
             } else { // out of the cooling stage
                // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
                std::unique_lock g_guard(global_mutex);
-               std::lock_guard reservoir_guard(reservoir_mutex);
                //TODO: other variable than async_batch_size
                u64 n_to_process_bfs = std::min(cooling_fifo_queue.size(), size_t(FLAGS_async_batch_size));
                auto bf_itr = cooling_fifo_queue.begin();
-               while ( bf_itr != cooling_fifo_queue.end() ) {
+               for ( auto i = 0; i < n_to_process_bfs; i++ ) {
                   BufferFrame &bf = **bf_itr;
-                  auto next_bf_tr = bf_itr.e;
+                  auto next_bf_tr = std::next(bf_itr, 1);
+                  PID pid = bf.header.pid;
                   // TODO: can we write multiple  versions sim ?
-                  // TODO: current implemetnation assume that checkpoint thread does not touch the
+                  // TODO: current implementation assume that checkpoint thread does not touch the
                   // the cooled pages
                   if ( bf.header.isWB == false ) {
                      if ( !bf.isDirty()) {
+                        std::lock_guard reservoir_guard(reservoir_mutex);
                         // Reclaim buffer frame
-                        cooling_fifo_queue.erase(bf_itr++);
-                        cooling_io_ht[bf.header.pid].state = CIOFrame::State::NOT_LOADED;
+                        CIOFrame &cio_frame = cooling_io_ht[pid];
+                        assert(cio_frame.state == CIOFrame::State::COOLING);
+                        cooling_fifo_queue.erase(bf_itr);
+                        cio_frame.state = CIOFrame::State::NOT_LOADED;
+                        // -------------------------------------------------------------------------------------
+                        bf.header.state = BufferFrame::State::FREE;
+                        bf.header.pid = 0;
+                        bf.header.isWB = false;
+                        // -------------------------------------------------------------------------------------
                         dram_free_bfs.push(&bf);
                         dram_free_bfs_counter++;
                      } else {
                         //TODO: optimize this path: an array for shared/ex guards and writeasync out of the global lock
+                        bf.header.isWB = true;
+                        bf.page.magic_debugging_number = pid;
                         async_write_buffer.add(bf);
                      }
                   }
@@ -150,12 +160,16 @@ BufferManager::BufferManager()
                }
                g_guard.unlock();
                async_write_buffer.submitIfNecessary([&](BufferFrame &written_bf, u64 written_lsn) {
-                  while ( true ) {
+                  while ( bg_threads_keep_running && true ) {
                      try {
                         SharedGuard guard(written_bf.header.lock);
                         ExclusiveGuard x_guard(guard);
+                        assert(written_bf.header.isWB == true);
                         written_bf.header.lastWrittenLSN = written_lsn;
                         written_bf.header.isWB = false;
+                        // -------------------------------------------------------------------------------------
+                        stats.flushed_pages_counter++;
+                        return;
                      } catch ( RestartException e ) {
                      }
                   }
@@ -235,7 +249,7 @@ BufferFrame &BufferManager::allocatePage()
    free_bf->header.pid = free_pid;
    free_bf->header.lock = 2; // Write lock
    free_bf->header.state = BufferFrame::State::HOT;
-   free_bf->header.lastWrittenLSN = free_bf->page.LSN;
+   free_bf->header.lastWrittenLSN = free_bf->page.LSN = 0;
    // -------------------------------------------------------------------------------------
    dram_free_bfs.pop();
    dram_free_bfs_counter--;
@@ -251,11 +265,12 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
       swip_guard.recheck();
       return bf;
    }
-   logger->info("WorkerThread: checking the CIOTable for pid {}", swip_value.asPageID());
    std::unique_lock g_guard(global_mutex);
+   const PID pid = swip_value.asPageID();
+   logger->info("WorkerThread: checking the CIOTable for pid {}", pid);
    swip_guard.recheck();
    assert(!swip_value.isSwizzled());
-   CIOFrame &cio_frame = cooling_io_ht.find(swip_value.asPageID())->second;
+   CIOFrame &cio_frame = cooling_io_ht[pid];
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
       logger->info("WorkerThread::resolveSwip:not loaded state");
       cio_frame.readers_counter++;
@@ -269,14 +284,21 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
       dram_free_bfs.pop();
       reservoir_mutex.unlock();
       // -------------------------------------------------------------------------------------
+      assert(!swip_value.isSwizzled());
       readPageSync(swip_value.asPageID(), bf.page);
+      assert(bf.page.magic_debugging_number == pid);
+      // ATTENTION: Fill the BF
       bf.header.lastWrittenLSN = bf.page.LSN;
+      bf.header.state = BufferFrame::State::COLD;
+      bf.header.isWB = false;
+      bf.header.pid = pid;
       // -------------------------------------------------------------------------------------
       // Move to cooling stage
       g_guard.lock();
       cio_frame.state = CIOFrame::State::COOLING;
       cooling_fifo_queue.push_back(&bf);
       cio_frame.fifo_itr = --cooling_fifo_queue.end();
+      assert(cio_frame.fifo_itr.operator*() == &bf);
       g_guard.unlock();
       cio_frame.mutex.unlock();
       throw RestartException();
@@ -284,6 +306,7 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
    }
    if ( cio_frame.state == CIOFrame::State::READING ) {
       logger->info("WorkerThread::resolveSwip:Reading state");
+      assert(!swip_value.isSwizzled());
       cio_frame.readers_counter++;
       g_guard.unlock();
       cio_frame.mutex.lock();
@@ -301,10 +324,11 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
     */
    if ( cio_frame.state == CIOFrame::State::COOLING ) {
       logger->info("WorkerThread::resolveSwip:Cooling state");
-      ExclusiveGuard x_lock(swip_guard);
       assert(!swip_value.isSwizzled());
+      ExclusiveGuard x_lock(swip_guard);
       BufferFrame *bf = *cio_frame.fifo_itr;
       cooling_fifo_queue.erase(cio_frame.fifo_itr);
+      assert(bf->header.state == BufferFrame::State::COLD);
       cio_frame.state = CIOFrame::State::NOT_LOADED;
       bf->header.state = BufferFrame::State::HOT;
       // -------------------------------------------------------------------------------------
@@ -369,6 +393,7 @@ BufferManager::~BufferManager()
    cout << "Stats" << endl;
    cout << "swizzled counter = " << stats.swizzled_pages_counter << endl;
    cout << "unswizzled counter = " << stats.unswizzled_pages_counter << endl;
+   cout << "flushed counter = " << stats.flushed_pages_counter << endl;
    // -------------------------------------------------------------------------------------
    // TODO: save states in YAML
 }

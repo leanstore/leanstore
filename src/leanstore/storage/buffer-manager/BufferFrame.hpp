@@ -28,10 +28,12 @@ struct BufferFrame {
    struct alignas(512) Page {
       u64 LSN = 0;
       u64 dt_id; //INIT: datastructure id TODO
-      u8 dt[ PAGE_SIZE - sizeof(LSN) - sizeof(dt_id)]; // Datastruture BE CAREFUL HERE !!!!!
+      u64 magic_debugging_number; // ATTENTION
+      u8 dt[PAGE_SIZE - sizeof(LSN) - sizeof(dt_id) - sizeof(magic_debugging_number)]; // Datastruture BE CAREFUL HERE !!!!!
       // -------------------------------------------------------------------------------------
-      operator u8*() {
-         return reinterpret_cast<u8*> (this);
+      operator u8 *()
+      {
+         return reinterpret_cast<u8 *> (this);
       }
       // -------------------------------------------------------------------------------------
    };
@@ -42,14 +44,17 @@ struct BufferFrame {
    // -------------------------------------------------------------------------------------
    BufferFrame(PID pid = 0);
    // -------------------------------------------------------------------------------------
-   bool operator==(const BufferFrame &other) {
-      return this  == &other;
+   bool operator==(const BufferFrame &other)
+   {
+      return this == &other;
    }
    // -------------------------------------------------------------------------------------
    bool isDirty() const;
 };
 // -------------------------------------------------------------------------------------
 static constexpr u64 EFFECTIVE_PAGE_SIZE = sizeof(BufferFrame::Page::dt);
+// -------------------------------------------------------------------------------------
+static_assert(sizeof(BufferFrame::Page) == PAGE_SIZE, "");
 // -------------------------------------------------------------------------------------
 static_assert((sizeof(BufferFrame) - sizeof(BufferFrame::Page)) == 512, "");
 // -------------------------------------------------------------------------------------

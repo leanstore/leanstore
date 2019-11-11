@@ -7,7 +7,7 @@ BufferFrame::BufferFrame(PID pid) {
 }
 // -------------------------------------------------------------------------------------
 bool BufferFrame::isDirty() const {
-   return header.lastWrittenLSN == page.LSN;
+   return header.lastWrittenLSN != page.LSN;
 }
 }
 // -------------------------------------------------------------------------------------

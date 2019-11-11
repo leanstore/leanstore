@@ -29,6 +29,7 @@ class BufferManager {
    struct Stats {
       atomic<u64> swizzled_pages_counter = 0;
       atomic<u64> unswizzled_pages_counter = 0;
+      atomic<u64> flushed_pages_counter = 0;
    };
    struct CIOFrame {
       enum class State {
@@ -37,8 +38,6 @@ class BufferManager {
          NOT_LOADED
       };
       std::mutex mutex;
-      bool loaded = false;
-      BufferFrame *bf = nullptr;
       std::list<BufferFrame*>::iterator fifo_itr;
       State state = State::NOT_LOADED;
       // -------------------------------------------------------------------------------------
