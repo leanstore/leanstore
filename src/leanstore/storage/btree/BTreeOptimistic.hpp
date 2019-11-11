@@ -190,7 +190,6 @@ struct BTree {
          try {
             auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
             ReadPageGuard c_guard(p_guard, root_inner_swip);
-            assert((c_guard.bf_s_lock.local_version & 2) != 2);
             while ( c_guard->type == NodeType::BTreeInner ) {
                // -------------------------------------------------------------------------------------
                if ( c_guard->count == c_guard->maxEntries - 1 ) {
@@ -212,11 +211,8 @@ struct BTree {
                unsigned pos = c_guard->lowerBound(k);
                Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
                // -------------------------------------------------------------------------------------
-               assert((c_guard.bf_s_lock.local_version & 2) == 0);
                p_guard = std::move(c_guard);
-               assert((p_guard.bf_s_lock.local_version & 2) == 0);
                c_guard = ReadPageGuard<BTreeInner<Key>>(p_guard, c_swip);
-               assert((c_guard.bf_s_lock.local_version & 2) == 0);
             }
 
             auto &leaf = c_guard.template cast<BTreeLeaf<Key, Value>>();
