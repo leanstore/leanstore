@@ -98,7 +98,6 @@ public:
     */
    // -------------------------------------------------------------------------------------
    void readPageSync(PID pid, u8 *destination);
-   void writePageAsync(BufferFrame &bf);
    void flush();
    // -------------------------------------------------------------------------------------
    void registerDatastructureType(DTType type, DTRegistry::CallbackFunctions callback_functions);

@@ -51,15 +51,6 @@ BufferManager::BufferManager()
    if ( fcntl(ssd_fd, F_GETFL) == -1 ) {
       throw Generic_Exception("Can not initialize SSD storage: " + FLAGS_ssd_path);
    }
-   // Init AIO stack
-   write_buffer = make_unique<u8[]>(PAGE_SIZE * FLAGS_write_buffer_size);
-   memset(&ssd_aio_context, 0, sizeof(ssd_aio_context));
-   if ( io_setup(10, &ssd_aio_context) != 0 ) {
-      throw Generic_Exception("io_setup failed");
-   }
-   for ( auto i = 0; i < FLAGS_write_buffer_size; i++ ) {
-      write_buffer_free_slots.push_front(i);
-   }
    // -------------------------------------------------------------------------------------
    for ( u64 bf_i = 0; bf_i < FLAGS_dram_pages; bf_i++ ) {
       dram_free_bfs.push(new(bfs + bf_i) BufferFrame());
@@ -76,7 +67,7 @@ BufferManager::BufferManager()
       // -------------------------------------------------------------------------------------
       // Init AIO Context
       // TODO: own variable for page provider write buffer size
-      AsyncWriteBuffer async_write_buffer(PAGE_SIZE, FLAGS_write_buffer_size);
+      AsyncWriteBuffer async_write_buffer(PAGE_SIZE, FLAGS_write_buffer_size, ssd_fd);
       // -------------------------------------------------------------------------------------
       BufferFrame *r_buffer = &randomBufferFrame();
       bool to_cooling_stage = 1;
@@ -137,13 +128,17 @@ BufferManager::BufferManager()
                //TODO: other variable than async_batch_size
                u64 n_to_process_bfs = std::min(cooling_fifo_queue.size(), size_t(FLAGS_async_batch_size));
                auto bf_itr = cooling_fifo_queue.begin();
-               for ( auto i = 0; i < n_to_process_bfs; i++ ) {
+               while ( bf_itr != cooling_fifo_queue.end() ) {
                   BufferFrame &bf = **bf_itr;
+                  auto next_bf_tr = bf_itr.e;
                   // TODO: can we write multiple  versions sim ?
+                  // TODO: current implemetnation assume that checkpoint thread does not touch the
+                  // the cooled pages
                   if ( bf.header.isWB == false ) {
                      if ( !bf.isDirty()) {
-                        cooling_fifo_queue.erase(bf_itr);
-                        cooling_io_ht[bf.header.pid].state == CIOFrame::State::NOT_LOADED;
+                        // Reclaim buffer frame
+                        cooling_fifo_queue.erase(bf_itr++);
+                        cooling_io_ht[bf.header.pid].state = CIOFrame::State::NOT_LOADED;
                         dram_free_bfs.push(&bf);
                         dram_free_bfs_counter++;
                      } else {
@@ -151,7 +146,7 @@ BufferManager::BufferManager()
                         async_write_buffer.add(bf);
                      }
                   }
-                  bf_itr++;
+                  bf_itr = next_bf_tr;
                }
                g_guard.unlock();
                async_write_buffer.submitIfNecessary([&](BufferFrame &written_bf, u64 written_lsn) {
@@ -182,9 +177,9 @@ BufferManager::BufferManager()
       auto logger = spdlog::rotating_logger_mt("CheckPointThread", "checkpoint_thread.txt", 1024 * 1024, 1);
       // -------------------------------------------------------------------------------------
       // Init AIO stack
-      AsyncWriteBuffer async_write_buffer(PAGE_SIZE, FLAGS_write_buffer_size);
+      AsyncWriteBuffer async_write_buffer(PAGE_SIZE, FLAGS_write_buffer_size, ssd_fd);
       // -------------------------------------------------------------------------------------
-      while ( bg_threads_keep_running ) {
+      while ( false && bg_threads_keep_running ) {
          try {
             BufferFrame &rand_buffer = randomBufferFrame();
             SharedGuard lock(rand_buffer.header.lock);
@@ -198,14 +193,14 @@ BufferManager::BufferManager()
             }
          } catch ( RestartException e ) {
          }
-         async_write_buffer.submitIfNecessary([] (BufferFrame &written_bf, u64 written_LSN) {
-            while(true) {
-               try{
+         async_write_buffer.submitIfNecessary([](BufferFrame &written_bf, u64 written_LSN) {
+            while ( true ) {
+               try {
                   SharedGuard guard(written_bf.header.lock);
                   ExclusiveGuard x_guard(guard);
                   written_bf.header.lastWrittenLSN = written_LSN;
                   written_bf.header.isWB = false;
-               } catch(RestartException e){
+               } catch ( RestartException e ) {
                }
             }
          }, FLAGS_async_batch_size);
@@ -215,55 +210,6 @@ BufferManager::BufferManager()
    });
 //   bg_threads_counter++;
    checkpoint_thread.detach();
-   // -------------------------------------------------------------------------------------
-   std::thread aio_pooling_thread([&]() {
-      pthread_setname_np(pthread_self(), "aiopolling");
-      auto logger = spdlog::rotating_logger_mt("AIOPollingThread", "aio_pooling_thread.txt", 1024 * 1024, 4);
-      const u32 event_max_nr = 10;
-      struct io_event events[event_max_nr];
-      struct timespec timeout;
-      u64 polled_events_nr = 0;
-      while ( bg_threads_keep_running ) {
-         try {
-            timeout.tv_sec = 0;
-            timeout.tv_nsec = 500000000;
-            if ( polled_events_nr = io_getevents(ssd_aio_context, 0, event_max_nr, events, &timeout)) {
-               std::unique_lock ssd_aio_guard(ssd_aio_mutex);
-               for ( auto i = 0; i < polled_events_nr; i++ ) {
-                  const auto io_key = events[i].obj->key;
-                  auto tuple_itr = ssd_aio_ht.find(io_key);
-                  assert(ssd_aio_ht.size());
-                  assert(tuple_itr != ssd_aio_ht.end());
-                  BufferFrame *bf = std::get<1>(tuple_itr->second);
-                  auto write_buffer_slot = std::get<0>(tuple_itr->second);
-                  auto page_buffer = write_buffer.get() + (PAGE_SIZE * write_buffer_slot);
-                  while ( true ) {
-                     try {
-                        SharedGuard lock(bf->header.lock);
-                        ExclusiveGuard x_lock(lock);
-                        bf->header.isWB = false;
-                        const u64 written_lsn = reinterpret_cast<BufferFrame::Page *>(page_buffer)->LSN;
-                        if ( bf->header.lastWrittenLSN < written_lsn ) {
-                           logger->info("written_lsn = {}", written_lsn);
-                           bf->header.lastWrittenLSN = written_lsn;
-                        }
-                        write_buffer_free_slots.push_front(write_buffer_slot);
-                        break;
-                     } catch ( RestartException e ) {
-                     }
-                  }
-               }
-               break;
-            }
-            sleep(1);
-         } catch ( RestartException e ) {
-         }
-      }
-      bg_threads_counter--;
-      logger->info("end");
-   });
-   aio_pooling_thread.detach();
-//   bg_threads_counter++;
    // -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------
@@ -381,36 +327,6 @@ void BufferManager::readPageSync(u64 pid, u8 *destination)
    check(read_bytes == PAGE_SIZE);
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::writePageAsync(BufferFrame &bf)
-{
-   BufferFrame *bf_ptr = &bf;
-   assert(bf_ptr != nullptr);
-   ssd_aio_mutex.lock();
-   auto src = reinterpret_cast<u8 *>(&bf.page);
-   assert(u64(src) % 512 == 0);
-   if ( write_buffer_free_slots.size() == 0 ) {
-      ssd_aio_mutex.unlock();
-      throw RestartException();
-   }
-   auto buffer_slot = write_buffer_free_slots.front();
-   write_buffer_free_slots.pop_front();
-   ssd_aio_mutex.unlock();
-   auto write_buffer_copy = write_buffer.get() + (PAGE_SIZE * buffer_slot);
-   std::memcpy(write_buffer_copy, src, PAGE_SIZE);
-   {
-      struct iocb iocb;
-      struct iocb *iocbs[1];
-      io_prep_pwrite(&iocb, ssd_fd, (void *) write_buffer_copy, PAGE_SIZE, bf.header.pid * PAGE_SIZE);
-      iocb.data = (void *) write_buffer_copy;
-      iocbs[0] = &iocb;
-      if ( io_submit(ssd_aio_context, 1, iocbs) != 1 ) {
-         throw Generic_Exception("io_submit failed");
-      }
-      ssd_aio_ht.insert({iocb.key, {buffer_slot, bf_ptr}});
-      assert(ssd_aio_ht.size());
-   }
-}
-// -------------------------------------------------------------------------------------
 void BufferManager::flush()
 {
    fdatasync(ssd_fd);
@@ -448,7 +364,6 @@ BufferManager::~BufferManager()
    const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram_pages);
    close(ssd_fd);
    ssd_fd = -1;
-   io_destroy(ssd_aio_context);
    munmap(bfs, dram_total_size);
    // -------------------------------------------------------------------------------------
    cout << "Stats" << endl;
