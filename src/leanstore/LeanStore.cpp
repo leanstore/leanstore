@@ -16,7 +16,7 @@ LeanStore::LeanStore()
                                                     1024 * 1024 * 10, 3);
       spdlog::set_default_logger(file_logger);
    }
-   BMC::start();
+   BMC::initializeGlobalBufferManager();
 }
 }
 // -------------------------------------------------------------------------------------

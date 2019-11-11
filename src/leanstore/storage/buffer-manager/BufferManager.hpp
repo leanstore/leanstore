@@ -79,13 +79,13 @@ private:
    BufferFrame &randomBufferFrame();
    Stats stats;
 public:
-   BufferManager();
+   BufferManager(bool truncate_ssd_file = true);
    ~BufferManager();
    // -------------------------------------------------------------------------------------
    BufferFrame &allocatePage();
-
    BufferFrame &resolveSwip(SharedGuard &swip_guard, Swip<BufferFrame> &swip_value);
-
+   // -------------------------------------------------------------------------------------
+   void flushDropAllPages();
    void stopBackgroundThreads();
    /*
     * Life cycle of a fix:
@@ -97,16 +97,19 @@ public:
     */
    // -------------------------------------------------------------------------------------
    void readPageSync(PID pid, u8 *destination);
-   void flush();
+   void fDataSync();
    // -------------------------------------------------------------------------------------
-   void registerDatastructureType(DTType type, DTRegistry::CallbackFunctions callback_functions);
-   void registerDatastructureInstance(DTID dtid, DTType type,  void *root_object);
+   void registerDatastructureType(DTType type, DTRegistry::DTMeta dt_meta);
+   DTID registerDatastructureInstance(DTType type,  void *root_object);
 };
 // -------------------------------------------------------------------------------------
 class BMC {
 public:
    static unique_ptr<BufferManager> global_bf;
-   static void start();
+   template<typename... Args>
+   static void initializeGlobalBufferManager(Args &&... args) {
+      global_bf = make_unique<BufferManager>(std::forward<Args>(args)...);
+   }
 };
 }
 // -------------------------------------------------------------------------------------

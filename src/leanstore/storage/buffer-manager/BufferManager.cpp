@@ -18,7 +18,6 @@
 DEFINE_uint32(dram_pages, 10 * 1000, "");
 DEFINE_uint32(ssd_pages, 100 * 1000, "");
 DEFINE_string(ssd_path, "leanstore", "");
-DEFINE_bool(ssd_truncate, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(cooling_threshold, 90, "Start cooling pages when 100-x% are free");
 // -------------------------------------------------------------------------------------
@@ -27,7 +26,7 @@ DEFINE_uint32(write_buffer_size, 100, "");
 DEFINE_uint32(async_batch_size, 10, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
-BufferManager::BufferManager()
+BufferManager::BufferManager(bool truncate_ssd_file)
 {
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
@@ -35,14 +34,16 @@ BufferManager::BufferManager()
       const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram_pages);
       bfs = reinterpret_cast<BufferFrame *>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
-      memset(bfs, 0, dram_total_size);
+      for ( u64 bf_i = 0; bf_i < FLAGS_dram_pages; bf_i++ ) {
+         dram_free_bfs.push(new(bfs + bf_i) BufferFrame());
+      }
       dram_free_bfs_counter = FLAGS_dram_pages;
    }
    // -------------------------------------------------------------------------------------
    // Init SSD pool
    const u32 ssd_total_size = FLAGS_ssd_pages * PAGE_SIZE;
    int flags = O_RDWR | O_DIRECT | O_CREAT;
-   if ( FLAGS_ssd_truncate ) {
+   if ( truncate_ssd_file ) {
       flags |= O_TRUNC;
    }
    ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
@@ -52,9 +53,6 @@ BufferManager::BufferManager()
       throw Generic_Exception("Can not initialize SSD storage: " + FLAGS_ssd_path);
    }
    // -------------------------------------------------------------------------------------
-   for ( u64 bf_i = 0; bf_i < FLAGS_dram_pages; bf_i++ ) {
-      dram_free_bfs.push(new(bfs + bf_i) BufferFrame());
-   }
    for ( u64 pid = 0; pid < FLAGS_ssd_pages; pid++ ) {
       cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple());
       ssd_free_pages.push(pid);
@@ -80,6 +78,7 @@ BufferManager::BufferManager()
                   const bool is_cooling_candidate = r_buffer->header.state == BufferFrame::State::HOT; // && !rand_buffer->header.isWB
                   if ( !is_cooling_candidate ) {
                      r_buffer = &randomBufferFrame();
+                     to_cooling_stage = !to_cooling_stage;
                      continue;
                   }
                   r_guard.recheck();
@@ -127,7 +126,7 @@ BufferManager::BufferManager()
                //TODO: other variable than async_batch_size
                u64 n_to_process_bfs = std::min(cooling_fifo_queue.size(), size_t(FLAGS_async_batch_size));
                auto bf_itr = cooling_fifo_queue.begin();
-               for ( auto i = 0; i < n_to_process_bfs; i++ ) {
+               for ( u64 i = 0; i < n_to_process_bfs; i++ ) {
                   BufferFrame &bf = **bf_itr;
                   auto next_bf_tr = std::next(bf_itr, 1);
                   PID pid = bf.header.pid;
@@ -160,7 +159,7 @@ BufferManager::BufferManager()
                }
                g_guard.unlock();
                async_write_buffer.submitIfNecessary([&](BufferFrame &written_bf, u64 written_lsn) {
-                  while ( bg_threads_keep_running && true ) {
+                  while ( true ) {
                      try {
                         SharedGuard guard(written_bf.header.lock);
                         ExclusiveGuard x_guard(guard);
@@ -222,7 +221,7 @@ BufferManager::BufferManager()
       bg_threads_counter--;
       logger->info("end");
    });
-//   bg_threads_counter++;
+   bg_threads_counter++;
    checkpoint_thread.detach();
    // -------------------------------------------------------------------------------------
 }
@@ -282,6 +281,7 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
       assert(dram_free_bfs.size());
       BufferFrame &bf = *dram_free_bfs.front();
       dram_free_bfs.pop();
+      dram_free_bfs_counter--;
       reservoir_mutex.unlock();
       // -------------------------------------------------------------------------------------
       assert(!swip_value.isSwizzled());
@@ -351,28 +351,38 @@ void BufferManager::readPageSync(u64 pid, u8 *destination)
    check(read_bytes == PAGE_SIZE);
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::flush()
+void BufferManager::fDataSync()
 {
    fdatasync(ssd_fd);
 }
 // -------------------------------------------------------------------------------------
 // Datastructures management
 // -------------------------------------------------------------------------------------
-void BufferManager::registerDatastructureType(leanstore::DTType type, leanstore::DTRegistry::CallbackFunctions callback_functions)
+void BufferManager::registerDatastructureType(leanstore::DTType type, leanstore::DTRegistry::DTMeta dt_meta)
 {
-   dt_registry.callbacks_ht.insert({type, callback_functions});
+   dt_registry.dt_types_ht[type] = dt_meta;
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::registerDatastructureInstance(DTID dtid, leanstore::DTType type, void *root_object)
+DTID BufferManager::registerDatastructureInstance(leanstore::DTType type, void *root_object)
 {
-   dt_registry.dt_meta_ht.insert({dtid, {type, root_object}});
+   DTID new_instance_id = dt_registry.dt_types_ht[type].instances_counter++;
+   dt_registry.dt_instances_ht.insert({new_instance_id, {type, root_object}});
+   return new_instance_id;
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::flushDropAllPages()
+{
+   FLAGS_cooling_threshold = 100;
+   auto free_bfs = dram_free_bfs_counter.load();
+   while ( free_bfs != FLAGS_dram_pages ) {
+      cout << FLAGS_dram_pages - free_bfs  <<" left"<<endl;
+      sleep(1);
+      free_bfs = dram_free_bfs_counter.load();
+   }
+   fDataSync();
 }
 // -------------------------------------------------------------------------------------
 unique_ptr<BufferManager> BMC::global_bf(nullptr);
-void BMC::start()
-{
-   global_bf = make_unique<BufferManager>();
-}
 // -------------------------------------------------------------------------------------
 void BufferManager::stopBackgroundThreads()
 {
@@ -396,6 +406,8 @@ BufferManager::~BufferManager()
    cout << "flushed counter = " << stats.flushed_pages_counter << endl;
    // -------------------------------------------------------------------------------------
    // TODO: save states in YAML
+   // -------------------------------------------------------------------------------------
+   spdlog::drop_all();
 }
 // -------------------------------------------------------------------------------------
 }

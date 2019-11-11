@@ -16,12 +16,14 @@ struct ParentSwipHandler {
 };
 // -------------------------------------------------------------------------------------
 struct DTRegistry {
-   struct CallbackFunctions {
+   struct DTMeta {
       std::function<void(void *, BufferFrame &, SharedGuard &, std::function<bool(Swip<BufferFrame> &)>)> iterate_childern;
       std::function<ParentSwipHandler(void *, BufferFrame &, SharedGuard &)> find_parent;
+      u64 instances_counter = 0;
    };
-   std::unordered_map<DTType, CallbackFunctions> callbacks_ht;
-   std::unordered_map<u64, std::tuple<DTType, void *>> dt_meta_ht;
+   // Not syncrhonized
+   std::unordered_map<DTType, DTMeta> dt_types_ht;
+   std::unordered_map<u64, std::tuple<DTType, void *>> dt_instances_ht;
    // -------------------------------------------------------------------------------------
    void iterateChildrenSwips(DTID dtid, BufferFrame &, SharedGuard &, std::function<bool(Swip<BufferFrame> &)>);
    ParentSwipHandler findParent(DTID dtid, BufferFrame &, SharedGuard &);

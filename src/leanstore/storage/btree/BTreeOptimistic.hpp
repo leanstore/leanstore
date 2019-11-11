@@ -156,12 +156,17 @@ struct BTree {
    OptimisticVersion root_lock = 0;
    atomic<u64> restarts_counter = 0; // for debugging
    BufferManager &buffer_manager;
-   const DTID dtid;
+   DTID dtid;
    // -------------------------------------------------------------------------------------
    BTree()
            : buffer_manager(*BMC::global_bf)
-             , dtid(0) // TODO: dtid
    {
+      DTRegistry::DTMeta btree_meta = {
+              .iterate_childern=iterateChildSwips, .find_parent = findParent
+      };
+      buffer_manager.registerDatastructureType(DTType::BTREE, std::move(btree_meta));
+      dtid = buffer_manager.registerDatastructureInstance(DTType::BTREE, this);
+
       auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
       root_write_guard.init();
       root_swip = root_write_guard.bf;

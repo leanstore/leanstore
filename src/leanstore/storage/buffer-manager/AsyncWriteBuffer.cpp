@@ -37,14 +37,14 @@ void AsyncWriteBuffer::add(leanstore::BufferFrame &bf)
    batch.push_back(slot);
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)> callback, u64 batch_size)
+void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)> callback, u64 batch_max_size)
 {
-   assert(batch.size() <= batch_size);
-   if ( batch.size() == batch_size ) {
-      assert(batch.size() == batch_size);
-      struct iocb *iocbs = new iocb[batch_size];
-      struct iocb *iocbs_ptr[batch_size];
-      for ( auto i = 0; i < batch_size; i++ ) {
+   assert(batch.size() <= batch_max_size);
+   const auto c_batch_size = batch.size();
+   if ( c_batch_size == batch_max_size || insistence_counter == insistence_max_value) {
+      struct iocb *iocbs = new iocb[c_batch_size];
+      struct iocb *iocbs_ptr[c_batch_size];
+      for ( auto i = 0; i < c_batch_size; i++ ) {
          auto slot = batch[i];
          WriteCommand &c_command = write_buffer_commands[slot];
          void *write_buffer_slot_ptr = &write_buffer[slot];
@@ -52,18 +52,21 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
          iocbs[i].data = write_buffer_slot_ptr;
          iocbs_ptr[i] = iocbs + i;
       }
-      const int ret_code = io_submit(aio_context, batch_size, iocbs_ptr);
-      check(ret_code == batch_size);
+      const int ret_code = io_submit(aio_context, c_batch_size, iocbs_ptr);
+      check(ret_code == c_batch_size);
       batch.clear();
+      insistence_counter = 0;
+   } else {
+      insistence_counter++;
    }
    // -------------------------------------------------------------------------------------
    const u32 event_max_nr = 10;
-   struct io_event events[batch_size];
+   struct io_event events[batch_max_size];
    struct timespec timeout;
    u64 polled_events_nr = 0;
    timeout.tv_sec = 0;
    timeout.tv_nsec = (5 * 10e4);
-   polled_events_nr = io_getevents(aio_context, batch_size, event_max_nr, events, &timeout);
+   polled_events_nr = io_getevents(aio_context, batch_max_size, event_max_nr, events, &timeout);
    if ( polled_events_nr <= event_max_nr )
       for ( auto i = 0; i < polled_events_nr; i++ ) {
          const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
