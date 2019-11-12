@@ -33,6 +33,9 @@ bool AsyncWriteBuffer::add(leanstore::BufferFrame &bf)
    if ( !write_buffer_free_slots.size()) {
       return false;
    }
+   // -------------------------------------------------------------------------------------
+   bf.page.magic_debugging_number = bf.header.pid;
+   // -------------------------------------------------------------------------------------
    auto slot = write_buffer_free_slots.back();
    write_buffer_free_slots.pop_back();
    std::memcpy(&write_buffer[slot], bf.page, page_size);
@@ -72,9 +75,7 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
    timeout.tv_sec = 0;
    timeout.tv_nsec = (5 * 10e5);
    ret = io_getevents(aio_context, c_batch_size, c_batch_size, events, &timeout);
-   if ( ret < 0 || ret > batch_max_size ) {
-      cerr << "io_getevented = " << ret << endl;
-   }
+
    for ( auto i = 0; i < ret; i++ ) {
       rassert(events[i].res == page_size);
       rassert(events[i].res2 == 0);

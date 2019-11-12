@@ -152,7 +152,6 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                         //TODO: optimize this path: an array for shared/ex guards and writeasync out of the global lock
                         if(async_write_buffer.add(bf)) {
                            bf.header.isWB = true;
-                           bf.page.magic_debugging_number = pid;
                         }
                      }
                   }
