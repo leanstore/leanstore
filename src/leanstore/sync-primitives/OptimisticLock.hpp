@@ -17,14 +17,15 @@ public:
    }
 };
 // -------------------------------------------------------------------------------------
-class SharedGuard;
+class ReadGuard;
 class ExclusiveGuard;
 template<typename T>
 class ReadPageGuard;
 using lock_version_t = u64;
 using OptimisticVersion = atomic<lock_version_t>;
 // -------------------------------------------------------------------------------------
-class SharedGuard {
+// -------------------------------------------------------------------------------------
+class ReadGuard {
    friend class ExclusiveGuard;
    template<typename T>
    friend
@@ -33,15 +34,15 @@ class SharedGuard {
    friend
    class WritePageGuard;
 private:
-   SharedGuard(atomic<u64> *version_ptr, u64 local_version, bool locked);
+   ReadGuard(atomic<u64> *version_ptr, u64 local_version, bool locked);
 public:
    atomic<u64> *version_ptr = nullptr;
    u64 local_version;
    bool locked = false;
    // -------------------------------------------------------------------------------------
-   SharedGuard() = default;
+   ReadGuard() = default;
    // -------------------------------------------------------------------------------------
-   SharedGuard(OptimisticVersion &lock);
+   ReadGuard(OptimisticVersion &lock);
    // -------------------------------------------------------------------------------------
    void recheck();
    // -------------------------------------------------------------------------------------
@@ -49,12 +50,29 @@ public:
 // -------------------------------------------------------------------------------------
 class ExclusiveGuard {
 private:
-   SharedGuard &ref_lock; // our basis
+   ReadGuard &ref_guard; // our basis
 public:
    // -------------------------------------------------------------------------------------
-   ExclusiveGuard(SharedGuard &shared_lock);
+   ExclusiveGuard(ReadGuard &read_lock);
    // -------------------------------------------------------------------------------------
    ~ExclusiveGuard();
+};
+// -------------------------------------------------------------------------------------
+// TODO: Shared guard for scans
+/*
+ * Plan:
+ * SharedGuard control the LSB 6-bits
+ * Exclusive bit is the LSB 7th bit
+ * TODO: rewrite the read and exclusive guards
+ */
+// The constants
+constexpr u64 exclusive_bit = 1 << 7;
+constexpr u64 shared_bit = 1 << 0;
+class SharedGuard {
+private:
+   ReadGuard &ref_guard;
+public:
+   SharedGuard(ReadGuard &read_guard);
 };
 // -------------------------------------------------------------------------------------
 }

@@ -48,12 +48,6 @@ private:
    BufferFrame *bfs;
    // -------------------------------------------------------------------------------------
    int ssd_fd;
-   std::mutex ssd_aio_mutex;
-   std::list<u64> write_buffer_free_slots;
-   std::unique_ptr<u8[]> write_buffer;
-   // IOKey -> {WriteBufferSlot, BF*}
-   std::unordered_map<uint32_t, std::tuple<u64, BufferFrame*>> ssd_aio_ht;
-   // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    std::mutex reservoir_mutex;
    // DRAM Pages
@@ -83,7 +77,7 @@ public:
    ~BufferManager();
    // -------------------------------------------------------------------------------------
    BufferFrame &allocatePage();
-   BufferFrame &resolveSwip(SharedGuard &swip_guard, Swip<BufferFrame> &swip_value);
+   BufferFrame &resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value);
    // -------------------------------------------------------------------------------------
    void flushDropAllPages();
    void stopBackgroundThreads();

@@ -13,13 +13,13 @@ protected:
            : moved(true) {}
    ReadPageGuard(OptimisticVersion &swip_version)
    {
-      bf_s_lock = SharedGuard(swip_version);
+      bf_s_lock = ReadGuard(swip_version);
    }
    bool manually_checked = false;
 public:
    bool moved = false;
    BufferFrame *bf = nullptr;
-   SharedGuard bf_s_lock;
+   ReadGuard bf_s_lock;
 
    // I: Root case
    static ReadPageGuard makeRootGuard(OptimisticVersion &swip_version)
@@ -33,7 +33,7 @@ public:
       auto &bf_swip = swip.template cast<BufferFrame>();
       assert((p_guard.bf_s_lock.local_version & 2) == 0);
       bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
-      bf_s_lock = SharedGuard(bf->header.lock);
+      bf_s_lock = ReadGuard(bf->header.lock);
       p_guard.recheck();
    }
    // I: Downgrade
@@ -109,10 +109,10 @@ class WritePageGuard : public ReadPageGuard<T> {
    using ParentClass = ReadPageGuard<T>;
 protected:
    // Called by the buffer manager when allocating a new page
-   WritePageGuard(BufferFrame *bf)
+   WritePageGuard(BufferFrame &bf)
    {
-      ParentClass::bf = bf;
-      ParentClass::bf_s_lock = SharedGuard(&bf->header.lock, bf->header.lock.load(), true);
+      ParentClass::bf = &bf;
+      ParentClass::bf_s_lock = ReadGuard(&bf.header.lock, bf.header.lock.load(), true);
       ParentClass::moved = false;
    }
 public:
@@ -133,8 +133,8 @@ public:
 
    static WritePageGuard allocateNewPage(DTID dt_id)
    {
-      auto bf = &BMC::global_bf->allocatePage();
-      bf->page.dt_id = dt_id;
+      auto &bf = BMC::global_bf->allocatePage();
+      bf.page.dt_id = dt_id;
       return WritePageGuard(bf);
    }
 

@@ -12,17 +12,16 @@ namespace leanstore {
 TEST(BufferManager, BTree)
 {
    BMC::initializeGlobalBufferManager();
-   BufferManager &buffer_manager = *BMC::global_bf;
    //buffer_manager.stopBackgroundThreads();
 
    // BTree
    btree::BTree<uint32_t, uint32_t> btree;
    uint32_t result;
    bool res = btree.lookup(10, result);
-   assert(res == false);
+   EXPECT_FALSE(res);
    btree.insert(10, 10);
    res = btree.lookup(10, result);
-   assert(res == true && result == 10);
+   EXPECT_TRUE(res == true && result == 10);
 
    uint32_t n = getenv("N") ? atoi(getenv("N")) : 10e4;
    uint32_t threads = getenv("T") ? atoi(getenv("T")) : 10;
@@ -31,6 +30,7 @@ TEST(BufferManager, BTree)
    for ( uint32_t i = 0; i < n; i++ )
       work[i] = i;
    std::random_shuffle(work.begin(), work.end());
+   cout << "initialized workload"<<endl;
    tbb::task_scheduler_init taskScheduler(threads);
    PerfEvent e;
    {
@@ -38,7 +38,6 @@ TEST(BufferManager, BTree)
       {
          PerfEventBlock b(e, n);
          e.setParam("workload", "insert");
-         e.setParam("approach", "libgcc_opt");
          e.setParam("threads", threads);
 
          tbb::parallel_for(tbb::blocked_range<uint32_t>(0, n), [&](const tbb::blocked_range<uint32_t> &range) {
@@ -51,14 +50,13 @@ TEST(BufferManager, BTree)
       {
          PerfEventBlock b(e, n);
          e.setParam("workload", "lookup");
-         e.setParam("approach", "libgcc_opt");
          e.setParam("threads", threads);
 
          tbb::parallel_for(tbb::blocked_range<uint32_t>(0, n), [&](const tbb::blocked_range<uint32_t> &range) {
             for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
                uint32_t result;
                bool success = btree.lookup(work[i], result);
-               assert(success && result == work[i]);
+               EXPECT_TRUE(success && result == work[i]);
             }
          });
       }
@@ -67,7 +65,6 @@ TEST(BufferManager, BTree)
       {
          PerfEventBlock b(e, n);
          e.setParam("workload", "mix");
-         e.setParam("approach", "libgcc_opt");
          e.setParam("threads", threads);
 
          tbb::parallel_for(tbb::blocked_range<uint32_t>(0, n), [&](const tbb::blocked_range<uint32_t> &range) {
@@ -77,7 +74,7 @@ TEST(BufferManager, BTree)
                   uint32_t result;
                   bool success = btree.lookup(work[i], result);
                   if ( success ) {
-                     assert(result == work[i]);
+                     EXPECT_TRUE(result == work[i]);
                   }
                   sum += success;
                } else {
@@ -104,6 +101,7 @@ TEST(BufferManager, Persistence)
    for ( uint32_t i = 0; i < n; i++ )
       work[i] = i;
    std::random_shuffle(work.begin(), work.end());
+   cout << "initialized workload"<<endl;
    tbb::task_scheduler_init taskScheduler(threads);
    PerfEvent e;
    {
@@ -111,10 +109,8 @@ TEST(BufferManager, Persistence)
       // insert
       {
 
-
          PerfEventBlock b(e, n);
          e.setParam("workload", "insert");
-         e.setParam("approach", "libgcc_opt");
          e.setParam("threads", threads);
 
          tbb::parallel_for(tbb::blocked_range<uint32_t>(0, n), [&](const tbb::blocked_range<uint32_t> &range) {
@@ -123,24 +119,37 @@ TEST(BufferManager, Persistence)
             }
          });
       }
-      // lookup
+//      taskScheduler.terminate();
+//      taskScheduler.initialize(threads);
       buffer_manager->flushDropAllPages();
       EXPECT_FALSE(btree.root_swip.isSwizzled());
+
+      // mixed workload
+      std::atomic<uint32_t> total(0);
       {
          PerfEventBlock b(e, n);
-         e.setParam("workload", "lookup");
-         e.setParam("approach", "libgcc_opt");
+         e.setParam("workload", "mix");
          e.setParam("threads", threads);
 
          tbb::parallel_for(tbb::blocked_range<uint32_t>(0, n), [&](const tbb::blocked_range<uint32_t> &range) {
+            uint32_t sum = 0;
             for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
-               uint32_t result;
-               bool success = btree.lookup(work[i], result);
-               assert(success && result == work[i]);
+               if ( i % 10 < 5 ) {
+                  uint32_t result;
+                  bool success = btree.lookup(work[i], result);
+                  if ( success ) {
+                     assert(result == work[i]);
+                  }
+                  sum += success;
+               } else {
+                  btree.insert(work[i], work[i]);
+               }
             }
+            total += sum;
          });
       }
    }
+   BMC::global_bf.reset(nullptr);
 }
 // -------------------------------------------------------------------------------------
 }

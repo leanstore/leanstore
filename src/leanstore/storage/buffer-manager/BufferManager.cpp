@@ -14,12 +14,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <emmintrin.h>
+#include <set>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(dram_pages, 10 * 1000, "");
 DEFINE_uint32(ssd_pages, 100 * 1000, "");
 DEFINE_string(ssd_path, "leanstore", "");
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(cooling_threshold, 90, "Start cooling pages when 100-x% are free");
+DEFINE_uint32(cooling_threshold, 10, "Start cooling pages when <= x% are free");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(background_write_sleep, 10, "us");
 DEFINE_uint32(write_buffer_size, 100, "");
@@ -74,7 +75,7 @@ BufferManager::BufferManager(bool truncate_ssd_file)
             if ( to_cooling_stage ) {
                // unswizzle pages (put in the cooling stage)
                if ( dram_free_bfs_counter * 100.0 / FLAGS_dram_pages <= FLAGS_cooling_threshold ) {
-                  SharedGuard r_guard(r_buffer->header.lock);
+                  ReadGuard r_guard(r_buffer->header.lock);
                   const bool is_cooling_candidate = r_buffer->header.state == BufferFrame::State::HOT; // && !rand_buffer->header.isWB
                   if ( !is_cooling_candidate ) {
                      r_buffer = &randomBufferFrame();
@@ -87,9 +88,9 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                   dt_registry.iterateChildrenSwips(r_buffer->page.dt_id,
                                                    *r_buffer, r_guard, [&](Swip<BufferFrame> &swip) {
                              if ( swip.isSwizzled()) {
-                                picked_a_child_instead = true;
                                 r_buffer = &swip.asBufferFrame();
                                 r_guard.recheck();
+                                picked_a_child_instead = true;
                                 return false;
                              }
                              r_guard.recheck();
@@ -105,9 +106,9 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                      ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer, r_guard);
                      ExclusiveGuard p_x_guard(parent_handler.guard);
                      std::lock_guard g_guard(global_mutex); // must accquire the mutex before exclusive locks
-                     assert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
-                     assert(parent_handler.swip.bf == r_buffer);
-                     logger->info("PID {} gonna get cool, type = {}", r_buffer->header.pid, u8(reinterpret_cast<btree::NodeBase *>(r_buffer->page.dt)->type));
+                     rassert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
+                     rassert(parent_handler.swip.bf == r_buffer);
+                     logger->info("cooling PID = {}", r_buffer->header.pid);
                      parent_handler.swip.unswizzle(r_buffer->header.pid);
                      CIOFrame &cio_frame = cooling_io_ht[r_buffer->header.pid];
                      cio_frame.state = CIOFrame::State::COOLING;
@@ -124,9 +125,8 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
                std::unique_lock g_guard(global_mutex);
                //TODO: other variable than async_batch_size
-               u64 n_to_process_bfs = std::min(cooling_fifo_queue.size(), size_t(FLAGS_async_batch_size));
-               auto bf_itr = cooling_fifo_queue.begin();
-               for ( u64 i = 0; i < n_to_process_bfs; i++ ) {
+               auto  bf_itr = cooling_fifo_queue.begin();
+               while ( bf_itr != cooling_fifo_queue.end() ) {
                   BufferFrame &bf = **bf_itr;
                   auto next_bf_tr = std::next(bf_itr, 1);
                   PID pid = bf.header.pid;
@@ -138,7 +138,7 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                         std::lock_guard reservoir_guard(reservoir_mutex);
                         // Reclaim buffer frame
                         CIOFrame &cio_frame = cooling_io_ht[pid];
-                        assert(cio_frame.state == CIOFrame::State::COOLING);
+                        rassert(cio_frame.state == CIOFrame::State::COOLING);
                         cooling_fifo_queue.erase(bf_itr);
                         cio_frame.state = CIOFrame::State::NOT_LOADED;
                         // -------------------------------------------------------------------------------------
@@ -150,9 +150,10 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                         dram_free_bfs_counter++;
                      } else {
                         //TODO: optimize this path: an array for shared/ex guards and writeasync out of the global lock
-                        bf.header.isWB = true;
-                        bf.page.magic_debugging_number = pid;
-                        async_write_buffer.add(bf);
+                        if(async_write_buffer.add(bf)) {
+                           bf.header.isWB = true;
+                           bf.page.magic_debugging_number = pid;
+                        }
                      }
                   }
                   bf_itr = next_bf_tr;
@@ -161,9 +162,9 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                async_write_buffer.submitIfNecessary([&](BufferFrame &written_bf, u64 written_lsn) {
                   while ( true ) {
                      try {
-                        SharedGuard guard(written_bf.header.lock);
+                        ReadGuard guard(written_bf.header.lock);
                         ExclusiveGuard x_guard(guard);
-                        assert(written_bf.header.isWB == true);
+                        rassert(written_bf.header.isWB == true);
                         written_bf.header.lastWrittenLSN = written_lsn;
                         written_bf.header.isWB = false;
                         // -------------------------------------------------------------------------------------
@@ -192,32 +193,7 @@ BufferManager::BufferManager(bool truncate_ssd_file)
       // Init AIO stack
       AsyncWriteBuffer async_write_buffer(PAGE_SIZE, FLAGS_write_buffer_size, ssd_fd);
       // -------------------------------------------------------------------------------------
-      while ( false && bg_threads_keep_running ) {
-         try {
-            BufferFrame &rand_buffer = randomBufferFrame();
-            SharedGuard lock(rand_buffer.header.lock);
-            const bool is_checkpoint_candidate = rand_buffer.header.state != BufferFrame::State::FREE
-                                                 && !rand_buffer.header.isWB
-                                                 && rand_buffer.header.lastWrittenLSN != rand_buffer.page.LSN;
-            if ( is_checkpoint_candidate ) {
-               ExclusiveGuard x_lock(lock);
-               logger->info("found candidate for checkpoint {} - {}", rand_buffer.header.lastWrittenLSN, rand_buffer.page.LSN);
-               async_write_buffer.add(rand_buffer);
-            }
-         } catch ( RestartException e ) {
-         }
-         async_write_buffer.submitIfNecessary([](BufferFrame &written_bf, u64 written_LSN) {
-            while ( true ) {
-               try {
-                  SharedGuard guard(written_bf.header.lock);
-                  ExclusiveGuard x_guard(guard);
-                  written_bf.header.lastWrittenLSN = written_LSN;
-                  written_bf.header.isWB = false;
-               } catch ( RestartException e ) {
-               }
-            }
-         }, FLAGS_async_batch_size);
-      }
+      //TODO:
       bg_threads_counter--;
       logger->info("end");
    });
@@ -238,8 +214,12 @@ BufferFrame &BufferManager::randomBufferFrame()
 BufferFrame &BufferManager::allocatePage()
 {
    std::lock_guard lock(reservoir_mutex);
-   assert(ssd_free_pages.size());
-   assert(dram_free_bfs.size());
+   if ( !ssd_free_pages.size()) {
+      throw Generic_Exception("Ran out of SSD Pages");
+   }
+   if ( !dram_free_bfs.size()) {
+      throw RestartException(); //TODO: out of memory ?
+   }
    auto free_pid = ssd_free_pages.front();
    ssd_free_pages.pop();
    auto free_bf = dram_free_bfs.front();
@@ -256,7 +236,7 @@ BufferFrame &BufferManager::allocatePage()
    return *free_bf;
 }
 // -------------------------------------------------------------------------------------
-BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
+BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
 {
    static auto logger = spdlog::rotating_logger_mt("ResolveSwip", "resolve_swip.txt", 1024 * 1024, 1);
    if ( swip_value.isSwizzled()) {
@@ -268,25 +248,28 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
    const PID pid = swip_value.asPageID();
    logger->info("WorkerThread: checking the CIOTable for pid {}", pid);
    swip_guard.recheck();
-   assert(!swip_value.isSwizzled());
+   rassert(!swip_value.isSwizzled());
    CIOFrame &cio_frame = cooling_io_ht[pid];
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
       logger->info("WorkerThread::resolveSwip:not loaded state");
+      // First check if we have enough pages
+      std::unique_lock reservoir_guard(reservoir_mutex);
+      if ( !dram_free_bfs.size()) {
+         throw RestartException();
+      }
+      BufferFrame &bf = *dram_free_bfs.front();
+      dram_free_bfs.pop();
+      dram_free_bfs_counter--;
+      reservoir_guard.unlock();
+      // -------------------------------------------------------------------------------------
       cio_frame.readers_counter++;
       cio_frame.state = CIOFrame::State::READING;
       cio_frame.mutex.lock();
       // -------------------------------------------------------------------------------------
-      reservoir_mutex.lock(); //TODO: deadlock ?
       g_guard.unlock();
-      assert(dram_free_bfs.size());
-      BufferFrame &bf = *dram_free_bfs.front();
-      dram_free_bfs.pop();
-      dram_free_bfs_counter--;
-      reservoir_mutex.unlock();
       // -------------------------------------------------------------------------------------
-      assert(!swip_value.isSwizzled());
       readPageSync(swip_value.asPageID(), bf.page);
-      assert(bf.page.magic_debugging_number == pid);
+      rassert(bf.page.magic_debugging_number == pid);
       // ATTENTION: Fill the BF
       bf.header.lastWrittenLSN = bf.page.LSN;
       bf.header.state = BufferFrame::State::COLD;
@@ -298,7 +281,7 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
       cio_frame.state = CIOFrame::State::COOLING;
       cooling_fifo_queue.push_back(&bf);
       cio_frame.fifo_itr = --cooling_fifo_queue.end();
-      assert(cio_frame.fifo_itr.operator*() == &bf);
+      rassert(*cio_frame.fifo_itr == &bf);
       g_guard.unlock();
       cio_frame.mutex.unlock();
       throw RestartException();
@@ -306,7 +289,7 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
    }
    if ( cio_frame.state == CIOFrame::State::READING ) {
       logger->info("WorkerThread::resolveSwip:Reading state");
-      assert(!swip_value.isSwizzled());
+      rassert(!swip_value.isSwizzled());
       cio_frame.readers_counter++;
       g_guard.unlock();
       cio_frame.mutex.lock();
@@ -324,11 +307,10 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
     */
    if ( cio_frame.state == CIOFrame::State::COOLING ) {
       logger->info("WorkerThread::resolveSwip:Cooling state");
-      assert(!swip_value.isSwizzled());
       ExclusiveGuard x_lock(swip_guard);
       BufferFrame *bf = *cio_frame.fifo_itr;
       cooling_fifo_queue.erase(cio_frame.fifo_itr);
-      assert(bf->header.state == BufferFrame::State::COLD);
+      rassert(bf->header.state == BufferFrame::State::COLD);
       cio_frame.state = CIOFrame::State::NOT_LOADED;
       bf->header.state = BufferFrame::State::HOT;
       // -------------------------------------------------------------------------------------
@@ -346,9 +328,12 @@ BufferFrame &BufferManager::resolveSwip(SharedGuard &swip_guard, Swip<BufferFram
 // -------------------------------------------------------------------------------------
 void BufferManager::readPageSync(u64 pid, u8 *destination)
 {
-   assert(u64(destination) % 512 == 0);
+   rassert(u64(destination) % 512 == 0);
    s64 read_bytes = pread(ssd_fd, destination, PAGE_SIZE, pid * PAGE_SIZE);
-   check(read_bytes == PAGE_SIZE);
+   if ( read_bytes != PAGE_SIZE ) {
+      cerr << pid << endl;
+   }
+   rassert(read_bytes == PAGE_SIZE);
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()
@@ -372,14 +357,16 @@ DTID BufferManager::registerDatastructureInstance(leanstore::DTType type, void *
 // -------------------------------------------------------------------------------------
 void BufferManager::flushDropAllPages()
 {
+   std::set<u64> dirty_pages;
    FLAGS_cooling_threshold = 100;
    auto free_bfs = dram_free_bfs_counter.load();
    while ( free_bfs != FLAGS_dram_pages ) {
-      cout << FLAGS_dram_pages - free_bfs  <<" left"<<endl;
+      cout << FLAGS_dram_pages - free_bfs << " left" << endl;
       sleep(1);
       free_bfs = dram_free_bfs_counter.load();
    }
    fDataSync();
+   cout << FLAGS_dram_pages - free_bfs << " left" << endl;
 }
 // -------------------------------------------------------------------------------------
 unique_ptr<BufferManager> BMC::global_bf(nullptr);

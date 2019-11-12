@@ -270,10 +270,11 @@ struct BTree {
    }
    ~BTree()
    {
+      rassert(!BMC::global_bf); // todo: hack around
       cout << "restarts counter = " << restarts_counter << endl;
    }
    // -------------------------------------------------------------------------------------
-   static void iterateChildSwips(void *btree_object, BufferFrame &bf, SharedGuard &guard, std::function<bool(Swip<BufferFrame> &)> callback)
+   static void iterateChildSwips(void *btree_object, BufferFrame &bf, ReadGuard &guard, std::function<bool(Swip<BufferFrame> &)> callback)
    {
       auto c_node = reinterpret_cast<NodeBase *>(bf.page.dt);
       if ( c_node->type == NodeType::BTreeLeaf ) {
@@ -287,7 +288,7 @@ struct BTree {
       }
    }
    // -------------------------------------------------------------------------------------
-   static ParentSwipHandler findParent(void *btree_object, BufferFrame &bf, SharedGuard &guard)
+   static ParentSwipHandler findParent(void *btree_object, BufferFrame &bf, ReadGuard &)
    {
       auto c_node = reinterpret_cast<NodeBase *>(bf.page.dt);
       Key k;
@@ -297,12 +298,12 @@ struct BTree {
          k = reinterpret_cast<BTreeInner<Key> *>(c_node)->keys[0];
       }
       // -------------------------------------------------------------------------------------
-      auto &btree = *reinterpret_cast<BTree<Key, Value> *>(btree_object);
+      // TODO: dirty code
       {
+         auto &btree = *reinterpret_cast<BTree<Key, Value> *>(btree_object);
          auto &root_inner_swip = btree.root_swip.template cast<BTreeInner<Key>>();
          Swip<BufferFrame> *last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
          auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(btree.root_lock);
-
          if ( last_accessed_swip->bf == &bf ) {
             p_guard.recheck();
             return {

@@ -1,7 +1,11 @@
 #include "AsyncWriteBuffer.hpp"
 // -------------------------------------------------------------------------------------
+#include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
 #include <cstring>
+#include <signal.h>
+// -------------------------------------------------------------------------------------
+DEFINE_uint32(insistence_limit, 4,"");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
@@ -23,11 +27,12 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 n_buffer_slots)
    }
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::add(leanstore::BufferFrame &bf)
+bool AsyncWriteBuffer::add(leanstore::BufferFrame &bf)
 {
-   assert(write_buffer_free_slots.size());
-   assert(u64(&bf.page) % 512 == 0);
-   //TODO: what happens if we run out of slots ?
+   rassert(u64(&bf.page) % 512 == 0);
+   if ( !write_buffer_free_slots.size()) {
+      return false;
+   }
    auto slot = write_buffer_free_slots.back();
    write_buffer_free_slots.pop_back();
    std::memcpy(&write_buffer[slot], bf.page, page_size);
@@ -35,15 +40,16 @@ void AsyncWriteBuffer::add(leanstore::BufferFrame &bf)
    wc.pid = bf.header.pid;
    wc.bf = &bf;
    batch.push_back(slot);
+   return true;
 }
 // -------------------------------------------------------------------------------------
 void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)> callback, u64 batch_max_size)
 {
-   assert(batch.size() <= batch_max_size);
+   rassert(batch.size() <= batch_max_size);
    const auto c_batch_size = batch.size();
-   if ( c_batch_size == batch_max_size || insistence_counter == insistence_max_value) {
-      struct iocb *iocbs = new iocb[c_batch_size];
-      struct iocb *iocbs_ptr[c_batch_size];
+   struct iocb iocbs[c_batch_size];
+   struct iocb *iocbs_ptr[c_batch_size];
+   if ( c_batch_size == batch_max_size || insistence_counter == FLAGS_insistence_limit ) {
       for ( auto i = 0; i < c_batch_size; i++ ) {
          auto slot = batch[i];
          WriteCommand &c_command = write_buffer_commands[slot];
@@ -53,30 +59,33 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
          iocbs_ptr[i] = iocbs + i;
       }
       const int ret_code = io_submit(aio_context, c_batch_size, iocbs_ptr);
-      check(ret_code == c_batch_size);
+      rassert(ret_code == c_batch_size);
       batch.clear();
       insistence_counter = 0;
    } else {
       insistence_counter++;
    }
    // -------------------------------------------------------------------------------------
-   const u32 event_max_nr = 10;
    struct io_event events[batch_max_size];
    struct timespec timeout;
-   u64 polled_events_nr = 0;
+   s64 ret = 0;
    timeout.tv_sec = 0;
-   timeout.tv_nsec = (5 * 10e4);
-   polled_events_nr = io_getevents(aio_context, batch_max_size, event_max_nr, events, &timeout);
-   if ( polled_events_nr <= event_max_nr )
-      for ( auto i = 0; i < polled_events_nr; i++ ) {
-         const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
-         //TODO: check event result code
-         auto c_command = write_buffer_commands[slot];
-         auto written_lsn = write_buffer[slot].LSN;
-         assert(c_command.bf->header.isWB == true);
-         callback(*c_command.bf, written_lsn);
-         write_buffer_free_slots.push_back(slot);
-      }
+   timeout.tv_nsec = (5 * 10e5);
+   ret = io_getevents(aio_context, c_batch_size, c_batch_size, events, &timeout);
+   if ( ret < 0 || ret > batch_max_size ) {
+      cerr << "io_getevented = " << ret << endl;
+   }
+   for ( auto i = 0; i < ret; i++ ) {
+      rassert(events[i].res == page_size);
+      rassert(events[i].res2 == 0);
+      const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
+      //TODO: check event result code
+      auto c_command = write_buffer_commands[slot];
+      auto written_lsn = write_buffer[slot].LSN;
+      rassert(c_command.bf->header.isWB == true);
+      callback(*c_command.bf, written_lsn);
+      write_buffer_free_slots.push_back(slot);
+   }
 }
 // -------------------------------------------------------------------------------------
 }
