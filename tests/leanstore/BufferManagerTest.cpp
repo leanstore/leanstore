@@ -9,6 +9,16 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
+TEST(BufferManager, PageProviderWriteSpeed)
+{
+   BMC::initializeGlobalBufferManager();
+   BufferManager &buffer_manager = *BMC::global_bf.get();
+   // -------------------------------------------------------------------------------------
+
+   // -------------------------------------------------------------------------------------
+   BMC::global_bf.reset(nullptr);
+}
+// -------------------------------------------------------------------------------------
 TEST(BufferManager, BTree)
 {
    BMC::initializeGlobalBufferManager();
@@ -30,7 +40,7 @@ TEST(BufferManager, BTree)
    for ( uint32_t i = 0; i < n; i++ )
       work[i] = i;
    std::random_shuffle(work.begin(), work.end());
-   cout << "initialized workload"<<endl;
+   cout << "initialized workload" << endl;
    tbb::task_scheduler_init taskScheduler(threads);
    PerfEvent e;
    {
@@ -101,7 +111,7 @@ TEST(BufferManager, Persistence)
    for ( uint32_t i = 0; i < n; i++ )
       work[i] = i;
    std::random_shuffle(work.begin(), work.end());
-   cout << "initialized workload"<<endl;
+   cout << "initialized workload" << endl;
    tbb::task_scheduler_init taskScheduler(threads);
    PerfEvent e;
    {

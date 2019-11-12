@@ -5,7 +5,7 @@
 #include <cstring>
 #include <signal.h>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(insistence_limit, 4,"");
+DEFINE_uint32(insistence_limit, 4, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
@@ -16,6 +16,9 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 n_buffer_slots)
 {
    write_buffer = make_unique<BufferFrame::Page[]>(n_buffer_slots);
    write_buffer_commands = make_unique<WriteCommand[]>(n_buffer_slots);
+   iocbs = make_unique<struct iocb[]>(n_buffer_slots);
+   iocbs_ptr = make_unique<struct iocb *[]>(n_buffer_slots);
+   events = make_unique<struct io_event[]>(n_buffer_slots);
    // -------------------------------------------------------------------------------------
    for ( auto i = 0; i < n_buffer_slots; i++ ) {
       write_buffer_free_slots.push_back(i);
@@ -25,6 +28,9 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 n_buffer_slots)
    if ( io_setup(n_buffer_slots, &aio_context) != 0 ) {
       throw Generic_Exception("io_setup failed");
    }
+   // -------------------------------------------------------------------------------------
+   timeout.tv_sec = 0;
+   timeout.tv_nsec = (5 * 10e5);
 }
 // -------------------------------------------------------------------------------------
 bool AsyncWriteBuffer::add(leanstore::BufferFrame &bf)
@@ -50,42 +56,39 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
 {
    rassert(batch.size() <= batch_max_size);
    const auto c_batch_size = batch.size();
-   struct iocb iocbs[c_batch_size];
-   struct iocb *iocbs_ptr[c_batch_size];
    if ( c_batch_size == batch_max_size || insistence_counter == FLAGS_insistence_limit ) {
       for ( auto i = 0; i < c_batch_size; i++ ) {
          auto slot = batch[i];
+         // -------------------------------------------------------------------------------------
          WriteCommand &c_command = write_buffer_commands[slot];
          void *write_buffer_slot_ptr = &write_buffer[slot];
-         io_prep_pwrite(iocbs + i, fd, write_buffer_slot_ptr, page_size, page_size * c_command.pid);
-         iocbs[i].data = write_buffer_slot_ptr;
-         iocbs_ptr[i] = iocbs + i;
+         io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size * c_command.pid);
+         iocbs[slot].data = write_buffer_slot_ptr;
+         iocbs_ptr[i] = &iocbs[slot];
       }
-      const int ret_code = io_submit(aio_context, c_batch_size, iocbs_ptr);
+      const int ret_code = io_submit(aio_context, c_batch_size, iocbs_ptr.get());
       rassert(ret_code == c_batch_size);
+      pending_requests += c_batch_size;
       batch.clear();
       insistence_counter = 0;
    } else {
       insistence_counter++;
    }
    // -------------------------------------------------------------------------------------
-   struct io_event events[batch_max_size];
-   struct timespec timeout;
-   s64 ret = 0;
-   timeout.tv_sec = 0;
-   timeout.tv_nsec = (5 * 10e5);
-   ret = io_getevents(aio_context, c_batch_size, c_batch_size, events, &timeout);
-
-   for ( auto i = 0; i < ret; i++ ) {
-      rassert(events[i].res == page_size);
-      rassert(events[i].res2 == 0);
-      const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
-      //TODO: check event result code
-      auto c_command = write_buffer_commands[slot];
-      auto written_lsn = write_buffer[slot].LSN;
-      rassert(c_command.bf->header.isWB == true);
-      callback(*c_command.bf, written_lsn);
-      write_buffer_free_slots.push_back(slot);
+   if ( pending_requests ) {
+      const int done_requests = io_getevents(aio_context, pending_requests, batch_max_size, events.get(), &timeout);
+      rassert(done_requests >= 0);
+      pending_requests -= done_requests;
+      for ( auto i = 0; i < done_requests; i++ ) {
+         rassert(events[i].res == page_size);
+         rassert(events[i].res2 == 0);
+         // -------------------------------------------------------------------------------------
+         const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
+         auto c_command = write_buffer_commands[slot];
+         auto written_lsn = write_buffer[slot].LSN;
+         callback(*c_command.bf, written_lsn);
+         write_buffer_free_slots.push_back(slot);
+      }
    }
 }
 // -------------------------------------------------------------------------------------

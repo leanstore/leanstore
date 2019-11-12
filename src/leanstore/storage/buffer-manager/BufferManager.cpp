@@ -23,8 +23,8 @@ DEFINE_string(ssd_path, "leanstore", "");
 DEFINE_uint32(cooling_threshold, 10, "Start cooling pages when <= x% are free");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(background_write_sleep, 10, "us");
-DEFINE_uint32(write_buffer_size, 100, "");
-DEFINE_uint32(async_batch_size, 10, "");
+DEFINE_uint32(write_buffer_size, 512, "");
+DEFINE_uint32(async_batch_size, 128, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 BufferManager::BufferManager(bool truncate_ssd_file)
@@ -69,17 +69,22 @@ BufferManager::BufferManager(bool truncate_ssd_file)
       AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size);
       // -------------------------------------------------------------------------------------
       BufferFrame *r_buffer = &randomBufferFrame();
+      u32 pick_random_again_counter = 0;
       bool to_cooling_stage = 1;
+      //TODO: REWRITE!!
       while ( bg_threads_keep_running ) {
          try {
-            if ( to_cooling_stage ) {
+            if ( to_cooling_stage  ) {
                // unswizzle pages (put in the cooling stage)
                if ( dram_free_bfs_counter * 100.0 / FLAGS_dram_pages <= FLAGS_cooling_threshold ) {
                   ReadGuard r_guard(r_buffer->header.lock);
                   const bool is_cooling_candidate = r_buffer->header.state == BufferFrame::State::HOT; // && !rand_buffer->header.isWB
                   if ( !is_cooling_candidate ) {
                      r_buffer = &randomBufferFrame();
-                     to_cooling_stage = !to_cooling_stage;
+                     if ( pick_random_again_counter++ == 5 ) {
+                        to_cooling_stage = !to_cooling_stage;
+                        pick_random_again_counter = 0;
+                     }
                      continue;
                   }
                   r_guard.recheck();
@@ -125,8 +130,8 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
                std::unique_lock g_guard(global_mutex);
                //TODO: other variable than async_batch_size
-               auto  bf_itr = cooling_fifo_queue.begin();
-               while ( bf_itr != cooling_fifo_queue.end() ) {
+               auto bf_itr = cooling_fifo_queue.begin();
+               while ( bf_itr != cooling_fifo_queue.end()) {
                   BufferFrame &bf = **bf_itr;
                   auto next_bf_tr = std::next(bf_itr, 1);
                   PID pid = bf.header.pid;
@@ -150,7 +155,7 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                         dram_free_bfs_counter++;
                      } else {
                         //TODO: optimize this path: an array for shared/ex guards and writeasync out of the global lock
-                        if(async_write_buffer.add(bf)) {
+                        if ( async_write_buffer.add(bf)) {
                            bf.header.isWB = true;
                         }
                      }
@@ -243,11 +248,24 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       swip_guard.recheck();
       return bf;
    }
+   // -------------------------------------------------------------------------------------
+   // Hack around taking the global lock
+   {
+//      u32 mask = 1;
+//      u32 const max = 64; //MAX_BACKOFF
+//      while ((dram_free_bfs_counter.load() == 0)) { //spin bf_s_lock
+//         for ( u32 i = mask; i; --i ) {
+//            _mm_pause();
+//         }
+//         mask = mask < max ? mask << 1 : max;
+//      }
+   }
+   // -------------------------------------------------------------------------------------
    std::unique_lock g_guard(global_mutex);
    const PID pid = swip_value.asPageID();
    logger->info("WorkerThread: checking the CIOTable for pid {}", pid);
    swip_guard.recheck();
-   rassert(!swip_value.isSwizzled());
+   // -------------------------------------------------------------------------------------
    CIOFrame &cio_frame = cooling_io_ht[pid];
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
       logger->info("WorkerThread::resolveSwip:not loaded state");
@@ -267,7 +285,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       // -------------------------------------------------------------------------------------
       g_guard.unlock();
       // -------------------------------------------------------------------------------------
-      readPageSync(swip_value.asPageID(), bf.page);
+      readPageSync(pid, bf.page);
       rassert(bf.page.magic_debugging_number == pid);
       // ATTENTION: Fill the BF
       bf.header.lastWrittenLSN = bf.page.LSN;
@@ -288,7 +306,6 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    }
    if ( cio_frame.state == CIOFrame::State::READING ) {
       logger->info("WorkerThread::resolveSwip:Reading state");
-      rassert(!swip_value.isSwizzled());
       cio_frame.readers_counter++;
       g_guard.unlock();
       cio_frame.mutex.lock();
