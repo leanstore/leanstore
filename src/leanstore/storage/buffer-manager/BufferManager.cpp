@@ -69,21 +69,15 @@ BufferManager::BufferManager(bool truncate_ssd_file)
       AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size);
       // -------------------------------------------------------------------------------------
       BufferFrame *r_buffer = &randomBufferFrame();
-      u32 pick_random_again_counter = 0;
-      bool to_cooling_stage = 1;
       //TODO: REWRITE!!
       while ( bg_threads_keep_running ) {
          try {
-            if (((cooling_bfs_counter * 100.0 / (FLAGS_dram_pages - dram_free_bfs_counter)) < FLAGS_cooling_threshold) && cooling_bfs_counter < (FLAGS_async_batch_size)) {
+            while ((((dram_free_bfs_counter + cooling_bfs_counter) * 100.0 / FLAGS_dram_pages) < FLAGS_cooling_threshold ) && (cooling_bfs_counter < FLAGS_write_buffer_size)) {
                // unswizzle pages (put in the cooling stage)
                ReadGuard r_guard(r_buffer->header.lock);
                const bool is_cooling_candidate = r_buffer->header.state == BufferFrame::State::HOT; // && !rand_buffer->header.isWB
                if ( !is_cooling_candidate ) {
                   r_buffer = &randomBufferFrame();
-                  if ( pick_random_again_counter++ == 5 ) {
-                     to_cooling_stage = !to_cooling_stage;
-                     pick_random_again_counter = 0;
-                  }
                   continue;
                }
                r_guard.recheck();
@@ -124,10 +118,11 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                   stats.unswizzled_pages_counter++;
                }
                r_buffer = &randomBufferFrame();
-               to_cooling_stage = !to_cooling_stage;
-            } else { // out of the cooling stage
+            }
+            { // out of the cooling stage
                // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
                std::unique_lock g_guard(global_mutex);
+               u64 pages_left_to_evict = 10.0 * cooling_bfs_counter / 100.0; // TODO: magic_number
                //TODO: other variable than async_batch_size
                auto bf_itr = cooling_fifo_queue.begin();
                while ( bf_itr != cooling_fifo_queue.end()) {
@@ -136,12 +131,9 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                   PID pid = bf.header.pid;
                   // TODO: can we write multiple  versions sim ?
                   // TODO: current implementation assume that checkpoint thread does not touch the
-                  // the cooled pages
                   if ( bf.header.isWB == false ) {
                      if ( !bf.isDirty()) {
-//                        const bool eviction_condition = dram_free_bfs_counter * 100.0 / (FLAGS_dram_pages * 1.0) <= 1.0;
-                        const bool eviction_condition = dram_free_bfs_counter * 100.0 / (FLAGS_dram_pages * 1.0) <= 1.0;
-                        if ( dram_free_bfs_counter <= 20 ) { //TODO: magic number
+                        if ( pages_left_to_evict || (FLAGS_cooling_threshold==100)) {
                            std::lock_guard reservoir_guard(reservoir_mutex);
                            // Reclaim buffer frame
                            CIOFrame &cio_frame = cooling_io_ht[pid];
@@ -151,11 +143,13 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                            cooling_bfs_counter--;
                            // -------------------------------------------------------------------------------------
                            bf.header.state = BufferFrame::State::FREE;
-                           bf.header.pid = 0;
+
                            bf.header.isWB = false;
                            // -------------------------------------------------------------------------------------
                            dram_free_bfs.push(&bf);
                            dram_free_bfs_counter++;
+                           // -------------------------------------------------------------------------------------
+                           pages_left_to_evict--;
                         }
                      } else {
                         //TODO: optimize this path: an array for shared/ex guards and writeasync out of the global lock
@@ -182,7 +176,6 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                      }
                   }
                }, FLAGS_async_batch_size); // TODO: own gflag for batch size
-               to_cooling_stage = !to_cooling_stage;
             }
          } catch ( RestartException e ) {
          }
