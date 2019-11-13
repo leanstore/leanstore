@@ -74,58 +74,57 @@ BufferManager::BufferManager(bool truncate_ssd_file)
       //TODO: REWRITE!!
       while ( bg_threads_keep_running ) {
          try {
-            if ( to_cooling_stage  ) {
+            if (((cooling_bfs_counter * 100.0 / (FLAGS_dram_pages - dram_free_bfs_counter)) < FLAGS_cooling_threshold) && cooling_bfs_counter < (FLAGS_async_batch_size)) {
                // unswizzle pages (put in the cooling stage)
-               if ( dram_free_bfs_counter * 100.0 / FLAGS_dram_pages <= FLAGS_cooling_threshold ) {
-                  ReadGuard r_guard(r_buffer->header.lock);
-                  const bool is_cooling_candidate = r_buffer->header.state == BufferFrame::State::HOT; // && !rand_buffer->header.isWB
-                  if ( !is_cooling_candidate ) {
-                     r_buffer = &randomBufferFrame();
-                     if ( pick_random_again_counter++ == 5 ) {
-                        to_cooling_stage = !to_cooling_stage;
-                        pick_random_again_counter = 0;
-                     }
-                     continue;
-                  }
-                  r_guard.recheck();
-                  // -------------------------------------------------------------------------------------
-                  bool picked_a_child_instead = false;
-                  dt_registry.iterateChildrenSwips(r_buffer->page.dt_id,
-                                                   *r_buffer, r_guard, [&](Swip<BufferFrame> &swip) {
-                             if ( swip.isSwizzled()) {
-                                r_buffer = &swip.asBufferFrame();
-                                r_guard.recheck();
-                                picked_a_child_instead = true;
-                                return false;
-                             }
-                             r_guard.recheck();
-                             return true;
-                          });
-                  if ( picked_a_child_instead ) {
-                     logger->info("picked a child instead");
-                     continue; //restart the inner loop
-                  }
-                  // -------------------------------------------------------------------------------------
-                  {
-                     ExclusiveGuard r_x_guad(r_guard);
-                     ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer, r_guard);
-                     ExclusiveGuard p_x_guard(parent_handler.guard);
-                     std::lock_guard g_guard(global_mutex); // must accquire the mutex before exclusive locks
-                     rassert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
-                     rassert(parent_handler.swip.bf == r_buffer);
-                     logger->info("cooling PID = {}", r_buffer->header.pid);
-                     parent_handler.swip.unswizzle(r_buffer->header.pid);
-                     CIOFrame &cio_frame = cooling_io_ht[r_buffer->header.pid];
-                     cio_frame.state = CIOFrame::State::COOLING;
-                     cooling_fifo_queue.push_back(r_buffer);
-                     cio_frame.fifo_itr = --cooling_fifo_queue.end();
-                     r_buffer->header.state = BufferFrame::State::COLD;
-                     // -------------------------------------------------------------------------------------
-                     stats.unswizzled_pages_counter++;
-                  }
+               ReadGuard r_guard(r_buffer->header.lock);
+               const bool is_cooling_candidate = r_buffer->header.state == BufferFrame::State::HOT; // && !rand_buffer->header.isWB
+               if ( !is_cooling_candidate ) {
                   r_buffer = &randomBufferFrame();
-                  to_cooling_stage = !to_cooling_stage;
+                  if ( pick_random_again_counter++ == 5 ) {
+                     to_cooling_stage = !to_cooling_stage;
+                     pick_random_again_counter = 0;
+                  }
+                  continue;
                }
+               r_guard.recheck();
+               // -------------------------------------------------------------------------------------
+               bool picked_a_child_instead = false;
+               dt_registry.iterateChildrenSwips(r_buffer->page.dt_id,
+                                                *r_buffer, r_guard, [&](Swip<BufferFrame> &swip) {
+                          if ( swip.isSwizzled()) {
+                             r_buffer = &swip.asBufferFrame();
+                             r_guard.recheck();
+                             picked_a_child_instead = true;
+                             return false;
+                          }
+                          r_guard.recheck();
+                          return true;
+                       });
+               if ( picked_a_child_instead ) {
+                  logger->info("picked a child instead");
+                  continue; //restart the inner loop
+               }
+               // -------------------------------------------------------------------------------------
+               {
+                  ExclusiveGuard r_x_guad(r_guard);
+                  ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer, r_guard);
+                  ExclusiveGuard p_x_guard(parent_handler.guard);
+                  std::lock_guard g_guard(global_mutex); // must accquire the mutex before exclusive locks
+                  rassert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
+                  rassert(parent_handler.swip.bf == r_buffer);
+                  logger->info("cooling PID = {}", r_buffer->header.pid);
+                  parent_handler.swip.unswizzle(r_buffer->header.pid);
+                  CIOFrame &cio_frame = cooling_io_ht[r_buffer->header.pid];
+                  cio_frame.state = CIOFrame::State::COOLING;
+                  cooling_fifo_queue.push_back(r_buffer);
+                  cio_frame.fifo_itr = --cooling_fifo_queue.end();
+                  r_buffer->header.state = BufferFrame::State::COLD;
+                  cooling_bfs_counter++;
+                  // -------------------------------------------------------------------------------------
+                  stats.unswizzled_pages_counter++;
+               }
+               r_buffer = &randomBufferFrame();
+               to_cooling_stage = !to_cooling_stage;
             } else { // out of the cooling stage
                // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
                std::unique_lock g_guard(global_mutex);
@@ -140,19 +139,24 @@ BufferManager::BufferManager(bool truncate_ssd_file)
                   // the cooled pages
                   if ( bf.header.isWB == false ) {
                      if ( !bf.isDirty()) {
-                        std::lock_guard reservoir_guard(reservoir_mutex);
-                        // Reclaim buffer frame
-                        CIOFrame &cio_frame = cooling_io_ht[pid];
-                        rassert(cio_frame.state == CIOFrame::State::COOLING);
-                        cooling_fifo_queue.erase(bf_itr);
-                        cio_frame.state = CIOFrame::State::NOT_LOADED;
-                        // -------------------------------------------------------------------------------------
-                        bf.header.state = BufferFrame::State::FREE;
-                        bf.header.pid = 0;
-                        bf.header.isWB = false;
-                        // -------------------------------------------------------------------------------------
-                        dram_free_bfs.push(&bf);
-                        dram_free_bfs_counter++;
+//                        const bool eviction_condition = dram_free_bfs_counter * 100.0 / (FLAGS_dram_pages * 1.0) <= 1.0;
+                        const bool eviction_condition = dram_free_bfs_counter * 100.0 / (FLAGS_dram_pages * 1.0) <= 1.0;
+                        if ( dram_free_bfs_counter <= 20 ) { //TODO: magic number
+                           std::lock_guard reservoir_guard(reservoir_mutex);
+                           // Reclaim buffer frame
+                           CIOFrame &cio_frame = cooling_io_ht[pid];
+                           rassert(cio_frame.state == CIOFrame::State::COOLING);
+                           cooling_fifo_queue.erase(bf_itr);
+                           cio_frame.state = CIOFrame::State::NOT_LOADED;
+                           cooling_bfs_counter--;
+                           // -------------------------------------------------------------------------------------
+                           bf.header.state = BufferFrame::State::FREE;
+                           bf.header.pid = 0;
+                           bf.header.isWB = false;
+                           // -------------------------------------------------------------------------------------
+                           dram_free_bfs.push(&bf);
+                           dram_free_bfs_counter++;
+                        }
                      } else {
                         //TODO: optimize this path: an array for shared/ex guards and writeasync out of the global lock
                         if ( async_write_buffer.add(bf)) {
@@ -298,6 +302,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       cio_frame.state = CIOFrame::State::COOLING;
       cooling_fifo_queue.push_back(&bf);
       cio_frame.fifo_itr = --cooling_fifo_queue.end();
+      cooling_bfs_counter++;
       rassert(*cio_frame.fifo_itr == &bf);
       g_guard.unlock();
       cio_frame.mutex.unlock();
@@ -326,6 +331,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       ExclusiveGuard x_lock(swip_guard);
       BufferFrame *bf = *cio_frame.fifo_itr;
       cooling_fifo_queue.erase(cio_frame.fifo_itr);
+      cooling_bfs_counter--;
       rassert(bf->header.state == BufferFrame::State::COLD);
       cio_frame.state = CIOFrame::State::NOT_LOADED;
       bf->header.state = BufferFrame::State::HOT;

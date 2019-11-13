@@ -54,11 +54,11 @@ bool AsyncWriteBuffer::add(leanstore::BufferFrame &bf)
 // -------------------------------------------------------------------------------------
 void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)> callback, u64 batch_max_size)
 {
-   rassert(batch.size() <= batch_max_size);
-   const auto c_batch_size = batch.size();
-   if ( c_batch_size == batch_max_size || insistence_counter == FLAGS_insistence_limit ) {
+   const auto c_batch_size = std::min(batch.size(), batch_max_size);
+   if ( c_batch_size >= batch_max_size || insistence_counter == FLAGS_insistence_limit ) {
       for ( auto i = 0; i < c_batch_size; i++ ) {
-         auto slot = batch[i];
+         auto slot = batch.back();
+         batch.pop_back();
          // -------------------------------------------------------------------------------------
          WriteCommand &c_command = write_buffer_commands[slot];
          void *write_buffer_slot_ptr = &write_buffer[slot];
@@ -69,7 +69,6 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
       const int ret_code = io_submit(aio_context, c_batch_size, iocbs_ptr.get());
       rassert(ret_code == c_batch_size);
       pending_requests += c_batch_size;
-      batch.clear();
       insistence_counter = 0;
    } else {
       insistence_counter++;

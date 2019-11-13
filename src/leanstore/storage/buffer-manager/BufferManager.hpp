@@ -59,6 +59,7 @@ private:
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
    std::mutex global_mutex;
+   atomic<u64> cooling_bfs_counter = 0;
    std::list<BufferFrame*> cooling_fifo_queue;
    std::unordered_map<PID, CIOFrame> cooling_io_ht;
    // -------------------------------------------------------------------------------------
