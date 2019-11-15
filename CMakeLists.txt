@@ -70,7 +70,7 @@ include_directories(
 # Sources
 # ---------------------------------------------------------------------------
 
-add_subdirectory("src")
+add_subdirectory("backend")
 add_subdirectory("tests")
 add_subdirectory("tools")
 add_subdirectory("playground")

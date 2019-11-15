@@ -1,14 +1,14 @@
 #pragma once
-#include <cassert>
+#include "Units.hpp"
 #include <exception>
 #include <string>
 // -------------------------------------------------------------------------------------
-#define UNREACHABLE() assert(false); // TODO
-#define TODO() assert(false); // TODO
+#define imply(lhs, rhs) \
+    (!(lhs) || (rhs))
 // -------------------------------------------------------------------------------------
-#define check(expr) if (!(expr)) { perror(#expr); assert(false); }
+#define posix_check(expr) if (!(expr)) { perror(#expr); assert(false); }
 //--------------------------------------------------------------------------------------
-#define GenericException(name)                                                         \
+#define Generic_Exception(name)                                                         \
 struct name : public std::exception {                                                  \
    const std::string msg;                                                              \
    explicit name()                                                                     \
@@ -19,5 +19,25 @@ struct name : public std::exception {                                           
    virtual const char *what() const noexcept { return msg.c_str(); }                   \
 };                                                                                     \
 //--------------------------------------------------------------------------------------
-GenericException(Generic_Exception);
+namespace leanstore {
+namespace ex {
+Generic_Exception(GenericException);
+Generic_Exception(EnsureFailed);
+Generic_Exception(UnReachable);
+Generic_Exception(TODO);
+void OnEnsureFailedPrint(const std::string &func, const std::string &file, int line, const std::string &expression);
+}
+}
+// -------------------------------------------------------------------------------------
+#ifdef NDEBUG
+#define UNREACHABLE(MSG) __builtin_unreachable();
+#else
+#define UNREACHABLE() \
+    throw ex::UnReachable(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
+#endif
+// -------------------------------------------------------------------------------------
+#define   ensure(e) \
+    (__builtin_expect(!(e), 0) ? throw ex::EnsureFailed(std::string(__func__) + " in " + std::string( __FILE__) + "@" + std::to_string(__LINE__) + " msg: " + std::string(#e)) : (void)0)
+// -------------------------------------------------------------------------------------
+#define TODO() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------

@@ -1,5 +1,4 @@
-#include "leanstore/storage/buffer-manager/BufferManager.hpp"
-#include "leanstore/storage/btree/BTreeOptimistic.hpp"
+#include "leanstore/LeanStore.hpp"
 // -------------------------------------------------------------------------------------
 #include "gtest/gtest.h"
 #include "gflags/gflags.h"
@@ -8,24 +7,15 @@
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
 namespace leanstore {
-// -------------------------------------------------------------------------------------
-TEST(BufferManager, PageProviderWriteSpeed)
-{
-   BMC::initializeGlobalBufferManager();
-   BufferManager &buffer_manager = *BMC::global_bf.get();
-   // -------------------------------------------------------------------------------------
-
-   // -------------------------------------------------------------------------------------
-   BMC::global_bf.reset(nullptr);
-}
+namespace buffermanager {
 // -------------------------------------------------------------------------------------
 TEST(BufferManager, BTree)
 {
-   BMC::initializeGlobalBufferManager();
+   LeanStore db;
+   auto &btree = db.registerBTree<u32, u32>("test");
    //buffer_manager.stopBackgroundThreads();
 
    // BTree
-   btree::BTree<uint32_t, uint32_t> btree;
    uint32_t result;
    bool res = btree.lookup(10, result);
    EXPECT_FALSE(res);
@@ -95,14 +85,12 @@ TEST(BufferManager, BTree)
          });
       }
    }
-   BMC::global_bf.reset(nullptr);
 }
 // -------------------------------------------------------------------------------------
 TEST(BufferManager, Persistence)
 {
-   BMC::initializeGlobalBufferManager();
-   BufferManager *buffer_manager = BMC::global_bf.get();
-   btree::BTree<uint32_t, uint32_t> btree;
+   LeanStore db;
+   auto &btree = db.registerBTree<u32, u32>("test");
 
    uint32_t n = getenv("N") ? atoi(getenv("N")) : 10e4;
    uint32_t threads = getenv("T") ? atoi(getenv("T")) : 10;
@@ -129,9 +117,7 @@ TEST(BufferManager, Persistence)
             }
          });
       }
-//      taskScheduler.terminate();
-//      taskScheduler.initialize(threads);
-      buffer_manager->flushDropAllPages();
+      db.getBufferManager().flushDropAllPages();
       EXPECT_FALSE(btree.root_swip.isSwizzled());
 
       // mixed workload
@@ -159,8 +145,8 @@ TEST(BufferManager, Persistence)
          });
       }
    }
-   BMC::global_bf.reset(nullptr);
 }
 // -------------------------------------------------------------------------------------
+}
 }
 // -------------------------------------------------------------------------------------
