@@ -3,6 +3,7 @@
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/ZipfRandom.hpp"
+#include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include <tbb/tbb.h>
 #include <gflags/gflags.h>
@@ -20,8 +21,22 @@ DEFINE_bool(verify, true, "");
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-using YCSBKey = u32;
-using YCSBPayload = u32;
+using YCSBKey = u64;
+typedef struct YCSBPayload {
+   u8 value[120];
+   YCSBPayload() {}
+   bool operator==(YCSBPayload &other)
+   {
+      return (std::memcmp(value, other.value, sizeof(value)));
+   }
+   bool operator!=(YCSBPayload &other) {
+      return !(operator==(other));
+   }
+   YCSBPayload(const YCSBPayload &other)
+   {
+      std::memcpy(value, other.value, sizeof(value));
+   }
+};
 int main(int argc, char **argv)
 {
    gflags::SetUsageMessage("Leanstore Frontend");
@@ -56,7 +71,9 @@ int main(int argc, char **argv)
       if ( utils::fileExists(payload_file)) {
          utils::fillVectorFromBinaryFile(payload_file.c_str(), payloads);
       } else {
-         std::iota(payloads.begin(), payloads.end(), 0);
+         for ( u64 t_i = 0; t_i < payloads.size(); t_i++ ) {
+            std::memset(payloads.data() + t_i, t_i, sizeof(YCSBPayload));
+         }
          utils::writeBinary(payload_file.c_str(), payloads);
       }
    }
@@ -114,14 +131,18 @@ int main(int argc, char **argv)
          for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
             YCSBKey key = lookup_keys[i];
             YCSBPayload result;
-            bool res = table.lookup(key, result);
-            if ( FLAGS_verify ) {
-               if ( !res ) {
-                  cerr << "not found !" << endl;
+            if ( utils::RandomGenerator::getRand(0, 100) <= FLAGS_ycsb_read_ratio ) {
+               bool res = table.lookup(key, result);
+               if ( FLAGS_verify ) {
+                  if ( !res ) {
+                     cerr << "not found !" << endl;
+                  }
+                  if ( result != payloads[key] ) {
+                     cerr << " result != " << result.value[0] << endl;
+                  }
                }
-               if ( result != payloads[key] ) {
-                  cerr << " result = " << result << endl;
-               }
+            } else {
+               table.insert(key, payloads[key]);
             }
          }
       });
