@@ -27,9 +27,10 @@ typedef struct YCSBPayload {
    YCSBPayload() {}
    bool operator==(YCSBPayload &other)
    {
-      return (std::memcmp(value, other.value, sizeof(value)));
+      return (std::memcmp(value, other.value, sizeof(value)) == 0);
    }
-   bool operator!=(YCSBPayload &other) {
+   bool operator!=(YCSBPayload &other)
+   {
       return !(operator==(other));
    }
    YCSBPayload(const YCSBPayload &other)
@@ -72,7 +73,7 @@ int main(int argc, char **argv)
          utils::fillVectorFromBinaryFile(payload_file.c_str(), payloads);
       } else {
          for ( u64 t_i = 0; t_i < payloads.size(); t_i++ ) {
-            std::memset(payloads.data() + t_i, t_i, sizeof(YCSBPayload));
+            utils::RandomGenerator::getRandString(reinterpret_cast<u8 *>(payloads.data() + t_i), sizeof(YCSBPayload));
          }
          utils::writeBinary(payload_file.c_str(), payloads);
       }
@@ -112,7 +113,8 @@ int main(int argc, char **argv)
             YCSBPayload result;
             ensure(table.lookup(i, result));
             if ( FLAGS_verify ) {
-               ensure(result == payloads[i]);
+               YCSBPayload &should = payloads[i];
+               explain(result == should);
             }
          }
       });

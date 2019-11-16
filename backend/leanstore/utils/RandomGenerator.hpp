@@ -15,6 +15,7 @@ public:
        std::uniform_int_distribution<int> distribution(min,max - 1);
        return distribution(random_generator);
    }
+   static void getRandString(u8 *dst, u64 size);
 };
 // -------------------------------------------------------------------------------------
 }

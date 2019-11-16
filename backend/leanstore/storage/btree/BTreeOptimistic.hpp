@@ -62,7 +62,7 @@ struct BTreeLeaf : public BTreeLeafBase {
       return lower;
    }
 
-   void insert(Key k, Payload p)
+   void insert(Key k, Payload &p)
    {
       if ( count ) {
          unsigned pos = lowerBound(k);
@@ -186,7 +186,7 @@ struct BTree {
       new_root_inner->children[1] = rightChild;
    }
    // -------------------------------------------------------------------------------------
-   void insert(Key k, Value v)
+   void insert(Key k, Value &v)
    {
       auto &root_inner_swip = root_swip.cast<BTreeInner<Key>>();
       while ( true ) {

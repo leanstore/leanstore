@@ -2,6 +2,7 @@
 #include "Units.hpp"
 #include <exception>
 #include <string>
+#include <signal.h>
 // -------------------------------------------------------------------------------------
 #define imply(lhs, rhs) \
     (!(lhs) || (rhs))
@@ -41,3 +42,5 @@ void OnEnsureFailedPrint(const std::string &func, const std::string &file, int l
 // -------------------------------------------------------------------------------------
 #define TODO() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
+#define   explain(e) \
+    if(!(e)) { raise(SIGTRAP); };
