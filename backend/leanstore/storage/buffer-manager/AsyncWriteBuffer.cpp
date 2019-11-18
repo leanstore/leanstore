@@ -28,10 +28,10 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 n_buffer_slots)
    // -------------------------------------------------------------------------------------
    memset(&aio_context, 0, sizeof(aio_context));
    const int ret = io_setup(n_buffer_slots, &aio_context);
-   if(ret != 0) {
+   if ( ret != 0 ) {
       throw ex::GenericException("io_setup failed, ret code = " + std::to_string(ret));
    }
-   ensure ( io_setup(n_buffer_slots, &aio_context) != 0 );
+   ensure (io_setup(n_buffer_slots, &aio_context) != 0);
    // -------------------------------------------------------------------------------------
    timeout.tv_sec = 0;
    timeout.tv_nsec = (5 * 10e5);
@@ -48,10 +48,10 @@ bool AsyncWriteBuffer::add(BufferFrame &bf)
    // -------------------------------------------------------------------------------------
    auto slot = write_buffer_free_slots.back();
    write_buffer_free_slots.pop_back();
-   std::memcpy(&write_buffer[slot], bf.page, page_size);
    WriteCommand &wc = write_buffer_commands[slot];
    wc.pid = bf.header.pid;
    wc.bf = &bf;
+   wc.guard = ReadGuard(bf.header.lock);
    batch.push_back(slot);
    return true;
 }
@@ -59,20 +59,31 @@ bool AsyncWriteBuffer::add(BufferFrame &bf)
 void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)> callback, u64 batch_max_size)
 {
    const auto c_batch_size = std::min(batch.size(), batch_max_size - pending_requests);
+   u32 successfully_copied_bfs = 0;
+   auto my_iocbs_ptr = iocbs_ptr.get();
    if ( c_batch_size >= batch_max_size || insistence_counter == FLAGS_insistence_limit ) {
       for ( auto i = 0; i < c_batch_size; i++ ) {
          auto slot = batch.back();
          batch.pop_back();
          // -------------------------------------------------------------------------------------
          WriteCommand &c_command = write_buffer_commands[slot];
-         void *write_buffer_slot_ptr = &write_buffer[slot];
-         io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size * c_command.pid);
-         iocbs[slot].data = write_buffer_slot_ptr;
-         iocbs_ptr[i] = &iocbs[slot];
+         // -------------------------------------------------------------------------------------
+         try {
+            std::memcpy(&write_buffer[slot], c_command.bf->page, page_size);
+            c_command.guard.recheck();
+            void *write_buffer_slot_ptr = &write_buffer[slot];
+            io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size * c_command.pid);
+            iocbs[slot].data = write_buffer_slot_ptr;
+            *my_iocbs_ptr++ = &iocbs[slot];
+            successfully_copied_bfs++;
+         } catch ( RestartException e ) {
+
+         }
+         // -------------------------------------------------------------------------------------
       }
-      const int ret_code = io_submit(aio_context, c_batch_size, iocbs_ptr.get());
-      ensure(ret_code == c_batch_size);
-      pending_requests += c_batch_size;
+      pending_requests += successfully_copied_bfs;
+      const int ret_code = io_submit(aio_context, successfully_copied_bfs, iocbs_ptr.get());
+      ensure(ret_code == successfully_copied_bfs);
       insistence_counter = 0;
    } else {
       insistence_counter++;
@@ -81,7 +92,7 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
    if ( pending_requests ) {
       ensure(pending_requests <= batch_max_size);
       const int done_requests = io_getevents(aio_context, pending_requests, batch_max_size, events.get(), &timeout);
-      if(done_requests < 0) {
+      if ( done_requests < 0 ) {
          throw ex::GenericException("io_getevents failed, res = " + std::to_string(done_requests));
       }
       pending_requests -= done_requests;

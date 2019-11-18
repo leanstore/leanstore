@@ -54,6 +54,8 @@ BufferManager::BufferManager(Config config_snap)
    }
    // -------------------------------------------------------------------------------------
    // Background threads
+   // -------------------------------------------------------------------------------------
+   // Init time
    std::thread page_provider_thread([&]() {
       pthread_setname_np(pthread_self(), "page_provider");
       auto logger = spdlog::rotating_logger_mt("PageProviderThread", "page_provider.txt", 1024 * 1024, 1);
@@ -65,10 +67,13 @@ BufferManager::BufferManager(Config config_snap)
       BufferFrame *r_buffer = &randomBufferFrame();
       //TODO: REWRITE!!
       while ( bg_threads_keep_running ) {
+         const u64 max_pages_to_evict = config.cooling_threshold * config.evict_cooling_threshold * config.dram_pages_count / 10000.0;
          try {
+            // Phase 1
+            auto phase_1 = chrono::high_resolution_clock::now();
             while (
-                   (((dram_free_bfs_counter + cooling_bfs_counter) * 100.0 / config.dram_pages_count) < config.cooling_threshold)
-                   && (cooling_bfs_counter < config.write_buffer_size)
+                    (((dram_free_bfs_counter + cooling_bfs_counter) * 100.0 / config.dram_pages_count) < config.cooling_threshold)
+                     || config.cooling_threshold == 100
                     ) {
                // unswizzle pages (put in the cooling stage)
                ReadGuard r_guard(r_buffer->header.lock);
@@ -115,64 +120,82 @@ BufferManager::BufferManager(Config config_snap)
                   stats.unswizzled_pages_counter++;
                }
                r_buffer = &randomBufferFrame();
-            }
-            if ( cooling_bfs_counter ) { // out of the cooling stage
-               // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
-               std::unique_lock g_guard(global_mutex);
-               u64 pages_left_to_evict = 4.0 * cooling_bfs_counter / 100.0; // TODO: magic_number
-               //TODO: other variable than async_batch_size
-               auto bf_itr = cooling_fifo_queue.begin();
-               while ( bf_itr != cooling_fifo_queue.end()) {
-                  BufferFrame &bf = **bf_itr;
-                  auto next_bf_tr = std::next(bf_itr, 1);
-                  PID pid = bf.header.pid;
-                  // TODO: can we write multiple  versions sim ?
-                  // TODO: current implementation assume that checkpoint thread does not touch the
-                  if ( bf.header.isWB == false ) {
-                     if ( !bf.isDirty()) {
-                        if ( pages_left_to_evict || (config.cooling_threshold == 100)) {
-                           std::lock_guard reservoir_guard(reservoir_mutex);
-                           // Reclaim buffer frame
-                           CIOFrame &cio_frame = cooling_io_ht[pid];
-                           assert(cio_frame.state == CIOFrame::State::COOLING);
-                           cooling_fifo_queue.erase(bf_itr);
-                           cio_frame.state = CIOFrame::State::NOT_LOADED;
-                           cooling_bfs_counter--;
-                           // -------------------------------------------------------------------------------------
-                           bf.header.state = BufferFrame::State::FREE;
-
-                           bf.header.isWB = false;
-                           // -------------------------------------------------------------------------------------
-                           dram_free_bfs.push_back(&bf);
-                           dram_free_bfs_counter++;
-                           // -------------------------------------------------------------------------------------
-                           pages_left_to_evict--;
-                        }
-                     } else {
-                        //TODO: optimize this path: an array for shared/ex guards and writeasync out of the global lock
-                        if ( async_write_buffer.add(bf)) {
-                           bf.header.isWB = true;
-                        }
-                     }
-                  }
-                  bf_itr = next_bf_tr;
+               // -------------------------------------------------------------------------------------
+               if ( cooling_bfs_counter >= max_pages_to_evict ) {
+                  goto eviction;
                }
-               g_guard.unlock();
-               async_write_buffer.submitIfNecessary([&](BufferFrame &written_bf, u64 written_lsn) {
-                  while ( true ) {
-                     try {
-                        ReadGuard guard(written_bf.header.lock);
-                        ExclusiveGuard x_guard(guard);
-                        assert(written_bf.header.isWB == true);
-                        written_bf.header.lastWrittenLSN = written_lsn;
-                        written_bf.header.isWB = false;
-                        // -------------------------------------------------------------------------------------
-                        stats.flushed_pages_counter++;
-                        return;
-                     } catch ( RestartException e ) {
+            }
+            eviction:
+            if ( cooling_bfs_counter ) { // out of the cooling stage
+               // PHASE 2
+               auto phase_2 = chrono::high_resolution_clock::now();
+               {
+                  u64 pages_left_to_evict = max_pages_to_evict;
+                  // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
+                  std::unique_lock g_guard(global_mutex);
+                  //TODO: other variable than async_batch_size
+                  auto bf_itr = cooling_fifo_queue.begin();
+                  while ( bf_itr != cooling_fifo_queue.end()) {
+                     BufferFrame &bf = **bf_itr;
+                     auto next_bf_tr = std::next(bf_itr, 1);
+                     PID pid = bf.header.pid;
+                     // TODO: can we write multiple  versions sim ?
+                     // TODO: current implementation assume that checkpoint thread does not touch the
+                     if ( bf.header.isWB == false ) {
+                        if ( !bf.isDirty()) {
+                           if ( pages_left_to_evict || (config.cooling_threshold == 100)) {
+                              std::lock_guard reservoir_guard(reservoir_mutex);
+                              // Reclaim buffer frame
+                              CIOFrame &cio_frame = cooling_io_ht[pid];
+                              assert(cio_frame.state == CIOFrame::State::COOLING);
+                              cooling_fifo_queue.erase(bf_itr);
+                              cio_frame.state = CIOFrame::State::NOT_LOADED;
+                              cooling_bfs_counter--;
+                              // -------------------------------------------------------------------------------------
+                              bf.header.state = BufferFrame::State::FREE;
+                              bf.header.isWB = false;
+                              // -------------------------------------------------------------------------------------
+                              dram_free_bfs.push_back(&bf);
+                              dram_free_bfs_counter++;
+                              // -------------------------------------------------------------------------------------
+                              pages_left_to_evict--;
+                           }
+                        } else {
+                           //TODO: optimize this path: an array for shared/ex guards and writeasync out of the global lock
+                           if ( async_write_buffer.add(bf)) {
+                              bf.header.isWB = true;
+                           }
+                        }
                      }
+                     bf_itr = next_bf_tr;
                   }
-               }, config.async_batch_size); // TODO: own gflag for batch size
+                  g_guard.unlock();
+               }
+               // Phase 3
+               auto phase_3 = chrono::high_resolution_clock::now();
+               {
+                  async_write_buffer.submitIfNecessary([&](BufferFrame &written_bf, u64 written_lsn) {
+                     while ( true ) {
+                        try {
+                           ReadGuard guard(written_bf.header.lock);
+                           ExclusiveGuard x_guard(guard);
+                           assert(written_bf.header.isWB == true);
+                           written_bf.header.lastWrittenLSN = written_lsn;
+                           written_bf.header.isWB = false;
+                           // -------------------------------------------------------------------------------------
+                           stats.flushed_pages_counter++;
+                           return;
+                        } catch ( RestartException e ) {
+                        }
+                     }
+                  }, config.async_batch_size); // TODO: own gflag for batch size
+               }
+               auto end = chrono::high_resolution_clock::now();
+               // -------------------------------------------------------------------------------------
+               phase_1_ms += (chrono::duration_cast<chrono::microseconds>(phase_2 - phase_1).count());
+               phase_2_ms += (chrono::duration_cast<chrono::microseconds>(phase_3 - phase_2).count());
+               phase_3_ms += (chrono::duration_cast<chrono::microseconds>(end - phase_3).count());
+               // -------------------------------------------------------------------------------------
             }
          } catch ( RestartException e ) {
          }
@@ -183,6 +206,23 @@ BufferManager::BufferManager(Config config_snap)
    bg_threads_counter++;
    page_provider_thread.detach();
    // -------------------------------------------------------------------------------------
+   std::thread phase_timer_thread([&]() {
+      s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0;
+      while ( bg_threads_keep_running ) {
+         local_phase_1_ms = phase_1_ms.exchange(0);
+         local_phase_2_ms = phase_2_ms.exchange(0);
+         local_phase_3_ms = phase_3_ms.exchange(0);
+         s64 total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
+         if ( total > 0 ) {
+            cout << std::fixed;
+            cout << (local_phase_1_ms * 100.0 / total) << " - " << (local_phase_2_ms * 100.0 / total) << " - " << (local_phase_3_ms * 100.0 / total) << endl;
+         }
+         sleep(1);
+      }
+      bg_threads_counter--;
+   });
+   bg_threads_counter++;
+   phase_timer_thread.detach();
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::clearSSD()
@@ -190,12 +230,19 @@ void BufferManager::clearSSD()
    ftruncate(ssd_fd, 0);
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::restoreFreePagesList()
+void BufferManager::persist()
+{
+   flushDropAllPages();
+   utils::writeBinary(config.free_pages_list_path.c_str(), ssd_free_pages);
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::restore()
 {
    utils::fillVectorFromBinaryFile(config.free_pages_list_path.c_str(), ssd_free_pages);
 }
 // -------------------------------------------------------------------------------------
-u64 BufferManager::consumedPages() {
+u64 BufferManager::consumedPages()
+{
    return config.ssd_pages_count - ssd_free_pages.size();
 }
 // -------------------------------------------------------------------------------------
@@ -210,6 +257,9 @@ BufferFrame &BufferManager::randomBufferFrame()
 // returns a *write locked* new buffer frame
 BufferFrame &BufferManager::allocatePage()
 {
+   if(dram_free_bfs_counter == 0) {
+      throw RestartException();
+   }
    std::lock_guard lock(reservoir_mutex);
    if ( !ssd_free_pages.size()) {
       throw ex::GenericException("Ran out of SSD Pages");
@@ -231,6 +281,15 @@ BufferFrame &BufferManager::allocatePage()
    dram_free_bfs_counter--;
    // -------------------------------------------------------------------------------------
    return *free_bf;
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::deletePage(BufferFrame &bf)
+{
+   std::lock_guard lock(reservoir_mutex);
+   new(&bf) BufferFrame();
+   ssd_free_pages.push_back(bf.header.pid);
+   dram_free_bfs.push_back(&bf);
+   dram_free_bfs_counter++;
 }
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
@@ -400,8 +459,6 @@ BufferManager::~BufferManager()
    close(ssd_fd);
    ssd_fd = -1;
    munmap(bfs, dram_total_size);
-   // -------------------------------------------------------------------------------------
-   utils::writeBinary(config.free_pages_list_path.c_str(), ssd_free_pages);
    // -------------------------------------------------------------------------------------
    stats.print();
    // -------------------------------------------------------------------------------------

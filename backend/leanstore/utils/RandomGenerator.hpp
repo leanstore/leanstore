@@ -11,9 +11,10 @@ class RandomGenerator {
 public:
    // ATTENTION: open interval [min, max)
    template<typename T>
-   static T getRand(T min, T max) {
-       std::uniform_int_distribution<int> distribution(min,max - 1);
-       return distribution(random_generator);
+   static T getRand(T min, T max)
+   {
+      std::uniform_int_distribution<T> distribution(min, max - 1);
+      return distribution(random_generator);
    }
    static void getRandString(u8 *dst, u64 size);
 };

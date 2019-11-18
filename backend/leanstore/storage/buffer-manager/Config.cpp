@@ -10,7 +10,7 @@ DEFINE_string(free_pages_list_path, "leanstore_free_pages", "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(cooling_threshold, 10, "Start cooling pages when <= x% are free");
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(background_write_sleep, 10, "us");
+DEFINE_uint32(evict_cooling_threshold, 10, "pct");
 DEFINE_uint32(write_buffer_size, 512, "");
 DEFINE_uint32(async_batch_size, 128, "");
 // -------------------------------------------------------------------------------------
@@ -24,7 +24,7 @@ Config::Config()
    ssd_path = FLAGS_ssd_path;
    free_pages_list_path = FLAGS_free_pages_list_path;
    cooling_threshold = FLAGS_cooling_threshold;
-   background_write_sleep = FLAGS_background_write_sleep;
+   evict_cooling_threshold = FLAGS_evict_cooling_threshold;
    write_buffer_size = FLAGS_write_buffer_size;
    async_batch_size = FLAGS_async_batch_size;
 }

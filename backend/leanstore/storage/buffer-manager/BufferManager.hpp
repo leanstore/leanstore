@@ -79,6 +79,8 @@ private:
    // Misc
    BufferFrame &randomBufferFrame();
    Stats stats;
+   // -------------------------------------------------------------------------------------
+   atomic<s64> phase_1_ms = 0, phase_2_ms = 0, phase_3_ms = 0;
 public:
    BufferManager();
    BufferManager(Config config_snap);
@@ -86,6 +88,7 @@ public:
    // -------------------------------------------------------------------------------------
    BufferFrame &allocatePage();
    BufferFrame &resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value);
+   void deletePage(BufferFrame &bf);
    // -------------------------------------------------------------------------------------
    void flushDropAllPages();
    void stopBackgroundThreads();
@@ -105,7 +108,9 @@ public:
    DTID registerDatastructureInstance(DTType type,  void *root_object);
    // -------------------------------------------------------------------------------------
    void clearSSD();
-   void restoreFreePagesList();
+   void restore();
+   void persist();
+   // -------------------------------------------------------------------------------------
    u64 consumedPages();
 };
 // -------------------------------------------------------------------------------------

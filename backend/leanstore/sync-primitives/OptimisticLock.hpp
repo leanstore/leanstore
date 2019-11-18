@@ -35,17 +35,20 @@ class ReadGuard {
    friend
    class WritePageGuard;
 private:
-   ReadGuard(atomic<u64> *version_ptr, u64 local_version, bool locked);
+   ReadGuard(atomic<u64> *version_ptr, u64 local_version);
 public:
    atomic<u64> *version_ptr = nullptr;
    u64 local_version;
-   bool locked = false;
    // -------------------------------------------------------------------------------------
    ReadGuard() = default;
    // -------------------------------------------------------------------------------------
    ReadGuard(OptimisticVersion &lock);
    // -------------------------------------------------------------------------------------
-   void recheck();
+   inline void recheck() {
+      if ( local_version != *version_ptr ) {
+         throw RestartException();
+      }
+   }
    // -------------------------------------------------------------------------------------
 };
 // -------------------------------------------------------------------------------------

@@ -16,6 +16,7 @@ private:
    struct WriteCommand {
       BufferFrame *bf;
       PID pid;
+      ReadGuard guard;
    };
    io_context_t aio_context;
    u64 page_size, n_buffer_slots;

@@ -31,9 +31,13 @@ public:
    ReadPageGuard(ReadPageGuard &p_guard, Swip <T> &swip)
    {
       assert(p_guard.moved == false);
-      auto &bf_swip = swip.template cast<BufferFrame>();
       assert((p_guard.bf_s_lock.local_version & 2) == 0);
-      bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
+      if(swip.isSwizzled()) {
+         bf = &swip.asBufferFrame();
+      } else {
+         auto &bf_swip = swip.template cast<BufferFrame>();
+         bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
+      }
       bf_s_lock = ReadGuard(bf->header.lock);
       p_guard.recheck();
    }
@@ -86,7 +90,6 @@ public:
    {
       return *reinterpret_cast<T *>(bf->page.dt);
    }
-
    T *operator->()
    {
       return reinterpret_cast<T *>(bf->page.dt);
@@ -107,12 +110,15 @@ public:
 template<typename T>
 class WritePageGuard : public ReadPageGuard<T> {
    using ParentClass = ReadPageGuard<T>;
+private:
+   const bool is_newly_created = false;
 protected:
    // Called by the buffer manager when allocating a new page
    WritePageGuard(BufferFrame &bf)
+           : is_newly_created(true)
    {
       ParentClass::bf = &bf;
-      ParentClass::bf_s_lock = ReadGuard(&bf.header.lock, bf.header.lock.load(), true);
+      ParentClass::bf_s_lock = ReadGuard(&bf.header.lock, bf.header.lock.load());
       ParentClass::moved = false;
    }
 public:
@@ -147,12 +153,16 @@ public:
    ~WritePageGuard()
    {
       if ( !ParentClass::moved ) {
-         assert((ParentClass::bf_s_lock.local_version & 2) == 2);
-         if(ParentClass::hasBf()) {
-            ParentClass::bf->page.LSN++; // TODO: LSN
+         if ( false && is_newly_created && std::uncaught_exceptions() > 0 ) {
+            BMC::global_bf->deletePage(*ParentClass::bf);
+         } else {
+            assert((ParentClass::bf_s_lock.local_version & 2) == 2);
+            if ( ParentClass::hasBf()) {
+               ParentClass::bf->page.LSN++; // TODO: LSN
+            }
+            ParentClass::bf_s_lock.local_version = 2 + ParentClass::bf_s_lock.version_ptr->fetch_add(2);
+            ParentClass::moved = true;
          }
-         ParentClass::bf_s_lock.local_version = 2 + ParentClass::bf_s_lock.version_ptr->fetch_add(2);
-         ParentClass::moved = true;
       }
    }
 };

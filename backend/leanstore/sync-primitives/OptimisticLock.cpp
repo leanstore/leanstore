@@ -17,22 +17,13 @@ ReadGuard::ReadGuard(OptimisticVersion &lock)
       mask = mask < max ? mask << 1 : max;
       local_version = version_ptr->load();
    }
-   locked = true;
    assert((local_version & 2) != 2);
 }
 // -------------------------------------------------------------------------------------
-void ReadGuard::recheck()
-{
-   if ( locked && local_version != *version_ptr ) {
-      throw RestartException();
-   }
-}
-// -------------------------------------------------------------------------------------
-ReadGuard::ReadGuard(atomic<u64> *version_ptr, u64 local_version, bool locked)
+ReadGuard::ReadGuard(atomic<u64> *version_ptr, u64 local_version)
         :
         version_ptr(version_ptr)
-        , local_version(local_version)
-        , locked(locked) {}
+        , local_version(local_version) {}
 // -------------------------------------------------------------------------------------
 ExclusiveGuard::ExclusiveGuard(ReadGuard &read_lock) : ref_guard(read_lock){
    assert(ref_guard.version_ptr != nullptr);

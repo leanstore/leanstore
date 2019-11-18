@@ -158,12 +158,14 @@ struct BTree {
    Swip<NodeBase> root_swip;
    OptimisticVersion root_lock = 0;
    atomic<u64> restarts_counter = 0; // for debugging
+   atomic<u64> height = 1; // for debugging
    BufferManager &buffer_manager;
    DTID dtid;
    // -------------------------------------------------------------------------------------
    BTree(BufferManager &buffer_manager)
            : buffer_manager(buffer_manager)
    {
+      // TODO: persist
       DTRegistry::DTMeta btree_meta = {
               .iterate_childern=iterateChildSwips, .find_parent = findParent
       };
@@ -184,10 +186,15 @@ struct BTree {
       new_root_inner->keys[0] = k;
       new_root_inner->children[0] = leftChild;
       new_root_inner->children[1] = rightChild;
+      height++;
    }
    // -------------------------------------------------------------------------------------
    void insert(Key k, Value &v)
    {
+
+      u32 mask = 1;
+      u32 const max = 64; //MAX_BACKOFF
+      // -------------------------------------------------------------------------------------
       auto &root_inner_swip = root_swip.cast<BTreeInner<Key>>();
       while ( true ) {
          try {
@@ -239,6 +246,10 @@ struct BTree {
             leaf->insert(k, v);
             return;
          } catch ( RestartException e ) {
+            for ( u32 i = mask; i; --i ) {
+               _mm_pause();
+            }
+            mask = mask < max ? mask << 1 : max;
             restarts_counter++;
          }
       }
@@ -258,11 +269,11 @@ struct BTree {
                p_guard = std::move(c_guard);
                c_guard = ReadPageGuard(p_guard, c_swip);
             }
-
             auto &leaf = c_guard.template cast<BTreeLeaf<Key, Value>>();
             int64_t pos = leaf->lowerBound(k);
             if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
                result = leaf->payloads[pos];
+               c_guard.recheck();
                return true;
             }
             return false;
@@ -330,6 +341,11 @@ struct BTree {
          }
          throw RestartException();
       }
+   }
+   // -------------------------------------------------------------------------------------
+   void printFanoutInformation(){
+      cout << "Inner #entries = " << btree::BTreeInner<Key>::maxEntries << endl;
+      cout << "Leaf #entries = " << btree::BTreeLeaf<Key, Value>::maxEntries << endl;
    }
 };
 
