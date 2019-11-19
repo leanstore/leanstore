@@ -19,7 +19,8 @@ TEST(BufferManager, BTree)
    uint32_t result;
    bool res = btree.lookup(10, result);
    EXPECT_FALSE(res);
-   btree.insert(10, 10);
+   u32 tmp = 10;
+   btree.insert(10, tmp);
    res = btree.lookup(10, result);
    EXPECT_TRUE(res == true && result == 10);
 

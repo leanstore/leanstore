@@ -44,6 +44,7 @@ typedef struct YCSBPayload {
       std::memcpy(value, other.value, sizeof(value));
    }
 };
+// -------------------------------------------------------------------------------------
 int main(int argc, char **argv)
 {
    gflags::SetUsageMessage("Leanstore Frontend");
@@ -66,7 +67,7 @@ int main(int argc, char **argv)
    table.printFanoutInformation();
    // -------------------------------------------------------------------------------------
    // Prepare lookup_keys in Zipf distribution
-   const u32 tx_count = (FLAGS_ycsb_tx_count) ? FLAGS_ycsb_tx_count : FLAGS_ycsb_tuple_count;
+   const u64 tx_count = (FLAGS_ycsb_tx_count) ? FLAGS_ycsb_tx_count : FLAGS_ycsb_tuple_count;
    vector<YCSBKey> lookup_keys(tx_count);
    vector<YCSBPayload> payloads(FLAGS_ycsb_tuple_count);
    // -------------------------------------------------------------------------------------
@@ -109,7 +110,7 @@ int main(int argc, char **argv)
          }
       });
       auto end = chrono::high_resolution_clock::now();
-      u32 tps = (u32) ((lookup_keys.size() * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
+      auto tps = (u64) ((lookup_keys.size() * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
       cout << tps * 1.0 / 1e6 << " M tps" << endl;
       const u64 written_pages = db.getBufferManager().consumedPages();
       const u64 mib = written_pages * PAGE_SIZE / 1024 / 1024;
@@ -131,7 +132,7 @@ int main(int argc, char **argv)
          }
       });
       auto end = chrono::high_resolution_clock::now();
-      u32 tps = (u32) ((FLAGS_ycsb_tuple_count * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
+      auto tps = (u64) ((FLAGS_ycsb_tuple_count * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
       cout << tps * 1.0 / 1e6 << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
@@ -156,7 +157,7 @@ int main(int argc, char **argv)
             }
          });
          auto end = chrono::high_resolution_clock::now();
-         u32 tps = (u32) ((lookup_keys.size() * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
+         auto tps = (u64) ((lookup_keys.size() * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
          if ( r_i < FLAGS_ycsb_warmup_rounds ) {
             cout << "Warmup: ";
          } else {
@@ -176,7 +177,7 @@ int main(int argc, char **argv)
          }
       });
       auto end = chrono::high_resolution_clock::now();
-      u32 tps = (u32) ((FLAGS_ycsb_tuple_count * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
+      auto tps = (u64) ((FLAGS_ycsb_tuple_count * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
       cout << tps * 1.0 / 1e6 << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
