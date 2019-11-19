@@ -37,11 +37,11 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 n_buffer_slots)
    timeout.tv_nsec = (5 * 10e5);
 }
 // -------------------------------------------------------------------------------------
-bool AsyncWriteBuffer::add(BufferFrame &bf)
+void AsyncWriteBuffer::add(BufferFrame &bf)
 {
    ensure(u64(&bf.page) % 512 == 0);
    if ( !write_buffer_free_slots.size()) {
-      return false;
+      return;
    }
    // -------------------------------------------------------------------------------------
    bf.page.magic_debugging_number = bf.header.pid;
@@ -53,7 +53,6 @@ bool AsyncWriteBuffer::add(BufferFrame &bf)
    wc.bf = &bf;
    wc.guard = ReadGuard(bf.header.lock);
    batch.push_back(slot);
-   return true;
 }
 // -------------------------------------------------------------------------------------
 void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)> callback, u64 batch_max_size)
@@ -69,15 +68,15 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
          WriteCommand &c_command = write_buffer_commands[slot];
          // -------------------------------------------------------------------------------------
          try {
+            ExclusiveGuard x_guard(c_command.guard);
+            c_command.bf->header.isWB = true;
             std::memcpy(&write_buffer[slot], c_command.bf->page, page_size);
-            c_command.guard.recheck();
             void *write_buffer_slot_ptr = &write_buffer[slot];
             io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size * c_command.pid);
             iocbs[slot].data = write_buffer_slot_ptr;
             *my_iocbs_ptr++ = &iocbs[slot];
             successfully_copied_bfs++;
          } catch ( RestartException e ) {
-
          }
          // -------------------------------------------------------------------------------------
       }

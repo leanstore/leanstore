@@ -154,7 +154,7 @@ public:
    {
       if ( !ParentClass::moved ) {
          if ( false && is_newly_created && std::uncaught_exceptions() > 0 ) {
-            BMC::global_bf->deletePage(*ParentClass::bf);
+            BMC::global_bf->deletePageWithBf(*ParentClass::bf);
          } else {
             assert((ParentClass::bf_s_lock.local_version & 2) == 2);
             if ( ParentClass::hasBf()) {

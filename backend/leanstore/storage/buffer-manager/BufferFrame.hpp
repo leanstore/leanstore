@@ -28,7 +28,7 @@ struct BufferFrame {
    };
    struct alignas(512) Page {
       u64 LSN = 0;
-      u64 dt_id; //INIT: datastructure id TODO
+      u64 dt_id = 9999; //INIT: datastructure id TODO
       u64 magic_debugging_number; // ATTENTION
       u8 dt[PAGE_SIZE - sizeof(LSN) - sizeof(dt_id) - sizeof(magic_debugging_number)]; // Datastruture BE CAREFUL HERE !!!!!
       // -------------------------------------------------------------------------------------

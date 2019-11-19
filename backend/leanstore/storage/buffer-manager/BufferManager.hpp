@@ -88,7 +88,8 @@ public:
    // -------------------------------------------------------------------------------------
    BufferFrame &allocatePage();
    BufferFrame &resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value);
-   void deletePage(BufferFrame &bf);
+   void deletePageWithBf(BufferFrame &bf);
+   void initializeBfRoutine(BufferFrame &bf, PID pid);
    // -------------------------------------------------------------------------------------
    void flushDropAllPages();
    void stopBackgroundThreads();

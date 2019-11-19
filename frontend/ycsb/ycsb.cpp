@@ -128,11 +128,7 @@ int main(int argc, char **argv)
       tbb::parallel_for(tbb::blocked_range<uint32_t>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<uint32_t> &range) {
          for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
             YCSBPayload result;
-            ensure(table.lookup(i, result));
-            if ( FLAGS_verify ) {
-               YCSBPayload &should = payloads[i];
-               explain(result == should);
-            }
+            table.lookup(i, result);
          }
       });
       auto end = chrono::high_resolution_clock::now();
@@ -173,23 +169,16 @@ int main(int argc, char **argv)
    } else {
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Verification" << endl;
-      tbb::parallel_for(tbb::blocked_range<uint32_t>(0, lookup_keys.size()), [&](const tbb::blocked_range<uint32_t> &range) {
+      auto begin = chrono::high_resolution_clock::now();
+      tbb::parallel_for(tbb::blocked_range<uint32_t>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<uint32_t> &range) {
          for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
-            YCSBKey key = lookup_keys[i];
             YCSBPayload result;
-            if ( utils::RandomGenerator::getRand(0, 100) <= FLAGS_ycsb_read_ratio ) {
-               bool res = table.lookup(key, result);
-               if ( !res ) {
-                  cerr << "not found !" << endl;
-               }
-               if ( result != payloads[key] ) {
-                  cerr << " result != " << result.value[0] << endl;
-               }
-            } else {
-               table.insert(key, payloads[key]);
-            }
+            ensure (table.lookup(i, result) && result == payloads[i]);
          }
       });
+      auto end = chrono::high_resolution_clock::now();
+      u32 tps = (u32) ((FLAGS_ycsb_tuple_count * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
+      cout << tps * 1.0 / 1e6 << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
