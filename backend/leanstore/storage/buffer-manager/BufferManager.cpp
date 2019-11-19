@@ -112,7 +112,7 @@ BufferManager::BufferManager(Config config_snap)
                   ExclusiveGuard r_x_guad(r_guard);
                   ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer, r_guard);
                   ExclusiveGuard p_x_guard(parent_handler.guard);
-                  std::lock_guard g_guard(global_mutex); // must accquire the mutex before exclusive locks
+                  std::lock_guard g_guard(cio_mutex); // must accquire the mutex before exclusive locks
 
                   dt_registry.iterateChildrenSwips(r_buffer->page.dt_id,
                                                    *r_buffer, r_guard, [&](Swip<BufferFrame> &swip) {
@@ -150,7 +150,7 @@ BufferManager::BufferManager(Config config_snap)
             if ( phase_2_condition() ) {
                u64 pages_left_to_evict = std::min(s64(0), s64(dram_free_bfs_counter) - s64(free_pages_limit));
                // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
-               std::unique_lock g_guard(global_mutex);
+               std::unique_lock g_guard(cio_mutex);
                //TODO: other variable than async_batch_size
                auto bf_itr = cooling_fifo_queue.begin();
                while ( bf_itr != cooling_fifo_queue.end()) {
@@ -162,7 +162,7 @@ BufferManager::BufferManager(Config config_snap)
                   if ( bf.header.isWB == false ) {
                      if ( !bf.isDirty()) {
                         if ( pages_left_to_evict ) {
-                           std::lock_guard reservoir_guard(reservoir_mutex);
+                           std::lock_guard reservoir_guard(free_list_mutex);
                            // Reclaim buffer frame
                            CIOFrame &cio_frame = cooling_io_ht[pid];
                            assert(cio_frame.state == CIOFrame::State::COOLING);
@@ -286,7 +286,7 @@ BufferFrame &BufferManager::allocatePage()
    if ( dram_free_bfs_counter == 0 ) {
       throw RestartException();
    }
-   std::lock_guard lock(reservoir_mutex);
+   std::lock_guard lock(free_list_mutex);
    if ( !ssd_free_pages.size()) {
       throw ex::GenericException("Ran out of SSD Pages");
    }
@@ -311,7 +311,7 @@ BufferFrame &BufferManager::allocatePage()
 // -------------------------------------------------------------------------------------
 void BufferManager::deletePageWithBf(BufferFrame &bf)
 {
-   std::lock_guard lock(reservoir_mutex);
+   std::lock_guard lock(free_list_mutex);
    new(&bf) BufferFrame();
    ssd_free_pages.push_back(bf.header.pid);
    dram_free_bfs.push_back(&bf);
@@ -327,7 +327,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       return bf;
    }
    // -------------------------------------------------------------------------------------
-   std::unique_lock g_guard(global_mutex);
+   std::unique_lock g_guard(cio_mutex);
    const PID pid = swip_value.asPageID();
    swip_guard.recheck();
    // -------------------------------------------------------------------------------------
@@ -335,7 +335,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
       //TODO: something wrong here
       // First posix_check if we have enough pages
-      std::unique_lock reservoir_guard(reservoir_mutex);
+      std::unique_lock reservoir_guard(free_list_mutex);
       if ( !dram_free_bfs.size()) {
          throw RestartException();
       }
@@ -396,7 +396,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
 
       cooling_fifo_queue.erase(cio_frame.fifo_itr);
       cooling_bfs_counter--;
-      ensure(bf->header.state == BufferFrame::State::COLD);
+      assert(bf->header.state == BufferFrame::State::COLD);
       cio_frame.state = CIOFrame::State::NOT_LOADED;
       bf->header.state = BufferFrame::State::HOT;
       // -------------------------------------------------------------------------------------
@@ -413,12 +413,11 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
 // -------------------------------------------------------------------------------------
 void BufferManager::readPageSync(u64 pid, u8 *destination)
 {
-   ensure(u64(destination) % 512 == 0);
+   //TODO: if result is positive, then recall with the left bytes till it its done
+   // if negative, then throw an error
+   assert(u64(destination) % 512 == 0);
    s64 read_bytes = pread(ssd_fd, destination, PAGE_SIZE, pid * PAGE_SIZE);
-   if ( read_bytes != PAGE_SIZE ) {
-      cerr << pid << endl;
-   }
-   ensure(read_bytes == PAGE_SIZE);
+   assert(read_bytes == PAGE_SIZE);
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()

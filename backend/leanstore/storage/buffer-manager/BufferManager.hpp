@@ -61,18 +61,20 @@ private:
    // -------------------------------------------------------------------------------------
    int ssd_fd;
    // -------------------------------------------------------------------------------------
-   std::mutex reservoir_mutex;
-   // DRAM Pages
+   // Free  Pages
+   // TODO: use wait-free techniques, e.g: embed a wait-free linked list in the buffer frames
+   std::mutex free_list_mutex;
    atomic<u64> dram_free_bfs_counter = 0;
    std::vector<BufferFrame*> dram_free_bfs;
-   // SSD Pages
    std::vector<PID> ssd_free_pages;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
-   std::mutex global_mutex;
+   std::mutex cio_mutex;
    atomic<u64> cooling_bfs_counter = 0;
    std::list<BufferFrame*> cooling_fifo_queue;
+   // TODO: too slow, we can not create all our entries at startup
+   // TODO: solution: handcraft a hashtable with upper bound
    std::unordered_map<PID, CIOFrame> cooling_io_ht;
    // -------------------------------------------------------------------------------------
    // Threads managements
