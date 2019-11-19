@@ -9,8 +9,8 @@ struct Config {
    u32 ssd_pages_count;
    string ssd_path;
    string free_pages_list_path;
-   u32 cooling_threshold;
-   u32 evict_cooling_threshold;
+   u32 cool_pct;
+   u32 free_pct;
    u32 write_buffer_size;
    u32 async_batch_size;
    Config();

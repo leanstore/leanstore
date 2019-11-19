@@ -44,23 +44,23 @@ void AsyncWriteBuffer::add(BufferFrame &bf)
       return;
    }
    // -------------------------------------------------------------------------------------
-   bf.page.magic_debugging_number = bf.header.pid;
-   // -------------------------------------------------------------------------------------
+   // We are not allowed to modify the bf yet, we accquire a read lock, and in the future
+   // we upgrade to write lock, copy the page and maintain the meta data
    auto slot = write_buffer_free_slots.back();
    write_buffer_free_slots.pop_back();
    WriteCommand &wc = write_buffer_commands[slot];
+   wc.guard = ReadGuard(bf.header.lock);
    wc.pid = bf.header.pid;
    wc.bf = &bf;
-   wc.guard = ReadGuard(bf.header.lock);
    batch.push_back(slot);
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)> callback, u64 batch_max_size)
+void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)> callback, u64 minimum_submit_size)
 {
-   const auto c_batch_size = std::min(batch.size(), batch_max_size - pending_requests);
+   const auto c_batch_size = std::min(batch.size(), minimum_submit_size - pending_requests);
    u32 successfully_copied_bfs = 0;
    auto my_iocbs_ptr = iocbs_ptr.get();
-   if ( c_batch_size >= batch_max_size || insistence_counter == FLAGS_insistence_limit ) {
+   if ( c_batch_size >= minimum_submit_size || insistence_counter == FLAGS_insistence_limit ) {
       for ( auto i = 0; i < c_batch_size; i++ ) {
          auto slot = batch.back();
          batch.pop_back();
@@ -69,6 +69,7 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
          // -------------------------------------------------------------------------------------
          try {
             ExclusiveGuard x_guard(c_command.guard);
+            c_command.bf->page.magic_debugging_number = c_command.bf->header.pid;
             c_command.bf->header.isWB = true;
             std::memcpy(&write_buffer[slot], c_command.bf->page, page_size);
             void *write_buffer_slot_ptr = &write_buffer[slot];
@@ -89,8 +90,8 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
    }
    // -------------------------------------------------------------------------------------
    if ( pending_requests ) {
-      ensure(pending_requests <= batch_max_size);
-      const int done_requests = io_getevents(aio_context, pending_requests, batch_max_size, events.get(), &timeout);
+      ensure(pending_requests <= minimum_submit_size);
+      const int done_requests = io_getevents(aio_context, pending_requests, minimum_submit_size, events.get(), &timeout);
       if ( done_requests < 0 ) {
          throw ex::GenericException("io_getevents failed, res = " + std::to_string(done_requests));
       }

@@ -165,16 +165,19 @@ struct BTree {
    BTree(BufferManager &buffer_manager)
            : buffer_manager(buffer_manager)
    {
-      // TODO: persist
-      DTRegistry::DTMeta btree_meta = {
-              .iterate_childern=iterateChildSwips, .find_parent = findParent
-      };
-      buffer_manager.registerDatastructureType(DTType::BTREE, std::move(btree_meta));
-      dtid = buffer_manager.registerDatastructureInstance(DTType::BTREE, this);
-
+   }
+   // -------------------------------------------------------------------------------------
+   void init() {
       auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
       root_write_guard.init();
       root_swip = root_write_guard.bf;
+   }
+   // -------------------------------------------------------------------------------------
+   DTRegistry::DTMeta getMeta() {
+      DTRegistry::DTMeta btree_meta = {
+              .iterate_childern=iterateChildSwips, .find_parent = findParent
+      };
+      return btree_meta;
    }
    // -------------------------------------------------------------------------------------
    void makeRoot(Key k, Swip<BTreeInner<Key>> leftChild, Swip<BTreeInner<Key>> rightChild)

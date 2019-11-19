@@ -3,10 +3,11 @@
 namespace leanstore {
 namespace buffermanager{
 // -------------------------------------------------------------------------------------
-enum class DTType : u8 {
-   BTREE,
-   LSM
-};
+using DTType  = u8;
+//enum class DTType : u8 {
+//   BTREE,
+//   LSM
+//};
 // -------------------------------------------------------------------------------------
 }
 }

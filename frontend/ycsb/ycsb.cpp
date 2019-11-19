@@ -22,7 +22,7 @@ DEFINE_uint32(ycsb_tx_rounds, 1, "");
 DEFINE_uint32(ycsb_tx_count, 0, "default = tuples");
 DEFINE_bool(persist, true, ""); // TODO: still not ready
 DEFINE_bool(verify, false, "");
-DEFINE_bool(ycsb_scan, true, "");
+DEFINE_bool(ycsb_scan, false, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -58,7 +58,7 @@ int main(int argc, char **argv)
       btree_ptr = &db.registerBTree<YCSBKey, YCSBPayload>("ycsb");
    } else {
       db.restore();
-      btree_ptr = &db.locateBTree<YCSBKey, YCSBPayload>("ycsb");
+      btree_ptr = &db.retrieveBTree<YCSBKey, YCSBPayload>("ycsb");
    }
    auto &table = *btree_ptr;
    // -------------------------------------------------------------------------------------
@@ -117,7 +117,6 @@ int main(int argc, char **argv)
       cout << "needed/available = " << written_pages * 1.0 / (db.config.dram_pages_count) << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
       // -------------------------------------------------------------------------------------
-      db.getBufferManager().flushDropAllPages();
    }
    // -------------------------------------------------------------------------------------
    // Scan

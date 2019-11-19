@@ -35,6 +35,12 @@ class BufferManager {
       void print();
       void reset();
    };
+   // -------------------------------------------------------------------------------------
+   struct PeriodicCounters {
+      atomic<u64> evicted_pages = 0, awrites_submitted = 0;
+      atomic<s64> phase_1_ms = 0, phase_2_ms = 0, phase_3_ms = 0;
+   };
+   // -------------------------------------------------------------------------------------
    struct CIOFrame {
       enum class State {
          READING,
@@ -79,8 +85,7 @@ private:
    // Misc
    BufferFrame &randomBufferFrame();
    Stats stats;
-   // -------------------------------------------------------------------------------------
-   atomic<s64> phase_1_ms = 0, phase_2_ms = 0, phase_3_ms = 0;
+   PeriodicCounters periodic_counters;
 public:
    BufferManager();
    BufferManager(Config config_snap);

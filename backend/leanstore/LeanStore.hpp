@@ -19,17 +19,23 @@ public:
    LeanStore(Config config = {});
    // -------------------------------------------------------------------------------------
    template<typename Key, typename Value>
-   btree::BTree<Key,Value> &registerBTree(string name) {
+   btree::BTree<Key,Value> &registerBTree(string name, DTType type_id = 0) {
       //buffer_manager
       auto iter = btrees.emplace(name, std::make_unique<u8[]>(btree_size));
       u8 *btree_ptr = iter.first->second.get();
-      new(btree_ptr) btree::BTree<Key, Value>(buffer_manager);
-      return *reinterpret_cast<btree::BTree<Key,Value> *>(btree_ptr);
+      auto btree = new(btree_ptr) btree::BTree<Key, Value>(buffer_manager);
+      buffer_manager.registerDatastructureType(type_id, btree->getMeta());
+      btree->dtid = buffer_manager.registerDatastructureInstance(type_id, btree);
+      btree->init();
+      return *btree;
    }
    // -------------------------------------------------------------------------------------
    template<typename Key, typename Value>
-   btree::BTree<Key,Value> &locateBTree(string name) {
-      return *reinterpret_cast<btree::BTree<Key,Value> *>(btrees[name].get());
+   btree::BTree<Key,Value> &retrieveBTree(string name, DTType type_id = 0) {
+      auto btree = reinterpret_cast<btree::BTree<Key,Value> *>(btrees[name].get());
+      buffer_manager.registerDatastructureType(type_id, btree->getMeta());
+      btree->dtid = buffer_manager.registerDatastructureInstance(type_id, btree);
+      return *btree;
    }
    // -------------------------------------------------------------------------------------
    BufferManager &getBufferManager() {
