@@ -23,7 +23,7 @@ class ExclusiveGuard;
 template<typename T>
 class ReadPageGuard;
 using lock_version_t = u64;
-using OptimisticVersion = atomic<lock_version_t>;
+using OptimisticLock = atomic<lock_version_t>;
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 class ReadGuard {
@@ -42,7 +42,7 @@ public:
    // -------------------------------------------------------------------------------------
    ReadGuard() = default;
    // -------------------------------------------------------------------------------------
-   ReadGuard(OptimisticVersion &lock);
+   ReadGuard(OptimisticLock &lock);
    // -------------------------------------------------------------------------------------
    inline void recheck() {
       if ( local_version != *version_ptr ) {

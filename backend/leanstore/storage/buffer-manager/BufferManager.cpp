@@ -74,6 +74,9 @@ BufferManager::BufferManager(Config config_snap)
          return (dram_free_bfs_counter + cooling_bfs_counter) < cooling_pages_limit;
       };
       auto phase_2_condition = [&]() {
+         return (dram_free_bfs_counter < free_pages_limit);
+      };
+      auto phase_3_condition = [&]() {
          return true;
       };
       // -------------------------------------------------------------------------------------
@@ -147,8 +150,8 @@ BufferManager::BufferManager(Config config_snap)
             // Phase 2: iterate over all bfs in cooling page, evicting up to free_pages_limit
             // and preparing aio for dirty pages
             auto phase_2_begin = chrono::high_resolution_clock::now();
-            if ( phase_2_condition() ) {
-               u64 pages_left_to_evict = std::min(s64(0), s64(dram_free_bfs_counter) - s64(free_pages_limit));
+            if ( phase_2_condition()) {
+               u64 pages_left_to_evict = (dram_free_bfs_counter < free_pages_limit) ? free_pages_limit - dram_free_bfs_counter : 0;
                // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
                std::unique_lock g_guard(cio_mutex);
                //TODO: other variable than async_batch_size
@@ -168,13 +171,13 @@ BufferManager::BufferManager(Config config_snap)
                            assert(cio_frame.state == CIOFrame::State::COOLING);
                            cooling_fifo_queue.erase(bf_itr);
                            cio_frame.state = CIOFrame::State::NOT_LOADED;
-                           cooling_bfs_counter--;
+                           dram_free_bfs.push_back(&bf);
                            // -------------------------------------------------------------------------------------
                            new(&bf.header) BufferFrame::Header();
+                           assert(bf.header.lock == 0);
                            // -------------------------------------------------------------------------------------
-                           dram_free_bfs.push_back(&bf);
                            dram_free_bfs_counter++;
-                           // -------------------------------------------------------------------------------------
+                           cooling_bfs_counter--;
                            pages_left_to_evict--;
                            periodic_counters.evicted_pages++;
                         }
@@ -189,7 +192,7 @@ BufferManager::BufferManager(Config config_snap)
             }
             // Phase 3
             auto phase_3 = chrono::high_resolution_clock::now();
-            {
+            if ( phase_3_condition()) {
                async_write_buffer.submitIfNecessary([&](BufferFrame &written_bf, u64 written_lsn) {
                   while ( true ) {
                      try {
@@ -204,7 +207,7 @@ BufferManager::BufferManager(Config config_snap)
                      } catch ( RestartException e ) {
                      }
                   }
-               }, config.async_batch_size); // TODO: own gflag for batch size
+               }, config.async_batch_size);
             }
             auto end = chrono::high_resolution_clock::now();
             // -------------------------------------------------------------------------------------
@@ -223,7 +226,7 @@ BufferManager::BufferManager(Config config_snap)
    page_provider_thread.detach();
    // -------------------------------------------------------------------------------------
    std::thread phase_timer_thread([&]() {
-      cout << endl << "1\t2\t3\tfree_bfs\tcooling`_bfs\tevicted_bfs\tawrites_submitted" << endl;
+      cout << endl << "1\t2\t3\tfree_bfs\tcooling_bfs\tevicted_bfs\tawrites_submitted" << endl;
       // -------------------------------------------------------------------------------------
       s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0;
       while ( bg_threads_keep_running ) {
@@ -357,6 +360,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       bf.header.lastWrittenLSN = bf.page.LSN;
       bf.header.state = BufferFrame::State::COLD;
       bf.header.isWB = false;
+      assert(bf.header.pid == 9999);
       bf.header.pid = pid;
       // -------------------------------------------------------------------------------------
       // Move to cooling stage
@@ -390,6 +394,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    if ( cio_frame.state == CIOFrame::State::COOLING ) {
       ExclusiveGuard x_lock(swip_guard);
       BufferFrame *bf = *cio_frame.fifo_itr;
+      assert(bf->header.pid == pid);
       // TODO: do we really need them ?
       ReadGuard bf_guard(bf->header.lock);
       ExclusiveGuard bf_x_guard(bf_guard);
@@ -413,11 +418,12 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
 // -------------------------------------------------------------------------------------
 void BufferManager::readPageSync(u64 pid, u8 *destination)
 {
-   //TODO: if result is positive, then recall with the left bytes till it its done
-   // if negative, then throw an error
    assert(u64(destination) % 512 == 0);
-   s64 read_bytes = pread(ssd_fd, destination, PAGE_SIZE, pid * PAGE_SIZE);
-   assert(read_bytes == PAGE_SIZE);
+   s64 bytes_left = PAGE_SIZE;
+   do {
+      bytes_left -= pread(ssd_fd, destination, bytes_left, pid * PAGE_SIZE + (PAGE_SIZE - bytes_left));
+      assert(bytes_left >= 0);
+   } while ( bytes_left > 0 );
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()

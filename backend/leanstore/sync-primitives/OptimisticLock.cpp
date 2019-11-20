@@ -4,7 +4,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 namespace buffermanager {
-ReadGuard::ReadGuard(OptimisticVersion &lock)
+ReadGuard::ReadGuard(OptimisticLock &lock)
         : version_ptr(&lock)
 {
    local_version = version_ptr->load();

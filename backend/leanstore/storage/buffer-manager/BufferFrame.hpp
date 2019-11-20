@@ -23,8 +23,8 @@ struct BufferFrame {
       u64 lastWrittenLSN = 0;
       State state = State::FREE; // INIT:
       bool isWB = false;
-      PID pid; // INIT:
-      OptimisticVersion lock = 0;  // INIT:
+      PID pid = 9999; // INIT:
+      OptimisticLock lock = 0;  // INIT:
    };
    struct alignas(512) Page {
       u64 LSN = 0;

@@ -12,7 +12,7 @@ class ReadPageGuard {
 protected:
    ReadPageGuard()
            : moved(true) {}
-   ReadPageGuard(OptimisticVersion &swip_version)
+   ReadPageGuard(OptimisticLock &swip_version)
    {
       bf_s_lock = ReadGuard(swip_version);
    }
@@ -23,7 +23,7 @@ public:
    ReadGuard bf_s_lock;
 
    // I: Root case
-   static ReadPageGuard makeRootGuard(OptimisticVersion &swip_version)
+   static ReadPageGuard makeRootGuard(OptimisticLock &swip_version)
    {
       return ReadPageGuard(swip_version);
    }
