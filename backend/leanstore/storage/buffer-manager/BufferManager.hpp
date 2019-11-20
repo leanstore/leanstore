@@ -36,7 +36,7 @@ class BufferManager {
       void reset();
    };
    // -------------------------------------------------------------------------------------
-   struct PeriodicCounters {
+   struct DebuggingCounters {
       atomic<u64> evicted_pages = 0, awrites_submitted = 0;
       atomic<s64> phase_1_ms = 0, phase_2_ms = 0, phase_3_ms = 0;
    };
@@ -78,6 +78,8 @@ private:
    std::unordered_map<PID, CIOFrame> cooling_io_ht;
    // -------------------------------------------------------------------------------------
    // Threads managements
+   void pageProviderThread();
+   void debuggingThread();
    atomic<u64> bg_threads_counter = 0;
    atomic<bool> bg_threads_keep_running = true;
    // -------------------------------------------------------------------------------------
@@ -87,7 +89,7 @@ private:
    // Misc
    BufferFrame &randomBufferFrame();
    Stats stats;
-   PeriodicCounters periodic_counters;
+   DebuggingCounters debugging_counters;
 public:
    BufferManager();
    BufferManager(Config config_snap);
