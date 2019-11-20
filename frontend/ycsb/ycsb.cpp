@@ -4,6 +4,7 @@
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/ZipfRandom.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
 #include <tbb/tbb.h>
 #include <gflags/gflags.h>
@@ -121,7 +122,7 @@ int main(int argc, char **argv)
       const u64 written_pages = db.getBufferManager().consumedPages();
       const u64 mib = written_pages * PAGE_SIZE / 1024 / 1024;
       cout << "Inserted volume: (pages, MiB) = (" << written_pages << ", " << mib << ")" << endl;
-      cout << "needed/available = " << written_pages * 1.0 / (db.config.dram_pages_count) << endl;
+      cout << "needed/available = " << written_pages * 1.0 / (FLAGS_dram) << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
       // -------------------------------------------------------------------------------------
    }

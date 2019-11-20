@@ -5,6 +5,7 @@
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/storage/btree/BTreeOptimistic.hpp"
 #include "leanstore/utils/FVector.hpp"
+#include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_OFF
@@ -24,32 +25,31 @@
 namespace leanstore {
 namespace buffermanager {
 // -------------------------------------------------------------------------------------
-BufferManager::BufferManager(Config config_snap)
-        : config(config_snap)
+BufferManager::BufferManager()
 {
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
    {
-      const u64 dram_total_size = sizeof(BufferFrame) * u64(config.dram_pages_count);
+      const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram);
       bfs = reinterpret_cast<BufferFrame *>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
-      for ( u64 bf_i = 0; bf_i < config.dram_pages_count; bf_i++ ) {
+      for ( u64 bf_i = 0; bf_i < FLAGS_dram; bf_i++ ) {
          dram_free_bfs.push_back(new(bfs + bf_i) BufferFrame());
       }
-      dram_free_bfs_counter = config.dram_pages_count;
+      dram_free_bfs_counter = FLAGS_dram;
    }
    // -------------------------------------------------------------------------------------
    // Init SSD pool
-   const u32 ssd_total_size = config.ssd_pages_count * PAGE_SIZE;
+   const u32 ssd_total_size = FLAGS_ssd * PAGE_SIZE;
    int flags = O_RDWR | O_DIRECT | O_CREAT;
-   ssd_fd = open(config.ssd_path.c_str(), flags, 0666);
+   ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
    posix_check(ssd_fd > -1);
    posix_check(ftruncate(ssd_fd, ssd_total_size) == 0);
    if ( fcntl(ssd_fd, F_GETFL) == -1 ) {
-      throw ex::GenericException("Can not initialize SSD storage: " + config.ssd_path);
+      throw ex::GenericException("Can not initialize SSD storage: " + FLAGS_ssd_path);
    }
    // -------------------------------------------------------------------------------------
-   for ( u64 pid = 0; pid < config.ssd_pages_count; pid++ ) {
+   for ( u64 pid = 0; pid < FLAGS_ssd; pid++ ) {
       cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple());
       ssd_free_pages.push_back(pid);
    }
@@ -72,12 +72,12 @@ void BufferManager::pageProviderThread()
    // -------------------------------------------------------------------------------------
    // Init AIO Context
    // TODO: own variable for page provider write buffer size
-   AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, config.async_batch_size);
+   AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_async_batch_size);
    // -------------------------------------------------------------------------------------
    BufferFrame *r_buffer = &randomBufferFrame();
    //TODO: REWRITE!!
-   const u64 free_pages_limit = config.free_pct * config.dram_pages_count / 100.0;
-   const u64 cooling_pages_limit = config.cool_pct * config.dram_pages_count / 100.0;
+   const u64 free_pages_limit = FLAGS_free * FLAGS_dram / 100.0;
+   const u64 cooling_pages_limit = FLAGS_cool * FLAGS_dram / 100.0;
    // -------------------------------------------------------------------------------------
    auto phase_1_condition = [&]() {
       return (dram_free_bfs_counter + cooling_bfs_counter) < cooling_pages_limit;
@@ -276,24 +276,24 @@ void BufferManager::persist()
 {
    stopBackgroundThreads();
    flushDropAllPages();
-   utils::writeBinary(config.free_pages_list_path.c_str(), ssd_free_pages);
+   utils::writeBinary(FLAGS_free_pages_list_path.c_str(), ssd_free_pages);
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::restore()
 {
-   utils::fillVectorFromBinaryFile(config.free_pages_list_path.c_str(), ssd_free_pages);
+   utils::fillVectorFromBinaryFile(FLAGS_free_pages_list_path.c_str(), ssd_free_pages);
 }
 // -------------------------------------------------------------------------------------
 u64 BufferManager::consumedPages()
 {
-   return config.ssd_pages_count - ssd_free_pages.size();
+   return FLAGS_ssd - ssd_free_pages.size();
 }
 // -------------------------------------------------------------------------------------
 // Buffer Frames Management
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::randomBufferFrame()
 {
-   auto rand_buffer_i = utils::RandomGenerator::getRand<u64>(0, config.dram_pages_count);
+   auto rand_buffer_i = utils::RandomGenerator::getRand<u64>(0, FLAGS_dram);
    return bfs[rand_buffer_i];
 }
 // -------------------------------------------------------------------------------------
@@ -468,7 +468,7 @@ void BufferManager::flushDropAllPages()
    stopBackgroundThreads();
    return; // TODO
    BufferFrame *bf = &randomBufferFrame();
-   while ( dram_free_bfs_counter != config.dram_pages_count ) {
+   while ( dram_free_bfs_counter != FLAGS_dram ) {
       try {
          if ( bf->header.state != BufferFrame::State::HOT ) {
             bf = &randomBufferFrame();
@@ -503,7 +503,7 @@ void BufferManager::flushDropAllPages()
       entry.second.state = CIOFrame::State::NOT_LOADED;
       entry.second.readers_counter = 0;
    }
-   for ( u64 bf_i = 0; bf_i < config.dram_pages_count; bf_i++ ) {
+   for ( u64 bf_i = 0; bf_i < FLAGS_dram; bf_i++ ) {
       new(bfs + bf_i) BufferFrame();
    }
    // -------------------------------------------------------------------------------------
@@ -522,7 +522,7 @@ void BufferManager::stopBackgroundThreads()
 BufferManager::~BufferManager()
 {
    stopBackgroundThreads();
-   const u64 dram_total_size = sizeof(BufferFrame) * u64(config.dram_pages_count);
+   const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram);
    close(ssd_fd);
    ssd_fd = -1;
    munmap(bfs, dram_total_size);

@@ -10,9 +10,7 @@ DEFINE_bool(log_stdout, false, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 // -------------------------------------------------------------------------------------
-LeanStore::LeanStore(Config config)
-        : config(config)
-          , buffer_manager(config)
+LeanStore::LeanStore()
 {
    // Set the default logger to file logger
    if ( !FLAGS_log_stdout ) {

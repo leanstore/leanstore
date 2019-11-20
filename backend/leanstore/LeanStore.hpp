@@ -15,8 +15,7 @@ private:
    std::unordered_map<string, std::unique_ptr<u8[]>> btrees;
    buffermanager::BufferManager buffer_manager;
 public:
-   Config config;
-   LeanStore(Config config = {});
+   LeanStore();
    // -------------------------------------------------------------------------------------
    template<typename Key, typename Value>
    btree::BTree<Key,Value> &registerBTree(string name, DTType type_id = 0) {

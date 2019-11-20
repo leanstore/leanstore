@@ -55,7 +55,6 @@ class BufferManager {
       atomic<u64> readers_counter = 0;
    };
 private:
-   Config config;
    // -------------------------------------------------------------------------------------
    BufferFrame *bfs;
    // -------------------------------------------------------------------------------------
@@ -92,7 +91,6 @@ private:
    DebuggingCounters debugging_counters;
 public:
    BufferManager();
-   BufferManager(Config config_snap);
    ~BufferManager();
    // -------------------------------------------------------------------------------------
    BufferFrame &allocatePage();
