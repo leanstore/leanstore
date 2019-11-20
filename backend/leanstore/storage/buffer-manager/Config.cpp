@@ -11,8 +11,7 @@ DEFINE_string(free_pages_list_path, "leanstore_free_pages", "");
 DEFINE_uint32(cool, 10, "Start cooling pages when <= x% are free");
 DEFINE_uint32(free, 10, "pct");
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(write_buffer_size, 512, "");
-DEFINE_uint32(async_batch_size, 128, "");
+DEFINE_uint32(async_batch_size, 256, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 namespace buffermanager {
@@ -25,7 +24,6 @@ Config::Config()
    free_pages_list_path = FLAGS_free_pages_list_path;
    cool_pct = FLAGS_cool;
    free_pct = FLAGS_free;
-   write_buffer_size = FLAGS_write_buffer_size;
    async_batch_size = FLAGS_async_batch_size;
 }
 // -------------------------------------------------------------------------------------

@@ -37,7 +37,7 @@ class BufferManager {
    };
    // -------------------------------------------------------------------------------------
    struct DebuggingCounters {
-      atomic<u64> evicted_pages = 0, awrites_submitted = 0;
+      atomic<u64> evicted_pages = 0, awrites_submitted = 0, awrites_submit_failed = 0, pp_thread_rounds = 0;
       atomic<s64> phase_1_ms = 0, phase_2_ms = 0, phase_3_ms = 0;
    };
    // -------------------------------------------------------------------------------------
@@ -48,7 +48,7 @@ class BufferManager {
          NOT_LOADED
       };
       std::mutex mutex;
-      std::list<BufferFrame*>::iterator fifo_itr;
+      std::list<BufferFrame *>::iterator fifo_itr;
       State state = State::NOT_LOADED;
       // -------------------------------------------------------------------------------------
       // Everything in CIOFrame is protected by global bf_s_lock except the following counter
@@ -65,14 +65,14 @@ private:
    // TODO: use wait-free techniques, e.g: embed a wait-free linked list in the buffer frames
    std::mutex free_list_mutex;
    atomic<u64> dram_free_bfs_counter = 0;
-   std::vector<BufferFrame*> dram_free_bfs;
+   std::vector<BufferFrame *> dram_free_bfs;
    std::vector<PID> ssd_free_pages;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
    std::mutex cio_mutex;
    atomic<u64> cooling_bfs_counter = 0;
-   std::list<BufferFrame*> cooling_fifo_queue;
+   std::list<BufferFrame *> cooling_fifo_queue;
    // TODO: too slow, we can not create all our entries at startup
    // TODO: solution: handcraft a hashtable with upper bound
    std::unordered_map<PID, CIOFrame> cooling_io_ht;
@@ -115,7 +115,7 @@ public:
    void fDataSync();
    // -------------------------------------------------------------------------------------
    void registerDatastructureType(DTType type, DTRegistry::DTMeta dt_meta);
-   DTID registerDatastructureInstance(DTType type,  void *root_object);
+   DTID registerDatastructureInstance(DTType type, void *root_object);
    // -------------------------------------------------------------------------------------
    void clearSSD();
    void restore();
@@ -126,7 +126,7 @@ public:
 // -------------------------------------------------------------------------------------
 class BMC {
 public:
-   static BufferManager* global_bf;
+   static BufferManager *global_bf;
 };
 }
 }

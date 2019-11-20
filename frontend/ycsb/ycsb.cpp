@@ -45,6 +45,12 @@ typedef struct YCSBPayload {
    }
 };
 // -------------------------------------------------------------------------------------
+double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
+{
+   double tps = ((factor * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000.0 * 1000.0);
+   return (tps / 1000000.0);
+}
+// -------------------------------------------------------------------------------------
 int main(int argc, char **argv)
 {
    gflags::SetUsageMessage("Leanstore Frontend");
@@ -97,6 +103,7 @@ int main(int argc, char **argv)
       }
    }
    cout << "-------------------------------------------------------------------------------------" << endl;
+   cout << setprecision(4);
    // -------------------------------------------------------------------------------------
    // Insert values
    if ( FLAGS_persist ) {
@@ -110,8 +117,7 @@ int main(int argc, char **argv)
          }
       });
       auto end = chrono::high_resolution_clock::now();
-      auto tps = (u64) ((lookup_keys.size() * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
-      cout << tps * 1.0 / 1e6 << " M tps" << endl;
+      cout << calculateMTPS(begin, end, lookup_keys.size()) << " M tps" << endl;
       const u64 written_pages = db.getBufferManager().consumedPages();
       const u64 mib = written_pages * PAGE_SIZE / 1024 / 1024;
       cout << "Inserted volume: (pages, MiB) = (" << written_pages << ", " << mib << ")" << endl;
@@ -132,8 +138,7 @@ int main(int argc, char **argv)
          }
       });
       auto end = chrono::high_resolution_clock::now();
-      auto tps = (u64) ((FLAGS_ycsb_tuple_count * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
-      cout << tps * 1.0 / 1e6 << " M tps" << endl;
+      cout << calculateMTPS(begin, end, FLAGS_ycsb_tuple_count) << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
@@ -157,13 +162,13 @@ int main(int argc, char **argv)
             }
          });
          auto end = chrono::high_resolution_clock::now();
-         auto tps = (u64) ((lookup_keys.size() * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
+         double tps = ((lookup_keys.size() * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000.0 * 1000.0);
          if ( r_i < FLAGS_ycsb_warmup_rounds ) {
             cout << "Warmup: ";
          } else {
             cout << "Hot run: ";
          }
-         cout << tps * 1.0 / 1e6 << " M tps" << endl;
+         cout << calculateMTPS(begin, end, lookup_keys.size()) << " M tps" << endl;
       }
       cout << "-------------------------------------------------------------------------------------" << endl;
    } else {
@@ -177,8 +182,7 @@ int main(int argc, char **argv)
          }
       });
       auto end = chrono::high_resolution_clock::now();
-      auto tps = (u64) ((FLAGS_ycsb_tuple_count * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000 * 1000);
-      cout << tps * 1.0 / 1e6 << " M tps" << endl;
+      cout << calculateMTPS(begin, end, FLAGS_ycsb_tuple_count) << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------

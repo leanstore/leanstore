@@ -6,42 +6,39 @@
 #include <cstring>
 #include <signal.h>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(insistence_limit, 4, "");
+DEFINE_uint32(insistence_limit, 1, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 namespace buffermanager {
 // -------------------------------------------------------------------------------------
-AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 n_buffer_slots)
+AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size)
         : fd(fd)
           , page_size(page_size)
-          , n_buffer_slots(n_buffer_slots)
+          , batch_max_size(batch_max_size)
 {
-   write_buffer = make_unique<BufferFrame::Page[]>(n_buffer_slots);
-   write_buffer_commands = make_unique<WriteCommand[]>(n_buffer_slots);
-   iocbs = make_unique<struct iocb[]>(n_buffer_slots);
-   iocbs_ptr = make_unique<struct iocb *[]>(n_buffer_slots);
-   events = make_unique<struct io_event[]>(n_buffer_slots);
+   write_buffer = make_unique<BufferFrame::Page[]>(batch_max_size);
+   write_buffer_commands = make_unique<WriteCommand[]>(batch_max_size);
+   iocbs = make_unique<struct iocb[]>(batch_max_size);
+   iocbs_ptr = make_unique<struct iocb *[]>(batch_max_size);
+   events = make_unique<struct io_event[]>(batch_max_size);
    // -------------------------------------------------------------------------------------
-   for ( auto i = 0; i < n_buffer_slots; i++ ) {
+   for ( auto i = 0; i < batch_max_size; i++ ) {
       write_buffer_free_slots.push_back(i);
    }
    // -------------------------------------------------------------------------------------
    memset(&aio_context, 0, sizeof(aio_context));
-   const int ret = io_setup(n_buffer_slots, &aio_context);
+   const int ret = io_setup(batch_max_size, &aio_context);
    if ( ret != 0 ) {
       throw ex::GenericException("io_setup failed, ret code = " + std::to_string(ret));
    }
-   ensure (io_setup(n_buffer_slots, &aio_context) != 0);
-   // -------------------------------------------------------------------------------------
-   timeout.tv_sec = 0;
-   timeout.tv_nsec = (5 * 10e5);
+   ensure (io_setup(batch_max_size, &aio_context) != 0);
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::add(BufferFrame &bf)
+bool AsyncWriteBuffer::add(BufferFrame &bf)
 {
    ensure(u64(&bf.page) % 512 == 0);
    if ( !write_buffer_free_slots.size()) {
-      return;
+      return false;
    }
    // -------------------------------------------------------------------------------------
    // We are not allowed to modify the bf yet, we accquire a read lock, and in the future
@@ -53,14 +50,16 @@ void AsyncWriteBuffer::add(BufferFrame &bf)
    wc.pid = bf.header.pid;
    wc.bf = &bf;
    batch.push_back(slot);
+   // -------------------------------------------------------------------------------------
+   return true;
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)> callback, u64 minimum_submit_size)
+void AsyncWriteBuffer::submitIfNecessary()
 {
-   const auto c_batch_size = std::min(batch.size(), n_buffer_slots - pending_requests);
+   const auto c_batch_size = std::min(batch.size(), batch_max_size);
    u32 successfully_copied_bfs = 0;
    auto my_iocbs_ptr = iocbs_ptr.get();
-   if ( c_batch_size >= minimum_submit_size || insistence_counter == FLAGS_insistence_limit ) {
+   if ( c_batch_size >= batch_max_size || insistence_counter == FLAGS_insistence_limit ) {
       for ( auto i = 0; i < c_batch_size; i++ ) {
          auto slot = batch.back();
          batch.pop_back();
@@ -82,31 +81,40 @@ void AsyncWriteBuffer::submitIfNecessary(std::function<void(BufferFrame &, u64)>
          }
          // -------------------------------------------------------------------------------------
       }
-      pending_requests += successfully_copied_bfs;
       const int ret_code = io_submit(aio_context, successfully_copied_bfs, iocbs_ptr.get());
       ensure(ret_code == successfully_copied_bfs);
+      pending_requests += ret_code;
       insistence_counter = 0;
    } else {
       insistence_counter++;
    }
-   // -------------------------------------------------------------------------------------
+
+}
+// -------------------------------------------------------------------------------------
+u64 AsyncWriteBuffer::pollEventsSync()
+{
    if ( pending_requests ) {
-      ensure(pending_requests <= n_buffer_slots);
-      const int done_requests = io_getevents(aio_context, pending_requests, n_buffer_slots, events.get(), &timeout);
-      if ( done_requests < 0 ) {
+      const int done_requests = io_getevents(aio_context, pending_requests, batch_max_size, events.get(), NULL);
+      if ( done_requests != pending_requests ) {
          throw ex::GenericException("io_getevents failed, res = " + std::to_string(done_requests));
       }
       pending_requests -= done_requests;
-      for ( auto i = 0; i < done_requests; i++ ) {
-         ensure(events[i].res == page_size);
-         ensure(events[i].res2 == 0);
-         // -------------------------------------------------------------------------------------
-         const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
-         auto c_command = write_buffer_commands[slot];
-         auto written_lsn = write_buffer[slot].LSN;
-         callback(*c_command.bf, written_lsn);
-         write_buffer_free_slots.push_back(slot);
-      }
+      return done_requests;
+   }
+   return 0;
+}
+// -------------------------------------------------------------------------------------
+void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame &, u64)> callback, u64 n_events)
+{
+   for ( auto i = 0; i < n_events; i++ ) {
+      ensure(events[i].res == page_size);
+      ensure(events[i].res2 == 0);
+      // -------------------------------------------------------------------------------------
+      const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
+      auto c_command = write_buffer_commands[slot];
+      auto written_lsn = write_buffer[slot].LSN;
+      callback(*c_command.bf, written_lsn);
+      write_buffer_free_slots.push_back(slot);
    }
 }
 // -------------------------------------------------------------------------------------

@@ -12,10 +12,6 @@ namespace buffermanager {
 struct RestartException {
 public:
    RestartException() {}
-   RestartException(int code)
-   {
-      cout << code << endl;
-   }
 };
 // -------------------------------------------------------------------------------------
 class ReadGuard;
@@ -76,6 +72,15 @@ public:
    // -------------------------------------------------------------------------------------
    ~ExclusiveGuard();
 };
+#define spinAsLongAs(expr) \
+   u32 mask = 1; \
+   u32 const max = 64;  \
+   while (expr) {  \
+      for ( u32 i = mask; i; --i ) { \
+         _mm_pause(); \
+      } \
+   mask = mask < max ? mask << 1 : max; \
+   } \
 // -------------------------------------------------------------------------------------
 // TODO: Shared guard for scans
 /*

@@ -72,7 +72,7 @@ void BufferManager::pageProviderThread()
    // -------------------------------------------------------------------------------------
    // Init AIO Context
    // TODO: own variable for page provider write buffer size
-   AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, config.write_buffer_size);
+   AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, config.async_batch_size);
    // -------------------------------------------------------------------------------------
    BufferFrame *r_buffer = &randomBufferFrame();
    //TODO: REWRITE!!
@@ -124,17 +124,7 @@ void BufferManager::pageProviderThread()
                ExclusiveGuard r_x_guad(r_guard);
                ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
                ExclusiveGuard p_x_guard(parent_handler.guard);
-               std::lock_guard g_guard(cio_mutex); // must accquire the mutex before exclusive locks
-
-               dt_registry.iterateChildrenSwips(r_buffer->page.dt_id,
-                                                *r_buffer, r_guard, [&](Swip<BufferFrame> &swip) {
-                          if ( swip.isSwizzled()) {
-                             raise(SIGTRAP);
-                             return false;
-                          } else {
-                             return true;
-                          }
-                       });
+               std::lock_guard g_guard(cio_mutex);
                assert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
                assert(parent_handler.swip.bf == r_buffer);
                parent_handler.swip.unswizzle(r_buffer->header.pid);
@@ -160,39 +150,38 @@ void BufferManager::pageProviderThread()
          // and preparing aio for dirty pages
          auto phase_2_begin = chrono::high_resolution_clock::now();
          if ( phase_2_condition()) {
-            u64 pages_left_to_evict = (dram_free_bfs_counter < free_pages_limit) ? free_pages_limit - dram_free_bfs_counter : 0;
             // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
             std::unique_lock g_guard(cio_mutex);
+            u64 pages_left_to_process = (dram_free_bfs_counter < free_pages_limit) ? free_pages_limit - dram_free_bfs_counter : 0;
             //TODO: other variable than async_batch_size
             auto bf_itr = cooling_fifo_queue.begin();
-            while ( bf_itr != cooling_fifo_queue.end()) {
+            while ( pages_left_to_process-- && bf_itr != cooling_fifo_queue.end()) {
                BufferFrame &bf = **bf_itr;
                auto next_bf_tr = std::next(bf_itr, 1);
                PID pid = bf.header.pid;
                // TODO: can we write multiple  versions sim ?
                // TODO: current implementation assume that checkpoint thread does not touch the
-               if ( bf.header.isWB == false ) {
+               if ( !bf.header.isWB ) {
                   if ( !bf.isDirty()) {
-                     if ( pages_left_to_evict ) {
-                        std::lock_guard reservoir_guard(free_list_mutex);
-                        // Reclaim buffer frame
-                        CIOFrame &cio_frame = cooling_io_ht[pid];
-                        assert(cio_frame.state == CIOFrame::State::COOLING);
-                        cooling_fifo_queue.erase(bf_itr);
-                        cio_frame.state = CIOFrame::State::NOT_LOADED;
-                        dram_free_bfs.push_back(&bf);
-                        // -------------------------------------------------------------------------------------
-                        new(&bf.header) BufferFrame::Header();
-                        assert(bf.header.lock == 0);
-                        // -------------------------------------------------------------------------------------
-                        dram_free_bfs_counter++;
-                        cooling_bfs_counter--;
-                        pages_left_to_evict--;
-                        debugging_counters.evicted_pages++;
-                     }
+                     std::lock_guard reservoir_guard(free_list_mutex);
+                     // Reclaim buffer frame
+                     CIOFrame &cio_frame = cooling_io_ht[pid];
+                     assert(cio_frame.state == CIOFrame::State::COOLING);
+                     cooling_fifo_queue.erase(bf_itr);
+                     cio_frame.state = CIOFrame::State::NOT_LOADED;
+                     dram_free_bfs.push_back(&bf);
+                     // -------------------------------------------------------------------------------------
+                     new(&bf.header) BufferFrame::Header();
+                     // -------------------------------------------------------------------------------------
+                     dram_free_bfs_counter++;
+                     cooling_bfs_counter--;
+                     debugging_counters.evicted_pages++;
                   } else {
-                     async_write_buffer.add(bf);
-                     debugging_counters.awrites_submitted++;
+                     if(async_write_buffer.add(bf)) {
+                        debugging_counters.awrites_submitted++;
+                     } else {
+                        debugging_counters.awrites_submit_failed++;
+                     }
                   }
                }
                bf_itr = next_bf_tr;
@@ -202,27 +191,46 @@ void BufferManager::pageProviderThread()
          // Phase 3
          auto phase_3 = chrono::high_resolution_clock::now();
          if ( phase_3_condition()) {
-            async_write_buffer.submitIfNecessary([&](BufferFrame &written_bf, u64 written_lsn) {
+            async_write_buffer.submitIfNecessary();
+            const u32 polled_events = async_write_buffer.pollEventsSync();
+            std::lock_guard g_guard(cio_mutex);
+            std::lock_guard reservoir_guard(free_list_mutex);
+            async_write_buffer.getWrittenBfs([&](BufferFrame &written_bf, u64 written_lsn) {
                while ( true ) {
                   try {
-                     ReadGuard guard(written_bf.header.lock);
-                     ExclusiveGuard x_guard(guard);
                      assert(written_bf.header.isWB == true);
                      written_bf.header.lastWrittenLSN = written_lsn;
                      written_bf.header.isWB = false;
                      // -------------------------------------------------------------------------------------
                      stats.flushed_pages_counter++;
+                     // -------------------------------------------------------------------------------------
+                     // Evict
+                     if ( written_bf.header.state == BufferFrame::State::COLD ) {
+                        // Reclaim buffer frame
+                        CIOFrame &cio_frame = cooling_io_ht[written_bf.header.pid];
+                        assert(cio_frame.state == CIOFrame::State::COOLING);
+                        cooling_fifo_queue.erase(cio_frame.fifo_itr);
+                        cio_frame.state = CIOFrame::State::NOT_LOADED;
+                        dram_free_bfs.push_back(&written_bf);
+                        // -------------------------------------------------------------------------------------
+                        new(&written_bf) BufferFrame;
+                        // -------------------------------------------------------------------------------------
+                        dram_free_bfs_counter++;
+                        cooling_bfs_counter--;
+                        debugging_counters.evicted_pages++;
+                     }
                      return;
                   } catch ( RestartException e ) {
                   }
                }
-            }, config.async_batch_size);
+            }, polled_events);
          }
          auto end = chrono::high_resolution_clock::now();
          // -------------------------------------------------------------------------------------
          debugging_counters.phase_1_ms += (chrono::duration_cast<chrono::microseconds>(phase_2_begin - phase_1_begin).count());
          debugging_counters.phase_2_ms += (chrono::duration_cast<chrono::microseconds>(phase_3 - phase_2_begin).count());
          debugging_counters.phase_3_ms += (chrono::duration_cast<chrono::microseconds>(end - phase_3).count());
+         debugging_counters.pp_thread_rounds++;
          // -------------------------------------------------------------------------------------
       } catch ( RestartException e ) {
          r_buffer = &randomBufferFrame();
@@ -234,7 +242,7 @@ void BufferManager::pageProviderThread()
 // -------------------------------------------------------------------------------------
 void BufferManager::debuggingThread()
 {
-   cout << endl << "1\t2\t3\tfree_bfs\tcooling_bfs\tevicted_bfs\tawrites_submitted" << endl;
+   cout << endl << "1\t2\t3\tfree_bfs\tcooling_bfs\tevicted_bfs\tawrites_submitted\twrites_submit_failed\tpp_rounds" << endl;
    // -------------------------------------------------------------------------------------
    s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0;
    while ( bg_threads_keep_running ) {
@@ -243,14 +251,15 @@ void BufferManager::debuggingThread()
       local_phase_3_ms = debugging_counters.phase_3_ms.exchange(0);
       s64 total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
       if ( total > 0 ) {
-         cout << std::fixed << std::setprecision(0);
-         cout << std::round(local_phase_1_ms * 100.0 / total)
-              << "\t" << std::round(local_phase_2_ms * 100.0 / total)
-              << "\t" << std::round(local_phase_3_ms * 100.0 / total)
+         cout << u32(local_phase_1_ms * 100.0 / total)
+              << "\t" << u32(local_phase_2_ms * 100.0 / total)
+              << "\t" << u32(local_phase_3_ms * 100.0 / total)
               << "\t" << (dram_free_bfs_counter.load())
               << "\t" << (cooling_bfs_counter.load())
               << "\t" << (debugging_counters.evicted_pages.exchange(0))
               << "\t" << (debugging_counters.awrites_submitted.exchange(0))
+              << "\t" << (debugging_counters.awrites_submit_failed.exchange(0))
+              << "\t" << (debugging_counters.pp_thread_rounds.exchange(0))
               << endl;
       }
       sleep(2);
@@ -341,8 +350,11 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    // -------------------------------------------------------------------------------------
    CIOFrame &cio_frame = cooling_io_ht[pid];
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
-      //TODO: something wrong here
-      // First posix_check if we have enough pages
+      if(dram_free_bfs_counter == 0) {
+         g_guard.unlock();
+         spinAsLongAs(dram_free_bfs_counter == 0);
+         throw RestartException();
+      }
       std::unique_lock reservoir_guard(free_list_mutex);
       if ( !dram_free_bfs.size()) {
          throw RestartException();
@@ -365,7 +377,6 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       bf.header.lastWrittenLSN = bf.page.LSN;
       bf.header.state = BufferFrame::State::COLD;
       bf.header.isWB = false;
-      assert(bf.header.pid == 9999);
       bf.header.pid = pid;
       // -------------------------------------------------------------------------------------
       // Move to cooling stage

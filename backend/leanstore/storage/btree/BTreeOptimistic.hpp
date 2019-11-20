@@ -43,6 +43,7 @@ struct BTreeLeaf : public BTreeLeafBase {
    {
       unsigned lower = 0;
       unsigned upper = count;
+      //TODO: check version after reading count. guarantee: progress + not reading from another page
       do {
          unsigned mid = ((upper - lower) / 2) + lower;
          if ( k < keys[mid] ) {

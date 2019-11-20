@@ -11,7 +11,6 @@ struct Config {
    string free_pages_list_path;
    u32 cool_pct;
    u32 free_pct;
-   u32 write_buffer_size;
    u32 async_batch_size;
    Config();
 };
