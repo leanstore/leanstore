@@ -276,7 +276,7 @@ struct BTree {
             int64_t pos = leaf->lowerBound(k);
             if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
                result = leaf->payloads[pos];
-               c_guard.recheck();
+               c_guard.recheck_done();
                return true;
             }
             return false;
@@ -304,7 +304,7 @@ struct BTree {
       }
    }
    // -------------------------------------------------------------------------------------
-   static ParentSwipHandler findParent(void *btree_object, BufferFrame &bf, ReadGuard &)
+   static ParentSwipHandler findParent(void *btree_object, BufferFrame &bf)
    {
       auto c_node = reinterpret_cast<NodeBase *>(bf.page.dt);
       Key k;
@@ -320,8 +320,8 @@ struct BTree {
          auto &root_inner_swip = btree.root_swip.template cast<BTreeInner<Key>>();
          Swip<BufferFrame> *last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
          auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(btree.root_lock);
-         if ( last_accessed_swip->bf == &bf ) {
-            p_guard.recheck();
+         if ( &last_accessed_swip->asBufferFrame() == &bf ) {
+            p_guard.recheck_done();
             return {
                     .swip = *last_accessed_swip, .guard = p_guard.bf_s_lock
             };
@@ -332,8 +332,8 @@ struct BTree {
             Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
             // -------------------------------------------------------------------------------------
             last_accessed_swip = &c_swip.template cast<BufferFrame>();
-            if ( last_accessed_swip->bf == &bf ) {
-               c_guard.recheck();
+            if ( &last_accessed_swip->asBufferFrame() == &bf ) {
+               c_guard.recheck_done();
                return {
                        .swip = *last_accessed_swip, .guard = c_guard.bf_s_lock
                };

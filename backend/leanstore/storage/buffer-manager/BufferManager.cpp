@@ -113,7 +113,7 @@ BufferManager::BufferManager(Config config_snap)
                // Suitable page founds, lets unswizzle
                {
                   ExclusiveGuard r_x_guad(r_guard);
-                  ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer, r_guard);
+                  ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
                   ExclusiveGuard p_x_guard(parent_handler.guard);
                   std::lock_guard g_guard(cio_mutex); // must accquire the mutex before exclusive locks
 
@@ -472,7 +472,7 @@ void BufferManager::flushDropAllPages()
          if ( picked_a_child_instead ) {
             continue; //restart the inner loop
          }
-         ParentSwipHandler parent_handler = dt_registry.findParent(bf->page.dt_id, *bf, guard);
+         ParentSwipHandler parent_handler = dt_registry.findParent(bf->page.dt_id, *bf);
          parent_handler.swip.unswizzle(bf->header.pid);
          bf->page.magic_debugging_number = bf->header.pid;
          pwrite(ssd_fd, bf->page, PAGE_SIZE, PAGE_SIZE * bf->header.pid);

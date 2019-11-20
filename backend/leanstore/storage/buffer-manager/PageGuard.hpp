@@ -32,7 +32,7 @@ public:
    {
       assert(p_guard.moved == false);
       assert((p_guard.bf_s_lock.local_version & 2) == 0);
-      if(swip.isSwizzled()) {
+      if ( swip.isSwizzled()) {
          bf = &swip.asBufferFrame();
       } else {
          auto &bf_swip = swip.template cast<BufferFrame>();
@@ -80,12 +80,17 @@ public:
       assert((bf_s_lock.local_version & 2) != 2);
       return *this;
    }
-
+   // -------------------------------------------------------------------------------------
    void recheck()
+   {
+      bf_s_lock.recheck();
+   }
+   void recheck_done()
    {
       manually_checked = true;
       bf_s_lock.recheck();
    }
+   // -------------------------------------------------------------------------------------
    T &ref()
    {
       return *reinterpret_cast<T *>(bf->page.dt);

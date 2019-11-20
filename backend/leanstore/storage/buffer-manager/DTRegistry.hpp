@@ -19,7 +19,8 @@ struct ParentSwipHandler {
 struct DTRegistry {
    struct DTMeta {
       std::function<void(void *, BufferFrame &, ReadGuard &, std::function<bool(Swip<BufferFrame> &)>)> iterate_childern;
-      std::function<ParentSwipHandler(void *, BufferFrame &, ReadGuard &)> find_parent;
+      // the caller must have called the current buffer frame exclusively before calling
+      std::function<ParentSwipHandler(void *, BufferFrame &)> find_parent;
       u64 instances_counter = 0;
    };
    // Not syncrhonized
@@ -27,7 +28,7 @@ struct DTRegistry {
    std::unordered_map<u64, std::tuple<DTType, void *>> dt_instances_ht;
    // -------------------------------------------------------------------------------------
    void iterateChildrenSwips(DTID dtid, BufferFrame &, ReadGuard &, std::function<bool(Swip<BufferFrame> &)>);
-   ParentSwipHandler findParent(DTID dtid, BufferFrame &, ReadGuard &);
+   ParentSwipHandler findParent(DTID dtid, BufferFrame &);
 };
 // -------------------------------------------------------------------------------------
 }
