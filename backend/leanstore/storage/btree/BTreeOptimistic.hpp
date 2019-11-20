@@ -342,7 +342,7 @@ struct BTree {
             p_guard = std::move(c_guard);
             c_guard = ReadPageGuard(p_guard, c_swip);
          }
-         throw RestartException();
+         ensure(false);
       }
    }
    // -------------------------------------------------------------------------------------

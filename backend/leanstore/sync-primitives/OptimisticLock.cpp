@@ -4,10 +4,9 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 namespace buffermanager {
-ReadGuard::ReadGuard(OptimisticLock &lock)
-        : version_ptr(&lock)
+// -------------------------------------------------------------------------------------
+void ReadGuard::spin()
 {
-   local_version = version_ptr->load();
    u32 mask = 1;
    u32 const max = 64; //MAX_BACKOFF
    while ((local_version & 2) == 2 ) { //spin bf_s_lock
@@ -17,17 +16,13 @@ ReadGuard::ReadGuard(OptimisticLock &lock)
       mask = mask < max ? mask << 1 : max;
       local_version = version_ptr->load();
    }
-   assert((local_version & 2) != 2);
 }
 // -------------------------------------------------------------------------------------
-ReadGuard::ReadGuard(atomic<u64> *version_ptr, u64 local_version)
-        :
-        version_ptr(version_ptr)
-        , local_version(local_version) {}
-// -------------------------------------------------------------------------------------
-ExclusiveGuard::ExclusiveGuard(ReadGuard &read_lock) : ref_guard(read_lock){
+ExclusiveGuard::ExclusiveGuard(ReadGuard &read_lock)
+        : ref_guard(read_lock)
+{
    assert(ref_guard.version_ptr != nullptr);
-   assert((ref_guard.local_version & 2 ) == 0);
+   assert((ref_guard.local_version & 2) == 0);
    lock_version_t new_version = ref_guard.local_version + 2;
    /*
     * A better alternative can be
@@ -38,22 +33,25 @@ ExclusiveGuard::ExclusiveGuard(ReadGuard &read_lock) : ref_guard(read_lock){
       throw RestartException();
    }
    ref_guard.local_version = new_version;
-   assert((ref_guard.local_version & 2 ) == 2);
+   assert((ref_guard.local_version & 2) == 2);
 }
 // -------------------------------------------------------------------------------------
-ExclusiveGuard::~ExclusiveGuard() {
+ExclusiveGuard::~ExclusiveGuard()
+{
 
    assert(ref_guard.version_ptr != nullptr);
    assert(ref_guard.local_version == ref_guard.version_ptr->load());
-   assert((ref_guard.local_version & 2 ) == 2);
+   assert((ref_guard.local_version & 2) == 2);
    ref_guard.local_version = 2 + ref_guard.version_ptr->fetch_add(2);
-   assert((ref_guard.local_version & 2 ) == 0);
+   assert((ref_guard.local_version & 2) == 0);
 }
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // TODO: part
-SharedGuard::SharedGuard(ReadGuard &read_guard) : ref_guard(read_guard) {
-   lock_version_t  new_version = ref_guard.local_version + shared_bit;
+SharedGuard::SharedGuard(ReadGuard &read_guard)
+        : ref_guard(read_guard)
+{
+   lock_version_t new_version = ref_guard.local_version + shared_bit;
 }
 // -------------------------------------------------------------------------------------
 }

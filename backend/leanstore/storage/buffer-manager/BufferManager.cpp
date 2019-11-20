@@ -421,8 +421,9 @@ void BufferManager::readPageSync(u64 pid, u8 *destination)
    assert(u64(destination) % 512 == 0);
    s64 bytes_left = PAGE_SIZE;
    do {
-      bytes_left -= pread(ssd_fd, destination, bytes_left, pid * PAGE_SIZE + (PAGE_SIZE - bytes_left));
-      assert(bytes_left >= 0);
+      const int bytes_read = pread(ssd_fd, destination, bytes_left, pid * PAGE_SIZE + (PAGE_SIZE - bytes_left));
+      assert(bytes_left > 0);
+      bytes_left -= bytes_read;
    } while ( bytes_left > 0 );
 }
 // -------------------------------------------------------------------------------------
