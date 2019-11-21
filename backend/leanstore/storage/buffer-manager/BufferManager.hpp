@@ -39,6 +39,7 @@ class BufferManager {
    struct DebuggingCounters {
       atomic<u64> evicted_pages = 0, awrites_submitted = 0, awrites_submit_failed = 0, pp_thread_rounds = 0;
       atomic<s64> phase_1_ms = 0, phase_2_ms = 0, phase_3_ms = 0;
+      atomic<u64> io_operations = 0;
    };
    // -------------------------------------------------------------------------------------
    struct CIOFrame {
@@ -88,8 +89,9 @@ private:
    // Misc
    BufferFrame &randomBufferFrame();
    Stats stats;
-   DebuggingCounters debugging_counters;
 public:
+   DebuggingCounters debugging_counters;
+   // -------------------------------------------------------------------------------------
    BufferManager();
    ~BufferManager();
    // -------------------------------------------------------------------------------------

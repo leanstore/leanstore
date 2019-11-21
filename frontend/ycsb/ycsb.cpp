@@ -48,7 +48,7 @@ typedef struct YCSBPayload {
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
 {
-   double tps = ((factor * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000.0 * 1000.0);
+   double tps = ((factor * 1.0 / (chrono::duration_cast<chrono::microseconds>(end - begin).count() /  1000000.0)));
    return (tps / 1000000.0);
 }
 // -------------------------------------------------------------------------------------
@@ -131,6 +131,7 @@ int main(int argc, char **argv)
    if ( FLAGS_ycsb_scan ) {
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Scan" << endl;
+      db.getBufferManager().debugging_counters.io_operations.store(0);
       auto begin = chrono::high_resolution_clock::now();
       tbb::parallel_for(tbb::blocked_range<uint32_t>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<uint32_t> &range) {
          for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
@@ -139,6 +140,10 @@ int main(int argc, char **argv)
          }
       });
       auto end = chrono::high_resolution_clock::now();
+      // -------------------------------------------------------------------------------------
+      cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
+      cout << "IOs = " << db.getBufferManager().debugging_counters.io_operations.exchange(0) << endl;
+      // -------------------------------------------------------------------------------------
       cout << calculateMTPS(begin, end, FLAGS_ycsb_tuple_count) << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
@@ -150,6 +155,7 @@ int main(int argc, char **argv)
       PerfEventBlock b(e, lookup_keys.size() * (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds));
       e.setParam("threads", FLAGS_ycsb_threads);
       for ( u32 r_i = 0; r_i < (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds); r_i++ ) {
+         db.getBufferManager().debugging_counters.io_operations.store(0);
          auto begin = chrono::high_resolution_clock::now();
          tbb::parallel_for(tbb::blocked_range<uint32_t>(0, lookup_keys.size()), [&](const tbb::blocked_range<uint32_t> &range) {
             for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
@@ -163,7 +169,10 @@ int main(int argc, char **argv)
             }
          });
          auto end = chrono::high_resolution_clock::now();
-         double tps = ((lookup_keys.size() * 1.0 / chrono::duration_cast<chrono::microseconds>(end - begin).count()) * 1000.0 * 1000.0);
+         // -------------------------------------------------------------------------------------
+         cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
+         cout << "IOs = " << db.getBufferManager().debugging_counters.io_operations.exchange(0) << endl;
+         // -------------------------------------------------------------------------------------
          if ( r_i < FLAGS_ycsb_warmup_rounds ) {
             cout << "Warmup: ";
          } else {

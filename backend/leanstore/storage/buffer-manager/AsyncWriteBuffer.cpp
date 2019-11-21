@@ -78,6 +78,7 @@ void AsyncWriteBuffer::submitIfNecessary()
             *my_iocbs_ptr++ = &iocbs[slot];
             successfully_copied_bfs++;
          } catch ( RestartException e ) {
+            write_buffer_free_slots.push_back(slot);
          }
          // -------------------------------------------------------------------------------------
       }

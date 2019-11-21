@@ -168,13 +168,15 @@ struct BTree {
    {
    }
    // -------------------------------------------------------------------------------------
-   void init() {
+   void init()
+   {
       auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
       root_write_guard.init();
       root_swip = root_write_guard.bf;
    }
    // -------------------------------------------------------------------------------------
-   DTRegistry::DTMeta getMeta() {
+   DTRegistry::DTMeta getMeta()
+   {
       DTRegistry::DTMeta btree_meta = {
               .iterate_childern=iterateChildSwips, .find_parent = findParent
       };
@@ -291,7 +293,7 @@ struct BTree {
       cout << "restarts counter = " << restarts_counter << endl;
    }
    // -------------------------------------------------------------------------------------
-   static void iterateChildSwips(void *, BufferFrame &bf, ReadGuard &, std::function<bool(Swip<BufferFrame> &)> callback)
+   static void iterateChildSwips(void */*btree_object*/, BufferFrame &bf, ReadGuard &/*guard*/, std::function<bool(Swip<BufferFrame> &)> callback)
    {
       auto c_node = reinterpret_cast<NodeBase *>(bf.page.dt);
       if ( c_node->type == NodeType::BTreeLeaf ) {
@@ -308,19 +310,31 @@ struct BTree {
    static ParentSwipHandler findParent(void *btree_object, BufferFrame &bf)
    {
       auto c_node = reinterpret_cast<NodeBase *>(bf.page.dt);
+      assert(c_node->count > 0);
       Key k;
       if ( c_node->type == NodeType::BTreeLeaf ) {
-         k = reinterpret_cast<BTreeLeaf<Key, Value> *>(c_node)->keys[0];
+         auto leaf = reinterpret_cast<BTreeLeaf<Key, Value> *>(c_node);
+         k = leaf->keys[0];
       } else {
-         k = reinterpret_cast<BTreeInner<Key> *>(c_node)->keys[0];
+         auto inner = reinterpret_cast<BTreeInner<Key> *>(c_node);
+         k = inner->keys[0];
+         for ( u32 c_i = 0; c_i < c_node->count; c_i++ ) {
+            assert(!inner->children[c_i].isSwizzled());
+         }
       }
       // -------------------------------------------------------------------------------------
       // TODO: dirty code
       {
          auto &btree = *reinterpret_cast<BTree<Key, Value> *>(btree_object);
          auto &root_inner_swip = btree.root_swip.template cast<BTreeInner<Key>>();
-         Swip<BufferFrame> *last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
+         Swip<BufferFrame> *last_accessed_swip;
          auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(btree.root_lock);
+         {
+            last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
+            Swip<BufferFrame> r_swip_value(*last_accessed_swip);
+            p_guard.recheck();
+            assert(r_swip_value.isSwizzled());
+         }
          if ( &last_accessed_swip->asBufferFrame() == &bf ) {
             p_guard.recheck_done();
             return {
@@ -332,7 +346,16 @@ struct BTree {
             int64_t pos = c_guard->lowerBound(k);
             Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
             // -------------------------------------------------------------------------------------
-            last_accessed_swip = &c_swip.template cast<BufferFrame>();
+            {
+               last_accessed_swip = &c_swip.template cast<BufferFrame>();
+               Swip<BufferFrame> c_swip_value(*last_accessed_swip);
+               c_guard.recheck();
+               if(!c_swip_value.isSwizzled()) {
+                  cout <<"crap\n";
+                  throw RestartException();
+               }
+               assert(c_swip_value.isSwizzled());
+            }
             if ( &last_accessed_swip->asBufferFrame() == &bf ) {
                c_guard.recheck_done();
                return {
@@ -347,7 +370,8 @@ struct BTree {
       }
    }
    // -------------------------------------------------------------------------------------
-   void printFanoutInformation(){
+   void printFanoutInformation()
+   {
       cout << "Inner #entries = " << btree::BTreeInner<Key>::maxEntries << endl;
       cout << "Leaf #entries = " << btree::BTreeLeaf<Key, Value>::maxEntries << endl;
    }

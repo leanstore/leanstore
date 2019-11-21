@@ -1,6 +1,7 @@
 #pragma once
 // -------------------------------------------------------------------------------------
 #include "Units.hpp"
+#include "BufferFrame.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
@@ -19,15 +20,17 @@ class Swip {
    static_assert(unswizzle_bit == 0x8000000000000000, "");
    static_assert(unswizzle_mask == 0x7FFFFFFFFFFFFFFF, "");
 public:
-   union{
+   union {
       u64 pid;
       BufferFrame *bf;
    };
    // -------------------------------------------------------------------------------------
    Swip() = default;
-   Swip(BufferFrame *bf) : bf(bf) {}
+   Swip(BufferFrame *bf)
+           : bf(bf) {}
    template<typename T2>
-   Swip(Swip<T2> &other) : pid(other.pid) {}
+   Swip(Swip<T2> &other)
+           : pid(other.pid) {}
    // -------------------------------------------------------------------------------------
    bool operator==(const Swip &other) const
    {
@@ -38,9 +41,18 @@ public:
    {
       return !(pid & unswizzle_bit);
    }
-   u64 asPageID() { return pid & unswizzle_mask; }
-   BufferFrame& asBufferFrame() {
+   // -------------------------------------------------------------------------------------
+   u64 asPageID()
+   {
+      return pid & unswizzle_mask;
+   }
+   BufferFrame &asBufferFrame()
+   {
       return *bf;
+   }
+   T *asType()
+   {
+      return reinterpret_cast<T *>(bf->page.dt);
    }
    // -------------------------------------------------------------------------------------
    template<typename T2>
@@ -48,13 +60,15 @@ public:
    {
       this->bf = bf;
    }
-   void unswizzle(PID pid) {
+   void unswizzle(PID pid)
+   {
       this->pid = pid | unswizzle_bit;
    }
    // -------------------------------------------------------------------------------------
    template<typename T2>
-   Swip<T2> &cast() {
-      return *reinterpret_cast<Swip<T2>*>(this);
+   Swip<T2> &cast()
+   {
+      return *reinterpret_cast<Swip<T2> *>(this);
    }
 };
 // -------------------------------------------------------------------------------------

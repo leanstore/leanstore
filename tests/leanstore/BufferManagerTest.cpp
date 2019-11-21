@@ -24,7 +24,7 @@ TEST(BufferManager, BTree)
    res = btree.lookup(10, result);
    EXPECT_TRUE(res == true && result == 10);
 
-   uint32_t n = getenv("N") ? atoi(getenv("N")) : 10e4;
+   uint32_t n = getenv("N") ? atoi(getenv("N")) : 10e9;
    uint32_t threads = getenv("T") ? atoi(getenv("T")) : 10;
 
    std::vector<uint32_t> work(n);
@@ -90,6 +90,7 @@ TEST(BufferManager, BTree)
 // -------------------------------------------------------------------------------------
 TEST(BufferManager, Persistence)
 {
+   return;
    LeanStore db;
    auto &btree = db.registerBTree<u32, u32>("test");
 

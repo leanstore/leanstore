@@ -86,7 +86,7 @@ void BufferManager::pageProviderThread()
       return (dram_free_bfs_counter < free_pages_limit);
    };
    auto phase_3_condition = [&]() {
-      return true;
+      return (cooling_bfs_counter > 0);
    };
    // -------------------------------------------------------------------------------------
    while ( bg_threads_keep_running ) {
@@ -122,19 +122,20 @@ void BufferManager::pageProviderThread()
             // Suitable page founds, lets unswizzle
             {
                ExclusiveGuard r_x_guad(r_guard);
+               assert(r_buffer->header.state == BufferFrame::State::HOT);
                ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
                ExclusiveGuard p_x_guard(parent_handler.guard);
                std::lock_guard g_guard(cio_mutex);
                assert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
                assert(parent_handler.swip.bf == r_buffer);
-               parent_handler.swip.unswizzle(r_buffer->header.pid);
                CIOFrame &cio_frame = cooling_io_ht[r_buffer->header.pid];
                cio_frame.state = CIOFrame::State::COOLING;
                cooling_fifo_queue.push_back(r_buffer);
                cio_frame.fifo_itr = --cooling_fifo_queue.end();
                r_buffer->header.state = BufferFrame::State::COLD;
-               cooling_bfs_counter++;
+               parent_handler.swip.unswizzle(r_buffer->header.pid);
                // -------------------------------------------------------------------------------------
+               cooling_bfs_counter++;
                stats.unswizzled_pages_counter++;
                // -------------------------------------------------------------------------------------
                if ( !phase_1_condition()) {
@@ -152,18 +153,15 @@ void BufferManager::pageProviderThread()
          if ( phase_2_condition()) {
             // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
             std::unique_lock g_guard(cio_mutex);
+            std::lock_guard reservoir_guard(free_list_mutex);
             u64 pages_left_to_process = (dram_free_bfs_counter < free_pages_limit) ? free_pages_limit - dram_free_bfs_counter : 0;
-            //TODO: other variable than async_batch_size
             auto bf_itr = cooling_fifo_queue.begin();
             while ( pages_left_to_process-- && bf_itr != cooling_fifo_queue.end()) {
                BufferFrame &bf = **bf_itr;
                auto next_bf_tr = std::next(bf_itr, 1);
                PID pid = bf.header.pid;
-               // TODO: can we write multiple  versions sim ?
-               // TODO: current implementation assume that checkpoint thread does not touch the
                if ( !bf.header.isWB ) {
                   if ( !bf.isDirty()) {
-                     std::lock_guard reservoir_guard(free_list_mutex);
                      // Reclaim buffer frame
                      CIOFrame &cio_frame = cooling_io_ht[pid];
                      assert(cio_frame.state == CIOFrame::State::COOLING);
@@ -177,7 +175,7 @@ void BufferManager::pageProviderThread()
                      cooling_bfs_counter--;
                      debugging_counters.evicted_pages++;
                   } else {
-                     if(async_write_buffer.add(bf)) {
+                     if ( async_write_buffer.add(bf)) {
                         debugging_counters.awrites_submitted++;
                      } else {
                         debugging_counters.awrites_submit_failed++;
@@ -189,7 +187,7 @@ void BufferManager::pageProviderThread()
             g_guard.unlock();
          }
          // Phase 3
-         auto phase_3 = chrono::high_resolution_clock::now();
+         auto phase_3_begin = chrono::high_resolution_clock::now();
          if ( phase_3_condition()) {
             async_write_buffer.submitIfNecessary();
             const u32 polled_events = async_write_buffer.pollEventsSync();
@@ -198,7 +196,7 @@ void BufferManager::pageProviderThread()
             async_write_buffer.getWrittenBfs([&](BufferFrame &written_bf, u64 written_lsn) {
                while ( true ) {
                   try {
-                     assert(written_bf.header.isWB == true);
+                     assert(written_bf.header.isWB);
                      written_bf.header.lastWrittenLSN = written_lsn;
                      written_bf.header.isWB = false;
                      // -------------------------------------------------------------------------------------
@@ -228,8 +226,8 @@ void BufferManager::pageProviderThread()
          auto end = chrono::high_resolution_clock::now();
          // -------------------------------------------------------------------------------------
          debugging_counters.phase_1_ms += (chrono::duration_cast<chrono::microseconds>(phase_2_begin - phase_1_begin).count());
-         debugging_counters.phase_2_ms += (chrono::duration_cast<chrono::microseconds>(phase_3 - phase_2_begin).count());
-         debugging_counters.phase_3_ms += (chrono::duration_cast<chrono::microseconds>(end - phase_3).count());
+         debugging_counters.phase_2_ms += (chrono::duration_cast<chrono::microseconds>(phase_3_begin - phase_2_begin).count());
+         debugging_counters.phase_3_ms += (chrono::duration_cast<chrono::microseconds>(end - phase_3_begin).count());
          debugging_counters.pp_thread_rounds++;
          // -------------------------------------------------------------------------------------
       } catch ( RestartException e ) {
@@ -252,14 +250,14 @@ void BufferManager::debuggingThread()
       s64 total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
       if ( total > 0 ) {
          cout << u32(local_phase_1_ms * 100.0 / total)
-              << "\t" << u32(local_phase_2_ms * 100.0 / total)
-              << "\t" << u32(local_phase_3_ms * 100.0 / total)
-              << "\t" << (dram_free_bfs_counter.load())
-              << "\t" << (cooling_bfs_counter.load())
-              << "\t" << (debugging_counters.evicted_pages.exchange(0))
-              << "\t" << (debugging_counters.awrites_submitted.exchange(0))
-              << "\t" << (debugging_counters.awrites_submit_failed.exchange(0))
-              << "\t" << (debugging_counters.pp_thread_rounds.exchange(0))
+              << "\t2:" << u32(local_phase_2_ms * 100.0 / total)
+              << "\t3:" << u32(local_phase_3_ms * 100.0 / total)
+              << "\tf:" << (dram_free_bfs_counter.load())
+              << "\tc:" << (cooling_bfs_counter.load())
+              << "\te:" << (debugging_counters.evicted_pages.exchange(0))
+              << "\tas:" << (debugging_counters.awrites_submitted.exchange(0))
+              << "\taf:" << (debugging_counters.awrites_submit_failed.exchange(0))
+              << "\tpr:" << (debugging_counters.pp_thread_rounds.exchange(0))
               << endl;
       }
       sleep(2);
@@ -345,12 +343,13 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    }
    // -------------------------------------------------------------------------------------
    std::unique_lock g_guard(cio_mutex);
-   const PID pid = swip_value.asPageID();
    swip_guard.recheck();
+   const PID pid = swip_value.asPageID();
+   assert(!swip_value.isSwizzled());
    // -------------------------------------------------------------------------------------
    CIOFrame &cio_frame = cooling_io_ht[pid];
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
-      if(dram_free_bfs_counter == 0) {
+      if ( dram_free_bfs_counter == 0 ) {
          g_guard.unlock();
          spinAsLongAs(dram_free_bfs_counter == 0);
          throw RestartException();
@@ -360,6 +359,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
          throw RestartException();
       }
       BufferFrame &bf = *dram_free_bfs.back();
+      assert(bf.header.state == BufferFrame::State::FREE);
       bf.header.lock = 2; // Write lock
       dram_free_bfs.pop_back();
       dram_free_bfs_counter--;
@@ -408,22 +408,23 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
     * and nasty things would happen
     */
    if ( cio_frame.state == CIOFrame::State::COOLING ) {
-      ExclusiveGuard x_lock(swip_guard);
       BufferFrame *bf = *cio_frame.fifo_itr;
-      assert(bf->header.pid == pid);
-      // TODO: do we really need them ?
       ReadGuard bf_guard(bf->header.lock);
       ExclusiveGuard bf_x_guard(bf_guard);
+      ExclusiveGuard x_lock(swip_guard);
+      assert(bf->header.pid == pid);
+      // TODO: do we really need them ?
 
       cooling_fifo_queue.erase(cio_frame.fifo_itr);
       cooling_bfs_counter--;
       assert(bf->header.state == BufferFrame::State::COLD);
       cio_frame.state = CIOFrame::State::NOT_LOADED;
-      bf->header.state = BufferFrame::State::HOT;
-      // -------------------------------------------------------------------------------------
       swip_value.swizzle(bf);
+      bf->header.state = BufferFrame::State::HOT; // ATTENTION: SET TO HOT AFTER IT IS SWIZZLED IN
+      // -------------------------------------------------------------------------------------
       // -------------------------------------------------------------------------------------
       stats.swizzled_pages_counter++;
+      // -------------------------------------------------------------------------------------
       return *bf;
    }
    // it is a bug signal, if the page was hot then we should never hit this path
@@ -441,6 +442,7 @@ void BufferManager::readPageSync(u64 pid, u8 *destination)
       assert(bytes_left > 0);
       bytes_left -= bytes_read;
    } while ( bytes_left > 0 );
+   debugging_counters.io_operations++;
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()
