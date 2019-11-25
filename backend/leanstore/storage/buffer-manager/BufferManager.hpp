@@ -43,7 +43,7 @@ class BufferManager {
    };
    // -------------------------------------------------------------------------------------
    struct CIOFrame {
-      enum class State : u8{
+      enum class State : u8 {
          NOT_LOADED = 0,
          READING = 1,
          COOLING = 2,
@@ -56,6 +56,13 @@ class BufferManager {
       // Everything in CIOFrame is protected by global bf_s_lock except the following counter
       atomic<u64> readers_counter = 0;
    };
+   // -------------------------------------------------------------------------------------
+   struct FreeList {
+      atomic<BufferFrame *> first = nullptr;
+      bool isEmpty();
+      BufferFrame &pop();
+      void push(BufferFrame &bf);
+   };
 private:
    // -------------------------------------------------------------------------------------
    BufferFrame *bfs;
@@ -66,8 +73,8 @@ private:
    // TODO: use wait-free techniques, e.g: embed a wait-free linked list in the buffer frames
    std::mutex free_list_mutex;
    atomic<u64> dram_free_bfs_counter = 0;
-   std::vector<BufferFrame *> dram_free_bfs;
-   std::vector<PID> ssd_free_pages;
+   atomic<u64> ssd_pages_counter = 0;
+   FreeList dram_free_list;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
@@ -100,8 +107,6 @@ public:
    // -------------------------------------------------------------------------------------
    BufferFrame &allocatePage();
    BufferFrame &resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value);
-   void deletePageWithBf(BufferFrame &bf);
-   void initializeBfRoutine(BufferFrame &bf, PID pid);
    // -------------------------------------------------------------------------------------
    void flushDropAllPages();
    void stopBackgroundThreads();

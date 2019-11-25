@@ -33,9 +33,11 @@ BufferManager::BufferManager()
       const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram);
       bfs = reinterpret_cast<BufferFrame *>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
+      // -------------------------------------------------------------------------------------
       for ( u64 bf_i = 0; bf_i < FLAGS_dram; bf_i++ ) {
-         dram_free_bfs.push_back(new(bfs + bf_i) BufferFrame());
+         dram_free_list.push(*new(bfs + bf_i) BufferFrame());
       }
+      // -------------------------------------------------------------------------------------
       dram_free_bfs_counter = FLAGS_dram;
    }
    // -------------------------------------------------------------------------------------
@@ -51,7 +53,6 @@ BufferManager::BufferManager()
    // -------------------------------------------------------------------------------------
    for ( u64 pid = 0; pid < FLAGS_ssd; pid++ ) {
       cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple());
-      ssd_free_pages.push_back(pid);
    }
    // -------------------------------------------------------------------------------------
    // Background threads
@@ -63,6 +64,41 @@ BufferManager::BufferManager()
    std::thread phase_timer_thread([&]() { debuggingThread(); });
    bg_threads_counter++;
    phase_timer_thread.detach();
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::FreeList::push(leanstore::buffermanager::BufferFrame &bf)
+{
+   assert(bf.header.state == BufferFrame::State::FREE);
+   bf.header.next_free_bf = first.load();
+   while ( !first.compare_exchange_strong(bf.header.next_free_bf, &bf));
+}
+// -------------------------------------------------------------------------------------
+struct BufferFrame &BufferManager::FreeList::pop()
+{
+   BufferFrame *c_header = first;
+   u32 mask = 1;
+   u32 const max = 64; //MAX_BACKOFF
+   while ( true ) {
+      while ( c_header == nullptr ) { //spin bf_s_lock
+         for ( u32 i = mask; i; --i ) {
+            _mm_pause();
+         }
+         mask = mask < max ? mask << 1 : max;
+         c_header = first;
+      }
+      BufferFrame *next = c_header->header.next_free_bf;
+      if ( first.compare_exchange_strong(c_header, next)) {
+         BufferFrame &bf = *c_header;
+         bf.header.next_free_bf = nullptr;
+         assert(bf.header.state == BufferFrame::State::FREE);
+         return bf;
+      }
+   }
+}
+// -------------------------------------------------------------------------------------
+bool BufferManager::FreeList::isEmpty()
+{
+   return first == nullptr;
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::pageProviderThread()
@@ -123,7 +159,7 @@ void BufferManager::pageProviderThread()
             {
                ExclusiveGuard r_x_guad(r_guard);
                assert(r_buffer->header.state == BufferFrame::State::HOT);
-               ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id,*r_buffer);
+               ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
                ExclusiveGuard p_x_guard(parent_handler.guard);
                std::lock_guard g_guard(cio_mutex);
                assert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
@@ -183,9 +219,9 @@ void BufferManager::pageProviderThread()
                   assert(bf.header.state == BufferFrame::State::COLD);
                   cooling_fifo_queue.erase(bf_itr);
                   cio_frame.state = CIOFrame::State::NOT_LOADED;
-                  dram_free_bfs.push_back(&bf);
-                  // -------------------------------------------------------------------------------------
                   new(&bf.header) BufferFrame::Header();
+                  dram_free_list.push(bf);
+                  // -------------------------------------------------------------------------------------
                   // -------------------------------------------------------------------------------------
                   dram_free_bfs_counter++;
                   cooling_bfs_counter--;
@@ -226,9 +262,8 @@ void BufferManager::pageProviderThread()
                      assert(written_bf.header.state == BufferFrame::State::COLD);
                      cooling_fifo_queue.erase(cio_frame.fifo_itr);
                      cio_frame.state = CIOFrame::State::NOT_LOADED;
-                     dram_free_bfs.push_back(&written_bf);
-                     // -------------------------------------------------------------------------------------
                      new(&written_bf) BufferFrame;
+                     dram_free_list.push(written_bf);
                      // -------------------------------------------------------------------------------------
                      dram_free_bfs_counter++;
                      cooling_bfs_counter--;
@@ -288,17 +323,17 @@ void BufferManager::persist()
 {
    stopBackgroundThreads();
    flushDropAllPages();
-   utils::writeBinary(FLAGS_free_pages_list_path.c_str(), ssd_free_pages);
+   //TODOutils::writeBinary(FLAGS_free_pages_list_path.c_str(), ssd_free_pages);
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::restore()
 {
-   utils::fillVectorFromBinaryFile(FLAGS_free_pages_list_path.c_str(), ssd_free_pages);
+   //TODO
 }
 // -------------------------------------------------------------------------------------
 u64 BufferManager::consumedPages()
 {
-   return FLAGS_ssd - ssd_free_pages.size();
+   return ssd_pages_counter;
 }
 // -------------------------------------------------------------------------------------
 // Buffer Frames Management
@@ -312,39 +347,27 @@ BufferFrame &BufferManager::randomBufferFrame()
 // returns a *write locked* new buffer frame
 BufferFrame &BufferManager::allocatePage()
 {
-   if ( dram_free_bfs_counter == 0 ) {
+   if ( dram_free_bfs_counter < 10 ) {
       throw RestartException();
    }
-   std::lock_guard lock(free_list_mutex);
-   if ( !ssd_free_pages.size()) {
-      throw ex::GenericException("Ran out of SSD Pages");
-   }
-   if ( !dram_free_bfs.size()) {
-      throw RestartException();
-   }
-   auto free_pid = ssd_free_pages.back();
-   ssd_free_pages.pop_back();
-   auto free_bf = dram_free_bfs.back();
+   PID free_pid = ssd_pages_counter++;
+   BufferFrame &free_bf = dram_free_list.pop();
+   assert((&free_bf - bfs) < FLAGS_dram);
+   assert(free_bf.header.state == BufferFrame::State::FREE);
    // -------------------------------------------------------------------------------------
    // Initialize Buffer Frame
-   free_bf->header.lock = 2; // Write lock
-   free_bf->header.pid = free_pid;
-   free_bf->header.state = BufferFrame::State::HOT;
-   free_bf->header.lastWrittenLSN = free_bf->page.LSN = 0;
+   free_bf.header.lock = 2; // Write lock
+   free_bf.header.pid = free_pid;
+   free_bf.header.state = BufferFrame::State::HOT;
+   free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
    // -------------------------------------------------------------------------------------
-   dram_free_bfs.pop_back();
    dram_free_bfs_counter--;
    // -------------------------------------------------------------------------------------
-   return *free_bf;
-}
-// -------------------------------------------------------------------------------------
-void BufferManager::deletePageWithBf(BufferFrame &bf)
-{
-   std::lock_guard lock(free_list_mutex);
-   new(&bf) BufferFrame();
-   ssd_free_pages.push_back(bf.header.pid);
-   dram_free_bfs.push_back(&bf);
-   dram_free_bfs_counter++;
+   if(free_bf.header.lock != 2) {
+      cout << dram_free_list.first << endl;
+      assert(false);
+   }
+   return free_bf;
 }
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
@@ -368,16 +391,10 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
          spinAsLongAs(dram_free_bfs_counter == 0);
          throw RestartException();
       }
-      std::unique_lock reservoir_guard(free_list_mutex);
-      if ( !dram_free_bfs.size()) {
-         throw RestartException();
-      }
-      BufferFrame &bf = *dram_free_bfs.back();
+      BufferFrame &bf = dram_free_list.pop();
       assert(bf.header.state == BufferFrame::State::FREE);
       bf.header.lock = 2; // Write lock
-      dram_free_bfs.pop_back();
       dram_free_bfs_counter--;
-      reservoir_guard.unlock();
       // -------------------------------------------------------------------------------------
       cio_frame.readers_counter++;
       cio_frame.state = CIOFrame::State::READING;
