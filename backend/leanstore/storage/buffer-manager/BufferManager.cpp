@@ -204,7 +204,6 @@ void BufferManager::pageProviderThread()
       if ( phase_2_condition()) {
          // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
          std::unique_lock g_guard(cio_mutex);
-         std::lock_guard reservoir_guard(free_list_mutex);
          u64 pages_left_to_process = (dram_free_bfs_counter < free_pages_limit) ? free_pages_limit - dram_free_bfs_counter : 0;
          auto bf_itr = cooling_fifo_queue.begin();
          while ( pages_left_to_process-- && bf_itr != cooling_fifo_queue.end()) {
@@ -244,7 +243,6 @@ void BufferManager::pageProviderThread()
          async_write_buffer.submitIfNecessary();
          const u32 polled_events = async_write_buffer.pollEventsSync();
          std::lock_guard g_guard(cio_mutex);
-         std::lock_guard reservoir_guard(free_list_mutex);
          async_write_buffer.getWrittenBfs([&](BufferFrame &written_bf, u64 written_lsn) {
             while ( true ) {
                try {
@@ -347,7 +345,7 @@ BufferFrame &BufferManager::randomBufferFrame()
 // returns a *write locked* new buffer frame
 BufferFrame &BufferManager::allocatePage()
 {
-   if ( dram_free_bfs_counter < 10 ) {
+   if ( dram_free_list.isEmpty() ) {
       throw RestartException();
    }
    PID free_pid = ssd_pages_counter++;
@@ -363,10 +361,6 @@ BufferFrame &BufferManager::allocatePage()
    // -------------------------------------------------------------------------------------
    dram_free_bfs_counter--;
    // -------------------------------------------------------------------------------------
-   if(free_bf.header.lock != 2) {
-      cout << dram_free_list.first << endl;
-      assert(false);
-   }
    return free_bf;
 }
 // -------------------------------------------------------------------------------------
@@ -386,9 +380,9 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    // -------------------------------------------------------------------------------------
    CIOFrame &cio_frame = cooling_io_ht[pid];
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
-      if ( dram_free_bfs_counter == 0 ) {
+      if ( dram_free_list.isEmpty() ) {
          g_guard.unlock();
-         spinAsLongAs(dram_free_bfs_counter == 0);
+         spinAsLongAs(dram_free_list.isEmpty());
          throw RestartException();
       }
       BufferFrame &bf = dram_free_list.pop();
