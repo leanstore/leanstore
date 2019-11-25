@@ -196,8 +196,7 @@ void BufferManager::pageProviderThread()
                if ( !bf.isDirty()) {
                   // Reclaim buffer frame
                   assert(cooling_io_ht.count(pid));
-                  CIOFrame &cio_frame = cooling_io_ht[pid];
-                  assert(cio_frame.state == CIOFrame::State::COOLING);
+                  assert(cooling_io_ht[pid].state == CIOFrame::State::COOLING);
                   assert(bf.header.state == BufferFrame::State::COLD);
                   // -------------------------------------------------------------------------------------
                   cooling_fifo_queue.erase(bf_itr);
@@ -300,7 +299,7 @@ void BufferManager::debuggingThread()
 // -------------------------------------------------------------------------------------
 void BufferManager::clearSSD()
 {
-   ftruncate(ssd_fd, 0);
+   //TODO ftruncate(ssd_fd, 0);
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::persist()
@@ -374,7 +373,6 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       assert(bf.header.state == BufferFrame::State::FREE);
       bf.header.lock = 2; // Write lock
       // -------------------------------------------------------------------------------------
-      cio_frame.readers_counter++;
       cio_frame.state = CIOFrame::State::READING;
       cio_frame.mutex.lock();
       // -------------------------------------------------------------------------------------
@@ -396,7 +394,6 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       cooling_bfs_counter++;
       bf.header.lock = 0;
       bf.header.isCooledBecauseOfReading = true;
-      cio_frame.readers_counter--;
       g_guard.unlock();
       cio_frame.mutex.unlock();
       throw RestartException();
@@ -406,10 +403,8 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    CIOFrame &cio_frame = cio_frame_itr->second;
    // -------------------------------------------------------------------------------------
    if ( cio_frame.state == CIOFrame::State::READING ) {
-      cio_frame.readers_counter++;
       g_guard.unlock();
       cio_frame.mutex.lock();
-      cio_frame.readers_counter--;
       //TODO: what cleanup ?
       cio_frame.mutex.unlock();
       throw RestartException();

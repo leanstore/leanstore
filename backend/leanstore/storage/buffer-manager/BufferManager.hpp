@@ -52,8 +52,7 @@ class BufferManager {
       std::list<BufferFrame *>::iterator fifo_itr;
       State state = State::UNDEFINED;
       // -------------------------------------------------------------------------------------
-      // Everything in CIOFrame is protected by global bf_s_lock except the following counter
-      atomic<u64> readers_counter = 0;
+      // Everything in CIOFrame is protected by global mutx
    };
    // -------------------------------------------------------------------------------------
    struct FreeList {
