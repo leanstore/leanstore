@@ -50,10 +50,6 @@ public:
    {
       return *bf;
    }
-   T *asType()
-   {
-      return reinterpret_cast<T *>(bf->page.dt);
-   }
    // -------------------------------------------------------------------------------------
    template<typename T2>
    void swizzle(T2 *bf)

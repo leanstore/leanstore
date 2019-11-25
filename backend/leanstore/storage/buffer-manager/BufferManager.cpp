@@ -41,17 +41,11 @@ BufferManager::BufferManager()
    }
    // -------------------------------------------------------------------------------------
    // Init SSD pool
-   const u32 ssd_total_size = FLAGS_ssd * PAGE_SIZE;
    int flags = O_RDWR | O_DIRECT | O_CREAT;
    ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
    posix_check(ssd_fd > -1);
-   posix_check(ftruncate(ssd_fd, ssd_total_size) == 0);
    if ( fcntl(ssd_fd, F_GETFL) == -1 ) {
       throw ex::GenericException("Can not initialize SSD storage: " + FLAGS_ssd_path);
-   }
-   // -------------------------------------------------------------------------------------
-   for ( u64 pid = 0; pid < FLAGS_ssd; pid++ ) {
-      cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple());
    }
    // -------------------------------------------------------------------------------------
    // Background threads
@@ -154,32 +148,24 @@ void BufferManager::pageProviderThread()
             // Suitable page founds, lets unswizzle
             {
                ExclusiveGuard r_x_guad(r_guard);
-               assert(r_buffer->header.state == BufferFrame::State::HOT);
                ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
                ExclusiveGuard p_x_guard(parent_handler.guard);
                std::lock_guard g_guard(cio_mutex);
+               // -------------------------------------------------------------------------------------
+               assert(r_buffer->header.state == BufferFrame::State::HOT);
                assert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
                assert(parent_handler.swip.bf == r_buffer);
-               CIOFrame &cio_frame = cooling_io_ht[r_buffer->header.pid];
+               // -------------------------------------------------------------------------------------
+               assert(cooling_io_ht.count(r_buffer->header.pid) == 0);
+               CIOFrame &cio_frame = cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(r_buffer->header.pid), std::forward_as_tuple()).first->second;
+               assert(cooling_io_ht.count(r_buffer->header.pid) == 1);
                cio_frame.state = CIOFrame::State::COOLING;
                cooling_fifo_queue.push_back(r_buffer);
                cio_frame.fifo_itr = --cooling_fifo_queue.end();
                r_buffer->header.state = BufferFrame::State::COLD;
                parent_handler.swip.unswizzle(r_buffer->header.pid);
-               // -------------------------------------------------------------------------------------
-               {
-                  // check if any child is swizzle
-                  {
-                     dt_registry.iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame> &swip) {
-                        if ( swip.isSwizzled()) {
-                           ensure(false);
-                        }
-                        return true;
-                     });
-                  }
-               }
-               // -------------------------------------------------------------------------------------
                cooling_bfs_counter++;
+               // -------------------------------------------------------------------------------------
                stats.unswizzled_pages_counter++;
                // -------------------------------------------------------------------------------------
                if ( !phase_1_condition()) {
@@ -206,14 +192,17 @@ void BufferManager::pageProviderThread()
             BufferFrame &bf = **bf_itr;
             auto next_bf_tr = std::next(bf_itr, 1);
             PID pid = bf.header.pid;
-            if ( !bf.header.isWB ) {
+            if ( !bf.header.isWB && !bf.header.isCooledBecauseOfReading) {
                if ( !bf.isDirty()) {
                   // Reclaim buffer frame
+                  assert(cooling_io_ht.count(pid));
                   CIOFrame &cio_frame = cooling_io_ht[pid];
                   assert(cio_frame.state == CIOFrame::State::COOLING);
                   assert(bf.header.state == BufferFrame::State::COLD);
+                  // -------------------------------------------------------------------------------------
                   cooling_fifo_queue.erase(bf_itr);
-                  cio_frame.state = CIOFrame::State::NOT_LOADED;
+                  cooling_io_ht.erase(pid);
+                  // -------------------------------------------------------------------------------------
                   new(&bf.header) BufferFrame::Header();
                   dram_free_list.push(bf);
                   // -------------------------------------------------------------------------------------
@@ -250,11 +239,14 @@ void BufferManager::pageProviderThread()
                   // Evict
                   if ( written_bf.header.state == BufferFrame::State::COLD ) {
                      // Reclaim buffer frame
+                     assert(cooling_io_ht.count(written_bf.header.pid) == 1);
                      CIOFrame &cio_frame = cooling_io_ht[written_bf.header.pid];
                      assert(cio_frame.state == CIOFrame::State::COOLING);
                      assert(written_bf.header.state == BufferFrame::State::COLD);
                      cooling_fifo_queue.erase(cio_frame.fifo_itr);
-                     cio_frame.state = CIOFrame::State::NOT_LOADED;
+                     cooling_io_ht.erase(written_bf.header.pid);
+                     assert(cooling_io_ht.count(written_bf.header.pid) == 0);
+                     // -------------------------------------------------------------------------------------
                      new(&written_bf) BufferFrame;
                      dram_free_list.push(written_bf);
                      // -------------------------------------------------------------------------------------
@@ -313,9 +305,9 @@ void BufferManager::clearSSD()
 // -------------------------------------------------------------------------------------
 void BufferManager::persist()
 {
+   // TODO
    stopBackgroundThreads();
    flushDropAllPages();
-   //TODOutils::writeBinary(FLAGS_free_pages_list_path.c_str(), ssd_free_pages);
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::restore()
@@ -370,14 +362,15 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    const PID pid = swip_value.asPageID();
    assert(!swip_value.isSwizzled());
    // -------------------------------------------------------------------------------------
-   CIOFrame &cio_frame = cooling_io_ht[pid];
-   if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
+   auto cio_frame_itr = cooling_io_ht.find(pid);
+   if ( cio_frame_itr == cooling_io_ht.end()) {
       if ( dram_free_list.counter < 10 ) {
          g_guard.unlock();
          spinAsLongAs(dram_free_list.counter < 10);
          throw RestartException();
       }
       BufferFrame &bf = dram_free_list.pop();
+      CIOFrame &cio_frame = cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple()).first->second;
       assert(bf.header.state == BufferFrame::State::FREE);
       bf.header.lock = 2; // Write lock
       // -------------------------------------------------------------------------------------
@@ -402,16 +395,22 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       cio_frame.fifo_itr = --cooling_fifo_queue.end();
       cooling_bfs_counter++;
       bf.header.lock = 0;
+      bf.header.isCooledBecauseOfReading = true;
+      cio_frame.readers_counter--;
       g_guard.unlock();
       cio_frame.mutex.unlock();
       throw RestartException();
       // TODO: do we really need to clean up ?
    }
+   // -------------------------------------------------------------------------------------
+   CIOFrame &cio_frame = cio_frame_itr->second;
+   // -------------------------------------------------------------------------------------
    if ( cio_frame.state == CIOFrame::State::READING ) {
       cio_frame.readers_counter++;
       g_guard.unlock();
       cio_frame.mutex.lock();
       cio_frame.readers_counter--;
+      //TODO: what cleanup ?
       cio_frame.mutex.unlock();
       throw RestartException();
    }
@@ -431,9 +430,10 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       cooling_fifo_queue.erase(cio_frame.fifo_itr);
       cooling_bfs_counter--;
       assert(bf->header.state == BufferFrame::State::COLD);
-      cio_frame.state = CIOFrame::State::WORKING;
       bf->header.state = BufferFrame::State::HOT; // ATTENTION: SET TO HOT AFTER IT IS SWIZZLED IN
+      bf->header.isCooledBecauseOfReading = false;
       // -------------------------------------------------------------------------------------
+      cooling_io_ht.erase(pid);
       // -------------------------------------------------------------------------------------
       stats.swizzled_pages_counter++;
       // -------------------------------------------------------------------------------------

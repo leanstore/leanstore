@@ -44,14 +44,13 @@ class BufferManager {
    // -------------------------------------------------------------------------------------
    struct CIOFrame {
       enum class State : u8 {
-         NOT_LOADED = 0,
-         READING = 1,
-         COOLING = 2,
-         WORKING = 3 // for debugging
+         READING = 0,
+         COOLING = 1,
+         UNDEFINED = 2 // for debugging
       };
       std::mutex mutex;
       std::list<BufferFrame *>::iterator fifo_itr;
-      State state = State::NOT_LOADED;
+      State state = State::UNDEFINED;
       // -------------------------------------------------------------------------------------
       // Everything in CIOFrame is protected by global bf_s_lock except the following counter
       atomic<u64> readers_counter = 0;

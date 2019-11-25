@@ -321,7 +321,7 @@ struct BTree {
          auto inner = reinterpret_cast<BTreeInner<Key> *>(c_node);
          k = inner->keys[0];
          // Extra check
-         for ( u32 c_i = 0; c_i < (c_node->count + 1); c_i++ ) {
+         for ( u32 c_i = 0; c_i < u32(c_node->count + 1); c_i++ ) {
             assert(!inner->children[c_i].isSwizzled());
          }
       }

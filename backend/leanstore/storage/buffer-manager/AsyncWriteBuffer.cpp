@@ -97,7 +97,7 @@ u64 AsyncWriteBuffer::pollEventsSync()
 {
    if ( pending_requests ) {
       const int done_requests = io_getevents(aio_context, pending_requests, batch_max_size, events.get(), NULL);
-      if ( done_requests != pending_requests ) {
+      if ( u32(done_requests) != pending_requests ) {
          throw ex::GenericException("io_getevents failed, res = " + std::to_string(done_requests));
       }
       pending_requests -= done_requests;
