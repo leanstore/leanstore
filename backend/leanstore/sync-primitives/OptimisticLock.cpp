@@ -26,10 +26,11 @@ ExclusiveGuard::ExclusiveGuard(ReadGuard &read_lock)
    lock_version_t new_version = ref_guard.local_version + 2;
    /*
     * A better alternative can be
-    * atomic<u64> lv = ref_guard.local_version;
+    * u64 lv = ref_guard.local_version;
     * std::atomic_compare_exchange_strong(ref_guard.version_ptr, &lv, new_version)
     */
-   if ( !std::atomic_compare_exchange_strong(ref_guard.version_ptr, &ref_guard.local_version, new_version)) {
+   u64 lv = ref_guard.local_version;
+   if ( !std::atomic_compare_exchange_strong(ref_guard.version_ptr, &lv, new_version)) {
       throw RestartException();
    }
    ref_guard.local_version = new_version;

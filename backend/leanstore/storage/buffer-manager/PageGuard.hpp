@@ -52,17 +52,6 @@ public:
       other.moved = true;
       return *this;
    }
-   // Casting helpers
-   template<typename O>
-   // TODO: cast is better, but is it really better ?
-   ReadPageGuard(ReadPageGuard<O> &&other)
-   {
-      bf = other.bf;
-      bf_s_lock = other.bf_s_lock;
-      bf_s_lock.recheck(); //TODO: do we really need to recheck while casting ?
-      moved = false;
-      other.moved = true;
-   }
    // -------------------------------------------------------------------------------------
    template<typename T2>
    ReadPageGuard<T2> &cast()
@@ -115,12 +104,9 @@ public:
 template<typename T>
 class WritePageGuard : public ReadPageGuard<T> {
    using ParentClass = ReadPageGuard<T>;
-private:
-   const bool is_newly_created = false;
 protected:
    // Called by the buffer manager when allocating a new page
    WritePageGuard(BufferFrame &bf)
-           : is_newly_created(true)
    {
       ParentClass::bf = &bf;
       ParentClass::bf_s_lock = ReadGuard(&bf.header.lock, bf.header.lock.load());
@@ -158,16 +144,12 @@ public:
    ~WritePageGuard()
    {
       if ( !ParentClass::moved ) {
-         if ( false && is_newly_created && std::uncaught_exceptions() > 0 ) {
-            BMC::global_bf->deletePageWithBf(*ParentClass::bf);
-         } else {
-            assert((ParentClass::bf_s_lock.local_version & 2) == 2);
-            if ( ParentClass::hasBf()) {
-               ParentClass::bf->page.LSN++; // TODO: LSN
-            }
-            ParentClass::bf_s_lock.local_version = 2 + ParentClass::bf_s_lock.version_ptr->fetch_add(2);
-            ParentClass::moved = true;
+         assert((ParentClass::bf_s_lock.local_version & 2) == 2);
+         if ( ParentClass::hasBf()) {
+            ParentClass::bf->page.LSN++; // TODO: LSN
          }
+         ParentClass::bf_s_lock.local_version = 2 + ParentClass::bf_s_lock.version_ptr->fetch_add(2);
+         ParentClass::moved = true;
       }
    }
 };

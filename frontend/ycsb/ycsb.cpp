@@ -24,6 +24,7 @@ DEFINE_uint32(ycsb_tx_count, 0, "default = tuples");
 DEFINE_bool(persist, true, ""); // TODO: still not ready
 DEFINE_bool(verify, false, "");
 DEFINE_bool(ycsb_scan, false, "");
+DEFINE_bool(ycsb_tx, true, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -48,7 +49,7 @@ typedef struct YCSBPayload {
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
 {
-   double tps = ((factor * 1.0 / (chrono::duration_cast<chrono::microseconds>(end - begin).count() /  1000000.0)));
+   double tps = ((factor * 1.0 / (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0)));
    return (tps / 1000000.0);
 }
 // -------------------------------------------------------------------------------------
@@ -148,7 +149,7 @@ int main(int argc, char **argv)
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
-   if ( !FLAGS_verify ) {
+   if ( FLAGS_ycsb_tx ) {
       PerfEvent e;
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "~Transactions" << endl;
@@ -181,7 +182,8 @@ int main(int argc, char **argv)
          cout << calculateMTPS(begin, end, lookup_keys.size()) << " M tps" << endl;
       }
       cout << "-------------------------------------------------------------------------------------" << endl;
-   } else {
+   }
+   if ( FLAGS_verify ) {
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Verification" << endl;
       auto begin = chrono::high_resolution_clock::now();

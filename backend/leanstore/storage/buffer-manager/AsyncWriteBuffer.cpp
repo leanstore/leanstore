@@ -1,5 +1,6 @@
 #include "AsyncWriteBuffer.hpp"
 #include "Exceptions.hpp"
+#include "leanstore/storage/btree/BTreeOptimistic.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------

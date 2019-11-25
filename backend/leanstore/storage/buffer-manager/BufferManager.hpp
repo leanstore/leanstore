@@ -43,10 +43,11 @@ class BufferManager {
    };
    // -------------------------------------------------------------------------------------
    struct CIOFrame {
-      enum class State {
-         READING,
-         COOLING,
-         NOT_LOADED
+      enum class State : u8{
+         NOT_LOADED = 0,
+         READING = 1,
+         COOLING = 2,
+         WORKING = 3 // for debugging
       };
       std::mutex mutex;
       std::list<BufferFrame *>::iterator fifo_itr;
@@ -75,7 +76,9 @@ private:
    std::list<BufferFrame *> cooling_fifo_queue;
    // TODO: too slow, we can not create all our entries at startup
    // TODO: solution: handcraft a hashtable with upper bound
+public:
    std::unordered_map<PID, CIOFrame> cooling_io_ht;
+private:
    // -------------------------------------------------------------------------------------
    // Threads managements
    void pageProviderThread();
