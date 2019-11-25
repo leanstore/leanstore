@@ -205,7 +205,6 @@ void BufferManager::pageProviderThread()
                   new(&bf.header) BufferFrame::Header();
                   dram_free_list.push(bf);
                   // -------------------------------------------------------------------------------------
-                  // -------------------------------------------------------------------------------------
                   cooling_bfs_counter--;
                   debugging_counters.evicted_pages++;
                } else {
@@ -397,7 +396,6 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       g_guard.unlock();
       cio_frame.mutex.unlock();
       throw RestartException();
-      // TODO: do we really need to clean up ?
    }
    // -------------------------------------------------------------------------------------
    CIOFrame &cio_frame = cio_frame_itr->second;
@@ -405,7 +403,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    if ( cio_frame.state == CIOFrame::State::READING ) {
       g_guard.unlock();
       cio_frame.mutex.lock();
-      //TODO: what cleanup ?
+      //TODO: cleanup, really ?
       cio_frame.mutex.unlock();
       throw RestartException();
    }
@@ -449,6 +447,7 @@ void BufferManager::readPageSync(u64 pid, u8 *destination)
       assert(bytes_left > 0);
       bytes_left -= bytes_read;
    } while ( bytes_left > 0 );
+   // -------------------------------------------------------------------------------------
    debugging_counters.io_operations++;
 }
 // -------------------------------------------------------------------------------------
