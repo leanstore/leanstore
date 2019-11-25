@@ -38,7 +38,6 @@ BufferManager::BufferManager()
          dram_free_list.push(*new(bfs + bf_i) BufferFrame());
       }
       // -------------------------------------------------------------------------------------
-      dram_free_bfs_counter = FLAGS_dram;
    }
    // -------------------------------------------------------------------------------------
    // Init SSD pool
@@ -71,6 +70,7 @@ void BufferManager::FreeList::push(leanstore::buffermanager::BufferFrame &bf)
    assert(bf.header.state == BufferFrame::State::FREE);
    bf.header.next_free_bf = first.load();
    while ( !first.compare_exchange_strong(bf.header.next_free_bf, &bf));
+   counter++;
 }
 // -------------------------------------------------------------------------------------
 struct BufferFrame &BufferManager::FreeList::pop()
@@ -90,15 +90,11 @@ struct BufferFrame &BufferManager::FreeList::pop()
       if ( first.compare_exchange_strong(c_header, next)) {
          BufferFrame &bf = *c_header;
          bf.header.next_free_bf = nullptr;
+         counter--;
          assert(bf.header.state == BufferFrame::State::FREE);
          return bf;
       }
    }
-}
-// -------------------------------------------------------------------------------------
-bool BufferManager::FreeList::isEmpty()
-{
-   return first == nullptr;
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::pageProviderThread()
@@ -116,10 +112,10 @@ void BufferManager::pageProviderThread()
    const u64 cooling_pages_limit = FLAGS_cool * FLAGS_dram / 100.0;
    // -------------------------------------------------------------------------------------
    auto phase_1_condition = [&]() {
-      return (dram_free_bfs_counter + cooling_bfs_counter) < cooling_pages_limit;
+      return (dram_free_list.counter + cooling_bfs_counter) < cooling_pages_limit;
    };
    auto phase_2_condition = [&]() {
-      return (dram_free_bfs_counter < free_pages_limit);
+      return (dram_free_list.counter < free_pages_limit);
    };
    auto phase_3_condition = [&]() {
       return (cooling_bfs_counter > 0);
@@ -204,7 +200,7 @@ void BufferManager::pageProviderThread()
       if ( phase_2_condition()) {
          // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
          std::unique_lock g_guard(cio_mutex);
-         u64 pages_left_to_process = (dram_free_bfs_counter < free_pages_limit) ? free_pages_limit - dram_free_bfs_counter : 0;
+         u64 pages_left_to_process = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0;
          auto bf_itr = cooling_fifo_queue.begin();
          while ( pages_left_to_process-- && bf_itr != cooling_fifo_queue.end()) {
             BufferFrame &bf = **bf_itr;
@@ -222,7 +218,6 @@ void BufferManager::pageProviderThread()
                   dram_free_list.push(bf);
                   // -------------------------------------------------------------------------------------
                   // -------------------------------------------------------------------------------------
-                  dram_free_bfs_counter++;
                   cooling_bfs_counter--;
                   debugging_counters.evicted_pages++;
                } else {
@@ -263,7 +258,6 @@ void BufferManager::pageProviderThread()
                      new(&written_bf) BufferFrame;
                      dram_free_list.push(written_bf);
                      // -------------------------------------------------------------------------------------
-                     dram_free_bfs_counter++;
                      cooling_bfs_counter--;
                      debugging_counters.evicted_pages++;
                   }
@@ -299,7 +293,7 @@ void BufferManager::debuggingThread()
          cout << u32(local_phase_1_ms * 100.0 / total)
               << "\t2:" << u32(local_phase_2_ms * 100.0 / total)
               << "\t3:" << u32(local_phase_3_ms * 100.0 / total)
-              << "\tf:" << (dram_free_bfs_counter.load())
+              << "\tf:" << (dram_free_list.counter)
               << "\tc:" << (cooling_bfs_counter.load())
               << "\te:" << (debugging_counters.evicted_pages.exchange(0))
               << "\tas:" << (debugging_counters.awrites_submitted.exchange(0))
@@ -345,7 +339,7 @@ BufferFrame &BufferManager::randomBufferFrame()
 // returns a *write locked* new buffer frame
 BufferFrame &BufferManager::allocatePage()
 {
-   if ( dram_free_list.isEmpty() ) {
+   if ( dram_free_list.counter < 10 ) {
       throw RestartException();
    }
    PID free_pid = ssd_pages_counter++;
@@ -358,8 +352,6 @@ BufferFrame &BufferManager::allocatePage()
    free_bf.header.pid = free_pid;
    free_bf.header.state = BufferFrame::State::HOT;
    free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
-   // -------------------------------------------------------------------------------------
-   dram_free_bfs_counter--;
    // -------------------------------------------------------------------------------------
    return free_bf;
 }
@@ -380,15 +372,14 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    // -------------------------------------------------------------------------------------
    CIOFrame &cio_frame = cooling_io_ht[pid];
    if ( cio_frame.state == CIOFrame::State::NOT_LOADED ) {
-      if ( dram_free_list.isEmpty() ) {
+      if ( dram_free_list.counter < 10 ) {
          g_guard.unlock();
-         spinAsLongAs(dram_free_list.isEmpty());
+         spinAsLongAs(dram_free_list.counter < 10);
          throw RestartException();
       }
       BufferFrame &bf = dram_free_list.pop();
       assert(bf.header.state == BufferFrame::State::FREE);
       bf.header.lock = 2; // Write lock
-      dram_free_bfs_counter--;
       // -------------------------------------------------------------------------------------
       cio_frame.readers_counter++;
       cio_frame.state = CIOFrame::State::READING;
@@ -436,7 +427,6 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       BufferFrame *bf = *cio_frame.fifo_itr;
       ExclusiveGuard swip_x_lock(swip_guard);
       assert(bf->header.pid == pid);
-      // TODO: do we really need them ?
       swip_value.swizzle(bf);
       cooling_fifo_queue.erase(cio_frame.fifo_itr);
       cooling_bfs_counter--;

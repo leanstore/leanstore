@@ -59,7 +59,7 @@ class BufferManager {
    // -------------------------------------------------------------------------------------
    struct FreeList {
       atomic<BufferFrame *> first = nullptr;
-      bool isEmpty();
+      atomic<u64> counter = 0;
       BufferFrame &pop();
       void push(BufferFrame &bf);
    };
@@ -72,7 +72,6 @@ private:
    // Free  Pages
    // TODO: use wait-free techniques, e.g: embed a wait-free linked list in the buffer frames
    std::mutex free_list_mutex;
-   atomic<u64> dram_free_bfs_counter = 0;
    atomic<u64> ssd_pages_counter = 0;
    FreeList dram_free_list;
    // -------------------------------------------------------------------------------------
