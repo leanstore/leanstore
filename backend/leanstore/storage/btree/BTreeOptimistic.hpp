@@ -330,8 +330,9 @@ struct BTree {
       {
          auto &btree = *reinterpret_cast<BTree<Key, Value> *>(btree_object);
          auto &root_inner_swip = btree.root_swip.template cast<BTreeInner<Key>>();
-         Swip<BufferFrame> *last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
+         Swip<BufferFrame> *last_accessed_swip;
          auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(btree.root_lock);
+         last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
          if ( &last_accessed_swip->asBufferFrame() == &bf ) {
             p_guard.recheck_done();
             return {
@@ -342,6 +343,7 @@ struct BTree {
          while ( c_guard->type == NodeType::BTreeInner ) {
             int64_t pos = c_guard->lowerBound(k);
             Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
+            last_accessed_swip = &c_swip.template cast<BufferFrame>();
             if ( &last_accessed_swip->asBufferFrame() == &bf ) {
                c_guard.recheck_done();
                return {
@@ -352,8 +354,8 @@ struct BTree {
             p_guard = std::move(c_guard);
             c_guard = ReadPageGuard(p_guard, c_swip);
          }
-         ensure(false);
       }
+      ensure(false);
    }
    // -------------------------------------------------------------------------------------
    void printFanoutInformation()
