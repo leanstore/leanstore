@@ -314,16 +314,14 @@ struct BTree {
       auto c_node = reinterpret_cast<NodeBase *>(bf.page.dt);
       assert(c_node->count > 0);
       Key k;
-      bool is_leaf = true;
-      u32 level = 0;
       if ( c_node->type == NodeType::BTreeLeaf ) {
          auto leaf = reinterpret_cast<BTreeLeaf<Key, Value> *>(c_node);
          k = leaf->keys[0];
       } else {
-         is_leaf = false;
          auto inner = reinterpret_cast<BTreeInner<Key> *>(c_node);
          k = inner->keys[0];
-         for ( u32 c_i = 0; c_i < c_node->count; c_i++ ) {
+         // Extra check
+         for ( u32 c_i = 0; c_i < c_node->count + 1; c_i++ ) {
             assert(!inner->children[c_i].isSwizzled());
          }
       }
@@ -332,14 +330,8 @@ struct BTree {
       {
          auto &btree = *reinterpret_cast<BTree<Key, Value> *>(btree_object);
          auto &root_inner_swip = btree.root_swip.template cast<BTreeInner<Key>>();
-         Swip<BufferFrame> *last_accessed_swip;
+         Swip<BufferFrame> *last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
          auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(btree.root_lock);
-         {
-            last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
-            Swip<BufferFrame> r_swip_value(*last_accessed_swip);
-            p_guard.recheck();
-            assert(r_swip_value.isSwizzled());
-         }
          if ( &last_accessed_swip->asBufferFrame() == &bf ) {
             p_guard.recheck_done();
             return {
@@ -350,38 +342,6 @@ struct BTree {
          while ( c_guard->type == NodeType::BTreeInner ) {
             int64_t pos = c_guard->lowerBound(k);
             Swip<BTreeInner<Key>> &c_swip = c_guard->children[pos];
-            // -------------------------------------------------------------------------------------
-            {
-               last_accessed_swip = &c_swip.template cast<BufferFrame>();
-               Swip<BufferFrame> c_swip_value(*last_accessed_swip);
-               c_guard.recheck();
-               if ( !c_swip_value.isSwizzled()) {
-                  p_guard.recheck();
-                  c_guard.recheck();
-                  Value v;
-                  if ( c_swip_value.asPageID() == bf.header.pid ) {
-                     cout << "our boy is unswizzled" << endl;
-                  } else {
-                     cout << "not" << endl;
-                  }
-                  cout << "is leaf = " << is_leaf << endl;
-                  cout << k << "---" << c_guard->keys[pos] << "---" << c_guard->keys[pos - 1] << "----" << bf.header.isWB << " - " << bf.header.lock << endl;
-                  cout << "- parent- " << c_guard.bf->header.lock << " swip as pid" << c_swip_value.asPageID() << " but we look for parent of " << bf.header.pid << endl;
-                  cout << u32(btree.buffer_manager.cooling_io_ht[c_swip_value.asPageID()].state) << " crap\n";
-                  if(u8(btree.buffer_manager.cooling_io_ht[c_swip_value.asPageID()].state) == 2) {
-                     auto tbf = reinterpret_cast<BTreeInner<Key>*>((*btree.buffer_manager.cooling_io_ht[c_swip_value.asPageID()].fifo_itr)->page.dt);
-                     auto tpos = tbf->lowerBound(k);
-                     auto tswip = tbf->children[tpos];
-                     if(tswip.bf == &bf) {
-                        cout << "found in the cooled" << endl;
-                     } else {
-                        cout << " was not swizzled in the cooled"<<endl;
-                     }
-                     raise(SIGTRAP);
-                  }
-                  throw RestartException();
-               }
-            }
             if ( &last_accessed_swip->asBufferFrame() == &bf ) {
                c_guard.recheck_done();
                return {
@@ -391,7 +351,6 @@ struct BTree {
             // -------------------------------------------------------------------------------------
             p_guard = std::move(c_guard);
             c_guard = ReadPageGuard(p_guard, c_swip);
-            level++;
          }
          ensure(false);
       }
