@@ -30,12 +30,8 @@ void OnEnsureFailedPrint(const std::string &func, const std::string &file, int l
 }
 }
 // -------------------------------------------------------------------------------------
-#ifdef NDEBUG
-#define UNREACHABLE(MSG) __builtin_unreachable();
-#else
 #define UNREACHABLE() \
     throw ex::UnReachable(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
-#endif
 // -------------------------------------------------------------------------------------
 #define   ensure(e) \
     (__builtin_expect(!(e), 0) ? throw ex::EnsureFailed(std::string(__func__) + " in " + std::string( __FILE__) + "@" + std::to_string(__LINE__) + " msg: " + std::string(#e)) : (void)0)
