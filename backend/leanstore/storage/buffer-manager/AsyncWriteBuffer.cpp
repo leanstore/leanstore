@@ -108,15 +108,27 @@ u64 AsyncWriteBuffer::pollEventsSync()
 // -------------------------------------------------------------------------------------
 void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame &, u64)> callback, u64 n_events)
 {
+   u32 to_resubmit = 0;
+   auto my_iocbs_ptr = iocbs_ptr.get();
    for ( u64 i = 0; i < n_events; i++ ) {
-      explain(events[i].res == page_size);
-      explain(events[i].res2 == 0);
-      // -------------------------------------------------------------------------------------
       const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
       auto c_command = write_buffer_commands[slot];
-      auto written_lsn = write_buffer[slot].LSN;
-      callback(*c_command.bf, written_lsn);
-      write_buffer_free_slots.push_back(slot);
+      // -------------------------------------------------------------------------------------
+      if ( events[i].res != page_size ) {
+         *my_iocbs_ptr++ =&iocbs[slot];
+         to_resubmit++;
+      } else {
+         explain(events[i].res2 == 0);
+         auto written_lsn = write_buffer[slot].LSN;
+         callback(*c_command.bf, written_lsn);
+         write_buffer_free_slots.push_back(slot);
+      }
+   }
+   if(to_resubmit) {
+      //TODO
+      cout << "rewriting pages !" << endl;
+      ensure(to_resubmit == io_submit(aio_context, to_resubmit, iocbs_ptr.get()));
+      pending_requests += to_resubmit;
    }
 }
 // -------------------------------------------------------------------------------------

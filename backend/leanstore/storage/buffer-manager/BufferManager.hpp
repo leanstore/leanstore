@@ -53,7 +53,7 @@ class BufferManager {
       State state = State::UNDEFINED;
       // -------------------------------------------------------------------------------------
       // Everything in CIOFrame is protected by global bf_s_lock except the following counter
-      atomic<u64> readers_counter = 0;
+      atomic<s64> readers_counter = 0;
    };
    // -------------------------------------------------------------------------------------
    struct FreeList {

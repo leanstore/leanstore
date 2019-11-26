@@ -25,6 +25,7 @@ DEFINE_bool(persist, true, ""); // TODO: still not ready
 DEFINE_bool(verify, false, "");
 DEFINE_bool(ycsb_scan, false, "");
 DEFINE_bool(ycsb_tx, true, "");
+DEFINE_string(zipf_path, "./", "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -87,7 +88,7 @@ int main(int argc, char **argv)
    cout << "-------------------------------------------------------------------------------------" << endl;
    cout << "Preparing Workload" << endl;
    {
-      const string lookup_keys_file = "ycsb_" + to_string(tx_count) + "_lookup_keys_" + to_string(sizeof(YCSBKey)) + "b_zipf_" + to_string(FLAGS_ycsb_zipf_factor);
+      const string lookup_keys_file = FLAGS_zipf_path + "ycsb_" + to_string(tx_count) + "_lookup_keys_" + to_string(sizeof(YCSBKey)) + "b_zipf_" + to_string(FLAGS_ycsb_zipf_factor);
       if ( utils::fileExists(lookup_keys_file)) {
          utils::fillVectorFromBinaryFile(lookup_keys_file.c_str(), lookup_keys);
       } else {
@@ -99,13 +100,15 @@ int main(int argc, char **argv)
    // -------------------------------------------------------------------------------------
    // Prepare Payload
    {
-      const string payload_file = "ycsb_payload_" + to_string(FLAGS_ycsb_tuple_count) + "_" + to_string(sizeof(YCSBPayload)) + "b";
+      const string payload_file = FLAGS_zipf_path + "ycsb_payload_" + to_string(FLAGS_ycsb_tuple_count) + "_" + to_string(sizeof(YCSBPayload)) + "b";
       if ( utils::fileExists(payload_file)) {
          utils::fillVectorFromBinaryFile(payload_file.c_str(), payloads);
       } else {
-         for ( u64 t_i = 0; t_i < payloads.size(); t_i++ ) {
-            utils::RandomGenerator::getRandString(reinterpret_cast<u8 *>(payloads.data() + t_i), sizeof(YCSBPayload));
-         }
+         tbb::parallel_for(tbb::blocked_range<uint32_t>(0, payloads.size()), [&](const tbb::blocked_range<uint32_t> &range) {
+            for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
+               utils::RandomGenerator::getRandString(reinterpret_cast<u8 *>(payloads.data() + i), sizeof(YCSBPayload));
+            }
+         });
          utils::writeBinary(payload_file.c_str(), payloads);
       }
    }
@@ -124,10 +127,12 @@ int main(int argc, char **argv)
          }
       });
       auto end = chrono::high_resolution_clock::now();
+      cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
       cout << calculateMTPS(begin, end, lookup_keys.size()) << " M tps" << endl;
+      // -------------------------------------------------------------------------------------
       const u64 written_pages = db.getBufferManager().consumedPages();
       const u64 mib = written_pages * PAGE_SIZE / 1024 / 1024;
-      cout << "Inserted volume: (pages, MiB) = (" << written_pages << ", " << mib << ")" << endl;
+      cout << "inserted volume: (pages, MiB) = (" << written_pages << ", " << mib << ")" << endl;
       cout << "needed/available = " << written_pages * 1.0 / (FLAGS_dram) << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
       // -------------------------------------------------------------------------------------

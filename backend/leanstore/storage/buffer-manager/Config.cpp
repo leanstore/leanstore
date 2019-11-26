@@ -3,12 +3,14 @@
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(dram, 65536, ""); // 1 GiB
-DEFINE_string(ssd_path, "leanstore_data", "");
 DEFINE_string(free_pages_list_path, "leanstore_free_pages", "");
 // -------------------------------------------------------------------------------------
+DEFINE_uint32(dram, 65536, ""); // 1 GiB
 DEFINE_uint32(cool, 10, "Start cooling pages when <= x% are free");
 DEFINE_uint32(free, 10, "pct");
 // -------------------------------------------------------------------------------------
+DEFINE_string(ssd_path, "leanstore_data", "");
 DEFINE_uint32(async_batch_size, 256, "");
+DEFINE_bool(trunc, false, "Truncate file");
+DEFINE_uint32(falloc, 0, "Preallocate GiB");
 // -------------------------------------------------------------------------------------

@@ -33,6 +33,7 @@ BufferManager::BufferManager()
       const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram);
       bfs = reinterpret_cast<BufferFrame *>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
+      madvise(bfs, dram_total_size, MADV_DONTFORK);
       // -------------------------------------------------------------------------------------
       for ( u64 bf_i = 0; bf_i < FLAGS_dram; bf_i++ ) {
          dram_free_list.push(*new(bfs + bf_i) BufferFrame());
@@ -42,11 +43,22 @@ BufferManager::BufferManager()
    // -------------------------------------------------------------------------------------
    // Init SSD pool
    int flags = O_RDWR | O_DIRECT | O_CREAT;
+   if ( FLAGS_trunc ) {
+      flags |= O_TRUNC;
+   }
    ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
    posix_check(ssd_fd > -1);
-   if ( fcntl(ssd_fd, F_GETFL) == -1 ) {
-      throw ex::GenericException("Can not initialize SSD storage: " + FLAGS_ssd_path);
+   if ( FLAGS_falloc > 0 ) {
+      const u64 gib_size = 1024ull * 1024ull * 1024ull;
+      auto dummy_data = (u8*) aligned_alloc(512, gib_size);
+      for ( u64 i = 0; i < FLAGS_falloc; i++ ) {
+         const int ret = pwrite(ssd_fd, dummy_data, gib_size, gib_size * i);
+         posix_check(ret == gib_size);
+      }
+      free(dummy_data);
+      fsync(ssd_fd);
    }
+   ensure (fcntl(ssd_fd, F_GETFL) != -1);
    // -------------------------------------------------------------------------------------
    // Background threads
    // -------------------------------------------------------------------------------------
@@ -156,13 +168,14 @@ void BufferManager::pageProviderThread()
                assert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
                assert(parent_handler.swip.bf == r_buffer);
                // -------------------------------------------------------------------------------------
-               assert(cooling_io_ht.count(r_buffer->header.pid) == 0);
+               assert (cooling_io_ht.count(r_buffer->header.pid) == 0);
                CIOFrame &cio_frame = cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(r_buffer->header.pid), std::forward_as_tuple()).first->second;
                assert(cooling_io_ht.count(r_buffer->header.pid) == 1);
                cio_frame.state = CIOFrame::State::COOLING;
                cooling_fifo_queue.push_back(r_buffer);
                cio_frame.fifo_itr = --cooling_fifo_queue.end();
                r_buffer->header.state = BufferFrame::State::COLD;
+               r_buffer->header.isCooledBecauseOfReading = false;
                parent_handler.swip.unswizzle(r_buffer->header.pid);
                cooling_bfs_counter++;
                // -------------------------------------------------------------------------------------
@@ -195,12 +208,13 @@ void BufferManager::pageProviderThread()
             if ( !bf.header.isWB && !bf.header.isCooledBecauseOfReading ) {
                if ( !bf.isDirty()) {
                   // Reclaim buffer frame
-                  assert(cooling_io_ht.count(pid));
+                  assert(cooling_io_ht.count(pid) == 1);
                   assert(cooling_io_ht[pid].state == CIOFrame::State::COOLING);
                   assert(bf.header.state == BufferFrame::State::COLD);
                   // -------------------------------------------------------------------------------------
                   cooling_fifo_queue.erase(bf_itr);
                   cooling_io_ht.erase(pid);
+                  assert(cooling_io_ht.count(pid) == 0);
                   // -------------------------------------------------------------------------------------
                   new(&bf.header) BufferFrame::Header();
                   dram_free_list.push(bf);
@@ -280,9 +294,9 @@ void BufferManager::debuggingThread()
       local_phase_3_ms = debugging_counters.phase_3_ms.exchange(0);
       s64 total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
       if ( total > 0 ) {
-         cout << u32(local_phase_1_ms * 100.0 / total)
-              << "\t2:" << u32(local_phase_2_ms * 100.0 / total)
-              << "\t3:" << u32(local_phase_3_ms * 100.0 / total)
+         cout << "p1:" << u32(local_phase_1_ms * 100.0 / total)
+              << "\tp2:" << u32(local_phase_2_ms * 100.0 / total)
+              << "\tp3:" << u32(local_phase_3_ms * 100.0 / total)
               << "\tf:" << (dram_free_list.counter)
               << "\tc:" << (cooling_bfs_counter.load())
               << "\te:" << (debugging_counters.evicted_pages.exchange(0))
@@ -374,7 +388,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       bf.header.lock = 2; // Write lock
       // -------------------------------------------------------------------------------------
       cio_frame.state = CIOFrame::State::READING;
-      cio_frame.readers_counter++;
+      cio_frame.readers_counter = 1;
       cio_frame.mutex.lock();
       // -------------------------------------------------------------------------------------
       g_guard.unlock();
@@ -434,18 +448,23 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       assert(bf->header.state == BufferFrame::State::COLD);
       bf->header.state = BufferFrame::State::HOT; // ATTENTION: SET TO HOT AFTER IT IS SWIZZLED IN
       // -------------------------------------------------------------------------------------
+      // Simply written, let the compiler optimize it
+      bool should_clean = true;
       if ( bf->header.isCooledBecauseOfReading ) {
-         bf->header.isCooledBecauseOfReading = false;
-         if ( --cio_frame.readers_counter == 0 ) {
-            cooling_io_ht.erase(pid);
+         cio_frame.readers_counter--;
+         if ( cio_frame.readers_counter > 0 ) {
+            should_clean = false;
          }
+      }
+      if ( should_clean ) {
+         cooling_io_ht.erase(pid);
       }
       // -------------------------------------------------------------------------------------
       stats.swizzled_pages_counter++;
       // -------------------------------------------------------------------------------------
       return *bf;
    }
-   // it is a bug signal, if the page was hot then we should never hit this path
+// it is a bug signal, if the page was hot then we should never hit this path
    UNREACHABLE();
 }
 // -------------------------------------------------------------------------------------

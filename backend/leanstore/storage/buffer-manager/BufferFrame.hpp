@@ -21,7 +21,7 @@ struct BufferFrame {
    struct Header {
       // TODO: for logging
       u64 lastWrittenLSN = 0;
-      atomic<State> state = State::FREE; // INIT:
+      State state = State::FREE; // INIT:
       bool isWB = false;
       bool isCooledBecauseOfReading = false;
       PID pid = 9999; // INIT:
