@@ -192,7 +192,7 @@ void BufferManager::pageProviderThread()
             BufferFrame &bf = **bf_itr;
             auto next_bf_tr = std::next(bf_itr, 1);
             PID pid = bf.header.pid;
-            if ( !bf.header.isWB && !bf.header.isCooledBecauseOfReading) {
+            if ( !bf.header.isWB && !bf.header.isCooledBecauseOfReading ) {
                if ( !bf.isDirty()) {
                   // Reclaim buffer frame
                   assert(cooling_io_ht.count(pid));
@@ -349,6 +349,7 @@ BufferFrame &BufferManager::allocatePage()
 BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
 {
    static auto logger = spdlog::rotating_logger_mt("ResolveSwip", "resolve_swip.txt", 1024 * 1024, 1);
+   // -------------------------------------------------------------------------------------
    if ( swip_value.isSwizzled()) {
       BufferFrame &bf = swip_value.asBufferFrame();
       swip_guard.recheck();
@@ -373,12 +374,14 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       bf.header.lock = 2; // Write lock
       // -------------------------------------------------------------------------------------
       cio_frame.state = CIOFrame::State::READING;
+      cio_frame.readers_counter++;
       cio_frame.mutex.lock();
       // -------------------------------------------------------------------------------------
       g_guard.unlock();
       // -------------------------------------------------------------------------------------
       readPageSync(pid, bf.page);
       assert(bf.page.magic_debugging_number == pid);
+      // -------------------------------------------------------------------------------------
       // ATTENTION: Fill the BF
       bf.header.lastWrittenLSN = bf.page.LSN;
       bf.header.state = BufferFrame::State::COLD;
@@ -391,30 +394,36 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       cooling_fifo_queue.push_back(&bf);
       cio_frame.fifo_itr = --cooling_fifo_queue.end();
       cooling_bfs_counter++;
+      // -------------------------------------------------------------------------------------
       bf.header.lock = 0;
       bf.header.isCooledBecauseOfReading = true;
+      // -------------------------------------------------------------------------------------
       g_guard.unlock();
       cio_frame.mutex.unlock();
+      // -------------------------------------------------------------------------------------
       throw RestartException();
    }
    // -------------------------------------------------------------------------------------
    CIOFrame &cio_frame = cio_frame_itr->second;
    // -------------------------------------------------------------------------------------
    if ( cio_frame.state == CIOFrame::State::READING ) {
+      cio_frame.readers_counter++;
       g_guard.unlock();
       cio_frame.mutex.lock();
-      //TODO: cleanup, really ?
+      cio_frame.readers_counter--;
       cio_frame.mutex.unlock();
+      // -------------------------------------------------------------------------------------
+      if ( cio_frame.readers_counter == 0 ) {
+         g_guard.lock();
+         if ( cio_frame.readers_counter == 0 ) {
+            cooling_io_ht.erase(pid);
+         }
+         g_guard.unlock();
+      }
+      // -------------------------------------------------------------------------------------
       throw RestartException();
    }
-   /*
-    * Lessons learned here:
-    * don't catch a restart exception here
-    * Whenever we fail to accquire a lock or witness a version change
-    * then we have to read the value ! (update SharedGuard)
-    * otherwise we would stick with the wrong version the whole time
-    * and nasty things would happen
-    */
+   // -------------------------------------------------------------------------------------
    if ( cio_frame.state == CIOFrame::State::COOLING ) {
       BufferFrame *bf = *cio_frame.fifo_itr;
       ExclusiveGuard swip_x_lock(swip_guard);
@@ -424,9 +433,13 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       cooling_bfs_counter--;
       assert(bf->header.state == BufferFrame::State::COLD);
       bf->header.state = BufferFrame::State::HOT; // ATTENTION: SET TO HOT AFTER IT IS SWIZZLED IN
-      bf->header.isCooledBecauseOfReading = false;
       // -------------------------------------------------------------------------------------
-      cooling_io_ht.erase(pid);
+      if ( bf->header.isCooledBecauseOfReading ) {
+         bf->header.isCooledBecauseOfReading = false;
+         if ( --cio_frame.readers_counter == 0 ) {
+            cooling_io_ht.erase(pid);
+         }
+      }
       // -------------------------------------------------------------------------------------
       stats.swizzled_pages_counter++;
       // -------------------------------------------------------------------------------------

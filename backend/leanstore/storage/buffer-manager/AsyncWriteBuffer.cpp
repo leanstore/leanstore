@@ -108,9 +108,9 @@ u64 AsyncWriteBuffer::pollEventsSync()
 // -------------------------------------------------------------------------------------
 void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame &, u64)> callback, u64 n_events)
 {
-   for ( auto i = 0; i < n_events; i++ ) {
-      ensure(events[i].res == page_size);
-      ensure(events[i].res2 == 0);
+   for ( u64 i = 0; i < n_events; i++ ) {
+      explain(events[i].res == page_size);
+      explain(events[i].res2 == 0);
       // -------------------------------------------------------------------------------------
       const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
       auto c_command = write_buffer_commands[slot];

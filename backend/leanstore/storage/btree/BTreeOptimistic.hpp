@@ -302,7 +302,7 @@ struct BTree {
          return;
       }
       auto inner_node = reinterpret_cast<BTreeInner<Key> *>(bf.page.dt);
-      for ( u32 s_i = 0; s_i < (inner_node->count + 1); s_i++ ) {
+      for ( u32 s_i = 0; s_i < u32(inner_node->count + 1); s_i++ ) {
          if ( !callback(inner_node->children[s_i].template cast<BufferFrame>())) {
             return;
          }

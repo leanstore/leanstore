@@ -45,6 +45,11 @@ typedef struct YCSBPayload {
    {
       std::memcpy(value, other.value, sizeof(value));
    }
+   YCSBPayload &operator=(const YCSBPayload &other)
+   {
+      std::memcpy(value, other.value, sizeof(value));
+      return *this;
+   }
 };
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
@@ -163,7 +168,7 @@ int main(int argc, char **argv)
                YCSBKey key = lookup_keys[i];
                YCSBPayload result;
                if ( utils::RandomGenerator::getRand(0, 100) <= FLAGS_ycsb_read_ratio ) {
-                  bool res = table.lookup(key, result);
+                  table.lookup(key, result);
                } else {
                   table.insert(key, payloads[key]);
                }
