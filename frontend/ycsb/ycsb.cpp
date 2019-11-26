@@ -100,6 +100,8 @@ int main(int argc, char **argv)
    // -------------------------------------------------------------------------------------
    // Prepare Payload
    {
+      cout << "-------------------------------------------------------------------------------------" << endl;
+      cout << "Preparing Payload" << endl;
       const string payload_file = FLAGS_zipf_path + "ycsb_payload_" + to_string(FLAGS_ycsb_tuple_count) + "_" + to_string(sizeof(YCSBPayload)) + "b";
       if ( utils::fileExists(payload_file)) {
          utils::fillVectorFromBinaryFile(payload_file.c_str(), payloads);

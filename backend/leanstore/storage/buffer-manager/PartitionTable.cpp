@@ -72,5 +72,23 @@ void HashTable::remove(HashTable::Handler &handler)
    delete to_delete;
 }
 // -------------------------------------------------------------------------------------
+void HashTable::remove(u64 key) {
+   auto handler = lookup(key);
+   assert(handler);
+   remove(handler);
+}
+// -------------------------------------------------------------------------------------
+bool HashTable::has(u64 key)
+{
+   uint64_t pos = hashKey(key) & mask;
+   auto e = entries[pos];
+   while ( e ) {
+      if ( e->key == key )
+         return true;
+      e = e->next;
+   }
+   return false;
+}
+// -------------------------------------------------------------------------------------
 }
 }

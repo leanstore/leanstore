@@ -22,16 +22,16 @@ bool createTestFileImpl(const string &file_name, uint64_t count, function<T(int)
 {
    // Open file
    ofstream of(file_name, ios::binary);
-   if (!of.is_open() || !of.good())
+   if ( !of.is_open() || !of.good())
       return false;
 
    // Write file in buffered fashion
    const uint32_t kMaxBufferSize = 1 << 22;
    vector<T> buffer(kMaxBufferSize / sizeof(uint32_t));
-   for (uint64_t i = 0; i<count;) {
+   for ( uint64_t i = 0; i < count; ) {
       // Fill buffer and write
       uint64_t limit = i + buffer.size();
-      for (; i<count && i<limit; i++)
+      for ( ; i < count && i < limit; i++ )
          buffer[i % buffer.size()] = factory(i);
       of.write(reinterpret_cast<char *>(buffer.data()), (buffer.size() - (limit - i)) * sizeof(uint32_t));
    }
@@ -47,14 +47,14 @@ bool foreachInFileImpl(const string &file_name, function<void(T)> callback)
 {
    // Open file
    ifstream in(file_name, ios::binary);
-   if (!in.is_open() || !in.good())
+   if ( !in.is_open() || !in.good())
       return false;
 
    // Loop over each entry
    T entry;
-   while (true) {
+   while ( true ) {
       in.read(reinterpret_cast<char *>(&entry), sizeof(uint32_t));
-      if (!in.good())
+      if ( !in.good())
          break;
       callback(entry);
    }
@@ -79,15 +79,15 @@ bool CreateDirectory(const string &directory_name)
 bool CreateFile(const string &file_name, const uint64_t bytes)
 {
    int file_fd = open(file_name.c_str(), O_CREAT | O_WRONLY, 0666);
-   if (file_fd<0) {
+   if ( file_fd < 0 ) {
       return false; // Use strerror(errno) to find error
    }
 
-   if (ftruncate(file_fd, bytes) != 0) {
+   if ( ftruncate(file_fd, bytes) != 0 ) {
       return false; // Use strerror(errno) to find error
    }
 
-   if (close(file_fd) != 0) {
+   if ( close(file_fd) != 0 ) {
       return false; // Use strerror(errno) to find error
    }
 
@@ -97,7 +97,7 @@ bool CreateFile(const string &file_name, const uint64_t bytes)
 bool CreateFile(const string &file_name, const string &content)
 {
    int file_fd = open(file_name.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-   if (file_fd<0) {
+   if ( file_fd < 0 ) {
       return false; // Use strerror(errno) to find error
    }
 
@@ -113,11 +113,11 @@ void DeleteFile(const std::string &file_name)
 uint64_t GetFileLength(const string &file_name)
 {
    int fileFD = open(file_name.c_str(), O_RDWR);
-   if (fileFD<0) {
+   if ( fileFD < 0 ) {
       cout << "Unable to open file" << endl; // You can posix_check errno to see what happend
       throw;
    }
-   if (fcntl(fileFD, F_GETFL) == -1) {
+   if ( fcntl(fileFD, F_GETFL) == -1 ) {
       cout << "Unable to call fcntl on file" << endl; // You can posix_check errno to see what happend
       throw;
    }
@@ -162,7 +162,7 @@ namespace {
 uint64_t applyPrecision(uint64_t input, uint32_t precision)
 {
    uint32_t digits = log10(input) + 1;
-   if (digits<=precision)
+   if ( digits <= precision )
       return input;
    uint32_t invalidDigits = pow(10, digits - precision);
    return (uint64_t) ((double) input / invalidDigits + .5f) * invalidDigits;
@@ -177,15 +177,15 @@ string FormatTime(chrono::nanoseconds ns, uint32_t precision)
    uint64_t timeSpan = applyPrecision(ns.count(), precision);
 
    // Convert to right unit
-   if (timeSpan<1000ll)
+   if ( timeSpan < 1000ll )
       os << timeSpan << "ns";
-   else if (timeSpan<1000ll * 1000ll)
+   else if ( timeSpan < 1000ll * 1000ll )
       os << timeSpan / 1000.0f << "us";
-   else if (timeSpan<1000ll * 1000ll * 1000ll)
+   else if ( timeSpan < 1000ll * 1000ll * 1000ll )
       os << timeSpan / 1000.0f / 1000.0f << "ms";
-   else if (timeSpan<60l * 1000ll * 1000ll * 1000ll)
+   else if ( timeSpan < 60l * 1000ll * 1000ll * 1000ll )
       os << timeSpan / 1000.0f / 1000.0f / 1000.0f << "s";
-   else if (timeSpan<60l * 60l * 1000ll * 1000ll * 1000ll)
+   else if ( timeSpan < 60l * 60l * 1000ll * 1000ll * 1000ll )
       os << timeSpan / 1000.0f / 1000.0f / 1000.0f / 60.0f << "m";
    else
       os << timeSpan / 1000.0f / 1000.0f / 1000.0f / 60.0f / 60.0f << "h";
@@ -204,7 +204,7 @@ void PinThread(int socket)
    CPU_SET(socket, &cpuset);
    pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
    int s = pthread_getaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
-   if (s != 0) {
+   if ( s != 0 ) {
       fprintf(stderr, "error: pthread_getaffinity_np");
       exit(-1);
    }
@@ -216,14 +216,14 @@ void RunMultithreaded(uint32_t thread_count, function<void(uint32_t)> foo)
 {
    atomic<bool> start(false);
    vector<unique_ptr<thread>> threads(thread_count);
-   for (uint32_t i = 0; i<thread_count; i++) {
+   for ( uint32_t i = 0; i < thread_count; i++ ) {
       threads[i] = make_unique<thread>([i, &foo, &start]() {
-         while (!start);
+         while ( !start );
          foo(i);
       });
    }
    start = true;
-   for (auto &iter: threads) {
+   for ( auto &iter: threads ) {
       iter->join();
    }
 }
@@ -232,7 +232,7 @@ uint8_t *AlignedAlloc(uint64_t alignment, uint64_t size)
 {
    void *result = nullptr;
    int error = posix_memalign(&result, alignment, size);
-   if (error) {
+   if ( error ) {
       throw ex::GenericException("posix_memalign failed in utility");
    }
    return reinterpret_cast<uint8_t *>(result);
@@ -242,10 +242,10 @@ namespace {
 array<char, 16> NUM_TO_HEX{{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'}};
 uint8_t HexToNum(char c)
 {
-   if ('a'<=c && c<='f') {
+   if ( 'a' <= c && c <= 'f' ) {
       return 10 + (c - 'a');
    }
-   if ('0'<=c && c<='9') {
+   if ( '0' <= c && c <= '9' ) {
       return (c - '0');
    }
    UNREACHABLE();
@@ -255,10 +255,10 @@ uint8_t HexToNum(char c)
 const string DataToHex(uint8_t *data, uint32_t len, bool spaces)
 {
    string result;
-   for (uint32_t i = 0; i<len; i++) {
+   for ( uint32_t i = 0; i < len; i++ ) {
       result += NUM_TO_HEX[*(data + i) >> 4];
       result += NUM_TO_HEX[*(data + i) & 0x0f];
-      if (spaces && i != len - 1)
+      if ( spaces && i != len - 1 )
          result += ' ';
    }
    return result;
@@ -275,7 +275,7 @@ const vector<uint8_t> HexToData(const string &str, bool spaces)
 
    uint32_t result_size = spaces ? ((str.size() + 1) / 3) : (str.size() / 2);
    vector<uint8_t> result(result_size);
-   for (uint32_t i = 0, out = 0; i<str.size(); i += 2, out++) {
+   for ( uint32_t i = 0, out = 0; i < str.size(); i += 2, out++ ) {
       result[out] = (HexToNum(str[i]) << 4) | HexToNum(str[i + 1]);
       i += spaces ? 1 : 0;
    }
@@ -289,7 +289,7 @@ const string HexToString(const string &str, bool spaces)
 
    uint32_t result_size = spaces ? ((str.size() + 1) / 3) : (str.size() / 2);
    string result(result_size, 'x');
-   for (uint32_t i = 0, out = 0; i<str.size(); i += 2, out++) {
+   for ( uint32_t i = 0, out = 0; i < str.size(); i += 2, out++ ) {
       result[out] = (char) ((HexToNum(str[i]) << 4) | HexToNum(str[i + 1]));
       i += spaces ? 1 : 0;
    }

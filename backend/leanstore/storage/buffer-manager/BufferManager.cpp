@@ -5,6 +5,7 @@
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/storage/btree/BTreeOptimistic.hpp"
 #include "leanstore/utils/FVector.hpp"
+#include "leanstore/utils/Misc.hpp"
 #include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
@@ -50,7 +51,7 @@ BufferManager::BufferManager()
    posix_check(ssd_fd > -1);
    if ( FLAGS_falloc > 0 ) {
       const u64 gib_size = 1024ull * 1024ull * 1024ull;
-      auto dummy_data = (u8*) aligned_alloc(512, gib_size);
+      auto dummy_data = (u8 *) aligned_alloc(512, gib_size);
       for ( u64 i = 0; i < FLAGS_falloc; i++ ) {
          const int ret = pwrite(ssd_fd, dummy_data, gib_size, gib_size * i);
          posix_check(ret == gib_size);
@@ -62,7 +63,7 @@ BufferManager::BufferManager()
    // -------------------------------------------------------------------------------------
    // Initialize partitions
    const u64 cooling_bfs_upper_bound = FLAGS_cool * 1.5 * FLAGS_dram / 100.0;
-   the_partition = make_unique<PartitionTable>(cooling_bfs_upper_bound);
+   the_partition = make_unique<PartitionTable>(utils::getBitsNeeded(cooling_bfs_upper_bound));
    // -------------------------------------------------------------------------------------
    // Background threads
    // -------------------------------------------------------------------------------------
@@ -131,21 +132,23 @@ void BufferManager::pageProviderThread()
             // -------------------------------------------------------------------------------------
             // Suitable page founds, lets unswizzle
             {
+               const PID pid = r_buffer->header.pid;
                ExclusiveGuard r_x_guad(r_guard);
                ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
                ExclusiveGuard p_x_guard(parent_handler.guard);
-               std::lock_guard g_guard(cio_mutex);
+               PartitionTable &partition = getPartition(pid);
+               std::lock_guard g_guard(partition.cio_mutex);
                // -------------------------------------------------------------------------------------
                assert(r_buffer->header.state == BufferFrame::State::HOT);
                assert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
                assert(parent_handler.swip.bf == r_buffer);
                // -------------------------------------------------------------------------------------
-               assert (cooling_io_ht.count(r_buffer->header.pid) == 0);
-               CIOFrame &cio_frame = cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(r_buffer->header.pid), std::forward_as_tuple()).first->second;
-               assert(cooling_io_ht.count(r_buffer->header.pid) == 1);
+               assert (!(partition.ht.has(r_buffer->header.pid)));
+               CIOFrame &cio_frame = partition.ht.insert(pid);
+               assert ((partition.ht.has(r_buffer->header.pid)));
                cio_frame.state = CIOFrame::State::COOLING;
-               cooling_fifo_queue.push_back(r_buffer);
-               cio_frame.fifo_itr = --cooling_fifo_queue.end();
+               partition.cooling_queue.push_back(r_buffer);
+               cio_frame.fifo_itr = --partition.cooling_queue.end();
                r_buffer->header.state = BufferFrame::State::COLD;
                r_buffer->header.isCooledBecauseOfReading = false;
                parent_handler.swip.unswizzle(r_buffer->header.pid);
@@ -170,23 +173,26 @@ void BufferManager::pageProviderThread()
       auto phase_2_begin = chrono::high_resolution_clock::now();
       if ( phase_2_condition()) {
          // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
-         std::unique_lock g_guard(cio_mutex);
+         //TODO : iterate over partitions
+         PartitionTable &partition = getPartition(0);
+         std::unique_lock g_guard(partition.cio_mutex);
          u64 pages_left_to_process = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0;
-         auto bf_itr = cooling_fifo_queue.begin();
-         while ( pages_left_to_process-- && bf_itr != cooling_fifo_queue.end()) {
+         auto bf_itr = partition.cooling_queue.begin();
+         while ( pages_left_to_process-- && bf_itr != partition.cooling_queue.end()) {
             BufferFrame &bf = **bf_itr;
             auto next_bf_tr = std::next(bf_itr, 1);
-            PID pid = bf.header.pid;
+            const PID pid = bf.header.pid;
             if ( !bf.header.isWB && !bf.header.isCooledBecauseOfReading ) {
                if ( !bf.isDirty()) {
                   // Reclaim buffer frame
-                  assert(cooling_io_ht.count(pid) == 1);
-                  assert(cooling_io_ht[pid].state == CIOFrame::State::COOLING);
+                  HashTable::Handler frame_handler = partition.ht.lookup(pid);
+                  assert(frame_handler);
+                  assert(frame_handler.frame().state == CIOFrame::State::COOLING);
                   assert(bf.header.state == BufferFrame::State::COLD);
                   // -------------------------------------------------------------------------------------
-                  cooling_fifo_queue.erase(bf_itr);
-                  cooling_io_ht.erase(pid);
-                  assert(cooling_io_ht.count(pid) == 0);
+                  partition.cooling_queue.erase(bf_itr);
+                  partition.ht.remove(frame_handler);
+                  assert(!partition.ht.has(pid));
                   // -------------------------------------------------------------------------------------
                   new(&bf.header) BufferFrame::Header();
                   dram_free_list.push(bf);
@@ -210,10 +216,12 @@ void BufferManager::pageProviderThread()
       if ( phase_3_condition()) {
          async_write_buffer.submitIfNecessary();
          const u32 polled_events = async_write_buffer.pollEventsSync();
-         std::lock_guard g_guard(cio_mutex);
+         PartitionTable &partition = getPartition(0);
+         std::lock_guard g_guard(partition.cio_mutex);
          async_write_buffer.getWrittenBfs([&](BufferFrame &written_bf, u64 written_lsn) {
             while ( true ) {
                try {
+                  const PID pid = written_bf.header.pid;
                   assert(written_bf.header.isWB);
                   written_bf.header.lastWrittenLSN = written_lsn;
                   written_bf.header.isWB = false;
@@ -223,13 +231,14 @@ void BufferManager::pageProviderThread()
                   // Evict
                   if ( written_bf.header.state == BufferFrame::State::COLD ) {
                      // Reclaim buffer frame
-                     assert(cooling_io_ht.count(written_bf.header.pid) == 1);
-                     CIOFrame &cio_frame = cooling_io_ht[written_bf.header.pid];
+                     HashTable::Handler frame_handler = partition.ht.lookup(pid);
+                     assert(frame_handler);
+                     CIOFrame &cio_frame = frame_handler.frame();
                      assert(cio_frame.state == CIOFrame::State::COOLING);
                      assert(written_bf.header.state == BufferFrame::State::COLD);
-                     cooling_fifo_queue.erase(cio_frame.fifo_itr);
-                     cooling_io_ht.erase(written_bf.header.pid);
-                     assert(cooling_io_ht.count(written_bf.header.pid) == 0);
+                     partition.cooling_queue.erase(cio_frame.fifo_itr);
+                     partition.ht.remove(frame_handler);
+                     assert(!partition.ht.has(pid));
                      // -------------------------------------------------------------------------------------
                      new(&written_bf) BufferFrame;
                      dram_free_list.push(written_bf);
@@ -334,6 +343,7 @@ BufferFrame &BufferManager::allocatePage()
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
 {
+   static atomic<PID> last_deleted = 0;
    static auto logger = spdlog::rotating_logger_mt("ResolveSwip", "resolve_swip.txt", 1024 * 1024, 1);
    // -------------------------------------------------------------------------------------
    if ( swip_value.isSwizzled()) {
@@ -342,20 +352,21 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       return bf;
    }
    // -------------------------------------------------------------------------------------
-   std::unique_lock g_guard(cio_mutex);
-   swip_guard.recheck();
    const PID pid = swip_value.asPageID();
+   PartitionTable &partition = getPartition(pid); // TODO: get partition should restart if the value does not make sense
+   std::unique_lock g_guard(partition.cio_mutex);
+   swip_guard.recheck();
    assert(!swip_value.isSwizzled());
    // -------------------------------------------------------------------------------------
-   auto cio_frame_itr = cooling_io_ht.find(pid);
-   if ( cio_frame_itr == cooling_io_ht.end()) {
+   auto frame_handler = partition.ht.lookup(pid);
+   if ( !frame_handler ) {
       if ( dram_free_list.counter < 10 ) {
          g_guard.unlock();
          spinAsLongAs(dram_free_list.counter < 10);
          throw RestartException();
       }
       BufferFrame &bf = dram_free_list.pop();
-      CIOFrame &cio_frame = cooling_io_ht.emplace(std::piecewise_construct, std::forward_as_tuple(pid), std::forward_as_tuple()).first->second;
+      CIOFrame &cio_frame = partition.ht.insert(pid);
       assert(bf.header.state == BufferFrame::State::FREE);
       bf.header.lock = 2; // Write lock
       // -------------------------------------------------------------------------------------
@@ -377,8 +388,8 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       // Move to cooling stage
       g_guard.lock();
       cio_frame.state = CIOFrame::State::COOLING;
-      cooling_fifo_queue.push_back(&bf);
-      cio_frame.fifo_itr = --cooling_fifo_queue.end();
+      partition.cooling_queue.push_back(&bf);
+      cio_frame.fifo_itr = --partition.cooling_queue.end();
       cooling_bfs_counter++;
       // -------------------------------------------------------------------------------------
       bf.header.lock = 0;
@@ -390,19 +401,19 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       throw RestartException();
    }
    // -------------------------------------------------------------------------------------
-   CIOFrame &cio_frame = cio_frame_itr->second;
+   CIOFrame &cio_frame = frame_handler.frame();
    // -------------------------------------------------------------------------------------
    if ( cio_frame.state == CIOFrame::State::READING ) {
       cio_frame.readers_counter++;
       g_guard.unlock();
       cio_frame.mutex.lock();
-      cio_frame.readers_counter--;
       cio_frame.mutex.unlock();
       // -------------------------------------------------------------------------------------
-      if ( cio_frame.readers_counter == 0 ) {
+      assert(partition.ht.has(pid));
+      if ( cio_frame.readers_counter.fetch_add(-1) == 1 ) {
          g_guard.lock();
          if ( cio_frame.readers_counter == 0 ) {
-            cooling_io_ht.erase(pid);
+            partition.ht.remove(pid);
          }
          g_guard.unlock();
       }
@@ -415,7 +426,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       ExclusiveGuard swip_x_lock(swip_guard);
       assert(bf->header.pid == pid);
       swip_value.swizzle(bf);
-      cooling_fifo_queue.erase(cio_frame.fifo_itr);
+      partition.cooling_queue.erase(cio_frame.fifo_itr);
       cooling_bfs_counter--;
       assert(bf->header.state == BufferFrame::State::COLD);
       bf->header.state = BufferFrame::State::HOT; // ATTENTION: SET TO HOT AFTER IT IS SWIZZLED IN
@@ -423,13 +434,13 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       // Simply written, let the compiler optimize it
       bool should_clean = true;
       if ( bf->header.isCooledBecauseOfReading ) {
-         cio_frame.readers_counter--;
-         if ( cio_frame.readers_counter > 0 ) {
+         if ( cio_frame.readers_counter.fetch_add(-1) > 1 ) {
             should_clean = false;
          }
       }
       if ( should_clean ) {
-         cooling_io_ht.erase(pid);
+         last_deleted = pid;
+         partition.ht.remove(pid);
       }
       // -------------------------------------------------------------------------------------
       stats.swizzled_pages_counter++;
@@ -483,7 +494,8 @@ void BufferManager::flushDropAllPages()
    stats.reset();
 }
 // -------------------------------------------------------------------------------------
-PartitionTable& BufferManager::getPartition(PID) {
+PartitionTable &BufferManager::getPartition(PID)
+{
    //TODO
    return *the_partition;
 }

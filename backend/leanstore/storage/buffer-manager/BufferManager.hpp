@@ -43,20 +43,6 @@ class BufferManager {
       atomic<s64> phase_1_ms = 0, phase_2_ms = 0, phase_3_ms = 0;
       atomic<u64> io_operations = 0;
    };
-   // -------------------------------------------------------------------------------------
-   struct CIOFrame {
-      enum class State : u8 {
-         READING = 0,
-         COOLING = 1,
-         UNDEFINED = 2 // for debugging
-      };
-      std::mutex mutex;
-      std::list<BufferFrame *>::iterator fifo_itr;
-      State state = State::UNDEFINED;
-      // -------------------------------------------------------------------------------------
-      // Everything in CIOFrame is protected by global bf_s_lock except the following counter
-      atomic<s64> readers_counter = 0;
-   };
 private:
    // -------------------------------------------------------------------------------------
    BufferFrame *bfs;
@@ -72,11 +58,7 @@ private:
    // TODO: too slow, we can not create all our entries at startup
    // TODO: solution: handcraft a hashtable with upper bound
    unique_ptr<PartitionTable> the_partition;
-   std::mutex cio_mutex;
    atomic<u64> cooling_bfs_counter = 0;
-   std::list<BufferFrame *> cooling_fifo_queue;
-public:
-   std::unordered_map<PID, CIOFrame> cooling_io_ht;
 private:
    // -------------------------------------------------------------------------------------
    // Threads managements

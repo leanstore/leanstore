@@ -50,6 +50,8 @@ struct HashTable {
    CIOFrame &insert(u64 key);
    Handler lookup(u64 key);
    void remove(Handler &handler);
+   void remove(u64 key);
+   bool has(u64 key); // for debugging
    HashTable(u64 size_in_bits);
 };
 // -------------------------------------------------------------------------------------
