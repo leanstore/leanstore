@@ -447,7 +447,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       // -------------------------------------------------------------------------------------
       return *bf;
    }
-// it is a bug signal, if the page was hot then we should never hit this path
+   // it is a bug signal, if the page was hot then we should never hit this path
    UNREACHABLE();
 }
 // -------------------------------------------------------------------------------------

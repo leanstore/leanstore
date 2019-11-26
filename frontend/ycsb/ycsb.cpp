@@ -106,8 +106,8 @@ int main(int argc, char **argv)
       if ( utils::fileExists(payload_file)) {
          utils::fillVectorFromBinaryFile(payload_file.c_str(), payloads);
       } else {
-         tbb::parallel_for(tbb::blocked_range<uint32_t>(0, payloads.size()), [&](const tbb::blocked_range<uint32_t> &range) {
-            for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
+         tbb::parallel_for(tbb::blocked_range<u64>(0, payloads.size()), [&](const tbb::blocked_range<u64> &range) {
+            for ( u64 i = range.begin(); i < range.end(); i++ ) {
                utils::RandomGenerator::getRandString(reinterpret_cast<u8 *>(payloads.data() + i), sizeof(YCSBPayload));
             }
          });
@@ -122,15 +122,15 @@ int main(int argc, char **argv)
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Inserting values" << endl;
       auto begin = chrono::high_resolution_clock::now();
-      tbb::parallel_for(tbb::blocked_range<uint32_t>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<uint32_t> &range) {
-         for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
+      tbb::parallel_for(tbb::blocked_range<u64>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<u64> &range) {
+         for ( u64 i = range.begin(); i < range.end(); i++ ) {
             YCSBPayload &payload = payloads[i];
             table.insert(i, payload);
          }
       });
       auto end = chrono::high_resolution_clock::now();
       cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-      cout << calculateMTPS(begin, end, lookup_keys.size()) << " M tps" << endl;
+      cout << calculateMTPS(begin, end, FLAGS_ycsb_tuple_count) << " M tps" << endl;
       // -------------------------------------------------------------------------------------
       const u64 written_pages = db.getBufferManager().consumedPages();
       const u64 mib = written_pages * PAGE_SIZE / 1024 / 1024;
@@ -146,8 +146,8 @@ int main(int argc, char **argv)
       cout << "Scan" << endl;
       db.getBufferManager().debugging_counters.io_operations.store(0);
       auto begin = chrono::high_resolution_clock::now();
-      tbb::parallel_for(tbb::blocked_range<uint32_t>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<uint32_t> &range) {
-         for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
+      tbb::parallel_for(tbb::blocked_range<u64>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<u64> &range) {
+         for ( u64 i = range.begin(); i < range.end(); i++ ) {
             YCSBPayload result;
             table.lookup(i, result);
          }
@@ -161,6 +161,21 @@ int main(int argc, char **argv)
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
+   if ( FLAGS_verify ) {
+      cout << "-------------------------------------------------------------------------------------" << endl;
+      cout << "Verification" << endl;
+      auto begin = chrono::high_resolution_clock::now();
+      tbb::parallel_for(tbb::blocked_range<u64>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<u64> &range) {
+         for ( u64 i = range.begin(); i < range.end(); i++ ) {
+            YCSBPayload result;
+            ensure (table.lookup(i, result) && result == payloads[i]);
+         }
+      });
+      auto end = chrono::high_resolution_clock::now();
+      cout << calculateMTPS(begin, end, FLAGS_ycsb_tuple_count) << " M tps" << endl;
+      cout << "-------------------------------------------------------------------------------------" << endl;
+   }
+   // -------------------------------------------------------------------------------------
    if ( FLAGS_ycsb_tx ) {
       PerfEvent e;
       cout << "-------------------------------------------------------------------------------------" << endl;
@@ -170,14 +185,14 @@ int main(int argc, char **argv)
       for ( u32 r_i = 0; r_i < (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds); r_i++ ) {
          db.getBufferManager().debugging_counters.io_operations.store(0);
          auto begin = chrono::high_resolution_clock::now();
-         tbb::parallel_for(tbb::blocked_range<uint32_t>(0, lookup_keys.size()), [&](const tbb::blocked_range<uint32_t> &range) {
-            for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
+         tbb::parallel_for(tbb::blocked_range<u64>(0, lookup_keys.size()), [&](const tbb::blocked_range<u64> &range) {
+            for ( u64 i = range.begin(); i < range.end(); i++ ) {
                YCSBKey key = lookup_keys[i];
                YCSBPayload result;
                if ( utils::RandomGenerator::getRand(0, 100) <= FLAGS_ycsb_read_ratio ) {
                   table.lookup(key, result);
                } else {
-                  table.insert(key, payloads[key]);
+                  table.insert(key, payloads[key % FLAGS_ycsb_tuple_count]);
                }
             }
          });
@@ -193,20 +208,6 @@ int main(int argc, char **argv)
          }
          cout << calculateMTPS(begin, end, lookup_keys.size()) << " M tps" << endl;
       }
-      cout << "-------------------------------------------------------------------------------------" << endl;
-   }
-   if ( FLAGS_verify ) {
-      cout << "-------------------------------------------------------------------------------------" << endl;
-      cout << "Verification" << endl;
-      auto begin = chrono::high_resolution_clock::now();
-      tbb::parallel_for(tbb::blocked_range<uint32_t>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<uint32_t> &range) {
-         for ( uint32_t i = range.begin(); i < range.end(); i++ ) {
-            YCSBPayload result;
-            ensure (table.lookup(i, result) && result == payloads[i]);
-         }
-      });
-      auto end = chrono::high_resolution_clock::now();
-      cout << calculateMTPS(begin, end, FLAGS_ycsb_tuple_count) << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
