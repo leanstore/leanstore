@@ -49,6 +49,9 @@ void LeanStore::restore()
 // -------------------------------------------------------------------------------------
 LeanStore::~LeanStore()
 {
+   for ( const auto &btree: btrees ) {
+      delete reinterpret_cast<btree::BTree<void*,void*>*>(btree.second.get());
+   }
 }
 // -------------------------------------------------------------------------------------
 }
