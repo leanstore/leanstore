@@ -33,7 +33,7 @@ BufferManager::BufferManager()
       const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram);
       bfs = reinterpret_cast<BufferFrame *>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
-      madvise(bfs, dram_total_size, MADV_DONTFORK);
+      madvise(bfs, dram_total_size, MADV_DONTFORK); // O_DIRECT does not work with forking.
       // -------------------------------------------------------------------------------------
       for ( u64 bf_i = 0; bf_i < FLAGS_dram; bf_i++ ) {
          dram_free_list.push(*new(bfs + bf_i) BufferFrame());
@@ -60,6 +60,10 @@ BufferManager::BufferManager()
    }
    ensure (fcntl(ssd_fd, F_GETFL) != -1);
    // -------------------------------------------------------------------------------------
+   // Initialize partitions
+   const u64 cooling_bfs_upper_bound = FLAGS_cool * 1.5 * FLAGS_dram / 100.0;
+   the_partition = make_unique<PartitionTable>(cooling_bfs_upper_bound);
+   // -------------------------------------------------------------------------------------
    // Background threads
    // -------------------------------------------------------------------------------------
    std::thread page_provider_thread([&]() { pageProviderThread(); });
@@ -69,38 +73,6 @@ BufferManager::BufferManager()
    std::thread phase_timer_thread([&]() { debuggingThread(); });
    bg_threads_counter++;
    phase_timer_thread.detach();
-}
-// -------------------------------------------------------------------------------------
-void BufferManager::FreeList::push(leanstore::buffermanager::BufferFrame &bf)
-{
-   assert(bf.header.state == BufferFrame::State::FREE);
-   bf.header.next_free_bf = first.load();
-   while ( !first.compare_exchange_strong(bf.header.next_free_bf, &bf));
-   counter++;
-}
-// -------------------------------------------------------------------------------------
-struct BufferFrame &BufferManager::FreeList::pop()
-{
-   BufferFrame *c_header = first;
-   u32 mask = 1;
-   u32 const max = 64; //MAX_BACKOFF
-   while ( true ) {
-      while ( c_header == nullptr ) { //spin bf_s_lock
-         for ( u32 i = mask; i; --i ) {
-            _mm_pause();
-         }
-         mask = mask < max ? mask << 1 : max;
-         c_header = first;
-      }
-      BufferFrame *next = c_header->header.next_free_bf;
-      if ( first.compare_exchange_strong(c_header, next)) {
-         BufferFrame &bf = *c_header;
-         bf.header.next_free_bf = nullptr;
-         counter--;
-         assert(bf.header.state == BufferFrame::State::FREE);
-         return bf;
-      }
-   }
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::pageProviderThread()
@@ -509,6 +481,11 @@ void BufferManager::flushDropAllPages()
    // -------------------------------------------------------------------------------------
    stats.print();
    stats.reset();
+}
+// -------------------------------------------------------------------------------------
+PartitionTable& BufferManager::getPartition(PID) {
+   //TODO
+   return *the_partition;
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::stopBackgroundThreads()

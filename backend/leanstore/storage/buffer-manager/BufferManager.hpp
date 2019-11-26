@@ -3,6 +3,8 @@
 #include "Swip.hpp"
 #include "DTRegistry.hpp"
 #include "BufferFrame.hpp"
+#include "FreeList.hpp"
+#include "PartitionTable.hpp"
 #include "Config.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -55,13 +57,6 @@ class BufferManager {
       // Everything in CIOFrame is protected by global bf_s_lock except the following counter
       atomic<s64> readers_counter = 0;
    };
-   // -------------------------------------------------------------------------------------
-   struct FreeList {
-      atomic<BufferFrame *> first = nullptr;
-      atomic<u64> counter = 0;
-      BufferFrame &pop();
-      void push(BufferFrame &bf);
-   };
 private:
    // -------------------------------------------------------------------------------------
    BufferFrame *bfs;
@@ -69,18 +64,17 @@ private:
    int ssd_fd;
    // -------------------------------------------------------------------------------------
    // Free  Pages
-   // TODO: use wait-free techniques, e.g: embed a wait-free linked list in the buffer frames
-   std::mutex free_list_mutex;
-   atomic<u64> ssd_pages_counter = 0;
    FreeList dram_free_list;
+   atomic<u64> ssd_pages_counter = 0;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
+   // TODO: too slow, we can not create all our entries at startup
+   // TODO: solution: handcraft a hashtable with upper bound
+   unique_ptr<PartitionTable> the_partition;
    std::mutex cio_mutex;
    atomic<u64> cooling_bfs_counter = 0;
    std::list<BufferFrame *> cooling_fifo_queue;
-   // TODO: too slow, we can not create all our entries at startup
-   // TODO: solution: handcraft a hashtable with upper bound
 public:
    std::unordered_map<PID, CIOFrame> cooling_io_ht;
 private:
@@ -97,6 +91,7 @@ private:
    // Misc
    BufferFrame &randomBufferFrame();
    Stats stats;
+   PartitionTable &getPartition(PID);
 public:
    DebuggingCounters debugging_counters;
    // -------------------------------------------------------------------------------------

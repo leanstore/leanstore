@@ -19,8 +19,8 @@ private:
       ReadGuard guard;
    };
    io_context_t aio_context;
-   u64 page_size, batch_max_size;
    int fd;
+   u64 page_size, batch_max_size;
    std::vector<u64> batch;
    u8 insistence_counter = 0;
    u64 pending_requests = 0;

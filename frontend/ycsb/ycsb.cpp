@@ -31,7 +31,7 @@ using namespace leanstore;
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 using YCSBKey = u64;
-typedef struct YCSBPayload {
+struct YCSBPayload {
    u8 value[120];
    YCSBPayload() {}
    bool operator==(YCSBPayload &other)

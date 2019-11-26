@@ -38,5 +38,5 @@ void OnEnsureFailedPrint(const std::string &func, const std::string &file, int l
 // -------------------------------------------------------------------------------------
 #define TODO() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
-#define   explain(e) \
-    if(!(e)) { raise(SIGTRAP); };
+#define   explain(e) if(!(e)) { raise(SIGTRAP); };
+// -------------------------------------------------------------------------------------

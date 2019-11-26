@@ -23,7 +23,7 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size)
    iocbs_ptr = make_unique<struct iocb *[]>(batch_max_size);
    events = make_unique<struct io_event[]>(batch_max_size);
    // -------------------------------------------------------------------------------------
-   for ( auto i = 0; i < batch_max_size; i++ ) {
+   for ( u64 i = 0; i < batch_max_size; i++ ) {
       write_buffer_free_slots.push_back(i);
    }
    // -------------------------------------------------------------------------------------
@@ -61,7 +61,7 @@ void AsyncWriteBuffer::submitIfNecessary()
    u32 successfully_copied_bfs = 0;
    auto my_iocbs_ptr = iocbs_ptr.get();
    if ( c_batch_size >= batch_max_size || insistence_counter == FLAGS_insistence_limit ) {
-      for ( auto i = 0; i < c_batch_size; i++ ) {
+      for ( u64 i = 0; i < c_batch_size; i++ ) {
          auto slot = batch.back();
          batch.pop_back();
          // -------------------------------------------------------------------------------------
@@ -84,7 +84,7 @@ void AsyncWriteBuffer::submitIfNecessary()
          // -------------------------------------------------------------------------------------
       }
       const int ret_code = io_submit(aio_context, successfully_copied_bfs, iocbs_ptr.get());
-      ensure(ret_code == successfully_copied_bfs);
+      ensure(ret_code == int(successfully_copied_bfs));
       pending_requests += ret_code;
       insistence_counter = 0;
    } else {
@@ -127,7 +127,7 @@ void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame &, u64)> cal
    if(to_resubmit) {
       //TODO
       cout << "rewriting pages !" << endl;
-      ensure(to_resubmit == io_submit(aio_context, to_resubmit, iocbs_ptr.get()));
+      ensure(int(to_resubmit) == io_submit(aio_context, to_resubmit, iocbs_ptr.get()));
       pending_requests += to_resubmit;
    }
 }
