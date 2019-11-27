@@ -56,8 +56,6 @@ struct HashTable {
 };
 // -------------------------------------------------------------------------------------
 struct PartitionTable {
-   // TODO: too slow, we can not create all our entries at startup
-   // TODO: solution: handcraft a hashtable with upper bound
    std::mutex cio_mutex;
    HashTable ht;
    std::list<BufferFrame *> cooling_queue;

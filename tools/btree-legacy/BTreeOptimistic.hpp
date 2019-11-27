@@ -12,7 +12,7 @@ struct BTreeLeafBase : public NodeBase {
 
 template<class Key, class Payload>
 struct BTreeLeaf : public BTreeLeafBase {
-   static const uint64_t pageSizeLeaf = 4 * 1024;
+   static const uint64_t pageSizeLeaf = 16 * 1024;
    static const uint64_t maxEntries = ((pageSizeLeaf - sizeof(NodeBase)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
 
    Key keys[maxEntries];
@@ -85,7 +85,7 @@ struct BTreeInnerBase : public NodeBase {
 
 template<class Key>
 struct BTreeInner : public BTreeInnerBase {
-   static const uint64_t pageSizeInner = 4 * 1024;
+   static const uint64_t pageSizeInner = 16 * 1024;
    static const uint64_t maxEntries = ((pageSizeInner - sizeof(NodeBase)) / (sizeof(Key) + sizeof(NodeBase *))) - 1 /* slightly wasteful */;
 
    NodeBase *children[maxEntries];

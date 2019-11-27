@@ -1,0 +1,13 @@
+
+adnan@skx:~/dev/workspace/db/leanstore/cmake-build-release-g9/playground$ DEL=1 N=10000000 ./btree_sloted
+    op,  time,   cycle,   instr, L1-miss, LLC-miss, br-miss,    task,    scale,  IPC,  CPU,  GHz
+insert, 11.67, 4761.52, 2455.59,  219.60,   110.36,   14.16, 1160.18, 10000000, 0.52, 0.99, 4.10
+lookup, 5.22, 2022.97, 1127.96,   28.69,    10.77,   12.08, 522.20, 10000000, 0.56, 1.00, 3.87
+nodes:4043 innerNodes:3 space:1.65601 height:3 rootCnt:1 bytesFree:104426872
+remove, 7.96, 3279.37, 1275.60,  139.17,    71.06,   11.89, 795.73, 10000000, 0.39, 1.00, 4.12
+nodes:81 innerNodes:3 space:0.0331776 height:3 rootCnt:1 bytesFree:3200584
+
+adnan@skx:~/dev/workspace/db/leanstore/cmake-build-release-g9/tools$ ALL=1 T=1 N=10000000 ./btree_benchmark
+  approach, threads, workload, time,   cycle,   instr, L1-miss, LLC-miss, br-miss,   task,    scale,  IPC,  CPU,  GHz
+optimistic,       1,   insert, 8.42, 3485.29, 1165.87,  122.20,    89.64,   15.30, 841.75, 10000000, 0.33, 1.00, 4.14
+optimistic,       1,   lookup, 4.27, 1777.32, 414.43,   30.14,    19.75,   11.73, 427.17, 10000000, 0.23, 1.00, 4.16
