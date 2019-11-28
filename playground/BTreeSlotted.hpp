@@ -287,7 +287,7 @@ struct BTreeNode : public BTreeNodeHeader {
       for ( unsigned i = 0; i < hintCount; i++ )
          assert(hint[i] == slot[dist * (i + 1)].sketch);
    }
-
+   // -------------------------------------------------------------------------------------
    bool insert(u8 *key, unsigned keyLength, ValueType value)
    {
       if ( !requestSpaceFor(spaceNeeded(keyLength, prefixLength)))
@@ -300,7 +300,7 @@ struct BTreeNode : public BTreeNodeHeader {
       assert(lowerBound<true>(key, keyLength) == slotId);
       return true;
    }
-
+   // -------------------------------------------------------------------------------------
    bool removeSlot(unsigned slotId)
    {
       if ( slot[slotId].restLen )
@@ -475,7 +475,7 @@ struct BTreeNode : public BTreeNodeHeader {
    struct SeparatorInfo {
       unsigned length;
       unsigned slot;
-      bool trunc;
+      bool trunc; // TODO: ???
    };
 
    unsigned commonPrefix(unsigned aPos, unsigned bPos)
@@ -541,6 +541,7 @@ struct BTreeNode : public BTreeNodeHeader {
    {
       copyFullKey(info.slot, sepKeyOut, info.length);
       if ( info.trunc ) {
+         assert(false); // TODO: ??
          u8 *k = isLarge(info.slot + 1) ? getRestLarge(info.slot + 1) : getRest(info.slot + 1);
          sepKeyOut[info.length - 1] = k[info.length - prefixLength - sizeof(SketchType) - 1];
       }
