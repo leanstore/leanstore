@@ -40,35 +40,6 @@ int main(int argc, char **argv)
    string payload;
    string input;
 
-//   cout << "please enter: " << endl;
-//   cin >> input;
-//   while ( getenv("I") ) {
-//      if ( input[0] == 'i' ) {
-//         cout << "insert mode: " << endl;
-//         cin >> input;
-//         cin >> payload;
-//         u64 key_length = input.length();
-//         u64 payload_length = payload.length();
-//         tree.insert((u8 *) input.data(), key_length, payload_length, (u8 *) payload.data());
-//         totalSpace += key_length + payload_length;
-//      } else if ( input[0] == 'l' ) {
-//         cin >> input;
-//         u64 payloadLength;
-//         auto payload_array = make_unique<u8[]>(100);
-//         if ( tree.lookup((u8 *) input.data(), input.length(), payloadLength, payload_array.get())) {
-//            cout << "lookup: " << payload_array.get() << endl;
-//         } else {
-//            cout << "not found" << endl;
-//         }
-//      } else if ( input[0] == 'p' ) {
-//         printInfos(tree.root, totalSpace);
-//      } else if ( input[0] == 'c' ) {
-//         cout << "goodbye" << endl;
-//         break;
-//      }
-//      cout << "please enter: " << endl;
-//      cin >> input;
-//   }
 
    if ( argc < 2 ) {
       return 0;
@@ -83,7 +54,7 @@ int main(int argc, char **argv)
       data.push_back(line);
    uint64_t count = data.size();
    for ( auto &s : data )
-      totalSpace += (s.size() + sizeof(u64));
+      totalSpace += (s.size() * 2 + 1);
 
    union {
       u64 x;
@@ -91,30 +62,29 @@ int main(int argc, char **argv)
    };
    u64 payload_length;
    {
-      cout << "insert"<<endl;
+      cout << "insert" << endl;
       e.setParam("op", "insert");
       PerfEventBlock b(e, count);
       for ( uint64_t i = 0; i < count; i++ ) {
-         x = swap(i);
+         x = i;
          tree.insert((u8 *) data[i].data(), data[i].size(), sizeof(u64), bytes);
       }
    }
    {
-      cout << "lookup"<<endl;
+      cout << "lookup" << endl;
       e.setParam("op", "lookup");
       PerfEventBlock b(e, count);
       for ( uint64_t i = 0; i < count; i++ ) {
          if ( !tree.lookup((u8 *) data[i].data(), data[i].size(), payload_length, bytes))
             throw;
-         x = swap(x);
          if ( x != i )
             throw;
       }
       printInfos(tree.root, totalSpace);
    }
-   cout << "remove"<<endl;
-   e.setParam("op", "remove");
-   {
+   if ( getenv("DEL")) {
+      cout << "remove" << endl;
+      e.setParam("op", "remove");
       PerfEventBlock b(e, count);
       for ( uint64_t i = 0; i < count; i++ ) {
          tree.remove((u8 *) data[i].data(), data[i].size());
@@ -122,8 +92,41 @@ int main(int argc, char **argv)
             throw;
       }
    }
-   printInfos(tree.root, count );
+   printInfos(tree.root, count);
 
+
+   cout << "please enter: " << endl;
+   cin >> input;
+   while ( getenv("I")) {
+      if ( input[0] == 'i' ) {
+         cout << "insert mode: " << endl;
+         cin >> input;
+         cin >> payload;
+         u64 key_length = input.length();
+         u64 payload_length = payload.length();
+         tree.insert((u8 *) input.data(), key_length, payload_length, (u8 *) payload.data());
+         totalSpace += key_length + payload_length;
+      } else if ( input[0] == 'l' ) {
+         cin >> input;
+         u64 payloadLength;
+         auto payload_array = make_unique<u8[]>(100);
+         if ( tree.lookup((u8 *) input.data(), input.length(), payloadLength, bytes)) {
+            cout << "found: " << payloadLength << " - " << x << endl;
+         } else {
+            cout << "not found" << endl;
+         }
+      } else if ( input[0] == 'd' ) {
+         cin >> input;
+         tree.remove((u8 *) input.data(), input.length());
+      } else if ( input[0] == 'p' ) {
+         printInfos(tree.root, totalSpace);
+      } else if ( input[0] == 'c' ) {
+         cout << "goodbye" << endl;
+         break;
+      }
+      cout << "please enter: " << endl;
+      cin >> input;
+   }
    return 0;
 }
 
