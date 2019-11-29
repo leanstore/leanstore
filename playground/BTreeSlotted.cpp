@@ -7,17 +7,37 @@ using namespace std;
 // -------------------------------------------------------------------------------------
 BTree::BTree()
         : root(BTreeNode::makeLeaf()) {}
-bool BTree::lookup(u8 *key, unsigned keyLength, ValueType &result)
+bool BTree::lookup(u8 *key, unsigned keyLength, u8 *result, u64 &payloadLength)
 {
    BTreeNode *node = root;
    while ( node->isInner())
       node = node->lookupInner(key, keyLength);
    int pos = node->lowerBound<true>(key, keyLength);
    if ( pos != -1 ) {
-      result = node->getValue(pos);
+      payloadLength = u64(node->getValue(pos));
+      if ( node->isLarge(pos)) {
+         memcpy(result, node->getPayloadLarge(pos), payloadLength);
+      } else {
+         memcpy(result, node->getPayload(pos), payloadLength);
+      }
       return true;
    }
    return false;
+}
+// -------------------------------------------------------------------------------------
+void BTree::insert(u8 *key, unsigned keyLength, u64 payloadLength)
+{
+   BTreeNode *node = root;
+   BTreeNode *parent = nullptr;
+   while ( node->isInner()) {
+      parent = node;
+      node = node->lookupInner(key, keyLength);
+   }
+   if ( node->insert(key, keyLength, ValueType(payloadLength)))
+      return;
+   // no more space, need to split
+   splitNode(node, parent, key, keyLength);
+   insert(key, keyLength, payloadLength);
 }
 // -------------------------------------------------------------------------------------
 void BTree::lookupInner(u8 *key, unsigned keyLength)
@@ -55,21 +75,6 @@ void BTree::ensureSpace(BTreeNode *toSplit, unsigned spaceNeeded, u8 *key, unsig
       node = node->lookupInner(key, keyLength);
    }
    splitNode(toSplit, parent, key, keyLength);
-}
-// -------------------------------------------------------------------------------------
-void BTree::insert(u8 *key, unsigned keyLength, ValueType value)
-{
-   BTreeNode *node = root;
-   BTreeNode *parent = nullptr;
-   while ( node->isInner()) {
-      parent = node;
-      node = node->lookupInner(key, keyLength);
-   }
-   if ( node->insert(key, keyLength, value))
-      return;
-   // no more space, need to split
-   splitNode(node, parent, key, keyLength);
-   insert(key, keyLength, value);
 }
 // -------------------------------------------------------------------------------------
 bool BTree::remove(u8 *key, unsigned keyLength)

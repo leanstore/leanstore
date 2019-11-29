@@ -35,38 +35,40 @@ using KeyType  = u32;
 
 int main(int argc, char **argv)
 {
-   PerfEvent e;
-
-   if ( getenv("I")) {
-      BTree tree;
-      uint64_t totalSpace = 0;
-      u64 value;
-      string input;
+   BTree tree;
+   uint64_t totalSpace = 0;
+   string payload;
+   string input;
+   cout << "please enter: " << endl;
+   cin >> input;
+   while ( true ) {
+      if ( input[0] == 'i' ) {
+         cout << "insert mode: " << endl;
+         cin >> input;
+         cin >> payload;
+         u64 key_length = input.length();
+         u64 payload_length = payload.length();
+         input.resize(key_length + payload.length());
+         memcpy(input.data() + key_length, payload.data(), payload.length());
+         tree.insert((u8 *) input.data(), key_length, payload_length);
+         totalSpace += key_length + payload_length;
+      } else if ( input[0] == 'l' ) {
+         cin >> input;
+         u64 payloadLength;
+         auto payload_array = make_unique<u8[]>(100);
+         if ( tree.lookup((u8 *) input.data(), input.length(), payload_array.get(), payloadLength)) {
+            cout << "lookup: " << payload_array.get() << endl;
+         } else {
+            cout << "not found" << endl;
+         }
+      } else if ( input[0] == 'p' ) {
+         printInfos(tree.root, totalSpace);
+      } else if ( input[0] == 'c' ) {
+         cout << "goodbye" << endl;
+         return 0;
+      }
       cout << "please enter: " << endl;
       cin >> input;
-      while ( true ) {
-         if ( input[0] == 'i' ) {
-            cout << "insert mode: " << endl;
-            cin >> input;
-            cin >> value;
-            tree.insert((u8 *) input.data(), input.length(), reinterpret_cast<ValueType>(value));
-            totalSpace+= sizeof(u64) + input.length();
-         } else if ( input[0] == 'l' ) {
-            cin >> input;
-            if ( tree.lookup((u8 *) input.data(), input.length(), reinterpret_cast<ValueType &>(value))) {
-               cout << "lookup: " << value << endl;
-            } else {
-               cout << "not found" << endl;
-            }
-         } else if ( input[0] == 'p' ) {
-            printInfos(tree.root, totalSpace);
-         } else if ( input[0] == 'c' ) {
-            cout << "goodbye" << endl;
-            return 0;
-         }
-         cout << "please enter: " << endl;
-         cin >> input;
-      }
    }
 //   if ( argc < 2 ) {
 //      return 0;
