@@ -7,7 +7,7 @@ using namespace std;
 // -------------------------------------------------------------------------------------
 BTree::BTree()
         : root(BTreeNode::makeLeaf()) {}
-bool BTree::lookup(u8 *key, unsigned keyLength, u8 *result, u64 &payloadLength)
+bool BTree::lookup(u8 *key, unsigned keyLength, u64 &payloadLength, u8 *result)
 {
    BTreeNode *node = root;
    while ( node->isInner())
@@ -25,7 +25,7 @@ bool BTree::lookup(u8 *key, unsigned keyLength, u8 *result, u64 &payloadLength)
    return false;
 }
 // -------------------------------------------------------------------------------------
-void BTree::insert(u8 *key, unsigned keyLength, u64 payloadLength)
+void BTree::insert(u8 *key, unsigned keyLength, u64 payloadLength, u8 *payload)
 {
    BTreeNode *node = root;
    BTreeNode *parent = nullptr;
@@ -33,11 +33,11 @@ void BTree::insert(u8 *key, unsigned keyLength, u64 payloadLength)
       parent = node;
       node = node->lookupInner(key, keyLength);
    }
-   if ( node->insert(key, keyLength, ValueType(payloadLength)))
+   if ( node->insert(key, keyLength, ValueType(payloadLength), payload))
       return;
    // no more space, need to split
    splitNode(node, parent, key, keyLength);
-   insert(key, keyLength, payloadLength);
+   insert(key, keyLength, payloadLength, payload);
 }
 // -------------------------------------------------------------------------------------
 void BTree::lookupInner(u8 *key, unsigned keyLength)

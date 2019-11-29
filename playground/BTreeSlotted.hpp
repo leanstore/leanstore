@@ -53,7 +53,6 @@ struct BTreeNodeHeader {
    inline u8 *getUpperFenceKey() { return upperFence.offset ? ptr() + upperFence.offset : nullptr; }
 };
 // -------------------------------------------------------------------------------------
-
 struct BTreeNode : public BTreeNodeHeader {
    struct Slot {
       u16 offset;
@@ -129,6 +128,7 @@ struct BTreeNode : public BTreeNodeHeader {
    }
 
    // Accessors for both types of strings
+   inline u64 getPayloadLength(unsigned slotId) { return *reinterpret_cast<u64 *>(ptr() + slot[slotId].offset); }
    inline ValueType &getValue(unsigned slotId) { return *reinterpret_cast<ValueType *>(ptr() + slot[slotId].offset); }
    inline unsigned getFullKeyLength(unsigned slotId) { return prefixLength + slot[slotId].headLen + (isLarge(slotId) ? getRestLenLarge(slotId) : getRestLen(slotId)); }
    inline void copyFullKey(unsigned slotId, u8 *out, unsigned fullLength)
@@ -302,14 +302,14 @@ struct BTreeNode : public BTreeNodeHeader {
          assert(hint[i] == slot[dist * (i + 1)].sketch);
    }
    // -------------------------------------------------------------------------------------
-   bool insert(u8 *key, unsigned keyLength, ValueType value)
+   bool insert(u8 *key, unsigned keyLength, ValueType value, u8 *payload = nullptr)
    {
       const u16 space_needed = (isLeaf) ? u64(value) + spaceNeeded(keyLength, prefixLength) : spaceNeeded(keyLength, prefixLength);
       if ( !requestSpaceFor(space_needed))
          return false; // no space, insert fails
       unsigned slotId = lowerBound<false>(key, keyLength);
       memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
-      storeKeyValue(slotId, key, keyLength, value);
+      storeKeyValue(slotId, key, keyLength, value, payload);
       count++;
       updateHint(slotId);
       assert(lowerBound<true>(key, keyLength) == slotId);
@@ -320,6 +320,7 @@ struct BTreeNode : public BTreeNodeHeader {
    {
       if ( slot[slotId].restLen )
          spaceUsed -= sizeof(ValueType) + (isLarge(slotId) ? (getRestLenLarge(slotId) + sizeof(u16)) : slot[slotId].restLen);
+      spaceUsed -= getPayloadLength(slotId);
       memmove(slot + slotId, slot + slotId + 1, sizeof(Slot) * (count - slotId - 1));
       count--;
       makeHint();
@@ -390,7 +391,7 @@ struct BTreeNode : public BTreeNodeHeader {
    }
 
    // store key/value pair at slotId
-   void storeKeyValue(u16 slotId, u8 *key, unsigned keyLength, ValueType value)
+   void storeKeyValue(u16 slotId, u8 *key, unsigned keyLength, ValueType value, u8 *payload = nullptr)
    {
       // Head
       key += prefixLength;
@@ -409,13 +410,15 @@ struct BTreeNode : public BTreeNodeHeader {
          getRestLenLarge(slotId) = keyLength;
          memcpy(getRestLarge(slotId), key, keyLength);
          if ( isLeaf ) { // AAA
-            memcpy(getPayloadLarge(slotId), key + keyLength, u64(value));
+            assert(payload != nullptr);
+            memcpy(getPayloadLarge(slotId), payload, u64(value));
          }
       } else { // normal string
          slot[slotId].restLen = keyLength;
          memcpy(getRest(slotId), key, keyLength);
          if ( isLeaf ) { // AAA
-            memcpy(getPayload(slotId), key + keyLength, u64(value));
+            assert(payload != nullptr);
+            memcpy(getPayload(slotId), payload, u64(value));
          }
       }
       // store payload
@@ -429,7 +432,7 @@ struct BTreeNode : public BTreeNodeHeader {
          for ( unsigned i = 0; i < count; i++ ) {
             unsigned space = sizeof(ValueType) + (isLarge(srcSlot + i) ? (getRestLenLarge(srcSlot + i) + sizeof(u16)) : getRestLen(srcSlot + i));
             if ( dst->isLeaf ) {
-               space += *reinterpret_cast<u64 *>(reinterpret_cast<u8 *>(dst) + dst->dataOffset); // AAA: Payload size
+               space += getPayloadLength(srcSlot); // AAA: Payload size
             }
             dst->dataOffset -= space;
             dst->spaceUsed += space;
@@ -449,7 +452,7 @@ struct BTreeNode : public BTreeNodeHeader {
       unsigned fullLength = getFullKeyLength(srcSlot);
       u8 key[fullLength];
       copyFullKey(srcSlot, key, fullLength);
-      dst->storeKeyValue(dstSlot, key, fullLength, getValue(srcSlot));
+      dst->storeKeyValue(dstSlot, key, fullLength, getValue(srcSlot), (isLarge(srcSlot) ? getPayloadLarge(srcSlot) : getPayload(srcSlot)));
    }
 
    void insertFence(FenceKey &fk, u8 *key, unsigned keyLength)
@@ -565,8 +568,7 @@ struct BTreeNode : public BTreeNodeHeader {
    void getSep(u8 *sepKeyOut, SeparatorInfo info)
    {
       copyFullKey(info.slot, sepKeyOut, info.length);
-      if ( info.trunc ) {
-         assert(false); // TODO: ??
+      if ( info.trunc ) {// TODO: ??
          u8 *k = isLarge(info.slot + 1) ? getRestLarge(info.slot + 1) : getRest(info.slot + 1);
          sepKeyOut[info.length - 1] = k[info.length - prefixLength - sizeof(SketchType) - 1];
       }
@@ -597,11 +599,11 @@ static_assert(sizeof(BTreeNode) == BTreeNodeHeader::pageSize, "page size problem
 struct BTree {
    BTreeNode *root;
    BTree();
-   bool lookup(u8 *key, unsigned keyLength, u8 *result, u64 &payloadLength);
+   bool lookup(u8 *key, unsigned keyLength, u64 &payloadLength, u8 *result);
    void lookupInner(u8 *key, unsigned keyLength);
    void splitNode(BTreeNode *node, BTreeNode *parent, u8 *key, unsigned keyLength);
    void ensureSpace(BTreeNode *toSplit, unsigned spaceNeeded, u8 *key, unsigned keyLength);
-   void insert(u8 *key, unsigned keyLength, u64 payloadLength);
+   void insert(u8 *key, unsigned keyLength, u64 payloadLength, u8 *payload = nullptr);
    bool remove(u8 *key, unsigned keyLength);
    ~BTree();
 };
