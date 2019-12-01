@@ -3,11 +3,15 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 using namespace std;
+using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
-
+namespace leanstore {
+namespace btree {
+namespace vs {
 // -------------------------------------------------------------------------------------
 BTree::BTree()
         : root(BTreeNode::makeLeaf()) {}
+// -------------------------------------------------------------------------------------
 bool BTree::lookup(u8 *key, unsigned keyLength, u64 &payloadLength, u8 *result)
 {
    BTreeNode *node = root;
@@ -59,6 +63,7 @@ void BTree::splitNode(BTreeNode *node, BTreeNode *parent, u8 *key, unsigned keyL
    }
    BTreeNode::SeparatorInfo sepInfo = node->findSep();
    unsigned spaceNeededParent = BTreeNode::spaceNeeded(sepInfo.length, parent->prefixLength);
+   assert(!parent->isLeaf);
    if ( parent->requestSpaceFor(spaceNeededParent)) { // Is there enough space in the parent for the separator?
       u8 sepKey[sepInfo.length];
       node->getSep(sepKey, sepInfo);
@@ -106,6 +111,25 @@ BTree::~BTree()
    root->destroy();
 }
 // -------------------------------------------------------------------------------------
+struct DTRegistry::DTMeta BTree::getMeta()
+{
+   DTRegistry::DTMeta btree_meta = {
+           .iterate_childern=iterateChildSwips, .find_parent = findParent
+   };
+   return btree_meta;
+}
+// -------------------------------------------------------------------------------------
+struct ParentSwipHandler BTree::findParent(void *btree_object, struct BufferFrame &bf)
+{
+   // TODO
+}
+// -------------------------------------------------------------------------------------
+void BTree::iterateChildSwips(void *, struct BufferFrame &bf, std::function<bool(Swip<BufferFrame> &)> callback)
+{
+   // TODO
+}
+// Helpers
+// -------------------------------------------------------------------------------------
 unsigned countInner(BTreeNode *node)
 {
    if ( node->isLeaf )
@@ -152,3 +176,6 @@ void printInfos(BTreeNode *root, uint64_t totalSize)
    cout << "nodes:" << cnt << " innerNodes:" << countInner(root) << " space:" << (cnt * BTreeNodeHeader::pageSize) / (float) totalSize << " height:" << height(root) << " rootCnt:" << root->count << " bytesFree:" << bytesFree(root) << endl;
 }
 // -------------------------------------------------------------------------------------
+}
+}
+}

@@ -8,25 +8,27 @@
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::buffermanager;
+// -------------------------------------------------------------------------------------
 namespace leanstore {
 namespace btree {
-
+namespace fs {
+// -------------------------------------------------------------------------------------
 enum class NodeType : u8 {
    BTreeInner = 1,
    BTreeLeaf = 2
 };
-
+// -------------------------------------------------------------------------------------
 struct NodeBase {
    NodeType type;
    u16 count;
    NodeBase() {}
 };
-
+// -------------------------------------------------------------------------------------
 struct BTreeLeafBase : public NodeBase {
    static const NodeType typeMarker = NodeType::BTreeLeaf;
 };
-
 using Node = NodeBase;
+// -------------------------------------------------------------------------------------
 template<class Key, class Payload>
 struct BTreeLeaf : public BTreeLeafBase {
    static const u64 maxEntries = ((buffermanager::EFFECTIVE_PAGE_SIZE) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
@@ -199,7 +201,6 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    void insert(Key k, Value &v)
    {
-
       u32 mask = 1;
       u32 const max = 64; //MAX_BACKOFF
       // -------------------------------------------------------------------------------------
@@ -360,11 +361,11 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    void printFanoutInformation()
    {
-      cout << "Inner #entries = " << btree::BTreeInner<Key>::maxEntries << endl;
-      cout << "Leaf #entries = " << btree::BTreeLeaf<Key, Value>::maxEntries << endl;
+      cout << "Inner #entries = " << BTreeInner<Key>::maxEntries << endl;
+      cout << "Leaf #entries = " << BTreeLeaf<Key, Value>::maxEntries << endl;
    }
 };
-
 // -------------------------------------------------------------------------------------
+}
 }
 }

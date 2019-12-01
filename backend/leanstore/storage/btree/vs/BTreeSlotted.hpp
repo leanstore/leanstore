@@ -1,6 +1,6 @@
 #include "Units.hpp"
+#include "leanstore/storage/buffer-manager/DTRegistry.hpp"
 // -------------------------------------------------------------------------------------
-#include "/opt/PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
 #include <iostream>
 #include <fstream>
@@ -12,6 +12,11 @@
 #include <x86intrin.h>
 // -------------------------------------------------------------------------------------
 using namespace std;
+using namespace leanstore::buffermanager;
+// -------------------------------------------------------------------------------------
+namespace leanstore {
+namespace btree {
+namespace vs {
 // -------------------------------------------------------------------------------------
 struct BTreeNode;
 using ValueType = BTreeNode *;
@@ -307,6 +312,10 @@ struct BTreeNode : public BTreeNodeHeader {
       const u16 space_needed = (isLeaf) ? u64(value) + spaceNeeded(keyLength, prefixLength) : spaceNeeded(keyLength, prefixLength);
       if ( !requestSpaceFor(space_needed))
          return false; // no space, insert fails
+
+      if ( lowerBound<true>(key, keyLength) != -1 ) {
+         return false;
+      }
       unsigned slotId = lowerBound<false>(key, keyLength);
       memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
       storeKeyValue(slotId, key, keyLength, value, payload);
@@ -334,7 +343,7 @@ struct BTreeNode : public BTreeNodeHeader {
          return false; // key not found
       return removeSlot(slotId);
    }
-
+   // -------------------------------------------------------------------------------------
    void compactify()
    {
       unsigned should = freeSpaceAfterCompaction();
@@ -347,7 +356,7 @@ struct BTreeNode : public BTreeNodeHeader {
       makeHint();
       assert(freeSpace() == should);
    }
-
+   // -------------------------------------------------------------------------------------
    // merge right node into this node
    bool merge(unsigned slotId, BTreeNode *parent, BTreeNode *right)
    {
@@ -423,7 +432,7 @@ struct BTreeNode : public BTreeNodeHeader {
       }
       // store payload
    }
-
+   // -------------------------------------------------------------------------------------
    void copyKeyValueRange(BTreeNode *dst, u16 dstSlot, u16 srcSlot, unsigned count)
    {
       if ( prefixLength == dst->prefixLength ) {
@@ -432,12 +441,25 @@ struct BTreeNode : public BTreeNodeHeader {
          for ( unsigned i = 0; i < count; i++ ) {
             unsigned space = sizeof(ValueType) + (isLarge(srcSlot + i) ? (getRestLenLarge(srcSlot + i) + sizeof(u16)) : getRestLen(srcSlot + i));
             if ( dst->isLeaf ) {
-               space += getPayloadLength(srcSlot); // AAA: Payload size
+               assert(isLeaf);
+               space += getPayloadLength(srcSlot + i); // AAA: Payload size
             }
             dst->dataOffset -= space;
             dst->spaceUsed += space;
             dst->slot[dstSlot + i].offset = dst->dataOffset;
             memcpy(reinterpret_cast<u8 *>(dst) + dst->dataOffset, ptr() + slot[srcSlot + i].offset, space);
+//            {
+//               const auto n = getPayloadLength(srcSlot + i);
+//               const auto n2 = dst->getPayloadLength(dstSlot + i);
+//               const auto s1 = getPayload(srcSlot + i);
+//               const auto d2 = dst->getPayload(dstSlot + i);
+//               if(getPayloadLength(srcSlot + i) != dst->getPayloadLength(dstSlot + i)) {
+//                  cout << i << endl;
+//               }
+//               if ( memcmp(getPayload(srcSlot + i), dst->getPayload(dstSlot + i), getPayloadLength(srcSlot + i)) != 0 ) {
+//                  cout << i << endl;
+//               }
+//            }
          }
       } else {
          for ( unsigned i = 0; i < count; i++ )
@@ -446,7 +468,7 @@ struct BTreeNode : public BTreeNodeHeader {
       dst->count += count;
       assert((ptr() + dst->dataOffset) >= reinterpret_cast<u8 *>(slot + count));
    }
-
+   // -------------------------------------------------------------------------------------
    void copyKeyValue(u16 srcSlot, BTreeNode *dst, u16 dstSlot)
    {
       unsigned fullLength = getFullKeyLength(srcSlot);
@@ -540,7 +562,7 @@ struct BTreeNode : public BTreeNodeHeader {
             return i;
       return i;
    }
-
+   // -------------------------------------------------------------------------------------
    SeparatorInfo findSep()
    {
       if ( isInner())
@@ -597,6 +619,8 @@ struct BTreeNode : public BTreeNodeHeader {
 static_assert(sizeof(BTreeNode) == BTreeNodeHeader::pageSize, "page size problem");
 // -------------------------------------------------------------------------------------
 struct BTree {
+   DTID dtid;
+   // -------------------------------------------------------------------------------------
    BTreeNode *root;
    BTree();
    bool lookup(u8 *key, unsigned keyLength, u64 &payloadLength, u8 *result);
@@ -605,6 +629,12 @@ struct BTree {
    void ensureSpace(BTreeNode *toSplit, unsigned spaceNeeded, u8 *key, unsigned keyLength);
    void insert(u8 *key, unsigned keyLength, u64 payloadLength, u8 *payload = nullptr);
    bool remove(u8 *key, unsigned keyLength);
+   // -------------------------------------------------------------------------------------
+   // -------------------------------------------------------------------------------------
+   static DTRegistry::DTMeta getMeta();
+   static ParentSwipHandler findParent(void *btree_object, BufferFrame &bf);
+   static void iterateChildSwips(void */*btree_object*/, BufferFrame &bf, std::function<bool(Swip<BufferFrame> &)> callback);
+   // -------------------------------------------------------------------------------------
    ~BTree();
 };
 // -------------------------------------------------------------------------------------
@@ -614,3 +644,6 @@ unsigned bytesFree(BTreeNode *node);
 unsigned height(BTreeNode *node);
 void printInfos(BTreeNode *root, uint64_t totalSize);
 // -------------------------------------------------------------------------------------
+}
+}
+}

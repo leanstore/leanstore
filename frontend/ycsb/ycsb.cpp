@@ -68,7 +68,7 @@ int main(int argc, char **argv)
    // -------------------------------------------------------------------------------------
    // LeanStore DB
    LeanStore db;
-   btree::BTree<YCSBKey, YCSBPayload> *btree_ptr;
+   btree::fs::BTree<YCSBKey, YCSBPayload> *btree_ptr;
    if ( FLAGS_persist ) {
       btree_ptr = &db.registerBTree<YCSBKey, YCSBPayload>("ycsb");
    } else {

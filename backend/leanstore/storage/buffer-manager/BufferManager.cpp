@@ -3,7 +3,7 @@
 #include "AsyncWriteBuffer.hpp"
 #include "Exceptions.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
-#include "leanstore/storage/btree/BTreeOptimistic.hpp"
+#include "leanstore/storage/btree/fs/BTreeOptimistic.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/Config.hpp"
