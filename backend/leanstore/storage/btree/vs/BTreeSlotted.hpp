@@ -155,7 +155,8 @@ struct BTreeNode : public BTreeNodeHeader {
          case 0:
             break;
          default:
-            __builtin_unreachable();
+            assert(false);
+            //__builtin_unreachable();
       };
    }
 
@@ -313,15 +314,12 @@ struct BTreeNode : public BTreeNodeHeader {
       if ( !requestSpaceFor(space_needed))
          return false; // no space, insert fails
 
-      if ( lowerBound<true>(key, keyLength) != -1 ) {
-         return false;
-      }
       unsigned slotId = lowerBound<false>(key, keyLength);
       memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
       storeKeyValue(slotId, key, keyLength, value, payload);
       count++;
       updateHint(slotId);
-      assert(lowerBound<true>(key, keyLength) == slotId);
+      assert(lowerBound<true>(key, keyLength) == slotId); // assert for duplicates
       return true;
    }
    // -------------------------------------------------------------------------------------
