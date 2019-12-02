@@ -466,14 +466,14 @@ struct BTreeNode : public BTreeNodeHeader {
       fk.length = keyLength;
       memcpy(ptr() + dataOffset, key, keyLength);
    }
-
+   // -------------------------------------------------------------------------------------
    void setFences(u8 *lowerKey, unsigned lowerLen, u8 *upperKey, unsigned upperLen)
    {
       insertFence(lowerFence, lowerKey, lowerLen);
       insertFence(upperFence, upperKey, upperLen);
       for ( prefixLength = 0; (prefixLength < min(lowerLen, upperLen)) && (lowerKey[prefixLength] == upperKey[prefixLength]); prefixLength++ );
    }
-
+   // -------------------------------------------------------------------------------------
    void split(BTreeNode *parent, unsigned sepSlot, u8 *sepKey, unsigned sepLength)
    {
       assert(sepSlot > 0);

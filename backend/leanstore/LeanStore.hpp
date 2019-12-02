@@ -2,10 +2,10 @@
 #include "Config.hpp"
 #include "storage/buffer-manager/BufferManager.hpp"
 #include "storage/btree/fs/BTreeOptimistic.hpp"
+#include "storage/btree/vs/BTreeVS.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <unordered_map>
-#include <leanstore/storage/btree/vs/BTreeSlotted.hpp>
 // -------------------------------------------------------------------------------------
 namespace leanstore{
 // -------------------------------------------------------------------------------------
@@ -24,10 +24,10 @@ public:
       //buffer_manager
       auto iter = fs_btrees.emplace(name, std::make_unique<u8[]>(btree_size));
       u8 *btree_ptr = iter.first->second.get();
-      auto btree = new(btree_ptr) btree::fs::BTree<Key, Value>(buffer_manager);
+      auto btree = new(btree_ptr) btree::fs::BTree<Key, Value>();
       buffer_manager.registerDatastructureType(type_id, btree->getMeta());
-      btree->dtid = buffer_manager.registerDatastructureInstance(type_id, btree);
-      btree->init();
+      DTID dtid = buffer_manager.registerDatastructureInstance(type_id, btree);
+      btree->init(dtid);
       return *btree;
    }
    // -------------------------------------------------------------------------------------

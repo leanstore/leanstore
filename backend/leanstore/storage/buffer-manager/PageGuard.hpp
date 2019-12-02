@@ -1,4 +1,5 @@
 #pragma once
+#include "Exceptions.hpp"
 #include "BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 namespace leanstore {

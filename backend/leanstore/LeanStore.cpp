@@ -23,8 +23,10 @@ LeanStore::LeanStore()
 }
 // -------------------------------------------------------------------------------------
 btree::vs::BTree &LeanStore::registerVSBTree(string name) {
+   assert(vs_btrees.find(name) == vs_btrees.end());
    auto &btree = vs_btrees[name];
-   btree.dtid = buffer_manager.registerDatastructureInstance(99, reinterpret_cast<void*>(&btree));
+   DTID dtid = buffer_manager.registerDatastructureInstance(99, reinterpret_cast<void*>(&btree));
+   btree.init(dtid);
    return btree;
 }
 // -------------------------------------------------------------------------------------

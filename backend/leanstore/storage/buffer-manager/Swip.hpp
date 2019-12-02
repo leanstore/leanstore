@@ -50,6 +50,10 @@ public:
    {
       return *bf;
    }
+   u64 raw()
+   {
+      return pid;
+   }
    // -------------------------------------------------------------------------------------
    template<typename T2>
    void swizzle(T2 *bf)

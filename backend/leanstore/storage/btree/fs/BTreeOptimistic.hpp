@@ -84,7 +84,7 @@ struct BTreeLeaf : public BTreeLeafBase {
       }
       count++;
    }
-
+   // -------------------------------------------------------------------------------------
    void split(Key &sep, BTreeLeaf &new_leaf)
    {
       new_leaf.count = count - (count / 2);
@@ -162,16 +162,15 @@ struct BTree {
    OptimisticLock root_lock = 0;
    atomic<u64> restarts_counter = 0; // for debugging
    atomic<u64> height = 1; // for debugging
-   BufferManager &buffer_manager;
    DTID dtid;
    // -------------------------------------------------------------------------------------
-   BTree(BufferManager &buffer_manager)
-           : buffer_manager(buffer_manager)
+   BTree()
    {
    }
    // -------------------------------------------------------------------------------------
-   void init()
+   void init(DTID dtid)
    {
+      this->dtid = dtid;
       auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
       root_write_guard.init();
       root_swip = root_write_guard.bf;
