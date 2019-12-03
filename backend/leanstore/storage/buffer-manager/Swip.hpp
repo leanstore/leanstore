@@ -34,7 +34,7 @@ public:
    // -------------------------------------------------------------------------------------
    bool operator==(const Swip &other) const
    {
-      return (pid == other.val);
+      return (raw() == other.raw());
    }
    // -------------------------------------------------------------------------------------
    bool isSwizzled()
@@ -50,7 +50,7 @@ public:
    {
       return *bf;
    }
-   u64 raw()
+   u64 raw() const
    {
       return pid;
    }

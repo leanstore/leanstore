@@ -35,12 +35,13 @@ public:
       assert((p_guard.bf_s_lock.local_version & 2) == 0);
       if ( swip.isSwizzled()) {
          bf = &swip.asBufferFrame();
+         p_guard.recheck();
       } else {
          auto &bf_swip = swip.template cast<BufferFrame>();
          bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
       }
       bf_s_lock = ReadGuard(bf->header.lock);
-      p_guard.recheck();
+      p_guard.recheck(); // TODO: ??
    }
    // I: Downgrade
    ReadPageGuard &operator=(WritePageGuard<T> &&other)
@@ -80,10 +81,23 @@ public:
       manually_checked = true;
       bf_s_lock.recheck();
    }
+   // Guard not needed anymore
+   void kill()
+   {
+      moved = true;
+   }
    // -------------------------------------------------------------------------------------
    T &ref()
    {
       return *reinterpret_cast<T *>(bf->page.dt);
+   }
+   T *ptr()
+   {
+      return reinterpret_cast<T *>(bf->page.dt);
+   }
+   Swip <T> swip()
+   {
+      return Swip<T>(bf);
    }
    T *operator->()
    {
@@ -106,8 +120,10 @@ template<typename T>
 class WritePageGuard : public ReadPageGuard<T> {
    using ParentClass = ReadPageGuard<T>;
 protected:
+   bool keep_alive = true;
    // Called by the buffer manager when allocating a new page
-   WritePageGuard(BufferFrame &bf)
+   WritePageGuard(BufferFrame &bf, bool keep_alive)
+           : keep_alive(keep_alive)
    {
       ParentClass::bf = &bf;
       ParentClass::bf_s_lock = ReadGuard(&bf.header.lock, bf.header.lock.load());
@@ -129,12 +145,12 @@ public:
       ParentClass::moved = false;
    }
 
-   static WritePageGuard allocateNewPage(DTID dt_id)
+   static WritePageGuard allocateNewPage(DTID dt_id, bool keep_alive = true)
    {
       ensure(BMC::global_bf != nullptr);
       auto &bf = BMC::global_bf->allocatePage();
       bf.page.dt_id = dt_id;
-      return WritePageGuard(bf);
+      return WritePageGuard(bf, keep_alive);
    }
 
    template<typename... Args>
@@ -142,6 +158,12 @@ public:
    {
       new(ParentClass::bf->page.dt) T(std::forward<Args>(args)...);
    }
+   // -------------------------------------------------------------------------------------
+   void keepAlive()
+   {
+      keep_alive = true;
+   }
+   // -------------------------------------------------------------------------------------
    ~WritePageGuard()
    {
       if ( !ParentClass::moved ) {
@@ -151,6 +173,10 @@ public:
          }
          ParentClass::bf_s_lock.local_version = 2 + ParentClass::bf_s_lock.version_ptr->fetch_add(2);
          ParentClass::moved = true;
+         // -------------------------------------------------------------------------------------
+         if ( !keep_alive ) {
+            BMC::global_bf->reclaimPage(*ParentClass::bf);
+         }
       }
    }
 };

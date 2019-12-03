@@ -1,4 +1,5 @@
 #include "BTreeSlotted.hpp"
+#include "leanstore/storage/buffer-manager/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -306,25 +307,24 @@ Swip<BTreeNode> &BTreeNode::lookupInner(u8 *key, unsigned keyLength)
    return getValue(pos);
 }
 // -------------------------------------------------------------------------------------
-void BTreeNode::split(BTreeNode *parent, BTreeNode *nodeLeft, Swip<BTreeNode> node_left_swip, unsigned sepSlot, u8 *sepKey, unsigned sepLength)
+void BTreeNode::split(WritePageGuard<BTreeNode> &parent, WritePageGuard<BTreeNode> &nodeLeft, unsigned sepSlot, u8 *sepKey, unsigned sepLength)
 {
    //PRE: current, parent and nodeLeft are x locked
    assert(sepSlot > 0);
    assert(sepSlot < (EFFECTIVE_PAGE_SIZE / sizeof(ValueType)));
    // -------------------------------------------------------------------------------------
-   // TODO new BTreeNode(isLeaf);
    nodeLeft->setFences(getLowerFenceKey(), lowerFence.length, sepKey, sepLength);
    BTreeNode tmp(isLeaf);
    BTreeNode *nodeRight = &tmp;
    nodeRight->setFences(sepKey, sepLength, getUpperFenceKey(), upperFence.length);
-   bool succ = parent->insert(sepKey, sepLength, node_left_swip);
+   bool succ = parent->insert(sepKey, sepLength, nodeLeft.swip());
    static_cast<void>(succ);
    assert(succ);
    if ( isLeaf ) {
-      copyKeyValueRange(nodeLeft, 0, 0, sepSlot + 1);
+      copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot + 1);
       copyKeyValueRange(nodeRight, 0, nodeLeft->count, count - nodeLeft->count);
    } else {
-      copyKeyValueRange(nodeLeft, 0, 0, sepSlot);
+      copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot);
       copyKeyValueRange(nodeRight, 0, nodeLeft->count + 1, count - nodeLeft->count - 1);
       nodeLeft->upper = getValue(nodeLeft->count);
       nodeRight->upper = upper;
@@ -332,12 +332,6 @@ void BTreeNode::split(BTreeNode *parent, BTreeNode *nodeLeft, Swip<BTreeNode> no
    nodeLeft->makeHint();
    nodeRight->makeHint();
    memcpy(reinterpret_cast<char *>(this), nodeRight, sizeof(BTreeNode));
-}
-// -------------------------------------------------------------------------------------
-void BTreeNode::destroy()
-{
-   //TODO
-   ensure(false);
 }
 // -------------------------------------------------------------------------------------
 bool BTreeNode::removeSlot(unsigned slotId)

@@ -82,11 +82,9 @@ void BufferManager::pageProviderThread()
    auto logger = spdlog::rotating_logger_mt("PageProviderThread", "page_provider.txt", 1024 * 1024, 1);
    // -------------------------------------------------------------------------------------
    // Init AIO Context
-   // TODO: own variable for page provider write buffer size
    AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_async_batch_size);
    // -------------------------------------------------------------------------------------
    BufferFrame *r_buffer = &randomBufferFrame();
-   //TODO: REWRITE!!
    const u64 free_pages_limit = FLAGS_free * FLAGS_dram / 100.0;
    const u64 cooling_pages_limit = FLAGS_cool * FLAGS_dram / 100.0;
    // -------------------------------------------------------------------------------------
@@ -286,7 +284,7 @@ void BufferManager::debuggingThread()
               << "\tpr:" << (debugging_counters.pp_thread_rounds.exchange(0))
               << endl;
       }
-      sleep(2);
+      sleep(1);
    }
    bg_threads_counter--;
 }
@@ -339,6 +337,13 @@ BufferFrame &BufferManager::allocatePage()
    free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
    // -------------------------------------------------------------------------------------
    return free_bf;
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::reclaimPage(BufferFrame &bf)
+{
+   // TODO: reclaim bf pid
+   new(&bf) BufferFrame();
+   dram_free_list.push(bf);
 }
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException

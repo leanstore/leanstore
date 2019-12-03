@@ -2,6 +2,7 @@
 #include "Exceptions.hpp"
 #include "leanstore/storage/buffer-manager/DTRegistry.hpp"
 #include "leanstore/storage/buffer-manager/BufferFrame.hpp"
+#include "leanstore/storage/buffer-manager/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <iostream>
@@ -263,14 +264,13 @@ struct BTreeNode : public BTreeNodeHeader {
    void copyKeyValue(u16 srcSlot, BTreeNode *dst, u16 dstSlot);
    void insertFence(FenceKey &fk, u8 *key, unsigned keyLength);
    void setFences(u8 *lowerKey, unsigned lowerLen, u8 *upperKey, unsigned upperLen);
-   void split(BTreeNode *parent, BTreeNode *new_node, Swip<BTreeNode> node_left_swip, unsigned sepSlot, u8 *sepKey, unsigned sepLength);
+   void split(WritePageGuard<BTreeNode> &parent, WritePageGuard<BTreeNode> &new_node, unsigned sepSlot, u8 *sepKey, unsigned sepLength);
    unsigned commonPrefix(unsigned aPos, unsigned bPos);
    SeparatorInfo findSep();
    void getSep(u8 *sepKeyOut, SeparatorInfo info);
    Swip<BTreeNode> &lookupInner(u8 *key, unsigned keyLength);
    // -------------------------------------------------------------------------------------
    // Not synchronized or todo section
-   void destroy();
    bool removeSlot(unsigned slotId);
    bool remove(u8 *key, unsigned keyLength);
 };
