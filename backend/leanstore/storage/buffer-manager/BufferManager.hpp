@@ -5,7 +5,6 @@
 #include "BufferFrame.hpp"
 #include "FreeList.hpp"
 #include "PartitionTable.hpp"
-#include "Config.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <sys/mman.h>
@@ -50,8 +49,9 @@ private:
    int ssd_fd;
    // -------------------------------------------------------------------------------------
    // Free  Pages
+   u64 dram_pool_size; // total number of dram buffer frames
    FreeList dram_free_list;
-   atomic<u64> ssd_pages_counter = 0;
+   atomic<u64> ssd_used_pages_counter = 0;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io

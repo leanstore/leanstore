@@ -21,7 +21,7 @@ DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
 DEFINE_uint32(ycsb_warmup_rounds, 1, "");
 DEFINE_uint32(ycsb_tx_rounds, 1, "");
 DEFINE_uint32(ycsb_tx_count, 0, "default = tuples");
-DEFINE_bool(persist, true, ""); // TODO: still not ready
+DEFINE_bool(fs, true, "");
 DEFINE_bool(verify, false, "");
 DEFINE_bool(ycsb_scan, false, "");
 DEFINE_bool(ycsb_tx, true, "");
@@ -53,6 +53,75 @@ struct YCSBPayload {
    }
 };
 // -------------------------------------------------------------------------------------
+template<typename Key, typename Payload>
+struct BTreeInterface {
+   virtual bool lookup(Key k, Payload &v) = 0;
+   virtual void insert(Key k, Payload &v) = 0;
+};
+// -------------------------------------------------------------------------------------
+template<typename Key, typename Payload>
+struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
+   leanstore::btree::vs::BTree &btree;
+
+   BTreeVSAdapter(leanstore::btree::vs::BTree &btree)
+           : btree(btree) {}
+
+   unsigned fold(uint8_t *writer, const s32 &x)
+   {
+      *reinterpret_cast<u32 *>(writer) = __builtin_bswap32(x ^ (1ul << 31));
+      return sizeof(x);
+   }
+
+   unsigned fold(uint8_t *writer, const s64 &x)
+   {
+      *reinterpret_cast<u64 *>(writer) = __builtin_bswap64(x ^ (1ull << 63));
+      return sizeof(x);
+   }
+
+   unsigned fold(uint8_t *writer, const u64 &x)
+   {
+      *reinterpret_cast<u64 *>(writer) = __builtin_bswap64(x);
+      return sizeof(x);
+   }
+
+   unsigned fold(uint8_t *writer, const u32 &x)
+   {
+      *reinterpret_cast<u32 *>(writer) = __builtin_bswap32(x);
+      return sizeof(x);
+   }
+
+   bool lookup(Key k, Payload &v) override
+   {
+      u8 key_bytes[sizeof(Key)];
+      u64 payloadLength;
+      return btree.lookup(key_bytes, fold(key_bytes, k), payloadLength, reinterpret_cast<u8 *>(&v));
+   }
+   void insert(Key k, Payload &v) override
+   {
+      u8 key_bytes[sizeof(Key)];
+      u64 payloadLength;
+      btree.insert(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8 *>(&v));
+   }
+};
+// -------------------------------------------------------------------------------------
+template<typename Key, typename Payload>
+struct BTreeFSAdapter : BTreeInterface<Key, Payload> {
+   leanstore::btree::fs::BTree<Key, Payload> &btree;
+   BTreeFSAdapter(leanstore::btree::fs::BTree<Key, Payload> &btree)
+           : btree(btree)
+   {
+      btree.printFanoutInformation();
+   }
+   bool lookup(Key k, Payload &v) override
+   {
+      return btree.lookup(k, v);
+   }
+   void insert(Key k, Payload &v) override
+   {
+      btree.insert(k, v);
+   }
+};
+// -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
 {
    double tps = ((factor * 1.0 / (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0)));
@@ -66,19 +135,21 @@ int main(int argc, char **argv)
    // -------------------------------------------------------------------------------------
    tbb::task_scheduler_init taskScheduler(FLAGS_ycsb_threads);
    // -------------------------------------------------------------------------------------
+   PerfEvent e;
+   e.setParam("threads", FLAGS_ycsb_threads);
+   chrono::high_resolution_clock::time_point begin, end;
+   // -------------------------------------------------------------------------------------
    // LeanStore DB
    LeanStore db;
-   btree::fs::BTree<YCSBKey, YCSBPayload> *btree_ptr;
-   if ( FLAGS_persist ) {
-      btree_ptr = &db.registerBTree<YCSBKey, YCSBPayload>("ycsb");
+   unique_ptr<BTreeInterface<YCSBKey, YCSBPayload>> adapter;
+   if ( FLAGS_fs ) {
+      auto &fs_btree = db.registerBTree<YCSBKey, YCSBPayload>("ycsb");
+      adapter.reset(new BTreeFSAdapter(fs_btree));
    } else {
-      db.restore();
-      btree_ptr = &db.retrieveBTree<YCSBKey, YCSBPayload>("ycsb");
+      auto &vs_btree = db.registerVSBTree("ycsb");
+      adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
    }
-   auto &table = *btree_ptr;
-   // -------------------------------------------------------------------------------------
-   // Print fanout information
-   table.printFanoutInformation();
+   auto &table = *adapter;
    // -------------------------------------------------------------------------------------
    // Prepare lookup_keys in Zipf distribution
    const u64 tx_count = (FLAGS_ycsb_tx_count) ? FLAGS_ycsb_tx_count : FLAGS_ycsb_tuple_count;
@@ -118,74 +189,84 @@ int main(int argc, char **argv)
    cout << setprecision(4);
    // -------------------------------------------------------------------------------------
    // Insert values
-   if ( FLAGS_persist ) {
+   {
+      const u64 n = FLAGS_ycsb_tuple_count;
+      e.setParam("op", "insert");
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Inserting values" << endl;
-      auto begin = chrono::high_resolution_clock::now();
-      tbb::parallel_for(tbb::blocked_range<u64>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<u64> &range) {
-         for ( u64 i = range.begin(); i < range.end(); i++ ) {
-            YCSBPayload &payload = payloads[i];
-            table.insert(i, payload);
-         }
-      });
-      auto end = chrono::high_resolution_clock::now();
+      begin = chrono::high_resolution_clock::now();
+      {
+         PerfEventBlock b(e, n);
+         tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
+            for ( u64 i = range.begin(); i < range.end(); i++ ) {
+               YCSBPayload &payload = payloads[i];
+               table.insert(i, payload);
+            }
+         });
+      }
+      end = chrono::high_resolution_clock::now();
       cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-      cout << calculateMTPS(begin, end, FLAGS_ycsb_tuple_count) << " M tps" << endl;
+      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
       // -------------------------------------------------------------------------------------
       const u64 written_pages = db.getBufferManager().consumedPages();
       const u64 mib = written_pages * PAGE_SIZE / 1024 / 1024;
       cout << "inserted volume: (pages, MiB) = (" << written_pages << ", " << mib << ")" << endl;
-      cout << "needed/available = " << written_pages * 1.0 / (FLAGS_dram) << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
-      // -------------------------------------------------------------------------------------
    }
+   // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    // Scan
    if ( FLAGS_ycsb_scan ) {
+      e.setParam("op", "scan");
+      const u64 n = FLAGS_ycsb_tuple_count;
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Scan" << endl;
       db.getBufferManager().debugging_counters.io_operations.store(0);
-      auto begin = chrono::high_resolution_clock::now();
-      tbb::parallel_for(tbb::blocked_range<u64>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<u64> &range) {
-         for ( u64 i = range.begin(); i < range.end(); i++ ) {
-            YCSBPayload result;
-            table.lookup(i, result);
-         }
-      });
-      auto end = chrono::high_resolution_clock::now();
+      {
+         begin = chrono::high_resolution_clock::now();
+         PerfEventBlock b(e, n);
+         tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
+            for ( u64 i = range.begin(); i < range.end(); i++ ) {
+               YCSBPayload result;
+               table.lookup(i, result);
+            }
+         });
+         end = chrono::high_resolution_clock::now();
+      }
       // -------------------------------------------------------------------------------------
       cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
       cout << "IOs = " << db.getBufferManager().debugging_counters.io_operations.exchange(0) << endl;
       // -------------------------------------------------------------------------------------
-      cout << calculateMTPS(begin, end, FLAGS_ycsb_tuple_count) << " M tps" << endl;
+      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
    if ( FLAGS_verify ) {
+      const u64 n = FLAGS_ycsb_tuple_count;
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Verification" << endl;
-      auto begin = chrono::high_resolution_clock::now();
-      tbb::parallel_for(tbb::blocked_range<u64>(0, FLAGS_ycsb_tuple_count), [&](const tbb::blocked_range<u64> &range) {
+      begin = chrono::high_resolution_clock::now();
+      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
          for ( u64 i = range.begin(); i < range.end(); i++ ) {
             YCSBPayload result;
             ensure (table.lookup(i, result) && result == payloads[i]);
          }
       });
-      auto end = chrono::high_resolution_clock::now();
-      cout << calculateMTPS(begin, end, FLAGS_ycsb_tuple_count) << " M tps" << endl;
+      end = chrono::high_resolution_clock::now();
+      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
    if ( FLAGS_ycsb_tx ) {
-      PerfEvent e;
+      const u64 n = lookup_keys.size();
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "~Transactions" << endl;
+      e.setParam("op", "tx");
       PerfEventBlock b(e, lookup_keys.size() * (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds));
-      e.setParam("threads", FLAGS_ycsb_threads);
       for ( u32 r_i = 0; r_i < (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds); r_i++ ) {
          db.getBufferManager().debugging_counters.io_operations.store(0);
-         auto begin = chrono::high_resolution_clock::now();
-         tbb::parallel_for(tbb::blocked_range<u64>(0, lookup_keys.size()), [&](const tbb::blocked_range<u64> &range) {
+         begin = chrono::high_resolution_clock::now();
+         tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
             for ( u64 i = range.begin(); i < range.end(); i++ ) {
                YCSBKey key = lookup_keys[i];
                YCSBPayload result;
@@ -196,7 +277,7 @@ int main(int argc, char **argv)
                }
             }
          });
-         auto end = chrono::high_resolution_clock::now();
+         end = chrono::high_resolution_clock::now();
          // -------------------------------------------------------------------------------------
          cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
          cout << "IOs = " << db.getBufferManager().debugging_counters.io_operations.exchange(0) << endl;
@@ -206,11 +287,10 @@ int main(int argc, char **argv)
          } else {
             cout << "Hot run: ";
          }
-         cout << calculateMTPS(begin, end, lookup_keys.size()) << " M tps" << endl;
+         cout << calculateMTPS(begin, end, n) << " M tps" << endl;
       }
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
-   db.persist();
    return 0;
 }

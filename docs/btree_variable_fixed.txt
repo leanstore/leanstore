@@ -11,3 +11,5 @@ adnan@skx:~/dev/workspace/db/leanstore/cmake-build-release-g9/tools$ ALL=1 T=1 N
   approach, threads, workload, time,   cycle,   instr, L1-miss, LLC-miss, br-miss,   task,    scale,  IPC,  CPU,  GHz
 optimistic,       1,   insert, 8.42, 3485.29, 1165.87,  122.20,    89.64,   15.30, 841.75, 10000000, 0.33, 1.00, 4.14
 optimistic,       1,   lookup, 4.27, 1777.32, 414.43,   30.14,    19.75,   11.73, 427.17, 10000000, 0.23, 1.00, 4.16
+
+

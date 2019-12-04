@@ -31,12 +31,13 @@ BufferManager::BufferManager()
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
    {
-      const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram);
+      dram_pool_size = FLAGS_dram_gib * 1024 * 1024 * 1024 / sizeof(BufferFrame);
+      const u64 dram_total_size = sizeof(BufferFrame) * dram_pool_size;
       bfs = reinterpret_cast<BufferFrame *>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
       madvise(bfs, dram_total_size, MADV_DONTFORK); // O_DIRECT does not work with forking.
       // -------------------------------------------------------------------------------------
-      for ( u64 bf_i = 0; bf_i < FLAGS_dram; bf_i++ ) {
+      for ( u64 bf_i = 0; bf_i < dram_pool_size; bf_i++ ) {
          dram_free_list.push(*new(bfs + bf_i) BufferFrame());
       }
       // -------------------------------------------------------------------------------------
@@ -62,7 +63,7 @@ BufferManager::BufferManager()
    ensure (fcntl(ssd_fd, F_GETFL) != -1);
    // -------------------------------------------------------------------------------------
    // Initialize partitions
-   const u64 cooling_bfs_upper_bound = FLAGS_cool * 1.5 * FLAGS_dram / 100.0;
+   const u64 cooling_bfs_upper_bound = FLAGS_cool * 1.5 * dram_pool_size / 100.0;
    the_partition = make_unique<PartitionTable>(utils::getBitsNeeded(cooling_bfs_upper_bound));
    // -------------------------------------------------------------------------------------
    // Background threads
@@ -85,8 +86,8 @@ void BufferManager::pageProviderThread()
    AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_async_batch_size);
    // -------------------------------------------------------------------------------------
    BufferFrame *r_buffer = &randomBufferFrame();
-   const u64 free_pages_limit = FLAGS_free * FLAGS_dram / 100.0;
-   const u64 cooling_pages_limit = FLAGS_cool * FLAGS_dram / 100.0;
+   const u64 free_pages_limit = FLAGS_free * dram_pool_size / 100.0;
+   const u64 cooling_pages_limit = FLAGS_cool * dram_pool_size / 100.0;
    // -------------------------------------------------------------------------------------
    auto phase_1_condition = [&]() {
       return (dram_free_list.counter + cooling_bfs_counter) < cooling_pages_limit;
@@ -141,7 +142,11 @@ void BufferManager::pageProviderThread()
                assert(parent_handler.guard.local_version == parent_handler.guard.version_ptr->load());
                assert(parent_handler.swip.bf == r_buffer);
                // -------------------------------------------------------------------------------------
-               assert (!(partition.ht.has(r_buffer->header.pid)));
+               if ( partition.ht.has(r_buffer->header.pid)) {
+                  // This means that some thread is still in reading stage (holding cio_mutex)
+                  r_buffer = &randomBufferFrame();
+                  continue;
+               }
                CIOFrame &cio_frame = partition.ht.insert(pid);
                assert ((partition.ht.has(r_buffer->header.pid)));
                cio_frame.state = CIOFrame::State::COOLING;
@@ -267,7 +272,7 @@ void BufferManager::debuggingThread()
    cout << endl << "1\t2\t3\tfree_bfs\tcooling_bfs\tevicted_bfs\tawrites_submitted\twrites_submit_failed\tpp_rounds" << endl;
    // -------------------------------------------------------------------------------------
    s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0;
-   while ( bg_threads_keep_running ) {
+   while ( FLAGS_print_debug && bg_threads_keep_running ) {
       local_phase_1_ms = debugging_counters.phase_1_ms.exchange(0);
       local_phase_2_ms = debugging_counters.phase_2_ms.exchange(0);
       local_phase_3_ms = debugging_counters.phase_3_ms.exchange(0);
@@ -308,14 +313,14 @@ void BufferManager::restore()
 // -------------------------------------------------------------------------------------
 u64 BufferManager::consumedPages()
 {
-   return ssd_pages_counter;
+   return ssd_used_pages_counter;
 }
 // -------------------------------------------------------------------------------------
 // Buffer Frames Management
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::randomBufferFrame()
 {
-   auto rand_buffer_i = utils::RandomGenerator::getRand<u64>(0, FLAGS_dram);
+   auto rand_buffer_i = utils::RandomGenerator::getRand<u64>(0, dram_pool_size);
    return bfs[rand_buffer_i];
 }
 // -------------------------------------------------------------------------------------
@@ -325,7 +330,7 @@ BufferFrame &BufferManager::allocatePage()
    if ( dram_free_list.counter < 10 ) {
       throw RestartException();
    }
-   PID free_pid = ssd_pages_counter++;
+   PID free_pid = ssd_used_pages_counter++;
    BufferFrame &free_bf = dram_free_list.pop();
    assert((&free_bf - bfs) < FLAGS_dram);
    assert(free_bf.header.state == BufferFrame::State::FREE);
@@ -516,7 +521,7 @@ void BufferManager::stopBackgroundThreads()
 BufferManager::~BufferManager()
 {
    stopBackgroundThreads();
-   const u64 dram_total_size = sizeof(BufferFrame) * u64(FLAGS_dram);
+   const u64 dram_total_size = sizeof(BufferFrame) * u64(dram_pool_size);
    close(ssd_fd);
    ssd_fd = -1;
    munmap(bfs, dram_total_size);
