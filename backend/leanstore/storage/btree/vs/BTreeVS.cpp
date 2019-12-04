@@ -54,7 +54,7 @@ void BTree::insert(u8 *key, unsigned keyLength, u64 payloadLength, u8 *payload)
 {
    u32 mask = 1;
    u32 const max = 64; //MAX_BACKOFF
-   static u64 last_bf ;
+   static atomic<u64> last_bf ;
    while ( true ) {
       try {
          auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
