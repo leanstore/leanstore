@@ -32,7 +32,7 @@ BufferManager::BufferManager()
    // Init DRAM pool
    {
       dram_pool_size = FLAGS_dram_gib * 1024 * 1024 * 1024 / sizeof(BufferFrame);
-      const u64 dram_total_size = sizeof(BufferFrame) * dram_pool_size;
+      const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
       bfs = reinterpret_cast<BufferFrame *>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
       madvise(bfs, dram_total_size, MADV_DONTFORK); // O_DIRECT does not work with forking.
@@ -521,7 +521,7 @@ void BufferManager::stopBackgroundThreads()
 BufferManager::~BufferManager()
 {
    stopBackgroundThreads();
-   const u64 dram_total_size = sizeof(BufferFrame) * u64(dram_pool_size);
+   const u64 dram_total_size = sizeof(BufferFrame)  * (dram_pool_size + safety_pages);
    close(ssd_fd);
    ssd_fd = -1;
    munmap(bfs, dram_total_size);
