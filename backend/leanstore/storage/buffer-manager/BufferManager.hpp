@@ -49,7 +49,7 @@ private:
    int ssd_fd;
    // -------------------------------------------------------------------------------------
    // Free  Pages
-   const u8 safety_pages = 5; // we reserve these extra pages to prevent segfaults
+   const u8 safety_pages = 10; // we reserve these extra pages to prevent segfaults
    u64 dram_pool_size; // total number of dram buffer frames
    FreeList dram_free_list;
    atomic<u64> ssd_used_pages_counter = 0;

@@ -138,7 +138,7 @@ struct BTreeNode : public BTreeNodeHeader {
    }
 
    // Accessors for both types of strings
-   inline u64 getPayloadLength(unsigned slotId) { return *reinterpret_cast<u64 *>(ptr() + slot[slotId].offset); }
+   inline u16 getPayloadLength(unsigned slotId) { return *reinterpret_cast<u16 *>(ptr() + slot[slotId].offset); }
    inline ValueType &getValue(unsigned slotId) { return *reinterpret_cast<ValueType *>(ptr() + slot[slotId].offset); }
    inline unsigned getFullKeyLength(unsigned slotId) { return prefixLength + slot[slotId].headLen + (isLarge(slotId) ? getRestLenLarge(slotId) : getRestLen(slotId)); }
    inline void copyFullKey(unsigned slotId, u8 *out, unsigned fullLength)
