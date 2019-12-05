@@ -18,7 +18,7 @@ struct ParentSwipHandler {
 // -------------------------------------------------------------------------------------
 struct DTRegistry {
    struct DTMeta {
-      std::function<void(void *, BufferFrame &, std::function<bool(Swip<BufferFrame> &)>)> iterate_childern;
+      std::function<void(void *, BufferFrame &, std::function<bool(Swip<BufferFrame> &)>)> iterate_children;
       // the caller must have called the current buffer frame exclusively before calling
       std::function<ParentSwipHandler(void *, BufferFrame &)> find_parent;
       u64 instances_counter = 0;

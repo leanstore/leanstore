@@ -1,0 +1,4 @@
+BTree VS uses u16 for offsets
+so in the worse cast, it gets 2^16/2^14 bytes off the page border
+restLen(2^8) and restLenLarge(2^16) can make it worse
+Therefore, we allocate extra 10 pages to make sure that we do not read from unallocated region.

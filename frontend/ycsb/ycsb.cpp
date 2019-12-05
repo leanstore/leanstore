@@ -57,6 +57,7 @@ template<typename Key, typename Payload>
 struct BTreeInterface {
    virtual bool lookup(Key k, Payload &v) = 0;
    virtual void insert(Key k, Payload &v) = 0;
+   virtual void update(Key k, Payload &v) = 0;
 };
 // -------------------------------------------------------------------------------------
 template<typename Key, typename Payload>
@@ -102,6 +103,12 @@ struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
       u64 payloadLength;
       btree.insert(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8 *>(&v));
    }
+   void update(Key k, Payload &v) override
+   {
+      u8 key_bytes[sizeof(Key)];
+      u64 payloadLength;
+      btree.update(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8 *>(&v));
+   }
 };
 // -------------------------------------------------------------------------------------
 template<typename Key, typename Payload>
@@ -117,6 +124,10 @@ struct BTreeFSAdapter : BTreeInterface<Key, Payload> {
       return btree.lookup(k, v);
    }
    void insert(Key k, Payload &v) override
+   {
+      btree.insert(k, v);
+   }
+   void update(Key k, Payload &v) override
    {
       btree.insert(k, v);
    }
@@ -273,7 +284,11 @@ int main(int argc, char **argv)
                if ( utils::RandomGenerator::getRand(0, 100) <= FLAGS_ycsb_read_ratio ) {
                   table.lookup(key, result);
                } else {
-                  table.insert(key, payloads[key % FLAGS_ycsb_tuple_count]);
+                  const u32 rand_payload = utils::RandomGenerator::getRand<u32>(0, FLAGS_ycsb_tuple_count);
+                  table.update(key, payloads[rand_payload]);
+                  if ( FLAGS_verify ) {
+                     ensure(table.lookup(key, result) && result == payloads[rand_payload]);
+                  }
                }
             }
          });

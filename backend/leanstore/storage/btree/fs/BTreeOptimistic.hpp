@@ -179,7 +179,7 @@ struct BTree {
    DTRegistry::DTMeta getMeta()
    {
       DTRegistry::DTMeta btree_meta = {
-              .iterate_childern=iterateChildSwips, .find_parent = findParent
+              .iterate_children=iterateChildSwips, .find_parent = findParent
       };
       return btree_meta;
    }

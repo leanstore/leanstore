@@ -24,13 +24,15 @@ struct BTree {
    bool lookup(u8 *key, unsigned keyLength, u64 &payloadLength, u8 *result);
    void splitNode(WritePageGuard<BTreeNode> &node, WritePageGuard<BTreeNode> &parent, u8 *key, unsigned keyLength);
    void ensureSpace(WritePageGuard<BTreeNode> &toSplit, unsigned spaceNeeded, u8 *key, unsigned keyLength);
-   void insert(u8 *key, unsigned keyLength, u64 payloadLength, u8 *payload = nullptr);
-   bool remove(u8 *key, unsigned keyLength);
+   void insert(u8 *key, unsigned keyLength, u64 payloadLength, u8 *payload);
    // -------------------------------------------------------------------------------------
+   // TODO
+   void update(u8 *key, unsigned keyLength, u64 payloadLength, u8 *payload);
+   bool remove(u8 *key, unsigned keyLength);
    // -------------------------------------------------------------------------------------
    static DTRegistry::DTMeta getMeta();
    static ParentSwipHandler findParent(void *btree_object, BufferFrame &bf);
-   static void iterateChildSwips(void */*btree_object*/, BufferFrame &bf, std::function<bool(Swip<BufferFrame> &)> callback);
+   static void iterateChildrenSwips(void */*btree_object*/, BufferFrame &bf, std::function<bool(Swip<BufferFrame> &)> callback);
    // -------------------------------------------------------------------------------------
    ~BTree();
 };

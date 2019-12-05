@@ -63,6 +63,24 @@ TEST(BTree, VariableSize)
          }
       });
    }
+   {
+      e.setParam("op", "delete");
+      PerfEventBlock b(e, n);
+      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
+         for ( u64 i = range.begin(); i < range.end(); i++ ) {
+            btree.remove(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length());
+         }
+      });
+   }
+   {
+      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
+         string result(max_payloads_length, '0');
+         u64 result_length;
+         for ( u64 i = range.begin(); i < range.end(); i++ ) {
+            EXPECT_FALSE(btree.lookup(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length(), result_length, reinterpret_cast<u8 *>(result.data())));
+         }
+      });
+   }
    // -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------

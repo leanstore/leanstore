@@ -96,6 +96,10 @@ struct BTreeNode : public BTreeNodeHeader {
    }
 
    // Accessors for normal strings: | Value | restKey | Payload
+   inline u8 *getData(unsigned slotId)
+   {
+      return ptr() + slot[slotId].offset;
+   }
    inline u8 *getRest(unsigned slotId)
    {
       assert(!isLarge(slotId));
@@ -170,7 +174,7 @@ struct BTreeNode : public BTreeNodeHeader {
    void makeHint();
    // -------------------------------------------------------------------------------------
    template<bool equalityOnly = false>
-   unsigned lowerBound(u8 *key, unsigned keyLength)
+   s32 lowerBound(u8 *key, unsigned keyLength)
    {
       //for (unsigned i=1; i<count; i++)
       //assert(slot[i-1].sketch <= slot[i].sketch);
@@ -253,6 +257,7 @@ struct BTreeNode : public BTreeNodeHeader {
    void updateHint(unsigned slotId);
    // -------------------------------------------------------------------------------------
    bool insert(u8 *key, unsigned keyLength, ValueType value, u8 *payload = nullptr);
+   bool update(u8 *key, unsigned keyLength, u16 payload_length, u8 *payload);
    // -------------------------------------------------------------------------------------
    void compactify();
    // -------------------------------------------------------------------------------------

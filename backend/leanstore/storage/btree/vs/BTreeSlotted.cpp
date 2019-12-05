@@ -82,13 +82,30 @@ bool BTreeNode::insert(u8 *key, unsigned keyLength, ValueType value, u8 *payload
    if ( !requestSpaceFor(space_needed))
       return false; // no space, insert fails
 
-   unsigned slotId = lowerBound<false>(key, keyLength);
+   s32 slotId = lowerBound<false>(key, keyLength);
    memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
    storeKeyValue(slotId, key, keyLength, value, payload);
    count++;
    updateHint(slotId);
    assert(lowerBound<true>(key, keyLength) == slotId); // assert for duplicates
    return true;
+}
+// -------------------------------------------------------------------------------------
+bool BTreeNode::update(u8 *key, unsigned keyLength, u16 payload_length, u8 *payload)
+{
+   s32 slotId = lowerBound<true>(key, keyLength);
+   if ( slotId == -1 ) {
+      // this happens after we remove the slot and not be able to insert directly without a split
+      return insert(key, keyLength, ValueType(reinterpret_cast<BufferFrame *>(payload_length)), payload);
+   }
+   s32 space_needed = payload_length - getPayloadLength(slotId);
+   if ( space_needed == 0 ) {
+      memcpy(isLarge(slotId) ? getPayloadLarge(slotId) : getPayload(slotId), payload, payload_length);
+      return true;
+   } else {
+      removeSlot(slotId);
+      return insert(key, keyLength, ValueType(reinterpret_cast<BufferFrame *>(payload_length)), payload);
+   }
 }
 // -------------------------------------------------------------------------------------
 void BTreeNode::compactify()
@@ -301,7 +318,7 @@ void BTreeNode::getSep(u8 *sepKeyOut, BTreeNodeHeader::SeparatorInfo info)
 // -------------------------------------------------------------------------------------
 Swip<BTreeNode> &BTreeNode::lookupInner(u8 *key, unsigned keyLength)
 {
-   unsigned pos = lowerBound<false>(key, keyLength);
+   s32 pos = lowerBound<false>(key, keyLength);
    if ( pos == count )
       return upper;
    return getValue(pos);
@@ -336,10 +353,10 @@ void BTreeNode::split(WritePageGuard<BTreeNode> &parent, WritePageGuard<BTreeNod
 // -------------------------------------------------------------------------------------
 bool BTreeNode::removeSlot(unsigned slotId)
 {
-   ensure(false);
+   // TOOD: check
    if ( slot[slotId].restLen )
-      spaceUsed -= sizeof(ValueType) + (isLarge(slotId) ? (getRestLenLarge(slotId) + sizeof(u16)) : slot[slotId].restLen);
-   spaceUsed -= getPayloadLength(slotId);
+      spaceUsed -= sizeof(ValueType) + (isLarge(slotId) ? (getRestLenLarge(slotId) + sizeof(u16)) : getRestLen(slotId));
+   spaceUsed -= (isLeaf) ? getPayloadLength(slotId) : 0;
    memmove(slot + slotId, slot + slotId + 1, sizeof(Slot) * (count - slotId - 1));
    count--;
    makeHint();
@@ -348,8 +365,6 @@ bool BTreeNode::removeSlot(unsigned slotId)
 // -------------------------------------------------------------------------------------
 bool BTreeNode::remove(u8 *key, unsigned keyLength)
 {
-   // TODO: synchornization
-   ensure(false);
    int slotId = lowerBound<true>(key, keyLength);
    if ( slotId == -1 )
       return false; // key not found

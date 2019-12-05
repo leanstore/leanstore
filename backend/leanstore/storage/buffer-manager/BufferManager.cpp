@@ -332,7 +332,6 @@ BufferFrame &BufferManager::allocatePage()
    }
    PID free_pid = ssd_used_pages_counter++;
    BufferFrame &free_bf = dram_free_list.pop();
-   assert((&free_bf - bfs) < FLAGS_dram);
    assert(free_bf.header.state == BufferFrame::State::FREE);
    // -------------------------------------------------------------------------------------
    // Initialize Buffer Frame
