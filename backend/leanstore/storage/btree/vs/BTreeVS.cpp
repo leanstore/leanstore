@@ -140,6 +140,7 @@ void BTree::ensureSpace(WritePageGuard<BTreeNode> &toSplit, unsigned spaceNeeded
    }
    auto to_split_parent_x_guard = WritePageGuard(std::move(c_guard));
    //Note: c_guard is already write locked by the caller
+   //if (freeSpaceAfterCompaction()<spaceNeeded)
    splitNode(toSplit, to_split_parent_x_guard, key, keyLength);
 }
 // -------------------------------------------------------------------------------------

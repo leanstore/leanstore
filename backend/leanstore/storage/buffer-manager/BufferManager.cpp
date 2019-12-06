@@ -269,6 +269,7 @@ void BufferManager::pageProviderThread()
 // -------------------------------------------------------------------------------------
 void BufferManager::debuggingThread()
 {
+   pthread_setname_np(pthread_self(), "debugging_thread");
    cout << endl << "1\t2\t3\tfree_bfs\tcooling_bfs\tevicted_bfs\tawrites_submitted\twrites_submit_failed\tpp_rounds" << endl;
    // -------------------------------------------------------------------------------------
    s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0;
