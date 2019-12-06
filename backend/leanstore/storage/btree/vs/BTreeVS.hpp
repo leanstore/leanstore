@@ -29,7 +29,10 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    // TODO
    void update(u8 *key, unsigned keyLength, u64 payloadLength, u8 *payload);
+   // -------------------------------------------------------------------------------------
    bool remove(u8 *key, unsigned keyLength);
+   void tryMerge(WritePageGuard<BTreeNode> &node, WritePageGuard<BTreeNode> &parent, int pos, u8 *key, u32 keyLength);
+   void tryEnsureFillingGrade(WritePageGuard<BTreeNode> &toMerge, u8 *key, u32 keyLength);
    // -------------------------------------------------------------------------------------
    static DTRegistry::DTMeta getMeta();
    static ParentSwipHandler findParent(void *btree_object, BufferFrame &bf);

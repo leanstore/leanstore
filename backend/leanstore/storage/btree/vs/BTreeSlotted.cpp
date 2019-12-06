@@ -153,10 +153,12 @@ bool BTreeNode::merge(unsigned slotId, WritePageGuard<BTreeNode> &parent, WriteP
       copyKeyValueRange(&tmp, 0, 0, count);
       u8 extraKey[extraKeyLength];
       parent->copyFullKey(slotId, extraKey, extraKeyLength);
-      storeKeyValue(count, extraKey, extraKeyLength, parent->getValue(slotId));
-      count++;
-      right->copyKeyValueRange(&tmp, count, 0, right->count);
+      tmp.storeKeyValue(count, extraKey, extraKeyLength, upper);
+      tmp.count++;
+      right->copyKeyValueRange(&tmp, tmp.count, 0, right->count);
       parent->removeSlot(slotId);
+      tmp.upper = right->upper;
+      tmp.makeHint();
       memcpy(reinterpret_cast<u8 *>(right.ptr()), &tmp, sizeof(BTreeNode));
       return true;
    }

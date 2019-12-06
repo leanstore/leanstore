@@ -13,7 +13,7 @@ namespace buffermanager {
 // -------------------------------------------------------------------------------------
 TEST(BTree, VariableSize)
 {
-   tbb::task_scheduler_init taskScheduler(10);
+   tbb::task_scheduler_init taskScheduler(1);
    LeanStore db;
    auto &btree = db.registerVSBTree("test");
    // -------------------------------------------------------------------------------------
@@ -63,7 +63,6 @@ TEST(BTree, VariableSize)
          }
       });
    }
-   cout << "deleted bfs "  << btree.removed_bfs << endl;
    btree.printInfos(100);
    {
       e.setParam("op", "delete");
@@ -74,6 +73,7 @@ TEST(BTree, VariableSize)
          }
       });
    }
+   cout << "deleted bfs " << btree.removed_bfs << endl;
    btree.printInfos(100);
    {
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
