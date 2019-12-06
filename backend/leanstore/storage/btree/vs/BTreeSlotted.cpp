@@ -121,7 +121,7 @@ void BTreeNode::compactify()
    assert(freeSpace() == should);
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::merge(unsigned slotId, BTreeNode *parent, BTreeNode *right)
+bool BTreeNode::merge(unsigned slotId, WritePageGuard<BTreeNode> &parent, WritePageGuard<BTreeNode> &right)
 {
    if ( isLeaf ) {
       assert(right->isLeaf);
@@ -136,7 +136,7 @@ bool BTreeNode::merge(unsigned slotId, BTreeNode *parent, BTreeNode *right)
       copyKeyValueRange(&tmp, 0, 0, count);
       right->copyKeyValueRange(&tmp, count, 0, right->count);
       parent->removeSlot(slotId);
-      memcpy(reinterpret_cast<u8 *>(right), &tmp, sizeof(BTreeNode));
+      memcpy(reinterpret_cast<u8 *>(right.ptr()), &tmp, sizeof(BTreeNode));
       right->makeHint();
       return true;
    } else {
@@ -157,7 +157,7 @@ bool BTreeNode::merge(unsigned slotId, BTreeNode *parent, BTreeNode *right)
       count++;
       right->copyKeyValueRange(&tmp, count, 0, right->count);
       parent->removeSlot(slotId);
-      memcpy(reinterpret_cast<u8 *>(right), &tmp, sizeof(BTreeNode));
+      memcpy(reinterpret_cast<u8 *>(right.ptr()), &tmp, sizeof(BTreeNode));
       return true;
    }
 }

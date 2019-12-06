@@ -13,11 +13,11 @@ namespace buffermanager {
 // -------------------------------------------------------------------------------------
 TEST(BTree, VariableSize)
 {
-   tbb::task_scheduler_init taskScheduler(20);
+   tbb::task_scheduler_init taskScheduler(10);
    LeanStore db;
    auto &btree = db.registerVSBTree("test");
    // -------------------------------------------------------------------------------------
-   const u64 n = 1e7;
+   const u64 n = 1e5;
    const u64 max_key_length = 100;
    const u64 max_payloads_length = 200;
    vector<string> keys;
@@ -63,15 +63,18 @@ TEST(BTree, VariableSize)
          }
       });
    }
+   cout << "deleted bfs "  << btree.removed_bfs << endl;
+   btree.printInfos(100);
    {
       e.setParam("op", "delete");
       PerfEventBlock b(e, n);
-      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
-         for ( u64 i = range.begin(); i < range.end(); i++ ) {
+      tbb::parallel_for(tbb::blocked_range<s64>(0, n), [&](const tbb::blocked_range<s64> &range) {
+         for ( s64 i = range.begin(); i < range.end(); i++ ) {
             btree.remove(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length());
          }
       });
    }
+   btree.printInfos(100);
    {
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
          string result(max_payloads_length, '0');

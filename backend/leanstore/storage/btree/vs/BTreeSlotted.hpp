@@ -262,7 +262,7 @@ struct BTreeNode : public BTreeNodeHeader {
    void compactify();
    // -------------------------------------------------------------------------------------
    // merge right node into this node
-   bool merge(unsigned slotId, BTreeNode *parent, BTreeNode *right);
+   bool merge(unsigned slotId, WritePageGuard<BTreeNode> &parent, WritePageGuard<BTreeNode> &right);
    // store key/value pair at slotId
    void storeKeyValue(u16 slotId, u8 *key, unsigned keyLength, ValueType value, u8 *payload = nullptr);
    void copyKeyValueRange(BTreeNode *dst, u16 dstSlot, u16 srcSlot, unsigned count);

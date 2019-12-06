@@ -313,7 +313,7 @@ void BufferManager::restore()
 // -------------------------------------------------------------------------------------
 u64 BufferManager::consumedPages()
 {
-   return ssd_used_pages_counter;
+   return ssd_used_pages_counter - ssd_freed_pages_counter;
 }
 // -------------------------------------------------------------------------------------
 // Buffer Frames Management
@@ -348,6 +348,7 @@ void BufferManager::reclaimPage(BufferFrame &bf)
    // TODO: reclaim bf pid
    new(&bf) BufferFrame();
    dram_free_list.push(bf);
+   ssd_freed_pages_counter++;
 }
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
@@ -520,7 +521,7 @@ void BufferManager::stopBackgroundThreads()
 BufferManager::~BufferManager()
 {
    stopBackgroundThreads();
-   const u64 dram_total_size = sizeof(BufferFrame)  * (dram_pool_size + safety_pages);
+   const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
    close(ssd_fd);
    ssd_fd = -1;
    munmap(bfs, dram_total_size);

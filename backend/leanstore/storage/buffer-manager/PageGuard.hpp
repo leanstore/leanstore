@@ -32,7 +32,6 @@ public:
    ReadPageGuard(ReadPageGuard &p_guard, Swip <T> &swip)
    {
       assert(p_guard.moved == false);
-      assert((p_guard.bf_s_lock.local_version & 2) == 0);
       if ( swip.isSwizzled()) {
          bf = &swip.asBufferFrame();
          p_guard.recheck();
@@ -164,6 +163,11 @@ public:
       keep_alive = true;
    }
    // -------------------------------------------------------------------------------------
+   void reclaim()
+   {
+      BMC::global_bf->reclaimPage(*ParentClass::bf);
+   }
+   // -------------------------------------------------------------------------------------
    ~WritePageGuard()
    {
       if ( !ParentClass::moved ) {
@@ -175,7 +179,7 @@ public:
          ParentClass::moved = true;
          // -------------------------------------------------------------------------------------
          if ( !keep_alive ) {
-            BMC::global_bf->reclaimPage(*ParentClass::bf);
+            reclaim();
          }
       }
    }

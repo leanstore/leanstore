@@ -6,7 +6,7 @@
 // -------------------------------------------------------------------------------------
 using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
-namespace leanstore{
+namespace leanstore {
 namespace btree {
 namespace vs {
 // -------------------------------------------------------------------------------------
@@ -15,6 +15,7 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    atomic<u16> height = 1; //debugging
    atomic<u64> restarts_counter = 0; //debugging
+   atomic<u64> removed_bfs = 0; //debugging
    OptimisticLock root_lock = 0;
    Swip<BTreeNode> root_swip;
    // -------------------------------------------------------------------------------------
@@ -35,13 +36,15 @@ struct BTree {
    static void iterateChildrenSwips(void */*btree_object*/, BufferFrame &bf, std::function<bool(Swip<BufferFrame> &)> callback);
    // -------------------------------------------------------------------------------------
    ~BTree();
+   // -------------------------------------------------------------------------------------
+   // Helpers
+   s64 iterateAllPages(ReadPageGuard<BTreeNode> &node, std::function<s64(BTreeNode &)> inner, std::function<s64(BTreeNode &)> leaf);
+   unsigned countInner();
+   unsigned countPages();
+   unsigned bytesFree();
+   void printInfos(uint64_t totalSize);
 };
 // -------------------------------------------------------------------------------------
-unsigned countInner(BTreeNode *node);
-unsigned countPages(BTreeNode *node);
-unsigned bytesFree(BTreeNode *node);
-unsigned height(BTreeNode *node);
-void printInfos(BTreeNode *root, uint64_t totalSize);
 }
 }
 }

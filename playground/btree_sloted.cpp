@@ -82,21 +82,20 @@ int main(int argc, char **argv)
       }
       printInfos(tree.root, totalSpace);
    }
-   if ( getenv("DEL")) {
-      cout << "remove" << endl;
-      e.setParam("op", "remove");
-      PerfEventBlock b(e, count);
-      for ( uint64_t i = 0; i < count; i++ ) {
-         tree.remove((u8 *) data[i].data(), data[i].size());
-         if ( tree.lookup((u8 *) data[i].data(), data[i].size(), payload_length, bytes))
-            throw;
-      }
+   cout << "remove" << endl;
+   e.setParam("op", "remove");
+   PerfEventBlock b(e, count);
+   for ( uint64_t i = 0; i < count; i++ ) {
+      tree.remove((u8 *) data[i].data(), data[i].size());
+      if ( tree.lookup((u8 *) data[i].data(), data[i].size(), payload_length, bytes))
+         throw;
    }
    printInfos(tree.root, count);
 
-
-   cout << "please enter: " << endl;
-   cin >> input;
+   if ( getenv("I")) {
+      cout << "please enter: " << endl;
+      cin >> input;
+   }
    while ( getenv("I")) {
       if ( input[0] == 'i' ) {
          cout << "insert mode: " << endl;
