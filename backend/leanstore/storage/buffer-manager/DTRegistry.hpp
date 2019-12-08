@@ -14,6 +14,13 @@ namespace buffermanager {
 struct ParentSwipHandler {
    Swip<BufferFrame> &swip;
    ReadGuard guard;
+   BufferFrame *parent;
+   // -------------------------------------------------------------------------------------
+   template<typename T>
+   ReadPageGuard<T> getParentReadPageGuard()
+   {
+      return ReadPageGuard<T>::manuallyAssembleGuard(guard, parent);
+   }
 };
 // -------------------------------------------------------------------------------------
 struct DTRegistry {

@@ -44,51 +44,56 @@ struct BTreeNodeHeader {
    };
 
    Swip<BTreeNode> upper = nullptr;
-   FenceKey lowerFence = {0, 0};
-   FenceKey upperFence = {0, 0};
+   FenceKey lower_fence = {0, 0};
+   FenceKey upper_fence = {0, 0};
 
    u16 count = 0;
-   bool isLeaf;
-   u16 spaceUsed = 0;
-   u16 dataOffset = static_cast<u16>(EFFECTIVE_PAGE_SIZE);
-   u16 prefixLength = 0;
+   bool is_leaf;
+   u16 space_used = 0;
+   u16 data_offset = static_cast<u16>(EFFECTIVE_PAGE_SIZE);
+   u16 prefix_length = 0;
 
-   static const unsigned hintCount = 16;
-   u32 hint[hintCount];
+   static const unsigned hint_count = 16;
+   u32 hint[hint_count];
 
-   BTreeNodeHeader(bool isLeaf)
-           : isLeaf(isLeaf) {}
+   BTreeNodeHeader(bool is_leaf)
+           : is_leaf(is_leaf) {}
    ~BTreeNodeHeader() {}
 
    inline u8 *ptr() { return reinterpret_cast<u8 *>(this); }
-   inline bool isInner() { return !isLeaf; }
-   inline u8 *getLowerFenceKey() { return lowerFence.offset ? ptr() + lowerFence.offset : nullptr; }
-   inline u8 *getUpperFenceKey() { return upperFence.offset ? ptr() + upperFence.offset : nullptr; }
+   inline bool isInner() { return !is_leaf; }
+   inline u8 *getLowerFenceKey() { return lower_fence.offset ? ptr() + lower_fence.offset : nullptr; }
+   inline u8 *getUpperFenceKey() { return upper_fence.offset ? ptr() + upper_fence.offset : nullptr; }
 };
 // -------------------------------------------------------------------------------------
 struct BTreeNode : public BTreeNodeHeader {
    struct Slot {
       u16 offset;
-      u8 headLen;
-      u8 restLen;
+      u8 head_len;
+      u8 rest_len;
       union {
          SketchType sketch;
-         u8 sketchBytes[4];
+         u8 sketch_bytes[4];
       };
    };
    Slot slot[(EFFECTIVE_PAGE_SIZE - sizeof(BTreeNodeHeader)) / (sizeof(Slot))];
 
-   BTreeNode(bool isLeaf)
-           : BTreeNodeHeader(isLeaf) {}
+   BTreeNode(bool is_leaf)
+           : BTreeNodeHeader(is_leaf) {}
 
-   unsigned freeSpace() { return dataOffset - (reinterpret_cast<u8 *>(slot + count) - ptr()); }
-   unsigned freeSpaceAfterCompaction() { return EFFECTIVE_PAGE_SIZE - (reinterpret_cast<u8 *>(slot + count) - ptr()) - spaceUsed; }
+   unsigned freeSpace() { return data_offset - (reinterpret_cast<u8 *>(slot + count) - ptr()); }
+   unsigned freeSpaceAfterCompaction() { return EFFECTIVE_PAGE_SIZE - (reinterpret_cast<u8 *>(slot + count) - ptr()) - space_used; }
 
-   bool requestSpaceFor(unsigned spaceNeeded)
+   bool hasEnoughSpaceFor(u32 space_needed)
    {
-      if ( spaceNeeded <= freeSpace())
+      return (space_needed <= freeSpace() || space_needed <= freeSpaceAfterCompaction());
+   }
+   // ATTENTION: this method has side effects !
+   bool requestSpaceFor(unsigned space_needed)
+   {
+      if ( space_needed <= freeSpace())
          return true;
-      if ( spaceNeeded <= freeSpaceAfterCompaction()) {
+      if ( space_needed <= freeSpaceAfterCompaction()) {
          compactify();
          return true;
       }
@@ -108,12 +113,12 @@ struct BTreeNode : public BTreeNodeHeader {
    inline unsigned getRestLen(unsigned slotId)
    {
       assert(!isLarge(slotId));
-      return slot[slotId].restLen;
+      return slot[slotId].rest_len;
    }
    // AAA
    inline u8 *getPayload(unsigned slotId)
    {
-      assert(isLeaf);
+      assert(is_leaf);
       assert(!isLarge(slotId));
       return ptr() + slot[slotId].offset + sizeof(ValueType) + getRestLen(slotId);
    }
@@ -131,12 +136,12 @@ struct BTreeNode : public BTreeNodeHeader {
       assert(isLarge(slotId));
       return *reinterpret_cast<u16 *>(ptr() + slot[slotId].offset + sizeof(ValueType));
    }
-   inline bool isLarge(unsigned slotId) { return slot[slotId].restLen == largeMarker; }
-   inline void setLarge(unsigned slotId) { slot[slotId].restLen = largeMarker; }
+   inline bool isLarge(unsigned slotId) { return slot[slotId].rest_len == largeMarker; }
+   inline void setLarge(unsigned slotId) { slot[slotId].rest_len = largeMarker; }
    // AAA
    inline u8 *getPayloadLarge(unsigned slotId)
    {
-      assert(isLeaf);
+      assert(is_leaf);
       assert(isLarge(slotId));
       return ptr() + slot[slotId].offset + sizeof(ValueType) + sizeof(u16) + getRestLenLarge(slotId);
    }
@@ -144,23 +149,23 @@ struct BTreeNode : public BTreeNodeHeader {
    // Accessors for both types of strings
    inline u16 getPayloadLength(unsigned slotId) { return *reinterpret_cast<u16 *>(ptr() + slot[slotId].offset); }
    inline ValueType &getValue(unsigned slotId) { return *reinterpret_cast<ValueType *>(ptr() + slot[slotId].offset); }
-   inline unsigned getFullKeyLength(unsigned slotId) { return prefixLength + slot[slotId].headLen + (isLarge(slotId) ? getRestLenLarge(slotId) : getRestLen(slotId)); }
+   inline unsigned getFullKeyLength(unsigned slotId) { return prefix_length + slot[slotId].head_len + (isLarge(slotId) ? getRestLenLarge(slotId) : getRestLen(slotId)); }
    inline void copyFullKey(unsigned slotId, u8 *out, unsigned fullLength)
    {
-      memcpy(out, getLowerFenceKey(), prefixLength);
-      out += prefixLength;
-      fullLength -= prefixLength;
-      switch ( slot[slotId].headLen ) {
+      memcpy(out, getLowerFenceKey(), prefix_length);
+      out += prefix_length;
+      fullLength -= prefix_length;
+      switch ( slot[slotId].head_len ) {
          case 4:
             *reinterpret_cast<u32 *>(out) = swap(slot[slotId].sketch);
-            memcpy(out + slot[slotId].headLen, (isLarge(slotId) ? getRestLarge(slotId) : getRest(slotId)), fullLength - slot[slotId].headLen);
+            memcpy(out + slot[slotId].head_len, (isLarge(slotId) ? getRestLarge(slotId) : getRest(slotId)), fullLength - slot[slotId].head_len);
             break;
          case 3:
-            out[2] = slot[slotId].sketchBytes[1]; // fallthrough
+            out[2] = slot[slotId].sketch_bytes[1]; // fallthrough
          case 2:
-            out[1] = slot[slotId].sketchBytes[2]; // fallthrough
+            out[1] = slot[slotId].sketch_bytes[2]; // fallthrough
          case 1:
-            out[0] = slot[slotId].sketchBytes[3]; // fallthrough
+            out[0] = slot[slotId].sketch_bytes[3]; // fallthrough
          case 0:
             break;
          default:
@@ -173,29 +178,26 @@ struct BTreeNode : public BTreeNodeHeader {
    static SketchType head(u8 *&key, unsigned &keyLength);
    void makeHint();
    // -------------------------------------------------------------------------------------
+   bool sanityCheck(u8 *key, unsigned keyLength);
+   // -------------------------------------------------------------------------------------
    template<bool equalityOnly = false>
    s32 lowerBound(u8 *key, unsigned keyLength)
    {
       //for (unsigned i=1; i<count; i++)
       //assert(slot[i-1].sketch <= slot[i].sketch);
 
-      if ( lowerFence.offset )
-         assert(cmpKeys(key, getLowerFenceKey(), keyLength, lowerFence.length) > 0);
-      if ( upperFence.offset )
-         assert(cmpKeys(key, getUpperFenceKey(), keyLength, upperFence.length) <= 0);
-
       if ( equalityOnly ) {
-         if ((keyLength < prefixLength) || (bcmp(key, getLowerFenceKey(), prefixLength) != 0))
+         if ((keyLength < prefix_length) || (bcmp(key, getLowerFenceKey(), prefix_length) != 0))
             return -1;
       } else {
-         int prefixCmp = cmpKeys(key, getLowerFenceKey(), min<unsigned>(keyLength, prefixLength), prefixLength);
+         int prefixCmp = cmpKeys(key, getLowerFenceKey(), min<unsigned>(keyLength, prefix_length), prefix_length);
          if ( prefixCmp < 0 )
             return 0;
          else if ( prefixCmp > 0 )
             return count;
       }
-      key += prefixLength;
-      keyLength -= prefixLength;
+      key += prefix_length;
+      keyLength -= prefix_length;
 
       unsigned lower = 0;
       unsigned upper = count;
@@ -203,20 +205,20 @@ struct BTreeNode : public BTreeNodeHeader {
       unsigned oldKeyLength = keyLength;
       SketchType keyHead = head(key, keyLength);
 
-      if ( count > hintCount * 2 ) {
-         unsigned dist = count / (hintCount + 1);
+      if ( count > hint_count * 2 ) {
+         unsigned dist = count / (hint_count + 1);
          unsigned pos;
-         for ( pos = 0; pos < hintCount; pos++ )
+         for ( pos = 0; pos < hint_count; pos++ )
             if ( hint[pos] >= keyHead )
                break;
          lower = pos * dist;
          unsigned pos2;
-         for ( pos2 = pos; pos2 < hintCount; pos2++ )
+         for ( pos2 = pos; pos2 < hint_count; pos2++ )
             if ( hint[pos2] != keyHead )
                break;
-         if ( pos2 < hintCount )
+         if ( pos2 < hint_count )
             upper = (pos2 + 1) * dist;
-         //cout << isLeaf << " " << count << " " << lower << " " << upper << " " << dist << endl;
+         //cout << is_leaf << " " << count << " " << lower << " " << upper << " " << dist << endl;
       }
 
       while ( lower < upper ) {
@@ -225,10 +227,10 @@ struct BTreeNode : public BTreeNodeHeader {
             upper = mid;
          } else if ( keyHead > slot[mid].sketch ) {
             lower = mid + 1;
-         } else if ( slot[mid].restLen == 0 ) {
-            if ( oldKeyLength < slot[mid].headLen ) {
+         } else if ( slot[mid].rest_len == 0 ) {
+            if ( oldKeyLength < slot[mid].head_len ) {
                upper = mid;
-            } else if ( oldKeyLength > slot[mid].headLen ) {
+            } else if ( oldKeyLength > slot[mid].head_len ) {
                lower = mid + 1;
             } else {
                return mid;

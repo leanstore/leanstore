@@ -356,7 +356,7 @@ struct BTree {
             if ( &last_accessed_swip->asBufferFrame() == &bf ) {
                c_guard.recheck_done();
                return {
-                       .swip = *last_accessed_swip, .guard = c_guard.bf_s_lock
+                       .swip = *last_accessed_swip, .guard = c_guard.bf_s_lock, .parent = c_guard.bf
                };
             }
             // -------------------------------------------------------------------------------------

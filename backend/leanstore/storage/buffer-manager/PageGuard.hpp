@@ -17,21 +17,33 @@ protected:
    {
       bf_s_lock = ReadGuard(swip_version);
    }
+   ReadPageGuard(ReadGuard read_guard, BufferFrame *bf)
+           : bf_s_lock(read_guard)
+             , bf(bf)
+             , moved(false)
+   {
+   }
    bool manually_checked = false;
 public:
    bool moved = false;
    BufferFrame *bf = nullptr;
    ReadGuard bf_s_lock;
-
    // I: Root case
    static ReadPageGuard makeRootGuard(OptimisticLock &swip_version)
    {
       return ReadPageGuard(swip_version);
    }
-   // I: Lock coupling
-   ReadPageGuard(ReadPageGuard &p_guard, Swip <T> &swip)
+   // -------------------------------------------------------------------------------------
+   static ReadPageGuard manuallyAssembleGuard(ReadGuard read_guard, BufferFrame *bf)
    {
-      assert(p_guard.moved == false);
+      return ReadPageGuard(read_guard, bf);
+   }
+   // I: Lock coupling
+   ReadPageGuard(ReadPageGuard &p_guard, Swip<T> &swip)
+   {
+      if ( p_guard.moved == true ) {
+         assert(false);
+      }
       if ( swip.isSwizzled()) {
          bf = &swip.asBufferFrame();
          p_guard.recheck();
@@ -39,11 +51,12 @@ public:
          auto &bf_swip = swip.template cast<BufferFrame>();
          bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
       }
+      p_guard.recheck(); // to prevent dereferencing dangling pointer
       bf_s_lock = ReadGuard(bf->header.lock);
       p_guard.recheck(); // TODO: ??
    }
    // I: Downgrade
-   ReadPageGuard &operator=(WritePageGuard<T> &&other)
+   ReadPageGuard(WritePageGuard<T> &&other)
    {
       assert(other.moved == false);
       bf = other.bf;
@@ -51,7 +64,6 @@ public:
       bf_s_lock.local_version = 2 + bf_s_lock.version_ptr->fetch_add(2);
       // -------------------------------------------------------------------------------------
       other.moved = true;
-      return *this;
    }
    // -------------------------------------------------------------------------------------
    template<typename T2>
@@ -94,7 +106,7 @@ public:
    {
       return reinterpret_cast<T *>(bf->page.dt);
    }
-   Swip <T> swip()
+   Swip<T> swip()
    {
       return Swip<T>(bf);
    }
