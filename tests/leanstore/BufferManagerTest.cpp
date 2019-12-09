@@ -12,7 +12,7 @@ namespace buffermanager {
 TEST(BufferManager, BTree)
 {
    LeanStore db;
-   auto &btree = db.registerBTree<u32, u32>("test");
+   auto &btree = db.registerFSBTree<u32, u32>("test");
    //buffer_manager.stopBackgroundThreads();
 
    // BTree
@@ -92,7 +92,7 @@ TEST(BufferManager, Persistence)
 {
    return;
    LeanStore db;
-   auto &btree = db.registerBTree<u32, u32>("test");
+   auto &btree = db.registerFSBTree<u32, u32>("test");
 
    uint32_t n = getenv("N") ? atoi(getenv("N")) : 10e4;
    uint32_t threads = getenv("T") ? atoi(getenv("T")) : 10;

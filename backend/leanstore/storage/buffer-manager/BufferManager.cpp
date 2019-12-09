@@ -132,9 +132,9 @@ void BufferManager::pageProviderThread()
             // Suitable page founds, lets unswizzle
             {
                const PID pid = r_buffer->header.pid;
-               ExclusiveGuard r_x_guad(r_guard);
                ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
                ExclusiveGuard p_x_guard(parent_handler.guard);
+               ExclusiveGuard r_x_guad(r_guard);
                PartitionTable &partition = getPartition(pid);
                std::lock_guard g_guard(partition.cio_mutex);
                // -------------------------------------------------------------------------------------
