@@ -13,24 +13,27 @@ namespace vs {
 struct BTree {
    DTID dtid;
    // -------------------------------------------------------------------------------------
-   atomic<u16> height = 1; //debugging
-   atomic<u64> restarts_counter = 0; //debugging
-   atomic<u64> removed_bfs = 0; //debugging
+   atomic<u16> height = 1; // debugging
+   atomic<u64> restarts_counter = 0; // debugging
    OptimisticLock root_lock = 0;
    Swip<BTreeNode> root_swip;
    // -------------------------------------------------------------------------------------
-   // -------------------------------------------------------------------------------------
    BTree();
-   void init(DTID dtid);
-   bool lookup(u8 *key, unsigned key_length, u64 &payload_length, u8 *result);
    // -------------------------------------------------------------------------------------
-   void insert(u8 *key, unsigned key_length, u64 payloadLength, u8 *payload);
+   void init(DTID dtid);
+   ReadPageGuard<BTreeNode> findLeafForRead(u8 *key, u16 key_length);
+   // No side effects allowed!
+   bool lookup(u8 *key, u16 key_length, function<void(const u8 *, u16)> payload_callback);
+   // -------------------------------------------------------------------------------------
+   void scan(u8 *start_key, u16 key_length, function<bool(u8 *payload, u16 payload_length, function<string()> &)>, function<void()>);
+   // -------------------------------------------------------------------------------------
+   void insert(u8 *key, u16 key_length, u64 payloadLength, u8 *payload);
    void trySplit(BufferFrame &to_split);
    // -------------------------------------------------------------------------------------
-   // TODO
-   void update(u8 *key, unsigned key_length, u64 payloadLength, u8 *payload);
+   void updateSameSize(u8 *key, u16 key_length, function<void(u8 *payload, u16 payload_size)>);
+   void update(u8 *key, u16 key_length, u64 payloadLength, u8 *payload);
    // -------------------------------------------------------------------------------------
-   bool remove(u8 *key, unsigned key_length);
+   bool remove(u8 *key, u16 key_length);
    void tryMerge(BufferFrame &to_split);
    // -------------------------------------------------------------------------------------
    static DTRegistry::DTMeta getMeta();
@@ -42,8 +45,9 @@ struct BTree {
    // Helpers
    s64 iterateAllPages(ReadPageGuard<BTreeNode> &node_guard, std::function<s64(BTreeNode &)> inner, std::function<s64(BTreeNode &)> leaf);
    unsigned countInner();
-   unsigned countPages();
-   unsigned bytesFree();
+   u32 countPages();
+   u32 countEntries();
+   u32 bytesFree();
    void printInfos(uint64_t totalSize);
 };
 // -------------------------------------------------------------------------------------

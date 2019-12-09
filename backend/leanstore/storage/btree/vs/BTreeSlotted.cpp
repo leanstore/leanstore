@@ -372,7 +372,7 @@ void BTreeNode::split(WritePageGuard<BTreeNode> &parent, WritePageGuard<BTreeNod
 // -------------------------------------------------------------------------------------
 bool BTreeNode::removeSlot(u16 slotId)
 {
-   // TOOD: check
+   // TODO: check
    if ( slot[slotId].rest_len )
       space_used -= sizeof(ValueType) + (isLarge(slotId) ? (getRestLenLarge(slotId) + sizeof(u16)) : getRestLen(slotId));
    space_used -= (is_leaf) ? getPayloadLength(slotId) : 0;

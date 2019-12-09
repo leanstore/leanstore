@@ -94,8 +94,7 @@ struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
    bool lookup(Key k, Payload &v) override
    {
       u8 key_bytes[sizeof(Key)];
-      u64 payloadLength;
-      return btree.lookup(key_bytes, fold(key_bytes, k), payloadLength, reinterpret_cast<u8 *>(&v));
+      return btree.lookup(key_bytes, fold(key_bytes, k), [](const u8 *payload, u16 payload_length) {});
    }
    void insert(Key k, Payload &v) override
    {
@@ -154,7 +153,7 @@ int main(int argc, char **argv)
    LeanStore db;
    unique_ptr<BTreeInterface<YCSBKey, YCSBPayload>> adapter;
    if ( FLAGS_fs ) {
-      auto &fs_btree = db.registerBTree<YCSBKey, YCSBPayload>("ycsb");
+      auto &fs_btree = db.registerFSBTree<YCSBKey, YCSBPayload>("ycsb");
       adapter.reset(new BTreeFSAdapter(fs_btree));
    } else {
       auto &vs_btree = db.registerVSBTree("ycsb");

@@ -58,10 +58,11 @@ public:
    // I: Downgrade
    ReadPageGuard(WritePageGuard<T> &&other)
    {
-      assert(other.moved == false);
+      assert(!other.moved);
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
       bf_s_lock.local_version = WRITE_LOCK_BIT + bf_s_lock.version_ptr->fetch_add(WRITE_LOCK_BIT);
+      moved = false;
       // -------------------------------------------------------------------------------------
       other.moved = true;
    }
@@ -72,15 +73,12 @@ public:
       return *reinterpret_cast<ReadPageGuard<T2> *>(this);
    }
    // -------------------------------------------------------------------------------------
-   ReadPageGuard &operator=(ReadPageGuard &&other)
+   ReadPageGuard(ReadPageGuard &other)
    {
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
-      bf_s_lock.recheck();
-      moved = false;
-      other.moved = true;
-      assert((bf_s_lock.local_version & WRITE_LOCK_BIT) != WRITE_LOCK_BIT);
-      return *this;
+      moved = other.moved;
+      manually_checked = other.manually_checked;
    }
    // -------------------------------------------------------------------------------------
    void recheck()

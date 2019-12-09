@@ -39,15 +39,16 @@ TEST(BTree, VariableSize)
       utils::RandomGenerator::getRandString(reinterpret_cast<u8 *>(payloads.back().data()), payload_length);
    }
    // -------------------------------------------------------------------------------------
+   atomic<u64> inserted_counter = 0;
    {
       e.setParam("op", "insert");
       PerfEventBlock b(e, n);
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
          string result(max_payloads_length, '0');
-         u64 result_length;
          for ( u64 i = range.begin(); i < range.end(); i++ ) {
-            if ( !btree.lookup(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length(), result_length, reinterpret_cast<u8 *>(result.data()))) {
+            if ( !btree.lookup(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length(), [](const u8 *, u16) {})) {
                btree.insert(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length(), payloads[i].length(), reinterpret_cast<u8 *>(payloads[i].data()));
+               inserted_counter++;
             }
          }
       });
@@ -56,15 +57,26 @@ TEST(BTree, VariableSize)
       e.setParam("op", "lookup");
       PerfEventBlock b(e, n);
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
-         string result(max_payloads_length, '0');
-         u64 result_length;
          for ( u64 i = range.begin(); i < range.end(); i++ ) {
-            if ( btree.lookup(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length(), result_length, reinterpret_cast<u8 *>(result.data()))) {
+            btree.lookup(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length(), [&](const u8 *result, u16 result_length) {
                EXPECT_EQ(result_length, payloads[i].length());
-               EXPECT_EQ(std::memcmp(result.data(), payloads[i].data(), result_length), 0);
-            }
+               EXPECT_EQ(std::memcmp(result, payloads[i].data(), result_length), 0);
+            });
          }
       });
+   }
+   {
+      e.setParam("op", "scan");
+      PerfEventBlock b(e, n);
+      string result(max_payloads_length, '0');
+      string key("0");
+      u64 counter = 0;
+      btree.scan(reinterpret_cast<u8 *>(key.data()), 1, [&](u8 *payload, u16 payload_length, std::function<string()> &getKey) {
+         counter++;
+         auto c_key = getKey();
+         return true;
+      }, []() {});
+      EXPECT_EQ(counter, inserted_counter);
    }
    btree.printInfos(100);
    {
@@ -76,14 +88,13 @@ TEST(BTree, VariableSize)
          }
       });
    }
-   cout << "deleted bfs " << btree.removed_bfs << endl;
+   EXPECT_EQ(btree.countEntries(), 0);
    btree.printInfos(100);
    {
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
          string result(max_payloads_length, '0');
-         u64 result_length;
          for ( u64 i = range.begin(); i < range.end(); i++ ) {
-            EXPECT_FALSE(btree.lookup(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length(), result_length, reinterpret_cast<u8 *>(result.data())));
+            EXPECT_FALSE(btree.lookup(reinterpret_cast<u8 *>(keys[i].data()), keys[i].length(), [](const u8 *, u16) {}));
          }
       });
    }

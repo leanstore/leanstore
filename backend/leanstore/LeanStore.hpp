@@ -20,7 +20,7 @@ public:
    LeanStore();
    // -------------------------------------------------------------------------------------
    template<typename Key, typename Value>
-   btree::fs::BTree<Key,Value> &registerBTree(string name, DTType type_id = 0) {
+   btree::fs::BTree<Key,Value> &registerFSBTree(string name, DTType type_id = 0) {
       //buffer_manager
       auto iter = fs_btrees.emplace(name, std::make_unique<u8[]>(btree_size));
       u8 *btree_ptr = iter.first->second.get();
@@ -32,7 +32,7 @@ public:
    }
    // -------------------------------------------------------------------------------------
    template<typename Key, typename Value>
-   btree::fs::BTree<Key,Value> &retrieveBTree(string name, DTType type_id = 0) {
+   btree::fs::BTree<Key,Value> &retrieveFSBTree(string name, DTType type_id = 0) {
       auto btree = reinterpret_cast<btree::fs::BTree<Key,Value> *>(fs_btrees[name].get());
       buffer_manager.registerDatastructureType(type_id, btree->getMeta());
       btree->dtid = buffer_manager.registerDatastructureInstance(type_id, btree);

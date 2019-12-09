@@ -64,6 +64,8 @@ struct BTreeNodeHeader {
    inline bool isInner() { return !is_leaf; }
    inline u8 *getLowerFenceKey() { return lower_fence.offset ? ptr() + lower_fence.offset : nullptr; }
    inline u8 *getUpperFenceKey() { return upper_fence.offset ? ptr() + upper_fence.offset : nullptr; }
+   inline bool isUpperFenceInfinity() { return !upper_fence.offset; };
+   inline bool isLowerFenceInfinity() { return !lower_fence.offset; };
 };
 // -------------------------------------------------------------------------------------
 struct BTreeNode : public BTreeNodeHeader {
