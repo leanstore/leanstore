@@ -92,7 +92,6 @@ void BTree::trySplit(BufferFrame &to_split)
    auto parent_handler = findParent(this, to_split);
    ReadPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    ReadPageGuard<BTreeNode> c_guard = ReadPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
-   assert(c_guard.bf == &to_split);
    // -------------------------------------------------------------------------------------
    BTreeNode::SeparatorInfo sep_info = c_guard->findSep();
    u8 sep_key[sep_info.length];
@@ -177,8 +176,6 @@ void BTree::update(u8 *key, unsigned key_length, u64 payloadLength, u8 *payload)
 // -------------------------------------------------------------------------------------
 bool BTree::remove(u8 *key, unsigned key_length)
 {
-   //TODO:
-   // remember, we can not keep count = 0
    /*
     * Plan:
     * check the right (only one) node if it is under filled
@@ -203,12 +200,17 @@ bool BTree::remove(u8 *key, unsigned key_length)
             return false;
          }
          if ( !p_guard.hasBf()) {
-            // we are root, do nothing
+            // we are root, no merge is possible
             return true;
          }
          if ( c_x_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize ) {
-            auto p_x_guard = WritePageGuard(std::move(p_guard));
-            tryMerge(c_x_guard, p_x_guard, pos, key, key_length);
+            c_guard = ReadPageGuard(std::move(c_x_guard));
+            c_guard.kill();
+            try {
+               tryMerge(*c_guard.bf);
+            } catch ( RestartException e ) {
+               // nothing, it is fine not to merge
+            }
          }
          return true;
       } catch ( RestartException
@@ -222,72 +224,67 @@ bool BTree::remove(u8 *key, unsigned key_length)
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::tryMerge(WritePageGuard<BTreeNode> &node, WritePageGuard<BTreeNode> &parent, int pos, u8 *key, u32 key_length)
+void BTree::tryMerge(BufferFrame &to_split)
 {
+   auto parent_handler = findParent(this, to_split);
+   ReadPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
+   ReadPageGuard<BTreeNode> c_guard = ReadPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
+   if ( !p_guard.hasBf() || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize ) {
+      return;
+   }
+   auto p_x_guard = WritePageGuard(std::move(p_guard));
+   auto c_x_guard = WritePageGuard(std::move(c_guard));
+   assert(parent_handler.swip.bf == &to_split);
+   // -------------------------------------------------------------------------------------
+   u16 key_length = c_x_guard->getFullKeyLength(0);
+   auto key = make_unique<u8[]>(key_length);
+   c_x_guard->copyFullKey(0, key.get(), key_length);
+   int pos = p_x_guard->lowerBound<false>(key.get(), key_length);
+   assert(pos != -1);
+   // -------------------------------------------------------------------------------------
    auto merge_left = [&]() {
-      Swip<BTreeNode> &l_swip = parent->getValue(pos - 1);
-      auto l_guard = ReadPageGuard(parent, l_swip);
+      Swip<BTreeNode> &l_swip = p_x_guard->getValue(pos - 1);
+      auto l_guard = ReadPageGuard(p_x_guard, l_swip);
       if ( l_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize ) {
          return false;
       }
       auto l_x_guard = WritePageGuard(std::move(l_guard));
-      l_x_guard->merge(pos - 1, parent, node);
+      l_x_guard->merge(pos - 1, p_x_guard, c_x_guard);
       l_x_guard.reclaim();
       return true;
    };
    auto merge_right = [&]() {
-      Swip<BTreeNode> &r_swip = parent->getValue(pos + 1);
-      auto r_guard = ReadPageGuard(parent, r_swip);
+      Swip<BTreeNode> &r_swip = p_x_guard->getValue(pos + 1);
+      auto r_guard = ReadPageGuard(p_x_guard, r_swip);
       if ( r_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize ) {
          return false;
       }
       auto r_x_guard = WritePageGuard(std::move(r_guard));
-      node->merge(pos, parent, r_x_guard);
-      node.reclaim();
+      c_x_guard->merge(pos, p_x_guard, r_x_guard);
+      c_x_guard.reclaim();
       return true;
    };
-   if ( parent->count >= 2 ) {
-      bool merged = false;
-      if ( pos + 1 < parent->count ) {
+   // -------------------------------------------------------------------------------------
+   bool merged_right = false;
+   if ( p_x_guard->count >= 2 ) {
+      if ( pos + 1 < p_x_guard->count ) {
          if ( merge_right()) {
-            merged = true;
+            merged_right = true;
          }
       }
-      if ( !merged && pos > 0 ) {
-         if ( merge_left()) {
-         }
+      if ( !merged_right ) {
+         c_guard = ReadPageGuard<BTreeNode>(std::move(c_x_guard));
+         c_guard.kill();
       }
-      // -------------------------------------------------------------------------------------
-      if ( parent->freeSpaceAfterCompaction() >= BTreeNode::underFullSize ) {
-         if ( root_swip.bf != parent.bf )
-            tryEnsureFillingGrade(parent, key, key_length);
+      if ( !merged_right && pos > 0 ) {
+         merge_left();
       }
    }
-}
-// -------------------------------------------------------------------------------------
-void BTree::tryEnsureFillingGrade(WritePageGuard<BTreeNode> &toMerge, u8 *key, u32 key_length)
-{
-   auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
-   if ( root_swip.bf == toMerge.bf ) {
-      return;
+   // -------------------------------------------------------------------------------------
+   p_guard = ReadPageGuard<BTreeNode>(std::move(p_x_guard));
+   if ( p_guard.hasBf() && p_guard->freeSpaceAfterCompaction() >= BTreeNode::underFullSize && root_swip.bf != p_guard.bf ) {
+      tryMerge(*p_x_guard.bf);
    }
-   ReadPageGuard c_guard(p_guard, root_swip);
-   Swip<BTreeNode> *c_swip;
-   int pos = -1;
-   auto search_condition = [&]() {
-      pos = c_guard->lowerBound<false>(key, key_length);
-      c_swip = &((pos == c_guard->count) ? c_guard->upper : c_guard->getValue(pos));
-      return !(c_swip->bf == toMerge.bf);
-   };
-   while ( search_condition()) {
-      p_guard = std::move(c_guard);
-      c_guard = ReadPageGuard(p_guard, *c_swip);
-   }
-   auto to_merge_parent_x_guard = WritePageGuard(std::move(c_guard));
-   assert(pos != -1);
-   assert(c_swip->bf == toMerge.bf);
-   //Note: c_guard is already write locked by the caller
-   tryMerge(toMerge, to_merge_parent_x_guard, pos, key, key_length);
 }
 // -------------------------------------------------------------------------------------
 BTree::~BTree()
@@ -312,7 +309,9 @@ struct ParentSwipHandler BTree::findParent(void *btree_object, BufferFrame &to_f
    // -------------------------------------------------------------------------------------
    auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(btree.root_lock);
    // -------------------------------------------------------------------------------------
-   assert(c_node.count > 0);
+   if ( c_node.count == 0 ) {
+      throw RestartException();
+   }
    u16 key_length = c_node.getFullKeyLength(0);
    auto key = make_unique<u8[]>(key_length);
    c_node.copyFullKey(0, key.get(), key_length);

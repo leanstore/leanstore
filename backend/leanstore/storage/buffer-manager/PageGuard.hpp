@@ -39,7 +39,7 @@ public:
       return ReadPageGuard(read_guard, bf);
    }
    // I: Lock coupling
-   ReadPageGuard(ReadPageGuard &p_guard, Swip<T> &swip)
+   ReadPageGuard(ReadPageGuard &p_guard, Swip <T> &swip)
    {
       if ( p_guard.moved == true ) {
          assert(false);
@@ -106,7 +106,7 @@ public:
    {
       return reinterpret_cast<T *>(bf->page.dt);
    }
-   Swip<T> swip()
+   Swip <T> swip()
    {
       return Swip<T>(bf);
    }
@@ -178,6 +178,7 @@ public:
    void reclaim()
    {
       BMC::global_bf->reclaimPage(*ParentClass::bf);
+      ParentClass::moved = true;
    }
    // -------------------------------------------------------------------------------------
    ~WritePageGuard()

@@ -369,7 +369,7 @@ void BTreeNode::split(WritePageGuard<BTreeNode> &parent, WritePageGuard<BTreeNod
    memcpy(reinterpret_cast<char *>(this), nodeRight, sizeof(BTreeNode));
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::removeSlot(unsigned slotId)
+bool BTreeNode::removeSlot(u16 slotId)
 {
    // TOOD: check
    if ( slot[slotId].rest_len )

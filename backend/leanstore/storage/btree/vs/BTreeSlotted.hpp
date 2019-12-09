@@ -278,7 +278,7 @@ struct BTreeNode : public BTreeNodeHeader {
    Swip<BTreeNode> &lookupInner(u8 *key, unsigned keyLength);
    // -------------------------------------------------------------------------------------
    // Not synchronized or todo section
-   bool removeSlot(unsigned slotId);
+   bool removeSlot(u16 slotId);
    bool remove(u8 *key, unsigned keyLength);
 };
 // -------------------------------------------------------------------------------------

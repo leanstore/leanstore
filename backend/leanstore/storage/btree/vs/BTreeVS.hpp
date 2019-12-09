@@ -31,8 +31,7 @@ struct BTree {
    void update(u8 *key, unsigned key_length, u64 payloadLength, u8 *payload);
    // -------------------------------------------------------------------------------------
    bool remove(u8 *key, unsigned key_length);
-   void tryMerge(WritePageGuard<BTreeNode> &node, WritePageGuard<BTreeNode> &parent, int pos, u8 *key, u32 key_length);
-   void tryEnsureFillingGrade(WritePageGuard<BTreeNode> &toMerge, u8 *key, u32 key_length);
+   void tryMerge(BufferFrame &to_split);
    // -------------------------------------------------------------------------------------
    static DTRegistry::DTMeta getMeta();
    static ParentSwipHandler findParent(void *btree_object, BufferFrame &to_find);
