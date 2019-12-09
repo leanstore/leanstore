@@ -14,6 +14,8 @@ public:
    RestartException() {}
 };
 // -------------------------------------------------------------------------------------
+constexpr static u8 WRITE_LOCK_BIT = 1;
+// -------------------------------------------------------------------------------------
 class ReadGuard;
 class ExclusiveGuard;
 template<typename T>
@@ -46,10 +48,10 @@ public:
            : version_ptr(&lock)
    {
       local_version = version_ptr->load();
-      if ((local_version & 2) == 2 ) {
+      if ((local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT ) {
          spin();
       }
-      assert((local_version & 2) != 2);
+      assert((local_version & WRITE_LOCK_BIT) != WRITE_LOCK_BIT);
    }
    // -------------------------------------------------------------------------------------
    inline void recheck()

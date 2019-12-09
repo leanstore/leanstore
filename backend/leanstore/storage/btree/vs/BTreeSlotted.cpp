@@ -322,6 +322,7 @@ void BTreeNode::getSep(u8 *sepKeyOut, BTreeNodeHeader::SeparatorInfo info)
 // -------------------------------------------------------------------------------------
 bool BTreeNode::sanityCheck(u8 *key, unsigned int keyLength)
 {
+   // Lower Bound exclusive, upper bound inclusive
    bool res = true;
    if ( lower_fence.offset ) {
       int cmp = cmpKeys(key, getLowerFenceKey(), keyLength, lower_fence.length);

@@ -14,7 +14,6 @@
 #include <iostream>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(ycsb_threads, 20, "");
-DEFINE_double(ycsb_zipf_factor, 1.0, "");
 DEFINE_uint32(ycsb_read_ratio, 100, "");
 DEFINE_uint64(ycsb_tuple_count, 100000, "");
 DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
@@ -26,6 +25,7 @@ DEFINE_bool(verify, false, "");
 DEFINE_bool(ycsb_scan, false, "");
 DEFINE_bool(ycsb_tx, true, "");
 DEFINE_string(zipf_path, "/bulk/zipf", "");
+DEFINE_double(zipf_factor, 1.0, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -170,11 +170,11 @@ int main(int argc, char **argv)
    cout << "-------------------------------------------------------------------------------------" << endl;
    cout << "Preparing Workload" << endl;
    {
-      const string lookup_keys_file = FLAGS_zipf_path + "ycsb_" + to_string(tx_count) + "_lookup_keys_" + to_string(sizeof(YCSBKey)) + "b_zipf_" + to_string(FLAGS_ycsb_zipf_factor);
+      const string lookup_keys_file = FLAGS_zipf_path + "ycsb_" + to_string(tx_count) + "_lookup_keys_" + to_string(sizeof(YCSBKey)) + "b_zipf_" + to_string(FLAGS_zipf_factor);
       if ( utils::fileExists(lookup_keys_file)) {
          utils::fillVectorFromBinaryFile(lookup_keys_file.c_str(), lookup_keys);
       } else {
-         auto random = std::make_unique<utils::ZipfRandom>(FLAGS_ycsb_tuple_count, FLAGS_ycsb_zipf_factor);
+         auto random = std::make_unique<utils::ZipfRandom>(FLAGS_ycsb_tuple_count, FLAGS_zipf_factor);
          std::generate(lookup_keys.begin(), lookup_keys.end(), [&]() { return random->rand() % (FLAGS_ycsb_tuple_count); });
          utils::writeBinary(lookup_keys_file.c_str(), lookup_keys);
       }

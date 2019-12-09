@@ -197,7 +197,7 @@ void BufferManager::pageProviderThread()
                   partition.ht.remove(frame_handler);
                   assert(!partition.ht.has(pid));
                   // -------------------------------------------------------------------------------------
-                  new(&bf.header) BufferFrame::Header();
+                  bf.reset();
                   dram_free_list.push(bf);
                   // -------------------------------------------------------------------------------------
                   cooling_bfs_counter--;
@@ -243,7 +243,7 @@ void BufferManager::pageProviderThread()
                      partition.ht.remove(frame_handler);
                      assert(!partition.ht.has(pid));
                      // -------------------------------------------------------------------------------------
-                     new(&written_bf) BufferFrame;
+                     written_bf.reset();
                      dram_free_list.push(written_bf);
                      // -------------------------------------------------------------------------------------
                      cooling_bfs_counter--;
@@ -336,7 +336,7 @@ BufferFrame &BufferManager::allocatePage()
    assert(free_bf.header.state == BufferFrame::State::FREE);
    // -------------------------------------------------------------------------------------
    // Initialize Buffer Frame
-   free_bf.header.lock = 2; // Write lock
+   free_bf.header.lock = WRITE_LOCK_BIT; // Write lock
    free_bf.header.pid = free_pid;
    free_bf.header.state = BufferFrame::State::HOT;
    free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
@@ -347,7 +347,7 @@ BufferFrame &BufferManager::allocatePage()
 void BufferManager::reclaimPage(BufferFrame &bf)
 {
    // TODO: reclaim bf pid
-   new(&bf) BufferFrame();
+   bf.reset();
    dram_free_list.push(bf);
    ssd_freed_pages_counter++;
 }
@@ -379,7 +379,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       BufferFrame &bf = dram_free_list.pop();
       CIOFrame &cio_frame = partition.ht.insert(pid);
       assert(bf.header.state == BufferFrame::State::FREE);
-      bf.header.lock = 2; // Write lock
+      bf.header.lock = WRITE_LOCK_BIT; // Write lock
       // -------------------------------------------------------------------------------------
       cio_frame.state = CIOFrame::State::READING;
       cio_frame.readers_counter = 1;

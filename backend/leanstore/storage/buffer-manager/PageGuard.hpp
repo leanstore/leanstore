@@ -18,9 +18,9 @@ protected:
       bf_s_lock = ReadGuard(swip_version);
    }
    ReadPageGuard(ReadGuard read_guard, BufferFrame *bf)
-           : bf_s_lock(read_guard)
+           : moved(false)
              , bf(bf)
-             , moved(false)
+             , bf_s_lock(read_guard)
    {
    }
    bool manually_checked = false;
@@ -61,7 +61,7 @@ public:
       assert(other.moved == false);
       bf = other.bf;
       bf_s_lock = other.bf_s_lock;
-      bf_s_lock.local_version = 2 + bf_s_lock.version_ptr->fetch_add(2);
+      bf_s_lock.local_version = WRITE_LOCK_BIT + bf_s_lock.version_ptr->fetch_add(WRITE_LOCK_BIT);
       // -------------------------------------------------------------------------------------
       other.moved = true;
    }
@@ -79,7 +79,7 @@ public:
       bf_s_lock.recheck();
       moved = false;
       other.moved = true;
-      assert((bf_s_lock.local_version & 2) != 2);
+      assert((bf_s_lock.local_version & WRITE_LOCK_BIT) != WRITE_LOCK_BIT);
       return *this;
    }
    // -------------------------------------------------------------------------------------
@@ -147,7 +147,7 @@ public:
       read_guard.recheck();
       ParentClass::bf = read_guard.bf;
       ParentClass::bf_s_lock = read_guard.bf_s_lock;
-      lock_version_t new_version = ParentClass::bf_s_lock.local_version + 2;
+      lock_version_t new_version = ParentClass::bf_s_lock.local_version + WRITE_LOCK_BIT;
       if ( !std::atomic_compare_exchange_strong(ParentClass::bf_s_lock.version_ptr, &ParentClass::bf_s_lock.local_version, new_version)) {
          throw RestartException();
       }
@@ -184,11 +184,11 @@ public:
    ~WritePageGuard()
    {
       if ( !ParentClass::moved ) {
-         assert((ParentClass::bf_s_lock.local_version & 2) == 2);
+         assert((ParentClass::bf_s_lock.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
          if ( ParentClass::hasBf()) {
             ParentClass::bf->page.LSN++; // TODO: LSN
          }
-         ParentClass::bf_s_lock.local_version = 2 + ParentClass::bf_s_lock.version_ptr->fetch_add(2);
+         ParentClass::bf_s_lock.local_version = WRITE_LOCK_BIT + ParentClass::bf_s_lock.version_ptr->fetch_add(WRITE_LOCK_BIT);
          ParentClass::moved = true;
          // -------------------------------------------------------------------------------------
          if ( !keep_alive ) {

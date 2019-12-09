@@ -251,6 +251,7 @@ void BTree::tryMerge(BufferFrame &to_split)
       auto l_x_guard = WritePageGuard(std::move(l_guard));
       l_x_guard->merge(pos - 1, p_x_guard, c_x_guard);
       l_x_guard.reclaim();
+      removed_bfs++;
       return true;
    };
    auto merge_right = [&]() {
@@ -262,6 +263,7 @@ void BTree::tryMerge(BufferFrame &to_split)
       auto r_x_guard = WritePageGuard(std::move(r_guard));
       c_x_guard->merge(pos, p_x_guard, r_x_guard);
       c_x_guard.reclaim();
+      removed_bfs++;
       return true;
    };
    // -------------------------------------------------------------------------------------
@@ -309,13 +311,9 @@ struct ParentSwipHandler BTree::findParent(void *btree_object, BufferFrame &to_f
    // -------------------------------------------------------------------------------------
    auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(btree.root_lock);
    // -------------------------------------------------------------------------------------
-   if ( c_node.count == 0 ) {
-      //TODO: some bf are not reachable because we can get the lookup key to reach them
-      throw RestartException();
-   }
-   u16 key_length = c_node.getFullKeyLength(0);
-   auto key = make_unique<u8[]>(key_length);
-   c_node.copyFullKey(0, key.get(), key_length);
+   const bool infinity = (c_node.upper_fence.offset == 0) ? true : false;
+   u16 key_length = c_node.upper_fence.length;
+   u8 *key = c_node.getUpperFenceKey();
    // -------------------------------------------------------------------------------------
    // check if bf is the root node
    if ( c_swip->bf == &to_find ) {
@@ -328,13 +326,15 @@ struct ParentSwipHandler BTree::findParent(void *btree_object, BufferFrame &to_f
    ReadPageGuard c_guard(p_guard, btree.root_swip);
    s32 pos;
    auto search_condition = [&]() {
-      pos = c_guard->lowerBound<false>(key.get(), key_length);
-      if ( pos == -1 ) {
-         throw RestartException();
-      } else if ( pos == c_guard->count ) {
+      if ( infinity ) {
          c_swip = &(c_guard->upper);
       } else {
-         c_swip = &(c_guard->getValue(pos));
+         pos = c_guard->lowerBound<false>(key, key_length);
+         if ( pos == c_guard->count ) {
+            c_swip = &(c_guard->upper);
+         } else {
+            c_swip = &(c_guard->getValue(pos));
+         }
       }
       return (c_swip->bf != &to_find);
    };

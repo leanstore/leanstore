@@ -1,15 +1,8 @@
 #include "BufferFrame.hpp"
 // -------------------------------------------------------------------------------------
-namespace leanstore{
-namespace buffermanager{
+namespace leanstore {
+namespace buffermanager {
 // -------------------------------------------------------------------------------------
-BufferFrame::BufferFrame(PID pid) {
-   header.pid = pid;
-}
-// -------------------------------------------------------------------------------------
-bool BufferFrame::isDirty() const {
-   return header.lastWrittenLSN != page.LSN;
-}
 }
 }
 // -------------------------------------------------------------------------------------

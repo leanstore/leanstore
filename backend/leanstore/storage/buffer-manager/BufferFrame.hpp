@@ -27,7 +27,7 @@ struct BufferFrame {
       PID pid = 9999; // INIT:
       OptimisticLock lock = 0;  // INIT:
       // -------------------------------------------------------------------------------------
-      BufferFrame* next_free_bf = nullptr; //TODO
+      BufferFrame *next_free_bf = nullptr; //TODO
    };
    struct alignas(512) Page {
       u64 LSN = 0;
@@ -46,14 +46,24 @@ struct BufferFrame {
    // -------------------------------------------------------------------------------------
    struct Page page; // The persisted part
    // -------------------------------------------------------------------------------------
-   BufferFrame(PID pid = 0);
-   // -------------------------------------------------------------------------------------
    bool operator==(const BufferFrame &other)
    {
       return this == &other;
    }
    // -------------------------------------------------------------------------------------
-   bool isDirty() const;
+   inline bool isDirty() const
+   {
+      return header.lastWrittenLSN != page.LSN;
+   }
+   // -------------------------------------------------------------------------------------
+   void reset()
+   {
+      lock_version_t new_version = header.lock.load();
+      new_version += WRITE_LOCK_BIT;
+      new_version &= ~WRITE_LOCK_BIT;
+      new(&header) Header();
+      header.lock = new_version;
+   }
 };
 // -------------------------------------------------------------------------------------
 static constexpr u64 EFFECTIVE_PAGE_SIZE = sizeof(BufferFrame::Page::dt);
