@@ -310,6 +310,7 @@ struct ParentSwipHandler BTree::findParent(void *btree_object, BufferFrame &to_f
    auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(btree.root_lock);
    // -------------------------------------------------------------------------------------
    if ( c_node.count == 0 ) {
+      //TODO: some bf are not reachable because we can get the lookup key to reach them
       throw RestartException();
    }
    u16 key_length = c_node.getFullKeyLength(0);
