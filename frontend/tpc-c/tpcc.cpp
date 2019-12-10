@@ -4,6 +4,8 @@
 // -------------------------------------------------------------------------------------
 #include "/opt/PerfEvent.hpp"
 #include <gflags/gflags.h>
+#include <tbb/tbb.h>
+#include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include <cstdint>
 #include <string>
@@ -14,7 +16,10 @@
 #include <limits>
 #include <csignal>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(warehouse_count, 1, "");
+DEFINE_uint32(tpcc_warehouse_count, 1, "");
+DEFINE_uint32(tpcc_threads, 10, "");
+DEFINE_uint32(tpcc_tx_count, 1000000, "");
+DEFINE_uint32(tpcc_tx_rounds, 10, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -47,16 +52,17 @@ StdMap<stock_t> stock;
 
 // load
 
-Integer warehouseCount = FLAGS_warehouse_count;
+Integer warehouseCount;
 
 Integer rnd(Integer n)
 {
-   return random() % n;
+   return leanstore::utils::RandomGenerator::getRand(0, n);
 }
 
+// [fromId, toId]
 Integer randomId(Integer fromId, Integer toId)
 {
-   return rnd(toId - fromId + 1) + fromId;
+   return leanstore::utils::RandomGenerator::getRand(fromId, toId + 1);
 }
 
 template<int maxLength>
@@ -102,7 +108,7 @@ Numeric randomNumeric(Numeric min, Numeric max)
 {
    double range = (max - min);
    double div = RAND_MAX / range;
-   return min + (rand() / div);
+   return min + (leanstore::utils::RandomGenerator::getRandU64() / div);
 }
 
 Varchar<9> randomzip()
@@ -160,7 +166,7 @@ void loadDistrinct(Integer w_id)
    }
 }
 
-Integer h_pk = 1;
+atomic<Integer> h_pk = 1;
 
 Timestamp currentTimestamp()
 {
@@ -217,14 +223,36 @@ void load()
 {
    loadItem();
    loadWarehouse();
-   for ( Integer w_id = 1; w_id <= warehouseCount; w_id++ ) {
-      loadStock(w_id);
-      loadDistrinct(w_id);
-      for ( Integer d_id = 1; d_id <= 10; d_id++ ) {
-         loadCustomer(w_id, d_id);
-         loadOrders(w_id, d_id);
+   tbb::parallel_for(tbb::blocked_range<u64>(1, warehouseCount + 1), [&](const tbb::blocked_range<u64> &range) {
+      for ( u64 w_id = range.begin(); w_id < range.end(); w_id++ ) {
+         loadStock(w_id);
+         loadDistrinct(w_id);
+         for ( Integer d_id = 1; d_id <= 10; d_id++ ) {
+            loadCustomer(w_id, d_id);
+            loadOrders(w_id, d_id);
+         }
       }
-   }
+   });
+//   for (Integer w_id=1; w_id<=warehouseCount; w_id++) {
+//      loadStock(w_id);
+//      loadDistrinct(w_id);
+//      for (Integer d_id = 1; d_id<=10; d_id++) {
+//         loadCustomer(w_id, d_id);
+//         loadOrders(w_id, d_id);
+//      }
+//   }
+//   loadItem();
+//   loadWarehouse();
+//   tbb::parallel_for(tbb::blocked_range<u64>(1, warehouseCount), [&](const tbb::blocked_range<u64> &range) {
+//      for ( u64 w_id = range.begin(); w_id <= range.end(); w_id++ ) {
+//         loadStock(w_id);
+//         loadDistrinct(w_id);
+//         for ( Integer d_id = 1; d_id <= 10; d_id++ ) {
+//            loadCustomer(w_id, d_id);
+//            loadOrders(w_id, d_id);
+//         }
+//      }
+//   });
 }
 
 // run
@@ -250,11 +278,19 @@ void newOrder(Integer w_id, Integer d_id, Integer c_id,
    Numeric c_discount = customer.lookupField({w_id, d_id, c_id}, &customer_t::c_discount);
    Numeric d_tax;
    Integer o_id;
-   district.lookup1({w_id, d_id}, [&](const district_t &rec) {
-      o_id = rec.d_next_o_id;
+//   district.lookup1({w_id, d_id}, [&](const district_t &rec) {
+//      o_id = rec.d_next_o_id;
+//      d_tax = rec.d_tax;
+//   });
+   district.update1({w_id, d_id}, [&](district_t &rec) {
       d_tax = rec.d_tax;
+      o_id = rec.d_next_o_id++;
    });
-   district.update1({w_id, d_id}, [&](district_t &rec) { rec.d_next_o_id++; });
+//   district.lookup1({w_id, d_id}, [&](const district_t &rec) {
+//      o_id = rec.d_next_o_id;
+//      d_tax = rec.d_tax;
+//   });
+//   district.update1({w_id, d_id}, [&](district_t &rec) { rec.d_next_o_id++; });
 
    Numeric all_local = 1;
    for ( Integer sw : supwares )
@@ -365,10 +401,15 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
          if ( rec.no_w_id == w_id && rec.no_d_id == d_id )
             o_id = rec.no_o_id;
          return false;
-      }, [] (){});
+      }, [&]() {
+         o_id = minInteger;
+      });
       if ( o_id == minInteger )
          continue;
-      neworder.erase({w_id, d_id, o_id});
+
+      if ( !neworder.erase({w_id, d_id, o_id})) {
+         return;
+      }
 
       //Integer ol_cnt = minInteger, c_id;
       //order.scan({w_id, d_id, o_id}, [&](const order_t& rec) { ol_cnt = rec.o_ol_cnt; c_id = rec.o_c_id; return false; });
@@ -414,12 +455,16 @@ void stockLevel(Integer w_id, Integer d_id, Integer threshold)
          return true;
       }
       return false;
-   }, [] (){});
+   }, [&]() {
+      items.clear();
+   });
    std::sort(items.begin(), items.end());
    std::unique(items.begin(), items.end());
    unsigned count = 0;
-   for ( Integer i_id : items )
-      stock.lookup1({w_id, i_id}, [&](const stock_t &rec) { count += (rec.s_quantity < threshold); });
+   for ( Integer i_id : items ) {
+      auto res_s_quantity = stock.lookupField({w_id, i_id}, &stock_t::s_quantity);
+      count += res_s_quantity < threshold;
+   }
 }
 
 void stockLevelRnd(Integer w_id)
@@ -446,7 +491,9 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
          return true;
       }
       return false;
-   }, [] (){});
+   }, [&]() {
+      o_id = minInteger;
+   });
    if ( o_id == minInteger )
       return; // is this correct?
 
@@ -472,7 +519,9 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
          return true;
       }
       return false;
-   }, [] (){});
+   }, []() {
+      // NOTHING
+   });
 
 }
 
@@ -485,7 +534,9 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
          return true;
       }
       return false;
-   }, [] (){});
+   }, [&]() {
+      ids.clear();
+   });
    unsigned c_count = ids.size();
    if ( c_count == 0 )
       return; // TODO: rollback
@@ -501,7 +552,9 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
          return true;
       }
       return false;
-   }, [] (){});
+   }, [&]() {
+      o_id = minInteger;
+   });
    if ( o_id == minInteger ) // TODO: is this correct?
       return;
    Timestamp ol_delivery_d;
@@ -511,7 +564,9 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
          return true;
       }
       return false;
-   }, [] (){});
+   }, []() {
+      // NOTHING
+   });
 }
 
 void orderStatusRnd(Integer w_id)
@@ -647,7 +702,9 @@ void paymentByName(Integer w_id, Integer d_id, Integer c_w_id, Integer c_d_id, V
          return true;
       }
       return false;
-   }, [] (){});
+   }, [&]() {
+      ids.clear();
+   });
    unsigned c_count = ids.size();
    if ( c_count == 0 )
       return; // TODO: rollback
@@ -719,7 +776,7 @@ void paymentRnd(Integer w_id)
 int tx()
 {
    Integer w_id = urand(1, warehouseCount);
-   int rnd = random() % 1000;
+   int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);
    if ( rnd < 430 ) {
       paymentRnd(w_id);
       return 0;
@@ -744,12 +801,22 @@ int tx()
    return 4;
 }
 
+// -------------------------------------------------------------------------------------
+double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
+{
+   double tps = ((factor * 1.0 / (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0)));
+   return (tps / 1000000.0);
+}
 int main(int argc, char **argv)
 {
    gflags::SetUsageMessage("Leanstore TPC-C");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
    LeanStore db;
+   PerfEvent e;
+   tbb::task_scheduler_init taskScheduler(FLAGS_tpcc_threads);
+   // -------------------------------------------------------------------------------------
+   warehouseCount = FLAGS_tpcc_warehouse_count;
    warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
    district = LeanStoreAdapter<district_t>(db, "district");
    customer = LeanStoreAdapter<customer_t>(db, "customer");
@@ -762,44 +829,47 @@ int main(int argc, char **argv)
    item = LeanStoreAdapter<item_t>(db, "item");
    stock = LeanStoreAdapter<stock_t>(db, "stock");
    // -------------------------------------------------------------------------------------
+   chrono::high_resolution_clock::time_point begin, end;
+   // -------------------------------------------------------------------------------------
    load();
+   double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
+   cout << "data loaded - consumed space in GiB = " <<gib << endl;
+   // -------------------------------------------------------------------------------------
+   auto print_tables_counts = [&]() {
+      cout << "warehouse: " << warehouse.count() << endl;
+      cout << "district: " << district.count() << endl;
+      cout << "customer: " << customer.count() << endl;
+      cout << "customerwdl: " << customerwdl.count() << endl;
+      cout << "history: " << history.count() << endl;
+      cout << "neworder: " << neworder.count() << endl;
+      cout << "order: " << order.count() << endl;
+      cout << "order_wdc: " << order_wdc.count() << endl;
+      cout << "orderline: " << orderline.count() << endl;
+      cout << "item: " << item.count() << endl;
+      cout << "stock: " << stock.count() << endl;
+      cout << endl;
+   };
+//   print_tables_counts();
 
-   cout << "warehouse: " << warehouse.count() << endl;
-   cout << "district: " << district.count() << endl;
-   cout << "customer: " << customer.count() << endl;
-   cout << "customerwdl: " << customerwdl.count() << endl;
-   cout << "history: " << history.count() << endl;
-   cout << "neworder: " << neworder.count() << endl;
-   cout << "order: " << order.count() << endl;
-   cout << "order_wdc: " << order_wdc.count() << endl;
-   cout << "orderline: " << orderline.count() << endl;
-   cout << "item: " << item.count() << endl;
-   cout << "stock: " << stock.count() << endl;
-   cout << endl;
-
-   PerfEvent e;
-   for ( unsigned j = 0; j < 10; j++ ) {
-      unsigned n = 10000;
+   for ( unsigned j = 0; j < FLAGS_tpcc_tx_rounds; j++ ) {
+      unsigned n = FLAGS_tpcc_tx_count;
+      begin = chrono::high_resolution_clock::now();
       {
          PerfEventBlock b(e, n);
-         for ( unsigned i = 0; i < n; i++ ) {
-            tx();
-         }
+         tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
+            for ( u64 i = range.begin(); i < range.end(); i++ ) {
+               tx();
+            }
+         });
       }
+      end = chrono::high_resolution_clock::now();
+      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
    }
-
-   cout << "warehouse: " << warehouse.count() << endl;
-   cout << "district: " << district.count() << endl;
-   cout << "customer: " << customer.count() << endl;
-   cout << "customerwdl: " << customerwdl.count() << endl;
-   cout << "history: " << history.count() << endl;
-   cout << "neworder: " << neworder.count() << endl;
-   cout << "order: " << order.count() << endl;
-   cout << "order_wdc: " << order_wdc.count() << endl;
-   cout << "orderline: " << orderline.count() << endl;
-   cout << "item: " << item.count() << endl;
-   cout << "stock: " << stock.count() << endl;
-   cout << endl;
-
+   // -------------------------------------------------------------------------------------
+   gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
+   cout << "consumed space in GiB = " <<gib << endl;
+   // -------------------------------------------------------------------------------------
+//   print_tables_counts();
+   // -------------------------------------------------------------------------------------
    return 0;
 }

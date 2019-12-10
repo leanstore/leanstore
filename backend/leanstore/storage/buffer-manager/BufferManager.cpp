@@ -207,6 +207,8 @@ void BufferManager::pageProviderThread()
                      debugging_counters.awrites_submitted++;
                   } else {
                      debugging_counters.awrites_submit_failed++;
+                     g_guard.unlock();
+                     goto phase_3;
                   }
                }
             }
@@ -215,6 +217,7 @@ void BufferManager::pageProviderThread()
          g_guard.unlock();
       }
       // Phase 3
+      phase_3:
       auto phase_3_begin = chrono::high_resolution_clock::now();
       if ( phase_3_condition()) {
          async_write_buffer.submitIfNecessary();

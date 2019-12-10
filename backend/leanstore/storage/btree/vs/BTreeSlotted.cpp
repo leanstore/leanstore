@@ -254,8 +254,9 @@ void BTreeNode::setFences(u8 *lowerKey, unsigned lowerLen, u8 *upperKey, unsigne
 // -------------------------------------------------------------------------------------
 unsigned BTreeNode::commonPrefix(unsigned aPos, unsigned bPos)
 {
-   assert(aPos < count);
-   assert(bPos < count);
+   // TODO: the folowing two checks work only in single threaded
+//   assert(aPos < count);
+//   assert(bPos < count);
    if ((slot[aPos].sketch == slot[bPos].sketch) && (slot[aPos].head_len == slot[bPos].head_len)) {
       unsigned aLen, bLen;
       u8 *a, *b;

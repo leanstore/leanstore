@@ -62,14 +62,15 @@ struct LeanStoreAdapter {
       });
    }
 
-   void erase(const typename Record::Key &key)
+   bool erase(const typename Record::Key &key)
    {
       string key_str = getStringKey(key);
       if ( btree->lookup((u8 *) key_str.data(), key_str.length(), [](const u8 *, u16) {})) {
          if ( !btree->remove((u8 *) key_str.data(), key_str.length())) {
-            throw;
+            return false;
          }
       }
+      return true;
    }
 
    template<class Fn>
@@ -79,7 +80,7 @@ struct LeanStoreAdapter {
       btree->scan(reinterpret_cast<u8 *>(key_str.data()), u16(key_str.length()), [&](u8 *payload, u16 payload_length, std::function<string()> &getKey) {
          const Record &typed_payload = *reinterpret_cast<Record *>(payload);
          return fn(typed_payload);
-      }, []() {});
+      }, undo);
    }
 
    template<class Field>

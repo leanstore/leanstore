@@ -24,11 +24,6 @@ ExclusiveGuard::ExclusiveGuard(ReadGuard &read_lock)
    assert(ref_guard.version_ptr != nullptr);
    assert((ref_guard.local_version & WRITE_LOCK_BIT) == 0);
    lock_version_t new_version = ref_guard.local_version + WRITE_LOCK_BIT;
-   /*
-    * A better alternative can be
-    * u64 lv = ref_guard.local_version;
-    * std::atomic_compare_exchange_strong(ref_guard.version_ptr, &lv, new_version)
-    */
    u64 lv = ref_guard.local_version;
    if ( !std::atomic_compare_exchange_strong(ref_guard.version_ptr, &lv, new_version)) {
       throw RestartException();
@@ -39,7 +34,6 @@ ExclusiveGuard::ExclusiveGuard(ReadGuard &read_lock)
 // -------------------------------------------------------------------------------------
 ExclusiveGuard::~ExclusiveGuard()
 {
-
    assert(ref_guard.version_ptr != nullptr);
    assert(ref_guard.local_version == ref_guard.version_ptr->load());
    assert((ref_guard.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);

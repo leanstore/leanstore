@@ -41,6 +41,7 @@ public:
    // I: Lock coupling
    ReadPageGuard(ReadPageGuard &p_guard, Swip <T> &swip)
    {
+      assert(!(p_guard.bf_s_lock.local_version & WRITE_LOCK_BIT));
       if ( p_guard.moved == true ) {
          assert(false);
       }

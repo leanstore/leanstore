@@ -293,59 +293,64 @@ void BTree::tryMerge(BufferFrame &to_split)
    if ( !p_guard.hasBf() || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize ) {
       return;
    }
-   auto p_x_guard = WritePageGuard(std::move(p_guard));
-   auto c_x_guard = WritePageGuard(std::move(c_guard));
    assert(parent_handler.swip.bf == &to_split);
    // -------------------------------------------------------------------------------------
    // TODO: use upper fence instead of fully copying the first key
-   u16 key_length = c_x_guard->getFullKeyLength(0);
+   u16 key_length = c_guard->getFullKeyLength(0);
    u8 key[key_length];
-   c_x_guard->copyFullKey(0, key, key_length);
-   int pos = p_x_guard->lowerBound<false>(key, key_length);
+   c_guard->copyFullKey(0, key, key_length);
+   int pos = p_guard->lowerBound<false>(key, key_length);
    assert(pos != -1);
    // -------------------------------------------------------------------------------------
    auto merge_left = [&]() {
-      Swip<BTreeNode> &l_swip = p_x_guard->getValue(pos - 1);
-      auto l_guard = ReadPageGuard(p_x_guard, l_swip);
+      Swip<BTreeNode> &l_swip = p_guard->getValue(pos - 1);
+      auto l_guard = ReadPageGuard(p_guard, l_swip);
       if ( l_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize ) {
          return false;
       }
+      auto p_x_guard = WritePageGuard(std::move(p_guard));
+      auto c_x_guard = WritePageGuard(std::move(c_guard));
       auto l_x_guard = WritePageGuard(std::move(l_guard));
+      // -------------------------------------------------------------------------------------
       l_x_guard->merge(pos - 1, p_x_guard, c_x_guard);
       l_x_guard.reclaim();
+      // -------------------------------------------------------------------------------------
+      p_guard = ReadPageGuard(std::move(p_x_guard));
+      c_guard = ReadPageGuard(std::move(c_x_guard));
       return true;
    };
    auto merge_right = [&]() {
-      Swip<BTreeNode> &r_swip = p_x_guard->getValue(pos + 1);
-      auto r_guard = ReadPageGuard(p_x_guard, r_swip);
+      Swip<BTreeNode> &r_swip = p_guard->getValue(pos + 1);
+      auto r_guard = ReadPageGuard(p_guard, r_swip);
       if ( r_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize ) {
          return false;
       }
+      auto p_x_guard = WritePageGuard(std::move(p_guard));
+      auto c_x_guard = WritePageGuard(std::move(c_guard));
       auto r_x_guard = WritePageGuard(std::move(r_guard));
+      // -------------------------------------------------------------------------------------
       c_x_guard->merge(pos, p_x_guard, r_x_guard);
       c_x_guard.reclaim();
+      // -------------------------------------------------------------------------------------
+      p_guard = ReadPageGuard(std::move(p_x_guard));
       return true;
    };
+   // ATTENTION: don't use c_guard without making sure it was not reclaimed
    // -------------------------------------------------------------------------------------
    bool merged_right = false;
-   if ( p_x_guard->count >= 2 ) {
-      if ( pos + 1 < p_x_guard->count ) {
+   if ( p_guard->count >= 2 ) {
+      if ( pos + 1 < p_guard->count ) {
          if ( merge_right()) {
             merged_right = true;
          }
-      }
-      if ( !merged_right ) {
-         c_guard = ReadPageGuard<BTreeNode>(std::move(c_x_guard));
-         c_guard.kill();
       }
       if ( !merged_right && pos > 0 ) {
          merge_left();
       }
    }
    // -------------------------------------------------------------------------------------
-   p_guard = ReadPageGuard<BTreeNode>(std::move(p_x_guard));
    if ( p_guard.hasBf() && p_guard->freeSpaceAfterCompaction() >= BTreeNode::underFullSize && root_swip.bf != p_guard.bf ) {
-      tryMerge(*p_x_guard.bf);
+      tryMerge(*p_guard.bf);
    }
 }
 // -------------------------------------------------------------------------------------
@@ -449,36 +454,40 @@ s64 BTree::iterateAllPages(ReadPageGuard<BTreeNode> &node_guard, std::function<s
 // -------------------------------------------------------------------------------------
 u32 BTree::countEntries()
 {
-   auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
-   ReadPageGuard c_guard(p_guard, root_swip);
-   p_guard.recheck_done();
-   c_guard.recheck_done();
-   return iterateAllPages(c_guard, [](BTreeNode &) {
-      return 0;
-   }, [](BTreeNode &node) {
-      return node.count;
-   });
+   while ( true ) {
+      try {
+         auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
+         ReadPageGuard c_guard(p_guard, root_swip);
+         return iterateAllPages(c_guard, [](BTreeNode &) {
+            return 0;
+         }, [](BTreeNode &node) {
+            return node.count;
+         });
+      } catch ( RestartException e ) {
+      }
+   }
 }
 // -------------------------------------------------------------------------------------
 u32 BTree::countPages()
 {
-   auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
-   ReadPageGuard c_guard(p_guard, root_swip);
-   p_guard.recheck_done();
-   c_guard.recheck_done();
-   return iterateAllPages(c_guard, [](BTreeNode &) {
-      return 1;
-   }, [](BTreeNode &) {
-      return 1;
-   });
+   while ( true ) {
+      try {
+         auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
+         ReadPageGuard c_guard(p_guard, root_swip);
+         return iterateAllPages(c_guard, [](BTreeNode &) {
+            return 1;
+         }, [](BTreeNode &) {
+            return 1;
+         });
+      } catch ( RestartException e ) {
+      }
+   }
 }
 // -------------------------------------------------------------------------------------
 u32 BTree::countInner()
 {
    auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
    ReadPageGuard c_guard(p_guard, root_swip);
-   p_guard.recheck_done();
-   c_guard.recheck_done();
    return iterateAllPages(c_guard, [](BTreeNode &) {
       return 1;
    }, [](BTreeNode &) {
@@ -490,8 +499,6 @@ u32 BTree::bytesFree()
 {
    auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
    ReadPageGuard c_guard(p_guard, root_swip);
-   p_guard.recheck_done();
-   c_guard.recheck_done();
    return iterateAllPages(c_guard, [](BTreeNode &inner) {
       return inner.freeSpaceAfterCompaction();
    }, [](BTreeNode &leaf) {
@@ -503,8 +510,6 @@ void BTree::printInfos(uint64_t totalSize)
 {
    auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
    ReadPageGuard r_guard(p_guard, root_swip);
-   p_guard.recheck_done();
-   r_guard.recheck_done();
    uint64_t cnt = countPages();
    cout << "nodes:" << cnt << " innerNodes:" << countInner() << " space:" << (cnt * EFFECTIVE_PAGE_SIZE) / (float) totalSize << " height:" << height << " rootCnt:" << r_guard->count << " bytesFree:" << bytesFree() << endl;
 }
