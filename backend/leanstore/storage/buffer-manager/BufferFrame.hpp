@@ -58,6 +58,7 @@ struct BufferFrame {
    // -------------------------------------------------------------------------------------
    void reset()
    {
+      assert(!header.isWB);
       lock_version_t new_version = header.lock.load();
       new_version += WRITE_LOCK_BIT;
       new_version &= ~WRITE_LOCK_BIT;

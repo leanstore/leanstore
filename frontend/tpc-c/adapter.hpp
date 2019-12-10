@@ -42,6 +42,7 @@ struct LeanStoreAdapter {
    {
       string key_str = getStringKey(key);
       const bool found = btree->lookup((u8 *) key_str.data(), key_str.length(), [&](const u8 *payload, u16 payload_length) {
+         static_cast<void>(payload_length);
          const Record &typed_payload = *reinterpret_cast<const Record *>(payload);
          assert(payload_length == sizeof(Record));
          fn(typed_payload);
@@ -56,6 +57,7 @@ struct LeanStoreAdapter {
    {
       string key_str = getStringKey(key);
       btree->updateSameSize((u8 *) key_str.data(), key_str.length(), [&](u8 *payload, u16 payload_length) {
+         static_cast<void>(payload_length);
          assert(payload_length == sizeof(Record));
          Record &typed_payload = *reinterpret_cast<Record *>(payload);
          fn(typed_payload);
@@ -77,7 +79,8 @@ struct LeanStoreAdapter {
    void scan(const typename Record::Key &key, const Fn &fn, std::function<void()> undo)
    {
       string key_str = getStringKey(key);
-      btree->scan(reinterpret_cast<u8 *>(key_str.data()), u16(key_str.length()), [&](u8 *payload, u16 payload_length, std::function<string()> &getKey) {
+      btree->scan(reinterpret_cast<u8 *>(key_str.data()), u16(key_str.length()), [&](u8 *payload, u16 payload_length, std::function<string()> &) {
+         static_cast<void>(payload_length);
          const Record &typed_payload = *reinterpret_cast<Record *>(payload);
          return fn(typed_payload);
       }, undo);

@@ -43,7 +43,8 @@ struct BTree {
    ~BTree();
    // -------------------------------------------------------------------------------------
    // Helpers
-   s64 iterateAllPages(ReadPageGuard<BTreeNode> &node_guard, std::function<s64(BTreeNode &)> inner, std::function<s64(BTreeNode &)> leaf);
+   s64 iterateAllPages(std::function<s64(BTreeNode &)> inner, std::function<s64(BTreeNode &)> leaf);
+   s64 iterateAllPagesRec(ReadPageGuard<BTreeNode> &node_guard, std::function<s64(BTreeNode &)> inner, std::function<s64(BTreeNode &)> leaf);
    unsigned countInner();
    u32 countPages();
    u32 countEntries();

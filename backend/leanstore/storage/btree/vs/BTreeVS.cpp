@@ -87,7 +87,7 @@ void BTree::scan(u8 *start_key, u16 key_length, std::function<bool(u8 *payload, 
             leaf.recheck_done();
             // -------------------------------------------------------------------------------------
             if ( next_key != start_key ) {
-               free(next_key);
+               delete[] next_key;
             }
             if ( leaf->isUpperFenceInfinity()) {
                return;
@@ -431,7 +431,7 @@ void BTree::iterateChildrenSwips(void *, BufferFrame &bf, std::function<bool(Swi
 }
 // Helpers
 // -------------------------------------------------------------------------------------
-s64 BTree::iterateAllPages(ReadPageGuard<BTreeNode> &node_guard, std::function<s64(BTreeNode &)> inner, std::function<s64(BTreeNode &)> leaf)
+s64 BTree::iterateAllPagesRec(ReadPageGuard<BTreeNode> &node_guard, std::function<s64(BTreeNode &)> inner, std::function<s64(BTreeNode &)> leaf)
 {
    if ( node_guard->is_leaf ) {
       return leaf(node_guard.ref());
@@ -441,54 +441,50 @@ s64 BTree::iterateAllPages(ReadPageGuard<BTreeNode> &node_guard, std::function<s
       Swip<BTreeNode> &c_swip = node_guard->getValue(i);
       auto c_guard = ReadPageGuard(node_guard, c_swip);
       c_guard.recheck_done();
-      res += iterateAllPages(c_guard, inner, leaf);
+      res += iterateAllPagesRec(c_guard, inner, leaf);
    }
    // -------------------------------------------------------------------------------------
    Swip<BTreeNode> &c_swip = node_guard->upper;
    auto c_guard = ReadPageGuard(node_guard, c_swip);
    c_guard.recheck_done();
-   res += iterateAllPages(c_guard, inner, leaf);
+   res += iterateAllPagesRec(c_guard, inner, leaf);
    // -------------------------------------------------------------------------------------
    return res;
 }
 // -------------------------------------------------------------------------------------
-u32 BTree::countEntries()
+s64 BTree::iterateAllPages(std::function<s64(BTreeNode &)> inner, std::function<s64(BTreeNode &)> leaf)
 {
    while ( true ) {
       try {
          auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
          ReadPageGuard c_guard(p_guard, root_swip);
-         return iterateAllPages(c_guard, [](BTreeNode &) {
-            return 0;
-         }, [](BTreeNode &node) {
-            return node.count;
-         });
+         return iterateAllPagesRec(c_guard, inner, leaf);
       } catch ( RestartException e ) {
       }
    }
+}
+// -------------------------------------------------------------------------------------
+u32 BTree::countEntries()
+{
+   return iterateAllPages([](BTreeNode &) {
+      return 0;
+   }, [](BTreeNode &node) {
+      return node.count;
+   });
 }
 // -------------------------------------------------------------------------------------
 u32 BTree::countPages()
 {
-   while ( true ) {
-      try {
-         auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
-         ReadPageGuard c_guard(p_guard, root_swip);
-         return iterateAllPages(c_guard, [](BTreeNode &) {
-            return 1;
-         }, [](BTreeNode &) {
-            return 1;
-         });
-      } catch ( RestartException e ) {
-      }
-   }
+   return iterateAllPages([](BTreeNode &) {
+      return 1;
+   }, [](BTreeNode &) {
+      return 1;
+   });
 }
 // -------------------------------------------------------------------------------------
 u32 BTree::countInner()
 {
-   auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
-   ReadPageGuard c_guard(p_guard, root_swip);
-   return iterateAllPages(c_guard, [](BTreeNode &) {
+   return iterateAllPages([](BTreeNode &) {
       return 1;
    }, [](BTreeNode &) {
       return 0;
@@ -497,9 +493,7 @@ u32 BTree::countInner()
 // -------------------------------------------------------------------------------------
 u32 BTree::bytesFree()
 {
-   auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
-   ReadPageGuard c_guard(p_guard, root_swip);
-   return iterateAllPages(c_guard, [](BTreeNode &inner) {
+   return iterateAllPages([](BTreeNode &inner) {
       return inner.freeSpaceAfterCompaction();
    }, [](BTreeNode &leaf) {
       return leaf.freeSpaceAfterCompaction();

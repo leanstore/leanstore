@@ -176,8 +176,9 @@ public:
    // -------------------------------------------------------------------------------------
    void reclaim()
    {
-      BMC::global_bf->reclaimPage(*ParentClass::bf);
-      ParentClass::moved = true;
+      if(BMC::global_bf->reclaimPage(*ParentClass::bf)){
+         ParentClass::moved = true;
+      }
    }
    // -------------------------------------------------------------------------------------
    ~WritePageGuard()

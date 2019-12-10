@@ -84,7 +84,7 @@ public:
    // -------------------------------------------------------------------------------------
    BufferFrame &allocatePage();
    BufferFrame &resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value);
-   void reclaimPage(BufferFrame &bf);
+   bool reclaimPage(BufferFrame &bf);
    // -------------------------------------------------------------------------------------
    void flushDropAllPages();
    void stopBackgroundThreads();

@@ -347,12 +347,17 @@ BufferFrame &BufferManager::allocatePage()
    return free_bf;
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::reclaimPage(BufferFrame &bf)
+bool BufferManager::reclaimPage(BufferFrame &bf)
 {
    // TODO: reclaim bf pid
-   bf.reset();
-   dram_free_list.push(bf);
    ssd_freed_pages_counter++;
+   if ( !bf.header.isWB ) {
+      bf.reset();
+      dram_free_list.push(bf);
+      return true;
+   } else {
+      return false;
+   }
 }
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
