@@ -181,12 +181,15 @@ void BufferManager::pageProviderThread()
       auto phase_2_begin = chrono::high_resolution_clock::now();
       if ( phase_2_condition()) {
          // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
-         //TODO : iterate over partitions
-         for ( u64 p_i = 0; p_i < partitions_count; p_i++ ) {
+         static u64 p_i = 0;
+         u64 checked_partitions_counter = 0;
+         while ( checked_partitions_counter++ < partitions_count ) {
             PartitionTable &partition = partitions[p_i];
+            p_i = ((p_i + 1) & partitions_mask);
             // -------------------------------------------------------------------------------------
             std::unique_lock g_guard(partition.cio_mutex);
-            u64 pages_left_to_process = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0;
+            u64 pages_left_to_process = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0; // TODO: changing this line has significant impact on performance,
+            // TODO: find out why
             auto bf_itr = partition.cooling_queue.begin();
             while ( pages_left_to_process-- && bf_itr != partition.cooling_queue.end()) {
                BufferFrame &bf = **bf_itr;
@@ -250,7 +253,7 @@ void BufferManager::pageProviderThread()
                   PartitionTable &partition = getPartition(pid);
                   std::unique_lock g_guard(partition.cio_mutex);
                   w_guard.recheck(); // restarting here means that this bf will stay in the hot zone
-                  assert ( written_bf.header.state == BufferFrame::State::COLD );
+                  assert (written_bf.header.state == BufferFrame::State::COLD);
                   // -------------------------------------------------------------------------------------
                   // Reclaim buffer frame
                   HashTable::Handler frame_handler = partition.ht.lookup(pid);
@@ -297,6 +300,8 @@ void BufferManager::debuggingThread()
       local_phase_3_ms = debugging_counters.phase_3_ms.exchange(0);
       local_poll_ms = debugging_counters.poll_ms.exchange(0);
       s64 total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
+      u64 local_flushed = debugging_counters.flushed_pages_counter.exchange(0);
+      u64 local_write_mib_s = local_flushed * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
       if ( total > 0 ) {
          cout << "p1:" << u32(local_phase_1_ms * 100.0 / total)
               << "\tp2:" << u32(local_phase_2_ms * 100.0 / total)
@@ -311,7 +316,8 @@ void BufferManager::debuggingThread()
               << "\trio:" << (debugging_counters.io_operations.exchange(0))
               << "\tuns:" << (debugging_counters.unswizzled_pages_counter.exchange(0))
               << "\tswi:" << (debugging_counters.swizzled_pages_counter.exchange(0))
-              << "\tflu:" << (debugging_counters.flushed_pages_counter.exchange(0))
+              << "\tflu:" << (local_flushed)
+              << "\twmibs:" << (local_write_mib_s)
               << endl;
       }
       sleep(1);
