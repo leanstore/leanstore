@@ -30,9 +30,6 @@ namespace buffermanager {
  */
 class BufferManager {
    struct Stats {
-      atomic<u64> swizzled_pages_counter = 0;
-      atomic<u64> unswizzled_pages_counter = 0;
-      atomic<u64> flushed_pages_counter = 0;
       void print();
       void reset();
    };
@@ -40,6 +37,10 @@ class BufferManager {
    struct DebuggingCounters {
       atomic<u64> evicted_pages = 0, awrites_submitted = 0, awrites_submit_failed = 0, pp_thread_rounds = 0;
       atomic<s64> phase_1_ms = 0, phase_2_ms = 0, phase_3_ms = 0;
+      atomic<u64> flushed_pages_counter = 0;
+      atomic<u64> swizzled_pages_counter = 0;
+      atomic<u64> unswizzled_pages_counter = 0;
+      atomic<s64> poll_ms = 0;
       atomic<u64> io_operations = 0;
    };
 private:
@@ -57,9 +58,9 @@ private:
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
-   // TODO: too slow, we can not create all our entries at startup
-   // TODO: solution: handcraft a hashtable with upper bound
-   unique_ptr<PartitionTable> the_partition;
+   u64 partitions_count;
+   u64 partitions_mask;
+   PartitionTable *partitions;
    atomic<u64> cooling_bfs_counter = 0;
 private:
    // -------------------------------------------------------------------------------------

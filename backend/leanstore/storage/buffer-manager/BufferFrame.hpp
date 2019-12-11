@@ -13,16 +13,16 @@ namespace buffermanager {
 const u64 PAGE_SIZE = 16 * 1024;
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
-   enum class State {
-      FREE,
-      HOT,
-      COLD
+   enum class State : u8 {
+      FREE = 0,
+      HOT = 1,
+      COLD = 2
    };
    struct Header {
       // TODO: for logging
-      u64 lastWrittenLSN = 0;
-      State state = State::FREE; // INIT:
-      bool isWB = false;
+      atomic<u64> lastWrittenLSN = 0;
+      atomic<State> state = State::FREE; // INIT:
+      atomic<bool> isWB = false;
       bool isCooledBecauseOfReading = false;
       PID pid = 9999; // INIT:
       OptimisticLock lock = 0;  // INIT:

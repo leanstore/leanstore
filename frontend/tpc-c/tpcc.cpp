@@ -101,38 +101,37 @@ int main(int argc, char **argv)
    };
 //   print_tables_counts();
 
-   for ( unsigned j = 0; j < FLAGS_tpcc_tx_rounds; j++ ) {
-      unsigned n = FLAGS_tpcc_tx_count;
-      atomic<bool> last_second_news_enabled = true;
-      atomic<u64> tx_done = 0;
-      begin = chrono::high_resolution_clock::now();
-      {
-         PerfEventBlock b(e, n);
-         // -------------------------------------------------------------------------------------
-         thread last_second_news([&] {
-            while ( last_second_news_enabled ) {
-               sleep(1);
-               u64 tx_done_local = tx_done.exchange(0);
-               cout << tx_done_local << " txs in the last second" << endl;
-               b.scale = tx_done_local;
-               b.e.stopCounters();
-               b.printCounters();
-               b.e.startCounters();
-            }
-         });
-         // -------------------------------------------------------------------------------------
-         tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
-            for ( u64 i = range.begin(); i < range.end(); i++ ) {
-               tx();
-               tx_done++;
-            }
-         });
-         last_second_news_enabled.store(false);
-         last_second_news.join();
+   unsigned n = FLAGS_tpcc_tx_count;
+   PerfEventBlock b(e, n);
+   b.print_in_destructor = false;
+   // -------------------------------------------------------------------------------------
+   atomic<bool> last_second_news_enabled = true;
+   atomic<u64> last_second_tx_done = 0;
+   thread last_second_news([&] {
+      while ( last_second_news_enabled ) {
+         u64 tx_done_local = last_second_tx_done.exchange(0);
+         cout << endl;
+         cout << tx_done_local << " txs in the last second" << endl;
+         b.scale = tx_done_local;
+         b.e.stopCounters();
+         b.printCounters();
+         b.e.startCounters();
+         sleep(1);
       }
+   });
+   for ( unsigned j = 0; j < FLAGS_tpcc_tx_rounds; j++ ) {
+      begin = chrono::high_resolution_clock::now();
+      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
+         for ( u64 i = range.begin(); i < range.end(); i++ ) {
+            tx();
+            last_second_tx_done++;
+         }
+      });
       end = chrono::high_resolution_clock::now();
-      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
+//      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
    }
+   last_second_news_enabled.store(false);
+   last_second_news.join();
    // -------------------------------------------------------------------------------------
    gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << "consumed space in GiB = " << gib << endl;

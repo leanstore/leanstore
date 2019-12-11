@@ -63,8 +63,13 @@ BufferManager::BufferManager()
    ensure (fcntl(ssd_fd, F_GETFL) != -1);
    // -------------------------------------------------------------------------------------
    // Initialize partitions
-   const u64 cooling_bfs_upper_bound = FLAGS_cool * 1.5 * dram_pool_size / 100.0;
-   the_partition = make_unique<PartitionTable>(utils::getBitsNeeded(cooling_bfs_upper_bound));
+   partitions_count = (1 << FLAGS_partition_bits);
+   partitions_mask = partitions_count - 1;
+   const u64 cooling_bfs_upper_bound = FLAGS_cool * 1.5 * dram_pool_size / 100.0 / static_cast<double>(partitions_count);
+   partitions = reinterpret_cast<PartitionTable *>(malloc(sizeof(PartitionTable) * partitions_count));
+   for ( u64 p_i = 0; p_i < partitions_count; p_i++ ) {
+      new(partitions + p_i) PartitionTable(utils::getBitsNeeded(cooling_bfs_upper_bound));
+   }
    // -------------------------------------------------------------------------------------
    // Background threads
    // -------------------------------------------------------------------------------------
@@ -157,7 +162,7 @@ void BufferManager::pageProviderThread()
                parent_handler.swip.unswizzle(r_buffer->header.pid);
                cooling_bfs_counter++;
                // -------------------------------------------------------------------------------------
-               stats.unswizzled_pages_counter++;
+               debugging_counters.unswizzled_pages_counter++;
                // -------------------------------------------------------------------------------------
                if ( !phase_1_condition()) {
                   r_buffer = &randomBufferFrame();
@@ -177,85 +182,96 @@ void BufferManager::pageProviderThread()
       if ( phase_2_condition()) {
          // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
          //TODO : iterate over partitions
-         PartitionTable &partition = getPartition(0);
-         std::unique_lock g_guard(partition.cio_mutex);
-         u64 pages_left_to_process = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0;
-         auto bf_itr = partition.cooling_queue.begin();
-         while ( pages_left_to_process-- && bf_itr != partition.cooling_queue.end()) {
-            BufferFrame &bf = **bf_itr;
-            auto next_bf_tr = std::next(bf_itr, 1);
-            const PID pid = bf.header.pid;
-            if ( !bf.header.isWB && !bf.header.isCooledBecauseOfReading ) {
-               if ( !bf.isDirty()) {
-                  // Reclaim buffer frame
-                  HashTable::Handler frame_handler = partition.ht.lookup(pid);
-                  assert(frame_handler);
-                  assert(frame_handler.frame().state == CIOFrame::State::COOLING);
-                  assert(bf.header.state == BufferFrame::State::COLD);
-                  // -------------------------------------------------------------------------------------
-                  partition.cooling_queue.erase(bf_itr);
-                  partition.ht.remove(frame_handler);
-                  assert(!partition.ht.has(pid));
-                  // -------------------------------------------------------------------------------------
-                  bf.reset();
-                  dram_free_list.push(bf);
-                  // -------------------------------------------------------------------------------------
-                  cooling_bfs_counter--;
-                  debugging_counters.evicted_pages++;
-               } else {
-                  if ( async_write_buffer.add(bf)) {
-                     debugging_counters.awrites_submitted++;
+         for ( u64 p_i = 0; p_i < partitions_count; p_i++ ) {
+            PartitionTable &partition = partitions[p_i];
+            // -------------------------------------------------------------------------------------
+            std::unique_lock g_guard(partition.cio_mutex);
+            u64 pages_left_to_process = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0;
+            auto bf_itr = partition.cooling_queue.begin();
+            while ( pages_left_to_process-- && bf_itr != partition.cooling_queue.end()) {
+               BufferFrame &bf = **bf_itr;
+               auto next_bf_tr = std::next(bf_itr, 1);
+               const PID pid = bf.header.pid;
+               if ( !bf.header.isWB && !bf.header.isCooledBecauseOfReading ) {
+                  if ( !bf.isDirty()) {
+                     // Reclaim buffer frame
+                     HashTable::Handler frame_handler = partition.ht.lookup(pid);
+                     assert(frame_handler);
+                     assert(frame_handler.frame().state == CIOFrame::State::COOLING);
+                     assert(bf.header.state == BufferFrame::State::COLD);
+                     // -------------------------------------------------------------------------------------
+                     partition.cooling_queue.erase(bf_itr);
+                     partition.ht.remove(frame_handler);
+                     assert(!partition.ht.has(pid));
+                     // -------------------------------------------------------------------------------------
+                     bf.reset();
+                     dram_free_list.push(bf);
+                     // -------------------------------------------------------------------------------------
+                     cooling_bfs_counter--;
+                     debugging_counters.evicted_pages++;
                   } else {
-                     debugging_counters.awrites_submit_failed++;
-                     g_guard.unlock();
-                     goto phase_3;
+                     if ( async_write_buffer.add(bf)) {
+                        debugging_counters.awrites_submitted++;
+                     } else {
+                        debugging_counters.awrites_submit_failed++;
+                        goto phase_3; // TODO: brings lots of performance but actually why ?
+                     }
                   }
                }
+               bf_itr = next_bf_tr;
             }
-            bf_itr = next_bf_tr;
          }
-         g_guard.unlock();
       }
       // Phase 3
       phase_3:
       auto phase_3_begin = chrono::high_resolution_clock::now();
       if ( phase_3_condition()) {
          async_write_buffer.submitIfNecessary();
+         // -------------------------------------------------------------------------------------
+         // Poll IO
+         auto poll_begin = chrono::high_resolution_clock::now();
          const u32 polled_events = async_write_buffer.pollEventsSync();
-         PartitionTable &partition = getPartition(0);
-         std::lock_guard g_guard(partition.cio_mutex);
+         auto poll_end = chrono::high_resolution_clock::now();
+         debugging_counters.poll_ms += (chrono::duration_cast<chrono::microseconds>(poll_end - poll_begin).count());
+         // -------------------------------------------------------------------------------------
          async_write_buffer.getWrittenBfs([&](BufferFrame &written_bf, u64 written_lsn) {
-            while ( true ) {
-               try {
-                  const PID pid = written_bf.header.pid;
-                  assert(written_bf.header.isWB);
-                  written_bf.header.lastWrittenLSN = written_lsn;
-                  written_bf.header.isWB = false;
+            try {
+               ReadGuard w_guard(written_bf.header.lock);
+               const PID pid = written_bf.header.pid;
+               assert(written_bf.header.isWB);
+               written_bf.header.lastWrittenLSN = written_lsn;
+               written_bf.header.isWB = false;
+               // -------------------------------------------------------------------------------------
+               debugging_counters.flushed_pages_counter++;
+               // -------------------------------------------------------------------------------------
+               // Evict
+               // ATTENTION: resolveSwip might also work on this bf !
+               if ( written_bf.header.state == BufferFrame::State::COLD ) {
+                  PartitionTable &partition = getPartition(pid);
+                  std::unique_lock g_guard(partition.cio_mutex);
+                  w_guard.recheck(); // restarting here means that this bf will stay in the hot zone
+                  assert ( written_bf.header.state == BufferFrame::State::COLD );
                   // -------------------------------------------------------------------------------------
-                  stats.flushed_pages_counter++;
+                  // Reclaim buffer frame
+                  HashTable::Handler frame_handler = partition.ht.lookup(pid);
+                  assert(frame_handler);
+                  CIOFrame &cio_frame = frame_handler.frame();
+                  assert(cio_frame.state == CIOFrame::State::COOLING);
+                  partition.cooling_queue.erase(cio_frame.fifo_itr);
+                  partition.ht.remove(frame_handler);
+                  assert(!partition.ht.has(pid));
                   // -------------------------------------------------------------------------------------
-                  // Evict
-                  if ( written_bf.header.state == BufferFrame::State::COLD ) {
-                     // Reclaim buffer frame
-                     HashTable::Handler frame_handler = partition.ht.lookup(pid);
-                     assert(frame_handler);
-                     CIOFrame &cio_frame = frame_handler.frame();
-                     assert(cio_frame.state == CIOFrame::State::COOLING);
-                     assert(written_bf.header.state == BufferFrame::State::COLD);
-                     partition.cooling_queue.erase(cio_frame.fifo_itr);
-                     partition.ht.remove(frame_handler);
-                     assert(!partition.ht.has(pid));
-                     // -------------------------------------------------------------------------------------
-                     written_bf.reset();
-                     dram_free_list.push(written_bf);
-                     // -------------------------------------------------------------------------------------
-                     cooling_bfs_counter--;
-                     debugging_counters.evicted_pages++;
-                  }
-                  return;
-               } catch ( RestartException e ) {
+                  written_bf.reset();
+                  dram_free_list.push(written_bf);
+                  // -------------------------------------------------------------------------------------
+                  cooling_bfs_counter--;
+                  debugging_counters.evicted_pages++;
                }
+               return;
+            } catch ( RestartException e ) {
+               return;
             }
+
          }, polled_events);
       }
       auto end = chrono::high_resolution_clock::now();
@@ -273,24 +289,29 @@ void BufferManager::pageProviderThread()
 void BufferManager::debuggingThread()
 {
    pthread_setname_np(pthread_self(), "debugging_thread");
-   cout << endl << "1\t2\t3\tfree_bfs\tcooling_bfs\tevicted_bfs\tawrites_submitted\twrites_submit_failed\tpp_rounds" << endl;
    // -------------------------------------------------------------------------------------
-   s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0;
+   s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0;
    while ( FLAGS_print_debug && bg_threads_keep_running ) {
       local_phase_1_ms = debugging_counters.phase_1_ms.exchange(0);
       local_phase_2_ms = debugging_counters.phase_2_ms.exchange(0);
       local_phase_3_ms = debugging_counters.phase_3_ms.exchange(0);
+      local_poll_ms = debugging_counters.poll_ms.exchange(0);
       s64 total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
       if ( total > 0 ) {
          cout << "p1:" << u32(local_phase_1_ms * 100.0 / total)
               << "\tp2:" << u32(local_phase_2_ms * 100.0 / total)
               << "\tp3:" << u32(local_phase_3_ms * 100.0 / total)
+              << "\tpoll:" << u32(local_poll_ms * 100.0 / total)
               << "\tf:" << (dram_free_list.counter)
               << "\tc:" << (cooling_bfs_counter.load())
               << "\te:" << (debugging_counters.evicted_pages.exchange(0))
               << "\tas:" << (debugging_counters.awrites_submitted.exchange(0))
               << "\taf:" << (debugging_counters.awrites_submit_failed.exchange(0))
               << "\tpr:" << (debugging_counters.pp_thread_rounds.exchange(0))
+              << "\trio:" << (debugging_counters.io_operations.exchange(0))
+              << "\tuns:" << (debugging_counters.unswizzled_pages_counter.exchange(0))
+              << "\tswi:" << (debugging_counters.swizzled_pages_counter.exchange(0))
+              << "\tflu:" << (debugging_counters.flushed_pages_counter.exchange(0))
               << endl;
       }
       sleep(1);
@@ -300,7 +321,8 @@ void BufferManager::debuggingThread()
 // -------------------------------------------------------------------------------------
 void BufferManager::clearSSD()
 {
-   //TODO ftruncate(ssd_fd, 0);
+   //TODO
+   ftruncate(ssd_fd, 0);
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::persist()
@@ -344,6 +366,11 @@ BufferFrame &BufferManager::allocatePage()
    free_bf.header.state = BufferFrame::State::HOT;
    free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
    // -------------------------------------------------------------------------------------
+   if ( ssd_used_pages_counter == dram_pool_size ) {
+      cout << "------------------------------------------------------------------------------------" << endl;
+      cout << "Going out of memory !" << endl;
+      cout << "------------------------------------------------------------------------------------" << endl;
+   }
    return free_bf;
 }
 // -------------------------------------------------------------------------------------
@@ -441,8 +468,13 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    }
    // -------------------------------------------------------------------------------------
    if ( cio_frame.state == CIOFrame::State::COOLING ) {
+      // -------------------------------------------------------------------------------------
+      // We have to exclusively lock the bf because the page provider thread will try to evict them when its IO is done
       BufferFrame *bf = *cio_frame.fifo_itr;
-      ExclusiveGuard swip_x_lock(swip_guard);
+      ReadGuard bf_guard(bf->header.lock);
+      ExclusiveGuard swip_x_guard(swip_guard);
+      ExclusiveGuard bf_x_guard(bf_guard);
+      // -------------------------------------------------------------------------------------
       assert(bf->header.pid == pid);
       swip_value.swizzle(bf);
       partition.cooling_queue.erase(cio_frame.fifo_itr);
@@ -462,7 +494,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
          partition.ht.remove(pid);
       }
       // -------------------------------------------------------------------------------------
-      stats.swizzled_pages_counter++;
+      debugging_counters.swizzled_pages_counter++;
       // -------------------------------------------------------------------------------------
       return *bf;
    }
@@ -513,10 +545,11 @@ void BufferManager::flushDropAllPages()
    stats.reset();
 }
 // -------------------------------------------------------------------------------------
-PartitionTable &BufferManager::getPartition(PID)
+PartitionTable &BufferManager::getPartition(PID pid)
 {
-   //TODO
-   return *the_partition;
+   const u64 partition_i = pid & partitions_mask;
+   assert(partition_i < partitions_count);
+   return partitions[partition_i];
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::stopBackgroundThreads()
@@ -530,6 +563,8 @@ void BufferManager::stopBackgroundThreads()
 BufferManager::~BufferManager()
 {
    stopBackgroundThreads();
+   free(partitions);
+   // -------------------------------------------------------------------------------------
    const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
    close(ssd_fd);
    ssd_fd = -1;
@@ -542,19 +577,17 @@ BufferManager::~BufferManager()
 // -------------------------------------------------------------------------------------
 void BufferManager::Stats::print()
 {
-   cout << "-------------------------------------------------------------------------------------" << endl;
-   cout << "BufferManager Stats" << endl;
-   cout << "swizzled counter = " << swizzled_pages_counter << endl;
-   cout << "unswizzled counter = " << unswizzled_pages_counter << endl;
-   cout << "flushed counter = " << flushed_pages_counter << endl;
-   cout << "-------------------------------------------------------------------------------------" << endl;
+//   cout << "-------------------------------------------------------------------------------------" << endl;
+//   cout << "BufferManager Stats" << endl;
+//   cout << "swizzled counter = " << swizzled_pages_counter << endl;
+//   cout << "unswizzled counter = " << unswizzled_pages_counter << endl;
+//   cout << "flushed counter = " << flushed_pages_counter << endl;
+//   cout << "-------------------------------------------------------------------------------------" << endl;
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::Stats::reset()
 {
-   swizzled_pages_counter = 0;
-   unswizzled_pages_counter = 0;
-   flushed_pages_counter = 0;
+
 }
 // -------------------------------------------------------------------------------------
 BufferManager *BMC::global_bf(nullptr);
