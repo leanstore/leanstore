@@ -9,11 +9,6 @@
 #include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
-#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_OFF
-#include "spdlog/spdlog.h"
-#include "spdlog/sinks/basic_file_sink.h"
-#include "spdlog/sinks/stdout_color_sinks.h"
-#include "spdlog/sinks/rotating_file_sink.h" // support for rotating file logging
 // -------------------------------------------------------------------------------------
 #include <fcntl.h>
 #include <unistd.h>
@@ -22,7 +17,7 @@
 #include <iomanip>
 #include <fstream>
 // -------------------------------------------------------------------------------------
-DEFINE_string(debug_csv_path, "", "");
+DEFINE_string(debug_csv_path, "debug.csv", "");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 namespace buffermanager {
@@ -86,7 +81,6 @@ BufferManager::BufferManager()
 void BufferManager::pageProviderThread()
 {
    pthread_setname_np(pthread_self(), "page_provider");
-   auto logger = spdlog::rotating_logger_mt("PageProviderThread", "page_provider.txt", 1024 * 1024, 1);
    // -------------------------------------------------------------------------------------
    // Init AIO Context
    AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_async_batch_size);
@@ -102,7 +96,7 @@ void BufferManager::pageProviderThread()
       return (dram_free_list.counter < free_pages_limit);
    };
    auto phase_3_condition = [&]() {
-      return (cooling_bfs_counter > 0);
+      return (async_write_buffer.batch.size() > 0); //
    };
    // -------------------------------------------------------------------------------------
    while ( bg_threads_keep_running ) {
@@ -110,6 +104,8 @@ void BufferManager::pageProviderThread()
       auto phase_1_begin = chrono::high_resolution_clock::now();
       try {
          while ( phase_1_condition()) {
+            debugging_counters.phase_1_counter++;
+            // -------------------------------------------------------------------------------------
             // unswizzle pages (put in the cooling stage)
             ReadGuard r_guard(r_buffer->header.lock);
             const bool is_cooling_candidate = r_buffer->header.state == BufferFrame::State::HOT; // && !rand_buffer->header.isWB
@@ -181,6 +177,8 @@ void BufferManager::pageProviderThread()
       // and preparing aio for dirty pages
       auto phase_2_begin = chrono::high_resolution_clock::now();
       if ( phase_2_condition()) {
+         debugging_counters.phase_2_counter++;
+         // -------------------------------------------------------------------------------------
          // AsyncWrite (for dirty) or remove (clean) the oldest (n) pages from fifo
          static u64 p_i = 0;
          u64 checked_partitions_counter = 0;
@@ -214,9 +212,7 @@ void BufferManager::pageProviderThread()
                      cooling_bfs_counter--;
                      debugging_counters.evicted_pages++;
                   } else {
-                     if ( async_write_buffer.add(bf)) {
-                        debugging_counters.awrites_submitted++;
-                     } else {
+                     if ( !async_write_buffer.add(bf)) {
                         debugging_counters.awrites_submit_failed++;
                         goto phase_3; // TODO: brings lots of performance but actually why ?
                      }
@@ -226,11 +222,17 @@ void BufferManager::pageProviderThread()
             }
          }
       }
+      continue;
       // Phase 3
       phase_3:
       auto phase_3_begin = chrono::high_resolution_clock::now();
       if ( phase_3_condition()) {
-         async_write_buffer.submitIfNecessary();
+         debugging_counters.phase_3_counter++;
+         // -------------------------------------------------------------------------------------
+         u64 c_batch_size = async_write_buffer.batch.size();
+         u64 succ = async_write_buffer.submitIfNecessary();
+         debugging_counters.awrites_submit_failed += c_batch_size - succ;
+         debugging_counters.awrites_submitted += succ;
          // -------------------------------------------------------------------------------------
          // Poll IO
          auto poll_begin = chrono::high_resolution_clock::now();
@@ -275,7 +277,6 @@ void BufferManager::pageProviderThread()
             } catch ( RestartException e ) {
                return;
             }
-
          }, polled_events);
       }
       auto end = chrono::high_resolution_clock::now();
@@ -287,21 +288,20 @@ void BufferManager::pageProviderThread()
       // -------------------------------------------------------------------------------------
    }
    bg_threads_counter--;
-   logger->info("end");
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::debuggingThread()
 {
    pthread_setname_np(pthread_self(), "debugging_thread");
+   PerfEventBlock b(e, 1);
+   // -------------------------------------------------------------------------------------
    std::ofstream csv;
    string csv_file_path;
-   if ( FLAGS_debug_csv_path == "" ) {
-      csv_file_path = "c_" + to_string(FLAGS_cool) + "_f_" + to_string(FLAGS_free) + "_dgib_" + to_string(u64(FLAGS_dram_gib));
-   } else {
-      csv_file_path = FLAGS_debug_csv_path;
-   }
-   csv.open(csv_file_path, ios::out | ios::trunc);
-   csv << "p1,p2,p3,poll,f,c,e,as,af,pr,rio,uns,swi,flu,wmibs" << endl;
+   csv.open(FLAGS_debug_csv_path, ios::out | ios::trunc);
+   csv << "t,p1,p2,p3,poll,f,c,e,as,af,pr,rio,uns,swi,wmibs,cpus,pc1,pc2,pc3" << endl;
+   // -------------------------------------------------------------------------------------
+   u64 time = 0;
+   const u8 interval = 1; // in seconds
    // -------------------------------------------------------------------------------------
    s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0;
    while ( FLAGS_print_debug && bg_threads_keep_running ) {
@@ -309,28 +309,45 @@ void BufferManager::debuggingThread()
       local_phase_2_ms = debugging_counters.phase_2_ms.exchange(0);
       local_phase_3_ms = debugging_counters.phase_3_ms.exchange(0);
       local_poll_ms = debugging_counters.poll_ms.exchange(0);
+      // -------------------------------------------------------------------------------------
       s64 total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
       u64 local_flushed = debugging_counters.flushed_pages_counter.exchange(0);
+      // -------------------------------------------------------------------------------------
       u64 local_write_mib_s = local_flushed * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
+      u64 local_rio_mib_s = debugging_counters.io_operations.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
+      // -------------------------------------------------------------------------------------
+      b.e.stopCounters();
       if ( total > 0 ) {
-         csv << u32(local_phase_1_ms * 100.0 / total)
+         csv << std::setprecision(2);
+         csv << time
+             << "," << u32(local_phase_1_ms * 100.0 / total)
              << "," << u32(local_phase_2_ms * 100.0 / total)
              << "," << u32(local_phase_3_ms * 100.0 / total)
              << "," << u32(local_poll_ms * 100.0 / total)
-             << "," << (dram_free_list.counter)
-             << "," << (cooling_bfs_counter.load())
-             << "," << (debugging_counters.evicted_pages.exchange(0))
-             << "," << (debugging_counters.awrites_submitted.exchange(0))
-             << "," << (debugging_counters.awrites_submit_failed.exchange(0))
+             // -------------------------------------------------------------------------------------
+             << "," << (dram_free_list.counter.load() * 100.0 / dram_pool_size)
+             << "," << (cooling_bfs_counter.load() * 100.0 / dram_pool_size)
+             // -------------------------------------------------------------------------------------
+             << "," << (debugging_counters.evicted_pages.exchange(0) * 100.0 / dram_pool_size)
+             << "," << (debugging_counters.awrites_submitted.exchange(0) * 100.0 / dram_pool_size)
+             << "," << (debugging_counters.awrites_submit_failed.exchange(0) * 100.0 / dram_pool_size)
+             // -------------------------------------------------------------------------------------
              << "," << (debugging_counters.pp_thread_rounds.exchange(0))
-             << "," << (debugging_counters.io_operations.exchange(0))
+             << "," << (local_rio_mib_s)
              << "," << (debugging_counters.unswizzled_pages_counter.exchange(0))
              << "," << (debugging_counters.swizzled_pages_counter.exchange(0))
-             << "," << (local_flushed)
              << "," << (local_write_mib_s)
+             << "," << u64(b.e.getCPUs())
+             << "," << (debugging_counters.phase_1_counter.exchange(0))
+             << "," << (debugging_counters.phase_2_counter.exchange(0))
+             << "," << (debugging_counters.phase_3_counter.exchange(0))
              << endl;
       }
-      sleep(1);
+      // -------------------------------------------------------------------------------------
+      b.e.startCounters();
+      // -------------------------------------------------------------------------------------
+      sleep(interval);
+      time += interval;
    }
    csv.close();
    bg_threads_counter--;
@@ -407,7 +424,6 @@ bool BufferManager::reclaimPage(BufferFrame &bf)
 BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
 {
    static atomic<PID> last_deleted = 0;
-   static auto logger = spdlog::rotating_logger_mt("ResolveSwip", "resolve_swip.txt", 1024 * 1024, 1);
    // -------------------------------------------------------------------------------------
    if ( swip_value.isSwizzled()) {
       BufferFrame &bf = swip_value.asBufferFrame();
@@ -588,8 +604,6 @@ BufferManager::~BufferManager()
    munmap(bfs, dram_total_size);
    // -------------------------------------------------------------------------------------
    stats.print();
-   // -------------------------------------------------------------------------------------
-   spdlog::drop_all();
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::Stats::print()

@@ -2,7 +2,7 @@
 #include "adapter.hpp"
 #include "schema.hpp"
 // -------------------------------------------------------------------------------------
-#include "/opt/PerfEvent.hpp"
+#include "PerfEvent.hpp"
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>
 #include "leanstore/utils/RandomGenerator.hpp"
@@ -63,7 +63,6 @@ int main(int argc, char **argv)
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
    LeanStore db;
-   PerfEvent e;
    tbb::task_scheduler_init taskScheduler(FLAGS_tpcc_threads);
    // -------------------------------------------------------------------------------------
    warehouseCount = FLAGS_tpcc_warehouse_count;
@@ -102,8 +101,6 @@ int main(int argc, char **argv)
 //   print_tables_counts();
 
    unsigned n = FLAGS_tpcc_tx_count;
-   PerfEventBlock b(e, n);
-   b.print_in_destructor = false;
    // -------------------------------------------------------------------------------------
    atomic<bool> last_second_news_enabled = true;
    atomic<u64> last_second_tx_done = 0;
@@ -112,10 +109,6 @@ int main(int argc, char **argv)
          u64 tx_done_local = last_second_tx_done.exchange(0);
          cout << endl;
          cout << tx_done_local << " txs in the last second" << endl;
-         b.scale = tx_done_local;
-         b.e.stopCounters();
-         b.printCounters();
-         b.e.startCounters();
          sleep(1);
       }
    });

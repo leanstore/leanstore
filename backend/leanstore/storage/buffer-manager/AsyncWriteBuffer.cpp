@@ -55,7 +55,7 @@ bool AsyncWriteBuffer::add(BufferFrame &bf)
    return true;
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::submitIfNecessary()
+u64 AsyncWriteBuffer::submitIfNecessary()
 {
    const auto c_batch_size = std::min(batch.size(), batch_max_size);
    u32 successfully_copied_bfs = 0;
@@ -87,10 +87,11 @@ void AsyncWriteBuffer::submitIfNecessary()
       ensure(ret_code == int(successfully_copied_bfs));
       pending_requests += ret_code;
       insistence_counter = 0;
+      return successfully_copied_bfs;
    } else {
       insistence_counter++;
+      return 0;
    }
-
 }
 // -------------------------------------------------------------------------------------
 u64 AsyncWriteBuffer::pollEventsSync()

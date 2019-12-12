@@ -14,4 +14,4 @@ DEFINE_uint32(async_batch_size, 256, "");
 DEFINE_bool(trunc, false, "Truncate file");
 DEFINE_uint32(falloc, 0, "Preallocate GiB");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(print_debug, false, "");
+DEFINE_bool(print_debug, true, "");
