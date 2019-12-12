@@ -68,11 +68,40 @@ public:
 class ExclusiveGuard {
 private:
    ReadGuard &ref_guard; // our basis
+   bool manually_unlocked = false;
 public:
    // -------------------------------------------------------------------------------------
    ExclusiveGuard(ReadGuard &read_lock);
    // -------------------------------------------------------------------------------------
    ~ExclusiveGuard();
+};
+// -------------------------------------------------------------------------------------
+class ExclusiveGuardTry {
+private:
+   atomic<u64> *version_ptr = nullptr;
+public:
+   u64 local_version;
+   ExclusiveGuardTry(OptimisticLock &lock)
+           : version_ptr(&lock)
+   {
+      local_version = version_ptr->load();
+      if ((local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT ) {
+         throw RestartException();
+      }
+      u64 new_version = local_version + WRITE_LOCK_BIT;
+      if ( !std::atomic_compare_exchange_strong(version_ptr, &local_version, new_version)) {
+         throw RestartException();
+      }
+      local_version = new_version;
+      assert((version_ptr->load() & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+   }
+   void unlock()
+   {
+      version_ptr->fetch_add(WRITE_LOCK_BIT);
+   }
+   ~ExclusiveGuardTry()
+   {
+   }
 };
 #define spinAsLongAs(expr) \
    u32 mask = 1; \

@@ -5,9 +5,10 @@
 namespace leanstore {
 namespace buffermanager {
 // -------------------------------------------------------------------------------------
-void FreeList::push(leanstore::buffermanager::BufferFrame &bf)
+void FreeList::push(BufferFrame &bf)
 {
    assert(bf.header.state == BufferFrame::State::FREE);
+   assert((bf.header.lock & WRITE_LOCK_BIT) == 0);
    bf.header.next_free_bf = first.load();
    while ( !first.compare_exchange_strong(bf.header.next_free_bf, &bf));
    counter++;
@@ -31,6 +32,7 @@ struct BufferFrame &FreeList::pop()
          BufferFrame &bf = *c_header;
          bf.header.next_free_bf = nullptr;
          counter--;
+         assert((bf.header.lock & WRITE_LOCK_BIT) == 0);
          assert(bf.header.state == BufferFrame::State::FREE);
          return bf;
       }

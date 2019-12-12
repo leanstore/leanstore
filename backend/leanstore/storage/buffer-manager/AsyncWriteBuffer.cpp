@@ -116,7 +116,7 @@ void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame &, u64)> cal
       auto c_command = write_buffer_commands[slot];
       // -------------------------------------------------------------------------------------
       if ( events[i].res != page_size ) {
-         *my_iocbs_ptr++ =&iocbs[slot];
+         *my_iocbs_ptr++ = &iocbs[slot];
          to_resubmit++;
       } else {
          explain(events[i].res2 == 0);
@@ -125,7 +125,7 @@ void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame &, u64)> cal
          write_buffer_free_slots.push_back(slot);
       }
    }
-   if(to_resubmit) {
+   if ( to_resubmit ) {
       //TODO
       cout << "rewriting pages !" << endl;
       ensure(int(to_resubmit) == io_submit(aio_context, to_resubmit, iocbs_ptr.get()));

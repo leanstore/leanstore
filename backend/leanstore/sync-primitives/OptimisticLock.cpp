@@ -34,11 +34,13 @@ ExclusiveGuard::ExclusiveGuard(ReadGuard &read_lock)
 // -------------------------------------------------------------------------------------
 ExclusiveGuard::~ExclusiveGuard()
 {
-   assert(ref_guard.version_ptr != nullptr);
-   assert(ref_guard.local_version == ref_guard.version_ptr->load());
-   assert((ref_guard.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
-   ref_guard.local_version = WRITE_LOCK_BIT + ref_guard.version_ptr->fetch_add(WRITE_LOCK_BIT);
-   assert((ref_guard.local_version & WRITE_LOCK_BIT) == 0);
+   if(!manually_unlocked) {
+      assert(ref_guard.version_ptr != nullptr);
+      assert(ref_guard.local_version == ref_guard.version_ptr->load());
+      assert((ref_guard.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+      ref_guard.local_version = WRITE_LOCK_BIT + ref_guard.version_ptr->fetch_add(WRITE_LOCK_BIT);
+      assert((ref_guard.local_version & WRITE_LOCK_BIT) == 0);
+   }
 }
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------

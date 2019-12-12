@@ -66,6 +66,7 @@ public:
       moved = false;
       // -------------------------------------------------------------------------------------
       other.moved = true;
+      assert((bf_s_lock.local_version & WRITE_LOCK_BIT) == 0);
    }
    // -------------------------------------------------------------------------------------
    template<typename T2>
@@ -128,31 +129,32 @@ public:
 // -------------------------------------------------------------------------------------
 template<typename T>
 class WritePageGuard : public ReadPageGuard<T> {
-   using ParentClass = ReadPageGuard<T>;
+   using ReadClass = ReadPageGuard<T>;
 protected:
    bool keep_alive = true;
    // Called by the buffer manager when allocating a new page
    WritePageGuard(BufferFrame &bf, bool keep_alive)
            : keep_alive(keep_alive)
    {
-      ParentClass::bf = &bf;
-      ParentClass::bf_s_lock = ReadGuard(&bf.header.lock, bf.header.lock.load());
-      ParentClass::moved = false;
+      ReadClass::bf = &bf;
+      ReadClass::bf_s_lock = ReadGuard(&bf.header.lock, bf.header.lock.load());
+      ReadClass::moved = false;
+      assert((ReadClass::bf_s_lock.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
    }
 public:
    // I: Upgrade
-   WritePageGuard(ParentClass &&read_guard)
+   WritePageGuard(ReadClass &&read_guard)
    {
       read_guard.recheck();
-      ParentClass::bf = read_guard.bf;
-      ParentClass::bf_s_lock = read_guard.bf_s_lock;
-      lock_version_t new_version = ParentClass::bf_s_lock.local_version + WRITE_LOCK_BIT;
-      if ( !std::atomic_compare_exchange_strong(ParentClass::bf_s_lock.version_ptr, &ParentClass::bf_s_lock.local_version, new_version)) {
+      ReadClass::bf = read_guard.bf;
+      ReadClass::bf_s_lock = read_guard.bf_s_lock;
+      lock_version_t new_version = ReadClass::bf_s_lock.local_version + WRITE_LOCK_BIT;
+      if ( !std::atomic_compare_exchange_strong(ReadClass::bf_s_lock.version_ptr, &ReadClass::bf_s_lock.local_version, new_version)) {
          throw RestartException();
       }
-      ParentClass::bf_s_lock.local_version = new_version;
+      ReadClass::bf_s_lock.local_version = new_version;
       read_guard.moved = true;
-      ParentClass::moved = false;
+      ReadClass::moved = false;
    }
 
    static WritePageGuard allocateNewPage(DTID dt_id, bool keep_alive = true)
@@ -166,7 +168,7 @@ public:
    template<typename... Args>
    void init(Args &&... args)
    {
-      new(ParentClass::bf->page.dt) T(std::forward<Args>(args)...);
+      new(ReadClass::bf->page.dt) T(std::forward<Args>(args)...);
    }
    // -------------------------------------------------------------------------------------
    void keepAlive()
@@ -176,20 +178,20 @@ public:
    // -------------------------------------------------------------------------------------
    void reclaim()
    {
-      if(BMC::global_bf->reclaimPage(*ParentClass::bf)){
-         ParentClass::moved = true;
+      if ( BMC::global_bf->reclaimPage(*ReadClass::bf)) {
+         ReadClass::moved = true;
       }
    }
    // -------------------------------------------------------------------------------------
    ~WritePageGuard()
    {
-      if ( !ParentClass::moved ) {
-         assert((ParentClass::bf_s_lock.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
-         if ( ParentClass::hasBf()) {
-            ParentClass::bf->page.LSN++; // TODO: LSN
+      if ( !ReadClass::moved ) {
+         assert((ReadClass::bf_s_lock.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+         if ( ReadClass::hasBf()) {
+            ReadClass::bf->page.LSN++; // TODO: LSN
          }
-         ParentClass::bf_s_lock.local_version = WRITE_LOCK_BIT + ParentClass::bf_s_lock.version_ptr->fetch_add(WRITE_LOCK_BIT);
-         ParentClass::moved = true;
+         ReadClass::bf_s_lock.local_version = WRITE_LOCK_BIT + ReadClass::bf_s_lock.version_ptr->fetch_add(WRITE_LOCK_BIT);
+         ReadClass::moved = true;
          // -------------------------------------------------------------------------------------
          if ( !keep_alive ) {
             reclaim();
