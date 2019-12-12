@@ -20,8 +20,9 @@
 #include <emmintrin.h>
 #include <set>
 #include <iomanip>
+#include <fstream>
 // -------------------------------------------------------------------------------------
-
+DEFINE_string(debug_csv_path, "", "");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 namespace buffermanager {
@@ -292,6 +293,15 @@ void BufferManager::pageProviderThread()
 void BufferManager::debuggingThread()
 {
    pthread_setname_np(pthread_self(), "debugging_thread");
+   std::ofstream csv;
+   string csv_file_path;
+   if ( FLAGS_debug_csv_path == "" ) {
+      csv_file_path = "c_" + to_string(FLAGS_cool) + "_f_" + to_string(FLAGS_free) + "_dgib_" + to_string(u64(FLAGS_dram_gib));
+   } else {
+      csv_file_path = FLAGS_debug_csv_path;
+   }
+   csv.open(csv_file_path, ios::out | ios::trunc);
+   csv << "p1,p2,p3,poll,f,c,e,as,af,pr,rio,uns,swi,flu,wmibs" << endl;
    // -------------------------------------------------------------------------------------
    s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0;
    while ( FLAGS_print_debug && bg_threads_keep_running ) {
@@ -303,25 +313,26 @@ void BufferManager::debuggingThread()
       u64 local_flushed = debugging_counters.flushed_pages_counter.exchange(0);
       u64 local_write_mib_s = local_flushed * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
       if ( total > 0 ) {
-         cout << "p1:" << u32(local_phase_1_ms * 100.0 / total)
-              << "\tp2:" << u32(local_phase_2_ms * 100.0 / total)
-              << "\tp3:" << u32(local_phase_3_ms * 100.0 / total)
-              << "\tpoll:" << u32(local_poll_ms * 100.0 / total)
-              << "\tf:" << (dram_free_list.counter)
-              << "\tc:" << (cooling_bfs_counter.load())
-              << "\te:" << (debugging_counters.evicted_pages.exchange(0))
-              << "\tas:" << (debugging_counters.awrites_submitted.exchange(0))
-              << "\taf:" << (debugging_counters.awrites_submit_failed.exchange(0))
-              << "\tpr:" << (debugging_counters.pp_thread_rounds.exchange(0))
-              << "\trio:" << (debugging_counters.io_operations.exchange(0))
-              << "\tuns:" << (debugging_counters.unswizzled_pages_counter.exchange(0))
-              << "\tswi:" << (debugging_counters.swizzled_pages_counter.exchange(0))
-              << "\tflu:" << (local_flushed)
-              << "\twmibs:" << (local_write_mib_s)
-              << endl;
+         csv << u32(local_phase_1_ms * 100.0 / total)
+             << "," << u32(local_phase_2_ms * 100.0 / total)
+             << "," << u32(local_phase_3_ms * 100.0 / total)
+             << "," << u32(local_poll_ms * 100.0 / total)
+             << "," << (dram_free_list.counter)
+             << "," << (cooling_bfs_counter.load())
+             << "," << (debugging_counters.evicted_pages.exchange(0))
+             << "," << (debugging_counters.awrites_submitted.exchange(0))
+             << "," << (debugging_counters.awrites_submit_failed.exchange(0))
+             << "," << (debugging_counters.pp_thread_rounds.exchange(0))
+             << "," << (debugging_counters.io_operations.exchange(0))
+             << "," << (debugging_counters.unswizzled_pages_counter.exchange(0))
+             << "," << (debugging_counters.swizzled_pages_counter.exchange(0))
+             << "," << (local_flushed)
+             << "," << (local_write_mib_s)
+             << endl;
       }
       sleep(1);
    }
+   csv.close();
    bg_threads_counter--;
 }
 // -------------------------------------------------------------------------------------
