@@ -15,27 +15,22 @@ class AsyncWriteBuffer {
 private:
    struct WriteCommand {
       BufferFrame *bf;
-      PID pid;
-      ReadGuard guard;
    };
    io_context_t aio_context;
    int fd;
    u64 page_size, batch_max_size;
-   u8 insistence_counter = 0;
    u64 pending_requests = 0;
 public:
-   std::vector<u64> batch;
    std::unique_ptr<BufferFrame::Page[]> write_buffer;
    std::unique_ptr<WriteCommand[]> write_buffer_commands;
    std::unique_ptr<struct iocb[]> iocbs;
    std::unique_ptr<struct iocb*[]> iocbs_ptr;
    std::unique_ptr<struct io_event[]> events;
    // -------------------------------------------------------------------------------------
-   std::vector<u64> write_buffer_free_slots;
    AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size);
    // Caller takes care of sync
    bool add(BufferFrame &bf);
-   u64 submitIfNecessary();
+   u64 submit();
    u64 pollEventsSync();
    void getWrittenBfs(std::function<void(BufferFrame &, u64)> callback, u64 n_events);
 };

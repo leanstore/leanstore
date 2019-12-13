@@ -131,7 +131,7 @@ template<typename T>
 class WritePageGuard : public ReadPageGuard<T> {
    using ReadClass = ReadPageGuard<T>;
 protected:
-   bool keep_alive = true;
+   bool keep_alive = true; // for the case when more than one page is allocated (2nd might fail and waste the first)
    // Called by the buffer manager when allocating a new page
    WritePageGuard(BufferFrame &bf, bool keep_alive)
            : keep_alive(keep_alive)
@@ -178,24 +178,24 @@ public:
    // -------------------------------------------------------------------------------------
    void reclaim()
    {
-      if ( BMC::global_bf->reclaimPage(*ReadClass::bf)) {
-         ReadClass::moved = true;
-      }
+      BMC::global_bf->reclaimPage(*ReadClass::bf);
+      ReadClass::moved = true;
    }
    // -------------------------------------------------------------------------------------
    ~WritePageGuard()
    {
       if ( !ReadClass::moved ) {
-         assert((ReadClass::bf_s_lock.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
-         if ( ReadClass::hasBf()) {
-            ReadClass::bf->page.LSN++; // TODO: LSN
-         }
-         ReadClass::bf_s_lock.local_version = WRITE_LOCK_BIT + ReadClass::bf_s_lock.version_ptr->fetch_add(WRITE_LOCK_BIT);
-         ReadClass::moved = true;
-         // -------------------------------------------------------------------------------------
          if ( !keep_alive ) {
             reclaim();
+         } else {
+            assert((ReadClass::bf_s_lock.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+            if ( ReadClass::hasBf()) {
+               ReadClass::bf->page.LSN++; // TODO: LSN
+            }
+            ReadClass::bf_s_lock.local_version = WRITE_LOCK_BIT + ReadClass::bf_s_lock.version_ptr->fetch_add(WRITE_LOCK_BIT);
+            ReadClass::moved = true;
          }
+         // -------------------------------------------------------------------------------------
       }
    }
 };

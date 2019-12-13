@@ -90,7 +90,7 @@ public:
    // -------------------------------------------------------------------------------------
    BufferFrame &allocatePage();
    BufferFrame &resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value);
-   bool reclaimPage(BufferFrame &bf);
+   void reclaimPage(BufferFrame &bf);
    void reclaimBufferFrame(BufferFrame &bf);
    // -------------------------------------------------------------------------------------
    void flushDropAllPages();
