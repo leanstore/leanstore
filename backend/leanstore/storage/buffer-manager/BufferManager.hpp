@@ -42,6 +42,9 @@ class BufferManager {
       atomic<s64> phase_1_ms = 0, phase_2_ms = 0, phase_3_ms = 0;
       // -------------------------------------------------------------------------------------
       atomic<u64> phase_1_counter = 0, phase_2_counter = 0, phase_3_counter = 0;
+      // -------------------------------------------------------------------------------------
+      atomic<u64> async_wb_ms = 0, submit_ms = 0; // tmp
+      // -------------------------------------------------------------------------------------
       atomic<u64> flushed_pages_counter = 0;
       atomic<u64> swizzled_pages_counter = 0;
       atomic<u64> unswizzled_pages_counter = 0;

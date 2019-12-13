@@ -3,7 +3,6 @@
 // -------------------------------------------------------------------------------------
 #include "gtest/gtest.h"
 #include "gflags/gflags.h"
-#include "/opt/PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
 #include <tbb/tbb.h>
 #include <unordered_set>

@@ -34,7 +34,7 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size)
 bool AsyncWriteBuffer::add(BufferFrame &bf)
 {
    assert(u64(&bf.page) % 512 == 0);
-   if ( pending_requests >= batch_max_size ) {
+   if ( pending_requests >= batch_max_size - 2 ) {
       return false;
    }
    assert(pending_requests <= batch_max_size);
@@ -47,7 +47,7 @@ bool AsyncWriteBuffer::add(BufferFrame &bf)
    void *write_buffer_slot_ptr = &write_buffer[slot];
    io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size * bf.header.pid);
    iocbs[slot].data = write_buffer_slot_ptr;
-   iocbs_ptr[slot] = iocbs.get() + slot;
+   iocbs_ptr[slot] = &iocbs[slot];
    // -------------------------------------------------------------------------------------
    return true;
 }
@@ -55,23 +55,16 @@ bool AsyncWriteBuffer::add(BufferFrame &bf)
 u64 AsyncWriteBuffer::submit()
 {
    if ( pending_requests > 0 ) {
-      const int ret_code = io_submit(aio_context, pending_requests, iocbs_ptr.get());
-      if ( ret_code != int(pending_requests)) {
-         cout << ret_code << endl;
-         cout << int(pending_requests) << endl;
-         if ( ret_code != int(pending_requests)) {
-            cout << "damn" << endl;
-         } else {
-            cout << "wtf" << endl;
-         }
-         ensure(false);
-      }
+      int ret_code = io_submit(aio_context, pending_requests, iocbs_ptr.get());
+      ensure(ret_code == pending_requests);
+      return pending_requests;
    }
+   return 0;
 }
 // -------------------------------------------------------------------------------------
 u64 AsyncWriteBuffer::pollEventsSync()
 {
-   if ( pending_requests ) {
+   if ( pending_requests > 0 ) {
       const int done_requests = io_getevents(aio_context, pending_requests, pending_requests, events.get(), NULL);
       ensure(u32(done_requests) == pending_requests);
       pending_requests = 0;
