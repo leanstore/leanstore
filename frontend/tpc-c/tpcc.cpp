@@ -109,6 +109,7 @@ int main(int argc, char **argv)
          u64 tx_done_local = last_second_tx_done.exchange(0);
          cout << endl;
          cout << tx_done_local << " txs in the last second" << endl;
+         cout << scanned_elements.exchange(0) << endl;
          sleep(1);
       }
    });

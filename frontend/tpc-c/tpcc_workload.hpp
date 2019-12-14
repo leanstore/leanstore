@@ -1,3 +1,4 @@
+atomic<u64> scanned_elements = 0;
 
 // load
 
@@ -458,19 +459,25 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
    Timestamp ol_delivery_d;
    Numeric ol_quantity;
    Numeric ol_amount;
-   orderline.scan({w_id, d_id, o_id, minInteger}, [&](const orderline_t &rec) {
-      if ( rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id == o_id ) {
-         ol_i_id = rec.ol_i_id;
-         ol_supply_w_id = rec.ol_supply_w_id;
-         ol_delivery_d = rec.ol_delivery_d;
-         ol_quantity = rec.ol_quantity;
-         ol_amount = rec.ol_amount;
-         return true;
-      }
-      return false;
-   }, []() {
-      // NOTHING
-   });
+   {
+      u64 scanned_items = 0; // debug
+      orderline.scan({w_id, d_id, o_id, minInteger}, [&](const orderline_t &rec) {
+         scanned_items++;
+         if ( rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id == o_id ) {
+            ol_i_id = rec.ol_i_id;
+            ol_supply_w_id = rec.ol_supply_w_id;
+            ol_delivery_d = rec.ol_delivery_d;
+            ol_quantity = rec.ol_quantity;
+            ol_amount = rec.ol_amount;
+            return true;
+         }
+         return false;
+      }, [&]() {
+         scanned_items = 0;
+         // NOTHING
+      });
+      scanned_elements.fetch_add(scanned_items);
+   }
 
 }
 

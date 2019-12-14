@@ -66,7 +66,11 @@ u64 AsyncWriteBuffer::pollEventsSync()
 {
    if ( pending_requests > 0 ) {
       const int done_requests = io_getevents(aio_context, pending_requests, pending_requests, events.get(), NULL);
-      ensure(u32(done_requests) == pending_requests);
+      if ( u32(done_requests) != pending_requests ) {
+         cerr << done_requests << endl;
+         raise(SIGTRAP);
+         ensure(false);
+      }
       pending_requests = 0;
       return done_requests;
    }

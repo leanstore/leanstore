@@ -17,7 +17,8 @@
 #include <iomanip>
 #include <fstream>
 // -------------------------------------------------------------------------------------
-DEFINE_string(debug_csv_path, "debug.csv", "");
+DEFINE_string(pp_csv_path, "pp.csv", "");
+DEFINE_string(workers_csv_path, "workers.csv", "");
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 namespace buffermanager {
@@ -309,16 +310,26 @@ void BufferManager::debuggingThread()
    pthread_setname_np(pthread_self(), "debugging_thread");
    PerfEventBlock b(e, 1);
    // -------------------------------------------------------------------------------------
-   std::ofstream csv;
-   string csv_file_path;
-   csv.open(FLAGS_debug_csv_path, ios::out | ios::trunc);
-   csv << "t,p1,p2,p3,poll,f,c,e,as,af,pr,rio,uns,swi,wmibs,cpus,pc1,pc2,pc3,submit_ms,wb" << endl;
+   std::ofstream pp_csv;
+   string pp_csv_file_path;
+   pp_csv.open(FLAGS_pp_csv_path, ios::out | ios::trunc);
+   pp_csv << std::setprecision(2);
+   // -------------------------------------------------------------------------------------
+   std::ofstream workers_csv;
+   string workers_csv_file_path;
+   workers_csv.open(FLAGS_workers_csv_path, ios::out | ios::trunc);
+   workers_csv << std::setprecision(2);
+   // -------------------------------------------------------------------------------------
+   // Print header
+   pp_csv << "t,p1,p2,p3,poll,f,c,e,as,af,pr,rio,uns,swi,wmibs,cpus,pc1,pc2,pc3,submit_ms,wb" << endl;
+   workers_csv << "t,name,rio" << endl;
    // -------------------------------------------------------------------------------------
    u64 time = 0;
-   const u8 interval = 1; // in seconds
+   u64 registered_dt_counter = 0;
    // -------------------------------------------------------------------------------------
    s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0;
    while ( FLAGS_print_debug && bg_threads_keep_running ) {
+      // -------------------------------------------------------------------------------------
       local_phase_1_ms = debugging_counters.phase_1_ms.exchange(0);
       local_phase_2_ms = debugging_counters.phase_2_ms.exchange(0);
       local_phase_3_ms = debugging_counters.phase_3_ms.exchange(0);
@@ -328,45 +339,50 @@ void BufferManager::debuggingThread()
       u64 local_flushed = debugging_counters.flushed_pages_counter.exchange(0);
       // -------------------------------------------------------------------------------------
       u64 local_write_mib_s = local_flushed * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
-      u64 local_rio_mib_s = debugging_counters.io_operations.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
+      u64 local_rio_mib_s = debugging_counters.read_operations.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
       // -------------------------------------------------------------------------------------
       b.e.stopCounters();
       if ( total > 0 ) {
-         csv << std::setprecision(2);
-         csv << time
-             << "," << u32(local_phase_1_ms * 100.0 / total)
-             << "," << u32(local_phase_2_ms * 100.0 / total)
-             << "," << u32(local_phase_3_ms * 100.0 / total)
-             << "," << u32(local_poll_ms * 100.0 / total)
-             // -------------------------------------------------------------------------------------
-             << "," << (dram_free_list.counter.load() * 100.0 / dram_pool_size)
-             << "," << (cooling_bfs_counter.load() * 100.0 / dram_pool_size)
-             // -------------------------------------------------------------------------------------
-             << "," << (debugging_counters.evicted_pages.exchange(0) * 100.0 / dram_pool_size)
-             << "," << (debugging_counters.awrites_submitted.exchange(0) * 100.0 / dram_pool_size)
-             << "," << (debugging_counters.awrites_submit_failed.exchange(0) * 100.0 / dram_pool_size)
-             // -------------------------------------------------------------------------------------
-             << "," << (debugging_counters.pp_thread_rounds.exchange(0))
-             << "," << (local_rio_mib_s)
-             << "," << (debugging_counters.unswizzled_pages_counter.exchange(0) * 100.0 / dram_pool_size)
-             << "," << (debugging_counters.swizzled_pages_counter.exchange(0) * 100.0 / dram_pool_size)
-             << "," << (local_write_mib_s)
-             << "," << u64(b.e.getCPUs())
-             << "," << (debugging_counters.phase_1_counter.exchange(0))
-             << "," << (debugging_counters.phase_2_counter.exchange(0))
-             << "," << (debugging_counters.phase_3_counter.exchange(0))
-             // -------------------------------------------------------------------------------------
-                 << "," << (debugging_counters.submit_ms.exchange(0) * 100.0 / total)
-                 << "," << (debugging_counters.async_wb_ms.exchange(0)* 100.0 / total)
-                 << endl;
+         pp_csv << time
+                << "," << u32(local_phase_1_ms * 100.0 / total)
+                << "," << u32(local_phase_2_ms * 100.0 / total)
+                << "," << u32(local_phase_3_ms * 100.0 / total)
+                << "," << u32(local_poll_ms * 100.0 / total)
+                // -------------------------------------------------------------------------------------
+                << "," << (dram_free_list.counter.load() * 100.0 / dram_pool_size)
+                << "," << (cooling_bfs_counter.load() * 100.0 / dram_pool_size)
+                // -------------------------------------------------------------------------------------
+                << "," << (debugging_counters.evicted_pages.exchange(0) * 100.0 / dram_pool_size)
+                << "," << (debugging_counters.awrites_submitted.exchange(0) * 100.0 / dram_pool_size)
+                << "," << (debugging_counters.awrites_submit_failed.exchange(0) * 100.0 / dram_pool_size)
+                // -------------------------------------------------------------------------------------
+                << "," << (debugging_counters.pp_thread_rounds.exchange(0))
+                << "," << (local_rio_mib_s)
+                << "," << (debugging_counters.unswizzled_pages_counter.exchange(0) * 100.0 / dram_pool_size)
+                << "," << (debugging_counters.swizzled_pages_counter.exchange(0) * 100.0 / dram_pool_size)
+                << "," << (local_write_mib_s)
+                << "," << u64(b.e.getCPUs())
+                << "," << (debugging_counters.phase_1_counter.exchange(0))
+                << "," << (debugging_counters.phase_2_counter.exchange(0))
+                << "," << (debugging_counters.phase_3_counter.exchange(0))
+                // -------------------------------------------------------------------------------------
+                << "," << (debugging_counters.submit_ms.exchange(0) * 100.0 / total)
+                << "," << (debugging_counters.async_wb_ms.exchange(0) * 100.0 / total)
+                << endl;
+         // -------------------------------------------------------------------------------------
+         for ( const auto &dt : dt_registry.dt_instances_ht ) {
+            const u64 dt_id = dt.first;
+            const string &dt_name = std::get<2>(dt.second);
+            workers_csv << time << "," << dt_name << "," << debugging_counters.dt_misses_counter[dt_id] << endl;
+         }
       }
       // -------------------------------------------------------------------------------------
       b.e.startCounters();
       // -------------------------------------------------------------------------------------
-      sleep(interval);
-      time += interval;
+      sleep(FLAGS_print_debug_interval_s);
+      time += FLAGS_print_debug_interval_s;
    }
-   csv.close();
+   pp_csv.close();
    bg_threads_counter--;
 }
 // -------------------------------------------------------------------------------------
@@ -483,6 +499,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       // -------------------------------------------------------------------------------------
       g_guard.unlock();
       // -------------------------------------------------------------------------------------
+      debugging_counters.dt_misses_counter[bf.page.dt_id]++;
       readPageSync(pid, bf.page);
       assert(bf.page.magic_debugging_number == pid);
       // -------------------------------------------------------------------------------------
@@ -574,7 +591,7 @@ void BufferManager::readPageSync(u64 pid, u8 *destination)
       bytes_left -= bytes_read;
    } while ( bytes_left > 0 );
    // -------------------------------------------------------------------------------------
-   debugging_counters.io_operations++;
+   debugging_counters.read_operations++;
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()
@@ -589,10 +606,13 @@ void BufferManager::registerDatastructureType(DTType type, DTRegistry::DTMeta dt
    dt_registry.dt_types_ht[type] = dt_meta;
 }
 // -------------------------------------------------------------------------------------
-DTID BufferManager::registerDatastructureInstance(DTType type, void *root_object)
+DTID BufferManager::registerDatastructureInstance(DTType type, void *root_object, string name)
 {
    DTID new_instance_id = dt_registry.dt_types_ht[type].instances_counter++;
-   dt_registry.dt_instances_ht.insert({new_instance_id, {type, root_object}});
+   dt_registry.dt_instances_ht.insert({new_instance_id, {type, root_object, name}});
+   // -------------------------------------------------------------------------------------
+   debugging_counters.dt_misses_counter[new_instance_id] = 0;
+   // -------------------------------------------------------------------------------------
    return new_instance_id;
 }
 // -------------------------------------------------------------------------------------

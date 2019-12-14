@@ -22,15 +22,17 @@ LeanStore::LeanStore()
    buffer_manager.registerDatastructureType(99, btree::vs::BTree::getMeta());
 }
 // -------------------------------------------------------------------------------------
-btree::vs::BTree &LeanStore::registerVSBTree(string name) {
+btree::vs::BTree &LeanStore::registerVSBTree(string name)
+{
    assert(vs_btrees.find(name) == vs_btrees.end());
    auto &btree = vs_btrees[name];
-   DTID dtid = buffer_manager.registerDatastructureInstance(99, reinterpret_cast<void*>(&btree));
+   DTID dtid = buffer_manager.registerDatastructureInstance(99, reinterpret_cast<void *>(&btree), name);
    btree.init(dtid);
    return btree;
 }
 // -------------------------------------------------------------------------------------
-btree::vs::BTree &LeanStore::retrieveVSBTree(string name) {
+btree::vs::BTree &LeanStore::retrieveVSBTree(string name)
+{
    return vs_btrees[name];
 }
 // -------------------------------------------------------------------------------------

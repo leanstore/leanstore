@@ -295,7 +295,7 @@ BTreeNode::SeparatorInfo BTreeNode::findSep()
 
    unsigned lower = count / 2 - count / 16;
    unsigned upper = count / 2 + count / 16;
-   assert(upper < count);
+//   assert(upper < count); TODO
    unsigned maxPos = count / 2;
    int maxPrefix = commonPrefix(maxPos, 0);
    for ( unsigned i = lower; i < upper; i++ ) {
