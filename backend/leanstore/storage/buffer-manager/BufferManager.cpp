@@ -373,7 +373,7 @@ void BufferManager::debuggingThread()
          for ( const auto &dt : dt_registry.dt_instances_ht ) {
             const u64 dt_id = dt.first;
             const string &dt_name = std::get<2>(dt.second);
-            workers_csv << time << "," << dt_name << "," << debugging_counters.dt_misses_counter[dt_id] << endl;
+            workers_csv << time << "," << dt_name << "," << debugging_counters.dt_misses_counter[dt_id].exchange(0) << endl;
          }
       }
       // -------------------------------------------------------------------------------------
@@ -449,6 +449,7 @@ void BufferManager::reclaimBufferFrame(BufferFrame &bf)
 {
    if ( bf.header.isWB ) {
       // DO NOTHING ! we have a garbage collector ;-)
+      bf.header.lock.fetch_add(WRITE_LOCK_BIT);
       cout << "garbage collector, yeah" << endl;
    } else {
       bf.reset();

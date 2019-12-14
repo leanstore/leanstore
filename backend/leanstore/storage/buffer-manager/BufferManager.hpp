@@ -51,7 +51,7 @@ class BufferManager {
       atomic<s64> poll_ms = 0;
       atomic<u64> read_operations = 0;
       // -------------------------------------------------------------------------------------
-      std::unordered_map<u64, u64> dt_misses_counter;
+      std::unordered_map<u64, atomic<u64>> dt_misses_counter;
    };
 private:
    // -------------------------------------------------------------------------------------
