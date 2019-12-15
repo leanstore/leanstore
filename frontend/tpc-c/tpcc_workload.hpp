@@ -4,6 +4,7 @@ atomic<u64> scanned_elements = 0;
 
 Integer warehouseCount;
 
+// [0, n)
 Integer rnd(Integer n)
 {
    return leanstore::utils::RandomGenerator::getRand(0, n);
@@ -13,6 +14,20 @@ Integer rnd(Integer n)
 Integer randomId(Integer fromId, Integer toId)
 {
    return leanstore::utils::RandomGenerator::getRand(fromId, toId + 1);
+}
+
+// [low, high]
+Integer urand(Integer low, Integer high) { return rnd(high - low + 1) + low; }
+
+Integer urandexcept(Integer low, Integer high, Integer v)
+{
+   if ( high <= low )
+      return low;
+   Integer r = rnd(high - low) + low;
+   if ( r >= v )
+      return r + 1;
+   else
+      return r;
 }
 
 template<int maxLength>
@@ -74,7 +89,10 @@ Varchar<9> randomzip()
 
 Integer nurand(Integer a, Integer x, Integer y)
 {
-   return (((rnd(a) | rnd((y - x + 1) + x)) + 42) % (y - x + 1)) + x;
+   // TPC-C random is [a,b] inclusive
+   // in standard: NURand(A, x, y) = (((random(0, A) | random(x, y)) + C) % (y - x + 1)) + x
+   return (((urand(0, a) | urand(x, y)) + 42) % (y - x + 1)) + x;
+   // incorrect: return (((rnd(a) | rnd((y - x + 1) + x)) + 42) % (y - x + 1)) + x;
 }
 
 void loadItem()
@@ -206,19 +224,6 @@ void load()
 }
 
 // run
-// [
-Integer urand(Integer low, Integer high) { return rnd(high - low + 1) + low; }
-
-Integer urandexcept(Integer low, Integer high, Integer v)
-{
-   if ( high <= low )
-      return low;
-   Integer r = rnd(high - low) + low;
-   if ( r >= v )
-      return r + 1;
-   else
-      return r;
-}
 
 void newOrder(Integer w_id, Integer d_id, Integer c_id,
               const vector<Integer> &lineNumbers, const vector<Integer> &supwares, const vector<Integer> &itemids, const vector<Integer> &qtys,
@@ -234,9 +239,6 @@ void newOrder(Integer w_id, Integer d_id, Integer c_id,
 //   });
    district.update1({w_id, d_id}, [&](district_t &rec) {
       d_tax = rec.d_tax;
-      if ( rec.d_next_o_id == std::numeric_limits<Integer>::max()) {
-         cout << "damn" << endl;
-      }
       o_id = rec.d_next_o_id++;
    });
 //   district.lookup1({w_id, d_id}, [&](const district_t &rec) {
@@ -351,8 +353,9 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
    for ( Integer d_id = 1; d_id < 10; d_id++ ) {
       Integer o_id = minInteger;
       neworder.scan({w_id, d_id, minInteger}, [&](const neworder_t &rec) {
-         if ( rec.no_w_id == w_id && rec.no_d_id == d_id )
+         if ( rec.no_w_id == w_id && rec.no_d_id == d_id ) {
             o_id = rec.no_o_id;
+         }
          return false;
       }, [&]() {
          o_id = minInteger;
@@ -416,8 +419,7 @@ void stockLevel(Integer w_id, Integer d_id, Integer threshold)
    items.reserve(100);
    Integer min_ol_o_id = o_id - 20;
    orderline.scan({w_id, d_id, min_ol_o_id, minInteger}, [&](const orderline_t &rec) {
-      if ( rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id < o_id ) {
-         assert (rec.ol_o_id >= min_ol_o_id); // TODO: was missing ?
+      if ( rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id < o_id && rec.ol_o_id >= min_ol_o_id ) { // TODO: was rec.ol_o_id >= min_ol_o_id missing ?
          items.push_back(rec.ol_i_id);
          return true;
       }

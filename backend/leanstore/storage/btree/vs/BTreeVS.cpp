@@ -80,6 +80,7 @@ void BTree::scan(u8 *start_key, u16 key_length, std::function<bool(u8 *payload, 
                   return key;
                };
                if ( !callback(payload, payload_length, key_extract_fn)) {
+                  leaf.recheck_done();
                   return;
                }
                cur++;
