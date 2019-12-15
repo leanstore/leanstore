@@ -206,7 +206,7 @@ void load()
 }
 
 // run
-
+// [
 Integer urand(Integer low, Integer high) { return rnd(high - low + 1) + low; }
 
 Integer urandexcept(Integer low, Integer high, Integer v)
@@ -234,6 +234,9 @@ void newOrder(Integer w_id, Integer d_id, Integer c_id,
 //   });
    district.update1({w_id, d_id}, [&](district_t &rec) {
       d_tax = rec.d_tax;
+      if ( rec.d_next_o_id == std::numeric_limits<Integer>::max()) {
+         cout << "damn" << endl;
+      }
       o_id = rec.d_next_o_id++;
    });
 //   district.lookup1({w_id, d_id}, [&](const district_t &rec) {
@@ -375,8 +378,10 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
 
       Numeric ol_total = 0;
       for ( Integer ol_number = 1; ol_number <= ol_cnt; ol_number++ ) {
-         ol_total += orderline.lookupField({w_id, d_id, o_id, ol_number}, &orderline_t::ol_amount);
-         orderline.update1({w_id, d_id, o_id, ol_number}, [&](orderline_t &rec) { rec.ol_delivery_d = datetime; });
+         orderline.update1({w_id, d_id, o_id, ol_number}, [&](orderline_t &rec) {
+            ol_total += rec.ol_amount;
+            rec.ol_delivery_d = datetime;
+         });
       }
 
       customer.update1({w_id, d_id, c_id}, [&](customer_t &rec) {
@@ -397,10 +402,22 @@ void stockLevel(Integer w_id, Integer d_id, Integer threshold)
    Integer o_id = district.lookupField({w_id, d_id}, &district_t::d_next_o_id);
 
    //"SELECT COUNT(DISTINCT (S_I_ID)) AS STOCK_COUNT FROM orderline, stock WHERE OL_W_ID = ? AND OL_D_ID = ? AND OL_O_ID < ? AND OL_O_ID >= ? AND S_W_ID = ? AND S_I_ID = OL_I_ID AND S_QUANTITY < ?"
+
+   /*
+    * http://www.tpc.org/tpc_documents_current_versions/pdf/tpc-c_v5.11.0.pdf P 116
+    * EXEC SQL SELECT COUNT(DISTINCT (s_i_id)) INTO :stock_count
+ FROM order_line, stock
+ WHERE ol_w_id=:w_id AND
+ ol_d_id=:d_id AND ol_o_id<:o_id AND
+ ol_o_id>=:o_id-20 AND s_w_id=:w_id AND
+ s_i_id=ol_i_id AND s_quantity < :threshold;
+    */
    vector<Integer> items;
    items.reserve(100);
-   orderline.scan({w_id, d_id, o_id - 20, minInteger}, [&](const orderline_t &rec) {
+   Integer min_ol_o_id = o_id - 20;
+   orderline.scan({w_id, d_id, min_ol_o_id, minInteger}, [&](const orderline_t &rec) {
       if ( rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id < o_id ) {
+         assert (rec.ol_o_id >= min_ol_o_id); // TODO: was missing ?
          items.push_back(rec.ol_i_id);
          return true;
       }
@@ -476,7 +493,6 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
          scanned_items = 0;
          // NOTHING
       });
-      scanned_elements.fetch_add(scanned_items);
    }
 
 }
