@@ -3,6 +3,13 @@ atomic<u64> scanned_elements = 0;
 // load
 
 Integer warehouseCount;
+// -------------------------------------------------------------------------------------
+static constexpr INTEGER OL_I_ID_C = 7911; // in range [0, 8191]
+static constexpr INTEGER C_ID_C = 259; // in range [0, 1023]
+// NOTE: TPC-C 2.1.6.1 specifies that abs(C_LAST_LOAD_C - C_LAST_RUN_C) must
+// be within [65, 119]
+static constexpr INTEGER C_LAST_LOAD_C = 157; // in range [0, 255]
+static constexpr INTEGER C_LAST_RUN_C = 223; // in range [0, 255]
 
 // [0, n)
 Integer rnd(Integer n)
@@ -87,14 +94,38 @@ Varchar<9> randomzip()
    return result || Varchar<9>("11111");
 }
 
-Integer nurand(Integer a, Integer x, Integer y)
+Integer nurand(Integer a, Integer x, Integer y, Integer C = 42)
 {
    // TPC-C random is [a,b] inclusive
    // in standard: NURand(A, x, y) = (((random(0, A) | random(x, y)) + C) % (y - x + 1)) + x
-   return (((urand(0, a) | urand(x, y)) + 42) % (y - x + 1)) + x;
+   //return (((rnd(a + 1) | rnd((y - x + 1) + x)) + 42) % (y - x + 1)) + x;
+   return (((urand(0, a) | urand(x, y)) + C) % (y - x + 1)) + x;
    // incorrect: return (((rnd(a) | rnd((y - x + 1) + x)) + 42) % (y - x + 1)) + x;
 }
 
+inline Integer getItemID()
+{
+   //OL_I_ID_C
+   return nurand(8191, 1, 100000, OL_I_ID_C);
+}
+inline Integer getCustomerID()
+{
+   //C_ID_C
+   return nurand(1023, 1, 3000, C_ID_C);
+}
+inline Integer getNonUniformRandomLastNameForRun()
+{
+   //C_LAST_RUN_C
+   return nurand(255, 0, 999, C_LAST_RUN_C);
+}
+inline Integer getNonUniformRandomLastNameForLoad()
+{
+//C_LAST_LOAD_C
+   return nurand(255, 0, 999, C_LAST_LOAD_C);
+}
+// -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
 void loadItem()
 {
    for ( Integer i = 1; i <= 100000; i++ ) {
@@ -149,7 +180,7 @@ void loadCustomer(Integer w_id, Integer d_id)
       if ( i < 1000 )
          c_last = genName(i);
       else
-         c_last = genName(nurand(255, 0, 999));
+         c_last = genName(getNonUniformRandomLastNameForLoad());
       Varchar<16> c_first = randomastring<16>(8, 16);
       Varchar<2> c_credit(rnd(10) ? "GC" : "BC");
       customer.insert({w_id, d_id, i + 1, c_first, "OE", c_last, randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<2>(2, 2), randomzip(), randomnstring(16, 16), now, c_credit, 50000.00, randomNumeric(0.0000, 0.5000), -10.00, 1, 0, 0, randomastring<500>(300, 500)});
@@ -322,7 +353,7 @@ void newOrder(Integer w_id, Integer d_id, Integer c_id,
 void newOrderRnd(Integer w_id)
 {
    Integer d_id = urand(1, 10);
-   Integer c_id = nurand(1023, 1, 3000);
+   Integer c_id = getCustomerID();;
    Integer ol_cnt = urand(5, 15);
 
    vector<Integer> lineNumbers;
@@ -337,7 +368,7 @@ void newOrderRnd(Integer w_id)
       Integer supware = w_id;
       if ( urand(1, 100) == 1 ) // remote transaction
          supware = urandexcept(1, warehouseCount, w_id);
-      Integer itemid = nurand(8191, 1, 100000);
+      Integer itemid = getItemID();
       if ( false && (i == ol_cnt) && (urand(1, 100) == 1)) // invalid item => random
          itemid = 0;
       lineNumbers.push_back(i);
@@ -419,7 +450,8 @@ void stockLevel(Integer w_id, Integer d_id, Integer threshold)
    items.reserve(100);
    Integer min_ol_o_id = o_id - 20;
    orderline.scan({w_id, d_id, min_ol_o_id, minInteger}, [&](const orderline_t &rec) {
-      if ( rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id < o_id && rec.ol_o_id >= min_ol_o_id ) { // TODO: was rec.ol_o_id >= min_ol_o_id missing ?
+      if ( rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id < o_id && rec.ol_o_id >= min_ol_o_id ) {
+         //assert (rec.ol_o_id >= min_ol_o_id); // TODO: was missing ?
          items.push_back(rec.ol_i_id);
          return true;
       }
@@ -547,9 +579,9 @@ void orderStatusRnd(Integer w_id)
 {
    Integer d_id = urand(1, 10);
    if ( urand(1, 100) <= 40 ) {
-      orderStatusId(w_id, d_id, nurand(1023, 1, 3000));
+      orderStatusId(w_id, d_id, getCustomerID());
    } else {
-      orderStatusName(w_id, d_id, genName(nurand(255, 0, 999)));
+      orderStatusName(w_id, d_id, genName(getNonUniformRandomLastNameForRun()));
    }
 }
 
@@ -740,9 +772,9 @@ void paymentRnd(Integer w_id)
    Timestamp h_date = currentTimestamp();
 
    if ( urand(1, 100) <= 60 ) {
-      paymentByName(w_id, d_id, c_w_id, c_d_id, genName(nurand(255, 0, 999)), h_date, h_amount, currentTimestamp());
+      paymentByName(w_id, d_id, c_w_id, c_d_id, genName(getNonUniformRandomLastNameForRun()), h_date, h_amount, currentTimestamp());
    } else {
-      paymentById(w_id, d_id, c_w_id, c_d_id, nurand(1023, 1, 3000), h_date, h_amount, currentTimestamp());
+      paymentById(w_id, d_id, c_w_id, c_d_id, getCustomerID(), h_date, h_amount, currentTimestamp());
    }
 
 }

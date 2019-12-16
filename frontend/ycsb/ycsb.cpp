@@ -5,6 +5,7 @@
 #include "leanstore/utils/ZipfRandom.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/Config.hpp"
+#include "leanstore/BTreeAdapter.hpp"
 // -------------------------------------------------------------------------------------
 #include <tbb/tbb.h>
 #include <gflags/gflags.h>
@@ -12,7 +13,6 @@
 // -------------------------------------------------------------------------------------
 #include <iostream>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(ycsb_threads, 20, "");
 DEFINE_uint32(ycsb_read_ratio, 100, "");
 DEFINE_uint64(ycsb_tuple_count, 100000, "");
 DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
@@ -30,106 +30,8 @@ using namespace leanstore;
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 using YCSBKey = u64;
-struct YCSBPayload {
-   u8 value[120];
-   YCSBPayload() {}
-   bool operator==(YCSBPayload &other)
-   {
-      return (std::memcmp(value, other.value, sizeof(value)) == 0);
-   }
-   bool operator!=(YCSBPayload &other)
-   {
-      return !(operator==(other));
-   }
-   YCSBPayload(const YCSBPayload &other)
-   {
-      std::memcpy(value, other.value, sizeof(value));
-   }
-   YCSBPayload &operator=(const YCSBPayload &other)
-   {
-      std::memcpy(value, other.value, sizeof(value));
-      return *this;
-   }
-};
+using YCSBPayload = BytesPayload<120>;
 // -------------------------------------------------------------------------------------
-template<typename Key, typename Payload>
-struct BTreeInterface {
-   virtual bool lookup(Key k, Payload &v) = 0;
-   virtual void insert(Key k, Payload &v) = 0;
-   virtual void update(Key k, Payload &v) = 0;
-};
-// -------------------------------------------------------------------------------------
-template<typename Key, typename Payload>
-struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
-   leanstore::btree::vs::BTree &btree;
-
-   BTreeVSAdapter(leanstore::btree::vs::BTree &btree)
-           : btree(btree) {}
-
-   unsigned fold(uint8_t *writer, const s32 &x)
-   {
-      *reinterpret_cast<u32 *>(writer) = __builtin_bswap32(x ^ (1ul << 31));
-      return sizeof(x);
-   }
-
-   unsigned fold(uint8_t *writer, const s64 &x)
-   {
-      *reinterpret_cast<u64 *>(writer) = __builtin_bswap64(x ^ (1ull << 63));
-      return sizeof(x);
-   }
-
-   unsigned fold(uint8_t *writer, const u64 &x)
-   {
-      *reinterpret_cast<u64 *>(writer) = __builtin_bswap64(x);
-      return sizeof(x);
-   }
-
-   unsigned fold(uint8_t *writer, const u32 &x)
-   {
-      *reinterpret_cast<u32 *>(writer) = __builtin_bswap32(x);
-      return sizeof(x);
-   }
-
-   bool lookup(Key k, Payload &v) override
-   {
-      u8 key_bytes[sizeof(Key)];
-      return btree.lookup(key_bytes, fold(key_bytes, k), [](const u8 *payload, u16 payload_length) {});
-   }
-   void insert(Key k, Payload &v) override
-   {
-      u8 key_bytes[sizeof(Key)];
-      u64 payloadLength;
-      btree.insert(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8 *>(&v));
-   }
-   void update(Key k, Payload &v) override
-   {
-      u8 key_bytes[sizeof(Key)];
-      u64 payloadLength;
-      btree.update(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8 *>(&v));
-   }
-};
-// -------------------------------------------------------------------------------------
-template<typename Key, typename Payload>
-struct BTreeFSAdapter : BTreeInterface<Key, Payload> {
-   leanstore::btree::fs::BTree<Key, Payload> &btree;
-   BTreeFSAdapter(leanstore::btree::fs::BTree<Key, Payload> &btree)
-           : btree(btree)
-   {
-      btree.printFanoutInformation();
-   }
-   bool lookup(Key k, Payload &v) override
-   {
-      return btree.lookup(k, v);
-   }
-   void insert(Key k, Payload &v) override
-   {
-      btree.insert(k, v);
-   }
-   void update(Key k, Payload &v) override
-   {
-      btree.insert(k, v);
-   }
-};
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
 {
@@ -142,10 +44,10 @@ int main(int argc, char **argv)
    gflags::SetUsageMessage("Leanstore Frontend");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
-   tbb::task_scheduler_init taskScheduler(FLAGS_ycsb_threads);
+   tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
    // -------------------------------------------------------------------------------------
    PerfEvent e;
-   e.setParam("threads", FLAGS_ycsb_threads);
+   e.setParam("threads", FLAGS_worker_threads);
    chrono::high_resolution_clock::time_point begin, end;
    // -------------------------------------------------------------------------------------
    // LeanStore DB
@@ -230,7 +132,7 @@ int main(int argc, char **argv)
       const u64 n = FLAGS_ycsb_tuple_count;
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Scan" << endl;
-      db.getBufferManager().debugging_counters.read_operations.store(0);
+      db.getBufferManager().debugging_counters.read_operations_counter.store(0);
       {
          begin = chrono::high_resolution_clock::now();
          PerfEventBlock b(e, n);
@@ -244,7 +146,7 @@ int main(int argc, char **argv)
       }
       // -------------------------------------------------------------------------------------
       cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-      cout << "IOs = " << db.getBufferManager().debugging_counters.read_operations.exchange(0) << endl;
+      cout << "IOs = " << db.getBufferManager().debugging_counters.read_operations_counter.exchange(0) << endl;
       // -------------------------------------------------------------------------------------
       cout << calculateMTPS(begin, end, n) << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
@@ -273,7 +175,7 @@ int main(int argc, char **argv)
       e.setParam("op", "tx");
       PerfEventBlock b(e, lookup_keys.size() * (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds));
       for ( u32 r_i = 0; r_i < (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds); r_i++ ) {
-         db.getBufferManager().debugging_counters.read_operations.store(0);
+         db.getBufferManager().debugging_counters.read_operations_counter.store(0);
          begin = chrono::high_resolution_clock::now();
          tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
             for ( u64 i = range.begin(); i < range.end(); i++ ) {
@@ -293,7 +195,7 @@ int main(int argc, char **argv)
          end = chrono::high_resolution_clock::now();
          // -------------------------------------------------------------------------------------
          cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-         cout << "IOs = " << db.getBufferManager().debugging_counters.read_operations.exchange(0) << endl;
+         cout << "IOs = " << db.getBufferManager().debugging_counters.read_operations_counter.exchange(0) << endl;
          // -------------------------------------------------------------------------------------
          if ( r_i < FLAGS_ycsb_warmup_rounds ) {
             cout << "Warmup: ";

@@ -23,11 +23,15 @@ protected:
              , bf_s_lock(read_guard)
    {
    }
+   // -------------------------------------------------------------------------------------
    bool manually_checked = false;
+   // -------------------------------------------------------------------------------------
 public:
+   // -------------------------------------------------------------------------------------
    bool moved = false;
    BufferFrame *bf = nullptr;
    ReadGuard bf_s_lock;
+   // -------------------------------------------------------------------------------------
    // I: Root case
    static ReadPageGuard makeRootGuard(OptimisticLock &swip_version)
    {
@@ -45,14 +49,8 @@ public:
       if ( p_guard.moved == true ) {
          assert(false);
       }
-      if ( swip.isSwizzled()) {
-         bf = &swip.asBufferFrame();
-         p_guard.recheck();
-      } else {
-         auto &bf_swip = swip.template cast<BufferFrame>();
-         bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
-      }
-      p_guard.recheck(); // to prevent dereferencing dangling pointer
+      auto &bf_swip = swip.template cast<BufferFrame>();
+      bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
       bf_s_lock = ReadGuard(bf->header.lock);
       p_guard.recheck(); // TODO: ??
    }
@@ -67,6 +65,17 @@ public:
       // -------------------------------------------------------------------------------------
       other.moved = true;
       assert((bf_s_lock.local_version & WRITE_LOCK_BIT) == 0);
+   }
+   // -------------------------------------------------------------------------------------
+   constexpr ReadPageGuard &operator=(ReadPageGuard &&other)
+   {
+      bf = other.bf;
+      bf_s_lock = other.bf_s_lock;
+      moved = false;
+      manually_checked = false;
+      // -------------------------------------------------------------------------------------
+      other.moved = true;
+      return *this;
    }
    // -------------------------------------------------------------------------------------
    template<typename T2>

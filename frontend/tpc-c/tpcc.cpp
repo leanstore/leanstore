@@ -17,7 +17,6 @@
 #include <csignal>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
-DEFINE_uint32(tpcc_threads, 10, "");
 DEFINE_uint32(tpcc_tx_count, 1000000, "");
 DEFINE_uint32(tpcc_tx_rounds, 10, "");
 // -------------------------------------------------------------------------------------
@@ -63,7 +62,7 @@ int main(int argc, char **argv)
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
    LeanStore db;
-   tbb::task_scheduler_init taskScheduler(FLAGS_tpcc_threads);
+   tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
    // -------------------------------------------------------------------------------------
    warehouseCount = FLAGS_tpcc_warehouse_count;
    warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
@@ -98,6 +97,20 @@ int main(int argc, char **argv)
       cout << "stock: " << stock.count() << endl;
       cout << endl;
    };
+   auto print_tables_pages = [&]() {
+      cout << "warehouse: " << warehouse.btree->pages.load() << endl;
+      cout << "district: " << district.btree->pages.load() << endl;
+      cout << "customer: " << customer.btree->pages.load() << endl;
+      cout << "customerwdl: " << customerwdl.btree->pages.load() << endl;
+      cout << "history: " << history.btree->pages.load() << endl;
+      cout << "neworder: " << neworder.btree->pages.load() << endl;
+      cout << "order: " << order.btree->pages.load() << endl;
+      cout << "order_wdc: " << order_wdc.btree->pages.load() << endl;
+      cout << "orderline: " << orderline.btree->pages.load() << endl;
+      cout << "item: " << item.btree->pages.load() << endl;
+      cout << "stock: " << stock.btree->pages.load() << endl;
+      cout << endl;
+   };
 //   print_tables_counts();
 
    unsigned n = FLAGS_tpcc_tx_count;
@@ -124,6 +137,7 @@ int main(int argc, char **argv)
       end = chrono::high_resolution_clock::now();
 //      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
    }
+   print_tables_pages();
    last_second_news_enabled.store(false);
    last_second_news.join();
    // -------------------------------------------------------------------------------------

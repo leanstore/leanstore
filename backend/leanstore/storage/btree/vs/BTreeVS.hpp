@@ -1,3 +1,4 @@
+#pragma once
 #include "BTreeSlotted.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "leanstore/storage/buffer-manager/PageGuard.hpp"
@@ -14,6 +15,8 @@ struct BTree {
    DTID dtid;
    // -------------------------------------------------------------------------------------
    atomic<u16> height = 1; // debugging
+   atomic<u64> pages = 1; // debugging
+   atomic<u64> entries = 1; // debugging
    atomic<u64> restarts_counter = 0; // debugging
    OptimisticLock root_lock = 0;
    Swip<BTreeNode> root_swip;

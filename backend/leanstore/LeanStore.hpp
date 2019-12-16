@@ -26,7 +26,7 @@ public:
       u8 *btree_ptr = iter.first->second.get();
       auto btree = new(btree_ptr) btree::fs::BTree<Key, Value>();
       buffer_manager.registerDatastructureType(type_id, btree->getMeta());
-      DTID dtid = buffer_manager.registerDatastructureInstance(type_id, btree);
+      DTID dtid = buffer_manager.registerDatastructureInstance(type_id, btree, name);
       btree->init(dtid);
       return *btree;
    }
@@ -35,7 +35,7 @@ public:
    btree::fs::BTree<Key,Value> &retrieveFSBTree(string name, DTType type_id = 0) {
       auto btree = reinterpret_cast<btree::fs::BTree<Key,Value> *>(fs_btrees[name].get());
       buffer_manager.registerDatastructureType(type_id, btree->getMeta());
-      btree->dtid = buffer_manager.registerDatastructureInstance(type_id, btree);
+      btree->dtid = buffer_manager.registerDatastructureInstance(type_id, btree, name);
       return *btree;
    }
    // -------------------------------------------------------------------------------------

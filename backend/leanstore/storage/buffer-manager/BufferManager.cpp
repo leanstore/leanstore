@@ -17,8 +17,7 @@
 #include <iomanip>
 #include <fstream>
 // -------------------------------------------------------------------------------------
-DEFINE_string(pp_csv_path, "pp.csv", "");
-DEFINE_string(workers_csv_path, "workers.csv", "");
+// Local GFlags
 // -------------------------------------------------------------------------------------
 namespace leanstore {
 namespace buffermanager {
@@ -74,6 +73,11 @@ BufferManager::BufferManager()
    bg_threads_counter++;
    page_provider_thread.detach();
    // -------------------------------------------------------------------------------------
+   if ( FLAGS_file_suffix == "" ) {
+      file_suffix = to_string(chrono::high_resolution_clock::now().time_since_epoch().count());
+   } else {
+      file_suffix = FLAGS_file_suffix;
+   }
    std::thread phase_timer_thread([&]() { debuggingThread(); });
    bg_threads_counter++;
    phase_timer_thread.detach();
@@ -101,7 +105,7 @@ void BufferManager::pageProviderThread()
       /*
        * Phase 1:
        */
-      phase_1:
+      // phase_1:
       auto phase_1_begin = chrono::high_resolution_clock::now();
       {
          try {
@@ -180,7 +184,7 @@ void BufferManager::pageProviderThread()
       // -------------------------------------------------------------------------------------
       const u64 pages_to_iterate_globally = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0;
       const u64 pages_to_iterate_partition = pages_to_iterate_globally / partitions_count;
-      phase_2_3:
+      // phase_2_3:
       if ( phase_2_3_condition())
          for ( u64 p_i = 0; p_i < partitions_count; p_i++ ) {
             PartitionTable &partition = partitions[p_i];
@@ -189,7 +193,7 @@ void BufferManager::pageProviderThread()
              * Iterate over all partitions, in each partition:
              * iterate over the end of FIFO queue,
              */
-            phase_2:
+            // phase_2:
             auto phase_2_begin = chrono::high_resolution_clock::now();
             {
                u64 pages_left_to_iterate_partition = pages_to_iterate_partition;
@@ -236,7 +240,7 @@ void BufferManager::pageProviderThread()
             /*
              * Phase 3:
              */
-            phase_3:
+            // phase_3:
             auto phase_3_begin = chrono::high_resolution_clock::now();
             {
                auto submit_begin = chrono::high_resolution_clock::now();
@@ -310,24 +314,63 @@ void BufferManager::debuggingThread()
    pthread_setname_np(pthread_self(), "debugging_thread");
    PerfEventBlock b(e, 1);
    // -------------------------------------------------------------------------------------
+   auto file_name = [&](const string prefix) {
+      return prefix + "_" + file_suffix + ".csv";
+   };
+   // -------------------------------------------------------------------------------------
    std::ofstream pp_csv;
    string pp_csv_file_path;
-   pp_csv.open(FLAGS_pp_csv_path, ios::out | ios::trunc);
+   pp_csv.open(file_name("pp"), ios::out | ios::trunc);
    pp_csv << std::setprecision(2);
    // -------------------------------------------------------------------------------------
    std::ofstream workers_csv;
    string workers_csv_file_path;
-   workers_csv.open(FLAGS_workers_csv_path, ios::out | ios::trunc);
+   workers_csv.open(file_name("workers"), ios::out | ios::trunc);
    workers_csv << std::setprecision(2);
    // -------------------------------------------------------------------------------------
+   using statCallback = std::function<void(ostream &)>;
+   struct StatEntry {
+      string name;
+      statCallback callback;
+      StatEntry(string &&n, statCallback b)
+              : name(std::move(n))
+                , callback(b) {}
+   };
+   // -------------------------------------------------------------------------------------
+   vector<StatEntry> pp_stats;
+   s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0, total;
+   // -------------------------------------------------------------------------------------
+   pp_stats.emplace_back("p1_pct", [&](ostream &out) {
+      out << (local_phase_1_ms * 100.0 / total);
+   });
+   pp_stats.emplace_back("p2_pct", [&](ostream &out) { out << (local_phase_2_ms * 100.0 / total); });
+   pp_stats.emplace_back("p3_pct", [&](ostream &out) { out << (local_phase_3_ms * 100.0 / total); });
+   pp_stats.emplace_back("poll_pct", [&](ostream &out) { out << (local_poll_ms * 100.0 / total); });
+   pp_stats.emplace_back("pc1", [&](ostream &out) { out << debugging_counters.phase_1_counter.exchange(0); });
+   pp_stats.emplace_back("pc2", [&](ostream &out) { out << debugging_counters.phase_2_counter.exchange(0); });
+   pp_stats.emplace_back("pc3", [&](ostream &out) { out << debugging_counters.phase_3_counter.exchange(0); });
+   pp_stats.emplace_back("free_pct", [&](ostream &out) { out << (dram_free_list.counter.load() * 100.0 / dram_pool_size); });
+   pp_stats.emplace_back("cool_pct", [&](ostream &out) { out << (cooling_bfs_counter.load() * 100.0 / dram_pool_size); });
+   pp_stats.emplace_back("evicted", [&](ostream &out) { out << (debugging_counters.evicted_pages.exchange(0) * 100.0 / dram_pool_size); });
+   pp_stats.emplace_back("rounds", [&](ostream &out) { out << (debugging_counters.pp_thread_rounds.exchange(0)); });
+   pp_stats.emplace_back("unswizzled", [&](ostream &out) { out << debugging_counters.unswizzled_pages_counter.exchange(0); });
+   pp_stats.emplace_back("cold_hit", [&](ostream &out) { out << debugging_counters.cold_hit_counter.exchange(0); });
+   pp_stats.emplace_back("cpus", [&](ostream &out) { out << b.e.getCPUs(); });
+   pp_stats.emplace_back("submit_ms", [&](ostream &out) { out << debugging_counters.submit_ms.exchange(0); });
+   pp_stats.emplace_back("async_mb_ws", [&](ostream &out) { out << debugging_counters.async_wb_ms.exchange(0); });
+   pp_stats.emplace_back("r_mib", [&](ostream &out) { out << (debugging_counters.read_operations_counter.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
+   pp_stats.emplace_back("w_mib", [&](ostream &out) { out << debugging_counters.awrites_submitted.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0; });
+   // -------------------------------------------------------------------------------------
    // Print header
-   pp_csv << "t,p1,p2,p3,poll,f,c,e,as,af,pr,rio,uns,swi,wmibs,cpus,pc1,pc2,pc3,submit_ms,wb" << endl;
-   workers_csv << "t,name,rio" << endl;
+   pp_csv << "t";
+   for ( const auto &stat :pp_stats ) {
+      pp_csv << "," << stat.name;
+   }
+   // -------------------------------------------------------------------------------------
+   workers_csv << "t,name,miss" << endl;
    // -------------------------------------------------------------------------------------
    u64 time = 0;
-   u64 registered_dt_counter = 0;
    // -------------------------------------------------------------------------------------
-   s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0;
    while ( FLAGS_print_debug && bg_threads_keep_running ) {
       // -------------------------------------------------------------------------------------
       local_phase_1_ms = debugging_counters.phase_1_ms.exchange(0);
@@ -335,40 +378,16 @@ void BufferManager::debuggingThread()
       local_phase_3_ms = debugging_counters.phase_3_ms.exchange(0);
       local_poll_ms = debugging_counters.poll_ms.exchange(0);
       // -------------------------------------------------------------------------------------
-      s64 total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
-      u64 local_flushed = debugging_counters.flushed_pages_counter.exchange(0);
-      // -------------------------------------------------------------------------------------
-      u64 local_write_mib_s = local_flushed * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
-      u64 local_rio_mib_s = debugging_counters.read_operations.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
+      total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
       // -------------------------------------------------------------------------------------
       b.e.stopCounters();
       if ( total > 0 ) {
-         pp_csv << time
-                << "," << u32(local_phase_1_ms * 100.0 / total)
-                << "," << u32(local_phase_2_ms * 100.0 / total)
-                << "," << u32(local_phase_3_ms * 100.0 / total)
-                << "," << u32(local_poll_ms * 100.0 / total)
-                // -------------------------------------------------------------------------------------
-                << "," << (dram_free_list.counter.load() * 100.0 / dram_pool_size)
-                << "," << (cooling_bfs_counter.load() * 100.0 / dram_pool_size)
-                // -------------------------------------------------------------------------------------
-                << "," << (debugging_counters.evicted_pages.exchange(0) * 100.0 / dram_pool_size)
-                << "," << (debugging_counters.awrites_submitted.exchange(0) * 100.0 / dram_pool_size)
-                << "," << (debugging_counters.awrites_submit_failed.exchange(0) * 100.0 / dram_pool_size)
-                // -------------------------------------------------------------------------------------
-                << "," << (debugging_counters.pp_thread_rounds.exchange(0))
-                << "," << (local_rio_mib_s)
-                << "," << (debugging_counters.unswizzled_pages_counter.exchange(0) * 100.0 / dram_pool_size)
-                << "," << (debugging_counters.swizzled_pages_counter.exchange(0) * 100.0 / dram_pool_size)
-                << "," << (local_write_mib_s)
-                << "," << u64(b.e.getCPUs())
-                << "," << (debugging_counters.phase_1_counter.exchange(0))
-                << "," << (debugging_counters.phase_2_counter.exchange(0))
-                << "," << (debugging_counters.phase_3_counter.exchange(0))
-                // -------------------------------------------------------------------------------------
-                << "," << (debugging_counters.submit_ms.exchange(0) * 100.0 / total)
-                << "," << (debugging_counters.async_wb_ms.exchange(0) * 100.0 / total)
-                << endl;
+         pp_csv << time;
+         for ( const auto &stat :pp_stats ) {
+            pp_csv << ",";
+            stat.callback(pp_csv);
+         }
+         pp_csv << endl;
          // -------------------------------------------------------------------------------------
          for ( const auto &dt : dt_registry.dt_instances_ht ) {
             const u64 dt_id = dt.first;
@@ -468,16 +487,19 @@ void BufferManager::reclaimPage(BufferFrame &bf)
 // -------------------------------------------------------------------------------------
 BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame> &swip_value) // throws RestartException
 {
-   static atomic<PID> last_deleted = 0;
-   // -------------------------------------------------------------------------------------
    if ( swip_value.isSwizzled()) {
       BufferFrame &bf = swip_value.asBufferFrame();
       swip_guard.recheck();
+      // -------------------------------------------------------------------------------------
+      // TODO: if
+//      debugging_counters.hot_hit_counter++;
+//      DebuggingCounters::thread_local_counters.hot_hit_counter++;
+      // -------------------------------------------------------------------------------------
       return bf;
    }
    // -------------------------------------------------------------------------------------
    const PID pid = swip_value.asPageID();
-   PartitionTable &partition = getPartition(pid); // TODO: get partition should restart if the value does not make sense
+   PartitionTable &partition = getPartition(pid);
    std::unique_lock g_guard(partition.cio_mutex);
    swip_guard.recheck();
    assert(!swip_value.isSwizzled());
@@ -486,7 +508,6 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    if ( !frame_handler ) {
       if ( dram_free_list.counter < 10 ) {
          g_guard.unlock();
-//         spinAsLongAs(dram_free_list.counter < 10);
          throw RestartException();
       }
       BufferFrame &bf = dram_free_list.pop();
@@ -500,8 +521,8 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
       // -------------------------------------------------------------------------------------
       g_guard.unlock();
       // -------------------------------------------------------------------------------------
-      debugging_counters.dt_misses_counter[bf.page.dt_id]++;
       readPageSync(pid, bf.page);
+      debugging_counters.dt_misses_counter[bf.page.dt_id]++;
       assert(bf.page.magic_debugging_number == pid);
       // -------------------------------------------------------------------------------------
       // ATTENTION: Fill the BF
@@ -566,13 +587,13 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
          if ( cio_frame.readers_counter.fetch_add(-1) > 1 ) {
             should_clean = false;
          }
+      } else {
+         debugging_counters.cold_hit_counter++;
+         DebuggingCounters::thread_local_counters.cold_hit_counter++;
       }
       if ( should_clean ) {
-         last_deleted = pid;
          partition.ht.remove(pid);
       }
-      // -------------------------------------------------------------------------------------
-      debugging_counters.swizzled_pages_counter++;
       // -------------------------------------------------------------------------------------
       return *bf;
    }
@@ -592,7 +613,8 @@ void BufferManager::readPageSync(u64 pid, u8 *destination)
       bytes_left -= bytes_read;
    } while ( bytes_left > 0 );
    // -------------------------------------------------------------------------------------
-   debugging_counters.read_operations++;
+   debugging_counters.read_operations_counter++;
+   DebuggingCounters::thread_local_counters.read_operations_counter++;
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()
@@ -622,8 +644,6 @@ void BufferManager::flushDropAllPages()
 {
    //TODO
    // -------------------------------------------------------------------------------------
-   stats.print();
-   stats.reset();
 }
 // -------------------------------------------------------------------------------------
 PartitionTable &BufferManager::getPartition(PID pid)
@@ -650,23 +670,6 @@ BufferManager::~BufferManager()
    close(ssd_fd);
    ssd_fd = -1;
    munmap(bfs, dram_total_size);
-   // -------------------------------------------------------------------------------------
-   stats.print();
-}
-// -------------------------------------------------------------------------------------
-void BufferManager::Stats::print()
-{
-//   cout << "-------------------------------------------------------------------------------------" << endl;
-//   cout << "BufferManager Stats" << endl;
-//   cout << "swizzled counter = " << swizzled_pages_counter << endl;
-//   cout << "unswizzled counter = " << unswizzled_pages_counter << endl;
-//   cout << "flushed counter = " << flushed_pages_counter << endl;
-//   cout << "-------------------------------------------------------------------------------------" << endl;
-}
-// -------------------------------------------------------------------------------------
-void BufferManager::Stats::reset()
-{
-
 }
 // -------------------------------------------------------------------------------------
 BufferManager *BMC::global_bf(nullptr);

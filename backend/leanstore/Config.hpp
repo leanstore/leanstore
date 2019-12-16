@@ -4,8 +4,9 @@
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
 DECLARE_double(dram_gib); // 1 GiB
-DECLARE_uint32(ssd); // 10 GiB
 DECLARE_string(ssd_path);
+DECLARE_uint32(worker_threads);
+DECLARE_string(file_suffix);
 DECLARE_string(free_pages_list_path);
 DECLARE_uint32(cool);
 DECLARE_uint32(free);

@@ -1,3 +1,4 @@
+#pragma once
 #include "Units.hpp"
 #include "Exceptions.hpp"
 #include "leanstore/storage/buffer-manager/DTRegistry.hpp"

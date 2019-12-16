@@ -56,7 +56,7 @@ u64 AsyncWriteBuffer::submit()
 {
    if ( pending_requests > 0 ) {
       int ret_code = io_submit(aio_context, pending_requests, iocbs_ptr.get());
-      ensure(ret_code == pending_requests);
+      ensure(ret_code == s32(pending_requests));
       return pending_requests;
    }
    return 0;

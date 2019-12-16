@@ -10,3 +10,9 @@ target_include_directories(ycsb PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(tpcc tpc-c/tpcc.cpp)
 target_link_libraries(tpcc leanstore Threads::Threads)
 target_include_directories(tpcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+
+add_executable(random_io misc-benchmarks/random_io.cpp)
+target_link_libraries(random_io leanstore Threads::Threads)
+target_include_directories(random_io PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+

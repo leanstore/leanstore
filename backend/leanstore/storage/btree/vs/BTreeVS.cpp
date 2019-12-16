@@ -126,6 +126,7 @@ void BTree::insert(u8 *key, u16 key_length, u64 payloadLength, u8 *payload)
          auto c_x_guard = WritePageGuard(std::move(c_guard));
          p_guard.recheck_done();
          if ( c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame *>(payloadLength)), payload)) {
+           entries++;
             return;
          }
          // -------------------------------------------------------------------------------------
@@ -173,6 +174,8 @@ void BTree::trySplit(BufferFrame &to_split)
       c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
       // -------------------------------------------------------------------------------------
       height++;
+      pages++;
+      pages++;
       return;
    }
    unsigned spaced_need_for_separator = BTreeNode::spaceNeeded(sep_info.length, p_guard->prefix_length);
@@ -189,6 +192,8 @@ void BTree::trySplit(BufferFrame &to_split)
       c_x_guard->getSep(sep_key, sep_info);
       // -------------------------------------------------------------------------------------
       c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
+      // -------------------------------------------------------------------------------------
+      pages++;
    } else {
       p_guard.kill();
       c_guard.kill();
