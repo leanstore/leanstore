@@ -116,7 +116,6 @@ void BufferManager::pageProviderThread()
    };
    // -------------------------------------------------------------------------------------
    while ( bg_threads_keep_running ) {
-      int cpu = sched_getcpu();
       /*
        * Phase 1:
        */
@@ -423,7 +422,6 @@ void BufferManager::debuggingThread()
 void BufferManager::clearSSD()
 {
    //TODO
-   ftruncate(ssd_fd, 0);
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::persist()
