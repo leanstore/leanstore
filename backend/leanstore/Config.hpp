@@ -13,6 +13,7 @@ DECLARE_uint32(free);
 DECLARE_uint32(partition_bits);
 DECLARE_uint32(async_batch_size);
 DECLARE_uint32(falloc);
+DECLARE_uint32(free_threshold);
 DECLARE_bool(trunc);
 DECLARE_bool(root);
 DECLARE_bool(print_debug);

@@ -453,7 +453,7 @@ BufferFrame &BufferManager::randomBufferFrame()
 // returns a *write locked* new buffer frame
 BufferFrame &BufferManager::allocatePage()
 {
-   if ( dram_free_list.counter < 10 ) {
+   if ( dram_free_list.counter < (FLAGS_free_threshold) ) {
       throw RestartException();
    }
    PID free_pid = ssd_used_pages_counter++;
@@ -524,7 +524,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    // -------------------------------------------------------------------------------------
    auto frame_handler = partition.ht.lookup(pid);
    if ( !frame_handler ) {
-      if ( dram_free_list.counter < 10 ) {
+      if ( dram_free_list.counter < (FLAGS_free_threshold) ) {
          g_guard.unlock();
          throw RestartException();
       }
