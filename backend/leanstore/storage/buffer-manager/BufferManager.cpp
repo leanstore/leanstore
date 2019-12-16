@@ -16,6 +16,8 @@
 #include <set>
 #include <iomanip>
 #include <fstream>
+#include <sys/time.h>
+#include <sys/resource.h>
 // -------------------------------------------------------------------------------------
 // Local GFlags
 // -------------------------------------------------------------------------------------
@@ -40,9 +42,9 @@ BufferManager::BufferManager()
    }
    // -------------------------------------------------------------------------------------
    // Init SSD pool
-   int flags = O_RDWR | O_DIRECT | O_CREAT;
+   int flags = O_RDWR | O_DIRECT;
    if ( FLAGS_trunc ) {
-      flags |= O_TRUNC;
+      flags |= O_TRUNC | O_CREAT;
    }
    ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
    posix_check(ssd_fd > -1);
@@ -69,8 +71,20 @@ BufferManager::BufferManager()
    // -------------------------------------------------------------------------------------
    // Background threads
    // -------------------------------------------------------------------------------------
-   std::thread page_provider_thread([&]() { pageProviderThread(); });
-   bg_threads_counter++;
+   std::thread page_provider_thread([&]() {
+      // https://linux.die.net/man/2/setpriority
+      if(FLAGS_root) {
+         posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
+      }
+      pageProviderThread();
+   });
+   {
+      cpu_set_t cpuset;
+      CPU_ZERO(&cpuset);
+      CPU_SET(0, &cpuset);
+      posix_check(pthread_setaffinity_np(page_provider_thread.native_handle(),
+                                         sizeof(cpu_set_t), &cpuset) == 0);
+   }
    page_provider_thread.detach();
    // -------------------------------------------------------------------------------------
    if ( FLAGS_file_suffix == "" ) {
@@ -102,6 +116,7 @@ void BufferManager::pageProviderThread()
    };
    // -------------------------------------------------------------------------------------
    while ( bg_threads_keep_running ) {
+      int cpu = sched_getcpu();
       /*
        * Phase 1:
        */

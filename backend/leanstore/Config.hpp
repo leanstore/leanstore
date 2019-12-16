@@ -14,6 +14,7 @@ DECLARE_uint32(partition_bits);
 DECLARE_uint32(async_batch_size);
 DECLARE_uint32(falloc);
 DECLARE_bool(trunc);
+DECLARE_bool(root);
 DECLARE_bool(print_debug);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
