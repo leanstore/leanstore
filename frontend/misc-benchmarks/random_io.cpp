@@ -59,7 +59,6 @@ int main(int argc, char **argv)
             key += FLAGS_worker_threads;
          }
          largest_keys[t_i] = key;
-         cout << "t_i = " << t_i << endl;
       }, i);
    }
    for ( auto &thread: threads ) {
@@ -82,8 +81,6 @@ int main(int argc, char **argv)
    thread stats_thread([&]() {
       while ( true ) {
          sleep(1);
-         cout << db.getBufferManager().debugging_counters.read_operations_counter.exchange(0) << endl;
-         cout << db.getBufferManager().debugging_counters.cold_hit_counter.exchange(0) << endl;
       }
    });
 
