@@ -73,7 +73,7 @@ BufferManager::BufferManager()
    // -------------------------------------------------------------------------------------
    std::thread page_provider_thread([&]() {
       // https://linux.die.net/man/2/setpriority
-      if(FLAGS_root) {
+      if ( FLAGS_root ) {
          posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
       }
       pageProviderThread();
@@ -372,6 +372,7 @@ void BufferManager::debuggingThread()
    pp_stats.emplace_back("cpus", [&](ostream &out) { out << b.e.getCPUs(); });
    pp_stats.emplace_back("submit_ms", [&](ostream &out) { out << debugging_counters.submit_ms.exchange(0); });
    pp_stats.emplace_back("async_mb_ws", [&](ostream &out) { out << debugging_counters.async_wb_ms.exchange(0); });
+   pp_stats.emplace_back("allocate_ops", [&](ostream &out) { out << debugging_counters.allocate_operations_counter.exchange(0); });
    pp_stats.emplace_back("r_mib", [&](ostream &out) { out << (debugging_counters.read_operations_counter.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
    pp_stats.emplace_back("w_mib", [&](ostream &out) { out << debugging_counters.awrites_submitted.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0; });
    // -------------------------------------------------------------------------------------
@@ -472,6 +473,10 @@ BufferFrame &BufferManager::allocatePage()
       cout << "------------------------------------------------------------------------------------" << endl;
    }
    assert((free_bf.header.lock & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+   // -------------------------------------------------------------------------------------
+   debugging_counters.allocate_operations_counter++;
+   DebuggingCounters::thread_local_counters.allocate_operations_counter++;
+   // -------------------------------------------------------------------------------------
    return free_bf;
 }
 // -------------------------------------------------------------------------------------

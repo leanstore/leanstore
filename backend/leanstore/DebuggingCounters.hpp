@@ -23,6 +23,7 @@ struct DebuggingCounters {
    atomic<u64> read_operations_counter = 0;
    atomic<u64> hot_hit_counter = 0;
    atomic<u64> cold_hit_counter = 0;
+   atomic<u64> allocate_operations_counter = 0;
    // -------------------------------------------------------------------------------------
    std::unordered_map<u64, atomic<u64>> dt_misses_counter;
    // -------------------------------------------------------------------------------------
@@ -31,6 +32,7 @@ struct DebuggingCounters {
       atomic<u64> hot_hit_counter = 0;
       atomic<u64> cold_hit_counter = 0;
       atomic<u64> read_operations_counter = 0;
+      atomic<u64> allocate_operations_counter = 0;
    };
    static thread_local ThreadLocalCounters thread_local_counters;
 };
