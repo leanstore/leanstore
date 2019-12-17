@@ -196,11 +196,12 @@ void BufferManager::pageProviderThread()
       auto phase_1_end = chrono::high_resolution_clock::now();
       debugging_counters.phase_1_ms += (chrono::duration_cast<chrono::microseconds>(phase_1_end - phase_1_begin).count());
       // -------------------------------------------------------------------------------------
-      const u64 pages_to_iterate_globally = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0;
-      const u64 pages_to_iterate_partition = pages_to_iterate_globally / partitions_count;
       // phase_2_3:
       if ( phase_2_3_condition())
          for ( u64 p_i = 0; p_i < partitions_count; p_i++ ) {
+            const u64 pages_to_iterate_globally = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0;
+            const u64 pages_to_iterate_partition = pages_to_iterate_globally / partitions_count;
+            // -------------------------------------------------------------------------------------
             PartitionTable &partition = partitions[p_i];
             /*
              * Phase 2:
@@ -209,7 +210,7 @@ void BufferManager::pageProviderThread()
              */
             // phase_2:
             auto phase_2_begin = chrono::high_resolution_clock::now();
-            {
+            if ( pages_to_iterate_partition ) {
                u64 pages_left_to_iterate_partition = pages_to_iterate_partition;
                std::unique_lock g_guard(partition.cio_mutex);
                auto bf_itr = partition.cooling_queue.begin();
@@ -256,7 +257,7 @@ void BufferManager::pageProviderThread()
              */
             // phase_3:
             auto phase_3_begin = chrono::high_resolution_clock::now();
-            {
+            if ( pages_to_iterate_partition ) {
                auto submit_begin = chrono::high_resolution_clock::now();
                async_write_buffer.submit();
                auto submit_end = chrono::high_resolution_clock::now();
@@ -453,11 +454,11 @@ BufferFrame &BufferManager::randomBufferFrame()
 // returns a *write locked* new buffer frame
 BufferFrame &BufferManager::allocatePage()
 {
-   if ( dram_free_list.counter < (FLAGS_free_threshold) ) {
+   if ( dram_free_list.counter < (FLAGS_free_threshold)) {
       throw RestartException();
    }
-   PID free_pid = ssd_used_pages_counter++;
    BufferFrame &free_bf = dram_free_list.pop();
+   PID free_pid = ssd_used_pages_counter++;
    assert(free_bf.header.state == BufferFrame::State::FREE);
    // -------------------------------------------------------------------------------------
    // Initialize Buffer Frame
@@ -524,7 +525,7 @@ BufferFrame &BufferManager::resolveSwip(ReadGuard &swip_guard, Swip<BufferFrame>
    // -------------------------------------------------------------------------------------
    auto frame_handler = partition.ht.lookup(pid);
    if ( !frame_handler ) {
-      if ( dram_free_list.counter < (FLAGS_free_threshold) ) {
+      if ( dram_free_list.counter < (FLAGS_free_threshold)) {
          g_guard.unlock();
          throw RestartException();
       }

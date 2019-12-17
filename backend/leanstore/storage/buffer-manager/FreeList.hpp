@@ -8,7 +8,7 @@ namespace leanstore{
 namespace buffermanager{
 // -------------------------------------------------------------------------------------
 struct FreeList {
-   atomic<BufferFrame *> first = nullptr;
+   atomic<BufferFrame *> head = nullptr;
    atomic<u64> counter = 0;
    BufferFrame &pop();
    void push(BufferFrame &bf);

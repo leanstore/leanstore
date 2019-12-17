@@ -197,7 +197,7 @@ void BTree::trySplit(BufferFrame &to_split)
    } else {
       p_guard.kill();
       c_guard.kill();
-      trySplit(*p_guard.bf); // Must split parent first to make space for separator
+      trySplit(*p_guard.bf); // Must split parent head to make space for separator
    }
 }
 // -------------------------------------------------------------------------------------
@@ -301,7 +301,7 @@ void BTree::tryMerge(BufferFrame &to_split)
    }
    assert(parent_handler.swip.bf == &to_split);
    // -------------------------------------------------------------------------------------
-   // TODO: use upper fence instead of fully copying the first key
+   // TODO: use upper fence instead of fully copying the head key
    u16 key_length = c_guard->getFullKeyLength(0);
    u8 key[key_length];
    c_guard->copyFullKey(0, key, key_length);
