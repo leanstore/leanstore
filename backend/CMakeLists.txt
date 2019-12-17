@@ -25,9 +25,6 @@ target_link_libraries(leanstore gflags Threads::Threads aio tbb) #tbb
 
 target_include_directories(leanstore PUBLIC ${SHARED_INCLUDE_DIRECTORY})
 
-target_include_directories(leanstore PUBLIC ${SPDLOG_INCLUDE_DIR})
-add_dependencies(leanstore spdlog_src)
-
 target_include_directories(leanstore PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 set(LEANSTORE_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR})
 
