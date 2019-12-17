@@ -39,9 +39,9 @@ find_package(Threads REQUIRED)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
-include("${CMAKE_SOURCE_DIR}/libs/benchmark.cmake")
 include("${CMAKE_SOURCE_DIR}/libs/googletest.cmake")
 include("${CMAKE_SOURCE_DIR}/libs/gflags.cmake")
+#include("${CMAKE_SOURCE_DIR}/libs/benchmark.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/rapidjson.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/yaml-cpp.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/fastpfor.cmake")
