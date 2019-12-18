@@ -7,20 +7,20 @@ find_package(Git REQUIRED)
 
 # Get rapidjson
 ExternalProject_Add(
-    fastpfor_src
-    PREFIX "vendor/lemire/fastpfor"
-    GIT_REPOSITORY "https://github.com/lemire/FastPFor.git"
-    GIT_TAG dfc88a9f775958f325982a2699db08324fca0568
-    TIMEOUT 10
-    BUILD_COMMAND  make FastPFor
-    UPDATE_COMMAND "" # to prevent rebuilding everytime
-    INSTALL_COMMAND ""
-    CMAKE_ARGS
-    -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/vendor/fastpfor_cpp
-    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-    -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-    -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+        fastpfor_src
+        PREFIX "vendor/lemire/fastpfor"
+        GIT_REPOSITORY "https://github.com/lemire/FastPFor.git"
+        GIT_TAG dfc88a9f775958f325982a2699db08324fca0568
+        TIMEOUT 10
+        BUILD_COMMAND make FastPFor
+        UPDATE_COMMAND "" # to prevent rebuilding everytime
+        INSTALL_COMMAND ""
+        CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/vendor/fastpfor_cpp
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+        -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
 )
 
 # Prepare json

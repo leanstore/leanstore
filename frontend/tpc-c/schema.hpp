@@ -14,7 +14,9 @@ struct warehouse_t {
   Numeric w_tax;
   Numeric w_ytd;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.w_id);
     return pos;
@@ -41,15 +43,15 @@ struct district_t {
   Numeric d_ytd;
   Integer d_next_o_id;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.d_w_id);
     pos += fold(out + pos, record.d_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() {
-    return 0 + sizeof(d_w_id) + sizeof(d_id);
-  };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(d_w_id) + sizeof(d_id); };
 };
 
 struct customer_t {
@@ -82,16 +84,16 @@ struct customer_t {
   Numeric c_delivery_cnt;
   Varchar<500> c_data;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.c_w_id);
     pos += fold(out + pos, record.c_d_id);
     pos += fold(out + pos, record.c_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() {
-    return 0 + sizeof(c_w_id) + sizeof(c_d_id) + sizeof(c_id);
-  };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(c_w_id) + sizeof(c_d_id) + sizeof(c_id); };
 };
 
 struct customer_wdl_t {
@@ -109,7 +111,9 @@ struct customer_wdl_t {
   Varchar<16> c_first;
   Integer c_id;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.c_w_id);
     pos += fold(out + pos, record.c_d_id);
@@ -117,10 +121,7 @@ struct customer_wdl_t {
     pos += fold(out + pos, record.c_first);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() {
-    return 0 + sizeof(c_w_id) + sizeof(c_d_id) + sizeof(c_last) +
-           sizeof(c_first);
-  };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(c_w_id) + sizeof(c_d_id) + sizeof(c_last) + sizeof(c_first); };
 };
 
 struct history_t {
@@ -139,7 +140,9 @@ struct history_t {
   Numeric h_amount;
   Varchar<24> h_data;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.h_pk);
     return pos;
@@ -159,16 +162,16 @@ struct neworder_t {
   Integer no_d_id;
   Integer no_o_id;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.no_w_id);
     pos += fold(out + pos, record.no_d_id);
     pos += fold(out + pos, record.no_o_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() {
-    return 0 + sizeof(no_w_id) + sizeof(no_d_id) + sizeof(no_o_id);
-  };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(no_w_id) + sizeof(no_d_id) + sizeof(no_o_id); };
 };
 
 struct order_t {
@@ -188,16 +191,16 @@ struct order_t {
   Numeric o_ol_cnt;
   Numeric o_all_local;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.o_w_id);
     pos += fold(out + pos, record.o_d_id);
     pos += fold(out + pos, record.o_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() {
-    return 0 + sizeof(o_w_id) + sizeof(o_d_id) + sizeof(o_id);
-  };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(o_w_id) + sizeof(o_d_id) + sizeof(o_id); };
 };
 
 struct order_wdc_t {
@@ -214,7 +217,9 @@ struct order_wdc_t {
   Integer o_c_id;
   Integer o_id;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.o_w_id);
     pos += fold(out + pos, record.o_d_id);
@@ -222,9 +227,7 @@ struct order_wdc_t {
     pos += fold(out + pos, record.o_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() {
-    return 0 + sizeof(o_w_id) + sizeof(o_d_id) + sizeof(o_c_id) + sizeof(o_id);
-  };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(o_w_id) + sizeof(o_d_id) + sizeof(o_c_id) + sizeof(o_id); };
 };
 
 struct orderline_t {
@@ -247,7 +250,9 @@ struct orderline_t {
   Numeric ol_amount;
   Varchar<24> ol_dist_info;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.ol_w_id);
     pos += fold(out + pos, record.ol_d_id);
@@ -255,10 +260,7 @@ struct orderline_t {
     pos += fold(out + pos, record.ol_number);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() {
-    return 0 + sizeof(ol_w_id) + sizeof(ol_d_id) + sizeof(ol_o_id) +
-           sizeof(ol_number);
-  };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(ol_w_id) + sizeof(ol_d_id) + sizeof(ol_o_id) + sizeof(ol_number); };
 };
 
 struct item_t {
@@ -273,7 +275,9 @@ struct item_t {
   Numeric i_price;
   Varchar<50> i_data;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.i_id);
     return pos;
@@ -306,13 +310,13 @@ struct stock_t {
   Numeric s_remote_cnt;
   Varchar<50> s_data;
 
-  template <class T> static unsigned foldRecord(uint8_t *out, const T &record) {
+  template <class T>
+  static unsigned foldRecord(uint8_t* out, const T& record)
+  {
     unsigned pos = 0;
     pos += fold(out + pos, record.s_w_id);
     pos += fold(out + pos, record.s_i_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() {
-    return 0 + sizeof(s_w_id) + sizeof(s_i_id);
-  };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(s_w_id) + sizeof(s_i_id); };
 };

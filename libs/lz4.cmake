@@ -8,16 +8,16 @@ find_program(MAKE_EXE NAMES gmake nmake make)
 
 # Get lz4
 ExternalProject_Add(
-    lz4_src
-    PREFIX "vendor/lz4"
-    GIT_REPOSITORY "https://github.com/lz4/lz4.git"
-    GIT_TAG 798301b4e144fab5d25fc34566c1419685f5f1eb
-    TIMEOUT 10
-    CONFIGURE_COMMAND ""
-    BUILD_IN_SOURCE TRUE
-    BUILD_COMMAND make
-    UPDATE_COMMAND ""
-    INSTALL_COMMAND ""
+        lz4_src
+        PREFIX "vendor/lz4"
+        GIT_REPOSITORY "https://github.com/lz4/lz4.git"
+        GIT_TAG 798301b4e144fab5d25fc34566c1419685f5f1eb
+        TIMEOUT 10
+        CONFIGURE_COMMAND ""
+        BUILD_IN_SOURCE TRUE
+        BUILD_COMMAND make
+        UPDATE_COMMAND ""
+        INSTALL_COMMAND ""
 )
 
 # Prepare lz4

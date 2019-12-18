@@ -2,15 +2,17 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-#include <cmath>
 #include <chrono>
+#include <cmath>
 // -------------------------------------------------------------------------------------
-namespace leanstore{
-namespace utils{
+namespace leanstore
+{
+namespace utils
+{
 // -------------------------------------------------------------------------------------
 u32 getBitsNeeded(u64 input);
 // -------------------------------------------------------------------------------------
 double calculateMTPS(std::chrono::high_resolution_clock::time_point begin, std::chrono::high_resolution_clock::time_point end, u64 factor);
 // -------------------------------------------------------------------------------------
-}
+}  // namespace utils
 }

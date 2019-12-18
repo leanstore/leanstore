@@ -7,17 +7,17 @@ find_package(Git REQUIRED)
 
 # Get croaring
 ExternalProject_Add(
-    croaring_src
-    PREFIX "vendor/croaring"
-    GIT_REPOSITORY "https://github.com/RoaringBitmap/CRoaring.git"
-    GIT_TAG b88b002407b42fafaea23ea5009a54a24d1c1ed4
-    TIMEOUT 10
-    CMAKE_ARGS
+        croaring_src
+        PREFIX "vendor/croaring"
+        GIT_REPOSITORY "https://github.com/RoaringBitmap/CRoaring.git"
+        GIT_TAG b88b002407b42fafaea23ea5009a54a24d1c1ed4
+        TIMEOUT 10
+        CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/vendor/croaring
         -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-    UPDATE_COMMAND ""
+        UPDATE_COMMAND ""
 )
 
 # Prepare croaring

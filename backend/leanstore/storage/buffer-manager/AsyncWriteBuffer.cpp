@@ -4,91 +4,90 @@
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
-#include <cstring>
 #include <signal.h>
+#include <cstring>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(insistence_limit, 1, "");
 // -------------------------------------------------------------------------------------
-namespace leanstore {
-namespace buffermanager {
-// -------------------------------------------------------------------------------------
-AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size)
-        : fd(fd)
-          , page_size(page_size)
-          , batch_max_size(batch_max_size)
+namespace leanstore
 {
-   write_buffer = make_unique<BufferFrame::Page[]>(batch_max_size);
-   write_buffer_commands = make_unique<WriteCommand[]>(batch_max_size);
-   iocbs = make_unique<struct iocb[]>(batch_max_size);
-   iocbs_ptr = make_unique<struct iocb *[]>(batch_max_size);
-   events = make_unique<struct io_event[]>(batch_max_size);
-   // -------------------------------------------------------------------------------------
-   memset(&aio_context, 0, sizeof(aio_context));
-   const int ret = io_setup(batch_max_size, &aio_context);
-   if ( ret != 0 ) {
-      throw ex::GenericException("io_setup failed, ret code = " + std::to_string(ret));
-   }
-   ensure (io_setup(batch_max_size, &aio_context) != 0);
+namespace buffermanager
+{
+// -------------------------------------------------------------------------------------
+AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size) : fd(fd), page_size(page_size), batch_max_size(batch_max_size)
+{
+  write_buffer = make_unique<BufferFrame::Page[]>(batch_max_size);
+  write_buffer_commands = make_unique<WriteCommand[]>(batch_max_size);
+  iocbs = make_unique<struct iocb[]>(batch_max_size);
+  iocbs_ptr = make_unique<struct iocb*[]>(batch_max_size);
+  events = make_unique<struct io_event[]>(batch_max_size);
+  // -------------------------------------------------------------------------------------
+  memset(&aio_context, 0, sizeof(aio_context));
+  const int ret = io_setup(batch_max_size, &aio_context);
+  if (ret != 0) {
+    throw ex::GenericException("io_setup failed, ret code = " + std::to_string(ret));
+  }
+  ensure(io_setup(batch_max_size, &aio_context) != 0);
 }
 // -------------------------------------------------------------------------------------
-bool AsyncWriteBuffer::add(BufferFrame &bf)
+bool AsyncWriteBuffer::add(BufferFrame& bf)
 {
-   assert(u64(&bf.page) % 512 == 0);
-   if ( pending_requests >= batch_max_size - 2 ) {
-      return false;
-   }
-   assert(pending_requests <= batch_max_size);
-   // -------------------------------------------------------------------------------------
-   auto slot = pending_requests++;
-   write_buffer_commands[slot].bf = &bf;
-   bf.page.magic_debugging_number = bf.header.pid;
-   bf.header.isWB = true;
-   std::memcpy(&write_buffer[slot], bf.page, page_size);
-   void *write_buffer_slot_ptr = &write_buffer[slot];
-   io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size * bf.header.pid);
-   iocbs[slot].data = write_buffer_slot_ptr;
-   iocbs_ptr[slot] = &iocbs[slot];
-   // -------------------------------------------------------------------------------------
-   return true;
+  assert(u64(&bf.page) % 512 == 0);
+  if (pending_requests >= batch_max_size - 2) {
+    return false;
+  }
+  assert(pending_requests <= batch_max_size);
+  // -------------------------------------------------------------------------------------
+  auto slot = pending_requests++;
+  write_buffer_commands[slot].bf = &bf;
+  bf.page.magic_debugging_number = bf.header.pid;
+  bf.header.isWB = true;
+  std::memcpy(&write_buffer[slot], bf.page, page_size);
+  void* write_buffer_slot_ptr = &write_buffer[slot];
+  io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size * bf.header.pid);
+  iocbs[slot].data = write_buffer_slot_ptr;
+  iocbs_ptr[slot] = &iocbs[slot];
+  // -------------------------------------------------------------------------------------
+  return true;
 }
 // -------------------------------------------------------------------------------------
 u64 AsyncWriteBuffer::submit()
 {
-   if ( pending_requests > 0 ) {
-      int ret_code = io_submit(aio_context, pending_requests, iocbs_ptr.get());
-      ensure(ret_code == s32(pending_requests));
-      return pending_requests;
-   }
-   return 0;
+  if (pending_requests > 0) {
+    int ret_code = io_submit(aio_context, pending_requests, iocbs_ptr.get());
+    ensure(ret_code == s32(pending_requests));
+    return pending_requests;
+  }
+  return 0;
 }
 // -------------------------------------------------------------------------------------
 u64 AsyncWriteBuffer::pollEventsSync()
 {
-   if ( pending_requests > 0 ) {
-      const int done_requests = io_getevents(aio_context, pending_requests, pending_requests, events.get(), NULL);
-      if ( u32(done_requests) != pending_requests ) {
-         cerr << done_requests << endl;
-         raise(SIGTRAP);
-         ensure(false);
-      }
-      pending_requests = 0;
-      return done_requests;
-   }
-   return 0;
+  if (pending_requests > 0) {
+    const int done_requests = io_getevents(aio_context, pending_requests, pending_requests, events.get(), NULL);
+    if (u32(done_requests) != pending_requests) {
+      cerr << done_requests << endl;
+      raise(SIGTRAP);
+      ensure(false);
+    }
+    pending_requests = 0;
+    return done_requests;
+  }
+  return 0;
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame &, u64)> callback, u64 n_events)
+void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame&, u64)> callback, u64 n_events)
 {
-   for ( u64 i = 0; i < n_events; i++ ) {
-      const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
-      // -------------------------------------------------------------------------------------
-      ensure (events[i].res == page_size);
-      explain(events[i].res2 == 0);
-      auto written_lsn = write_buffer[slot].LSN;
-      callback(*write_buffer_commands[slot].bf, written_lsn);
-   }
+  for (u64 i = 0; i < n_events; i++) {
+    const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
+    // -------------------------------------------------------------------------------------
+    ensure(events[i].res == page_size);
+    explain(events[i].res2 == 0);
+    auto written_lsn = write_buffer[slot].LSN;
+    callback(*write_buffer_commands[slot].bf, written_lsn);
+  }
 }
 // -------------------------------------------------------------------------------------
-}
-}
-// -------------------------------------------------------------------------------------
+}  // namespace buffermanager
+}  // namespace leanstore
+   // -------------------------------------------------------------------------------------

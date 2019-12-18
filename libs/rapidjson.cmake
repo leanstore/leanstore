@@ -7,15 +7,15 @@ find_package(Git REQUIRED)
 
 # Get rapidjson
 ExternalProject_Add(
-    rapidjson_src
-    PREFIX "vendor/rapidjson"
-    GIT_REPOSITORY "https://github.com/tencent/rapidjson"
-    GIT_TAG v1.1.0
-    TIMEOUT 10
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
-    UPDATE_COMMAND ""
+        rapidjson_src
+        PREFIX "vendor/rapidjson"
+        GIT_REPOSITORY "https://github.com/tencent/rapidjson"
+        GIT_TAG v1.1.0
+        TIMEOUT 10
+        CONFIGURE_COMMAND ""
+        BUILD_COMMAND ""
+        INSTALL_COMMAND ""
+        UPDATE_COMMAND ""
 )
 
 # Prepare json

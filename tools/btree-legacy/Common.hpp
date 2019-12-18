@@ -1,12 +1,9 @@
 #pragma once
-#include <iostream>
+#include <string.h>
 #include <algorithm>
 #include <atomic>
 #include <cassert>
-#include <string.h>
+#include <iostream>
 #include <vector>
 
-enum class PageType : uint8_t {
-   BTreeInner = 1,
-   BTreeLeaf = 2
-};
+enum class PageType : uint8_t { BTreeInner = 1, BTreeLeaf = 2 };

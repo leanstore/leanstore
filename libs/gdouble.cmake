@@ -12,7 +12,7 @@ ExternalProject_Add(gdouble_src
                     GIT_TAG cb5cf996d123014a2420c853c4db60e4500973b1
                     URL_MD5 ${GDOUGDOUBLE_URL_MD5}
                     CONFIGURE_COMMAND "cmake" "." "-DBUILD_TESTING=ON"
-                    BUILD_COMMAND  make
+                    BUILD_COMMAND make
                     BUILD_IN_SOURCE 1
                     INSTALL_COMMAND ""
                     LOG_DOWNLOAD 1

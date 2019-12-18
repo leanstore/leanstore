@@ -1,23 +1,23 @@
 #pragma once
 // -------------------------------------------------------------------------------------
-#include <stdint.h>
 #include <stddef.h>
-#include <iostream>
-#include <string>
-#include <memory>
+#include <stdint.h>
 #include <cassert>
+#include <iostream>
+#include <memory>
+#include <string>
 // -------------------------------------------------------------------------------------
 #define NULL_CODE_MARGIN 1
 // -------------------------------------------------------------------------------------
+using std::atomic;
 using std::cerr;
 using std::cout;
-using std::string;
 using std::endl;
-using std::unique_ptr;
 using std::make_unique;
-using std::tuple;
-using std::atomic;
+using std::string;
 using std::to_string;
+using std::tuple;
+using std::unique_ptr;
 // -------------------------------------------------------------------------------------
 using u8 = uint8_t;
 using u16 = uint16_t;
@@ -28,17 +28,17 @@ using s8 = int8_t;
 using s16 = int16_t;
 using s32 = int32_t;
 using s64 = int64_t;
-// ------------------------------------------------------------------------------------- 
+// -------------------------------------------------------------------------------------
 using SIZE = size_t;
 using PID = u64;
-using DTID = u64; // Datastructure ID
+using DTID = u64;  // Datastructure ID
 // -------------------------------------------------------------------------------------
 enum class ColumnType {
-   // TODO
+  // TODO
 };
 using TINYINT = s8;
 using SMALLINT = s16;
-using INTEGER = s32; // we use FOR always at the beginning so negative integers will be handled out
+using INTEGER = s32;  // we use FOR always at the beginning so negative integers will be handled out
 using UINTEGER = u32;
 using DOUBLE = double;
 using STRING = string;
@@ -48,6 +48,6 @@ using str = std::string_view;
 // -------------------------------------------------------------------------------------
 using BytesArray = std::unique_ptr<u8[]>;
 // -------------------------------------------------------------------------------------
-template<int s>
+template <int s>
 struct getTheSizeOf;
 // -------------------------------------------------------------------------------------

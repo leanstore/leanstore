@@ -1,0 +1,6 @@
+100 GiB : FS (103 ) VS(119)
+
+5 GiB: fixed size
+202 M mit 128 threads
+76 M mit 32 threads
+130 M mit 64 threads

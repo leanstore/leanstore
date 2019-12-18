@@ -1,4 +1,5 @@
 #include "DebuggingCounters.hpp"
-namespace leanstore {
+namespace leanstore
+{
 thread_local DebuggingCounters::ThreadLocalCounters DebuggingCounters::thread_local_counters;
 }

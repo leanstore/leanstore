@@ -3,7 +3,7 @@
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
-DECLARE_double(dram_gib); // 1 GiB
+DECLARE_double(dram_gib);  // 1 GiB
 DECLARE_string(ssd_path);
 DECLARE_uint32(worker_threads);
 DECLARE_string(file_suffix);

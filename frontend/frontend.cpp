@@ -6,10 +6,10 @@
 #include <iostream>
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
-   gflags::SetUsageMessage("Leanstore Frontend");
-   gflags::ParseCommandLineFlags(&argc, &argv, true);
-   // -------------------------------------------------------------------------------------
-   return 0;
+  gflags::SetUsageMessage("Leanstore Frontend");
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  // -------------------------------------------------------------------------------------
+  return 0;
 }

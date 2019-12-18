@@ -7,17 +7,17 @@ find_package(Git REQUIRED)
 
 # Get psql
 ExternalProject_Add(
-    psql_src
-    PREFIX "vendor/psql"
-    GIT_REPOSITORY "https://github.com/jtv/libpqxx.git"
-    GIT_TAG 520113bc790d5f44726830c23018668cb5241e67
-    TIMEOUT 10
-    CMAKE_ARGS
+        psql_src
+        PREFIX "vendor/psql"
+        GIT_REPOSITORY "https://github.com/jtv/libpqxx.git"
+        GIT_TAG 520113bc790d5f44726830c23018668cb5241e67
+        TIMEOUT 10
+        CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/vendor/psql
         -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
         -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
         -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-    UPDATE_COMMAND ""
+        UPDATE_COMMAND ""
 )
 
 # Prepare psql

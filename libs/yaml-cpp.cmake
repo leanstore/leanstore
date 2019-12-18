@@ -7,19 +7,19 @@ find_package(Git REQUIRED)
 
 # Get rapidjson
 ExternalProject_Add(
-    yaml_src
-    PREFIX "vendor/yaml_cpp"
-    GIT_REPOSITORY "https://github.com/jbeder/yaml-cpp.git"
-    GIT_TAG bd7f8c60c82614bb0bd1c526db2cbc39dac02fec
-    TIMEOUT 10
-    BUILD_COMMAND  make
-    UPDATE_COMMAND "" # to prevent rebuilding everytime
-    CMAKE_ARGS
-    -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/vendor/yaml_cpp
-    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-    -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
-    -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+        yaml_src
+        PREFIX "vendor/yaml_cpp"
+        GIT_REPOSITORY "https://github.com/jbeder/yaml-cpp.git"
+        GIT_TAG bd7f8c60c82614bb0bd1c526db2cbc39dac02fec
+        TIMEOUT 10
+        BUILD_COMMAND make
+        UPDATE_COMMAND "" # to prevent rebuilding everytime
+        CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/vendor/yaml_cpp
+        -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+        -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+        -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
 )
 
 # Prepare json

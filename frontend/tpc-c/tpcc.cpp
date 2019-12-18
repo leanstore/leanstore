@@ -1,20 +1,20 @@
-#include "types.hpp"
 #include "adapter.hpp"
 #include "schema.hpp"
+#include "types.hpp"
 // -------------------------------------------------------------------------------------
-#include "PerfEvent.hpp"
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>
+#include "PerfEvent.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
+#include <unistd.h>
+#include <algorithm>
+#include <csignal>
 #include <cstdint>
+#include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
-#include <iostream>
-#include <algorithm>
-#include <unistd.h>
-#include <limits>
-#include <csignal>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
 DEFINE_uint32(tpcc_tx_count, 1000000, "");
@@ -53,98 +53,98 @@ StdMap<stock_t> stock;
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
 {
-   double tps = ((factor * 1.0 / (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0)));
-   return (tps / 1000000.0);
+  double tps = ((factor * 1.0 / (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0)));
+  return (tps / 1000000.0);
 }
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
-   gflags::SetUsageMessage("Leanstore TPC-C");
-   gflags::ParseCommandLineFlags(&argc, &argv, true);
-   // -------------------------------------------------------------------------------------
-   LeanStore db;
-   tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
-   // -------------------------------------------------------------------------------------
-   warehouseCount = FLAGS_tpcc_warehouse_count;
-   warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
-   district = LeanStoreAdapter<district_t>(db, "district");
-   customer = LeanStoreAdapter<customer_t>(db, "customer");
-   customerwdl = LeanStoreAdapter<customer_wdl_t>(db, "customerwdl");
-   history = LeanStoreAdapter<history_t>(db, "history");
-   neworder = LeanStoreAdapter<neworder_t>(db, "neworder");
-   order = LeanStoreAdapter<order_t>(db, "order");
-   order_wdc = LeanStoreAdapter<order_wdc_t>(db, "order_wdc");
-   orderline = LeanStoreAdapter<orderline_t>(db, "orderline");
-   item = LeanStoreAdapter<item_t>(db, "item");
-   stock = LeanStoreAdapter<stock_t>(db, "stock");
-   // -------------------------------------------------------------------------------------
-   chrono::high_resolution_clock::time_point begin, end;
-   // -------------------------------------------------------------------------------------
-   load();
-   double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
-   cout << "data loaded - consumed space in GiB = " << gib << endl;
-   // -------------------------------------------------------------------------------------
-   auto print_tables_counts = [&]() {
-      cout << "warehouse: " << warehouse.count() << endl;
-      cout << "district: " << district.count() << endl;
-      cout << "customer: " << customer.count() << endl;
-      cout << "customerwdl: " << customerwdl.count() << endl;
-      cout << "history: " << history.count() << endl;
-      cout << "neworder: " << neworder.count() << endl;
-      cout << "order: " << order.count() << endl;
-      cout << "order_wdc: " << order_wdc.count() << endl;
-      cout << "orderline: " << orderline.count() << endl;
-      cout << "item: " << item.count() << endl;
-      cout << "stock: " << stock.count() << endl;
-      cout << endl;
-   };
-   auto print_tables_pages = [&]() {
-      cout << "warehouse: " << warehouse.btree->pages.load() << endl;
-      cout << "district: " << district.btree->pages.load() << endl;
-      cout << "customer: " << customer.btree->pages.load() << endl;
-      cout << "customerwdl: " << customerwdl.btree->pages.load() << endl;
-      cout << "history: " << history.btree->pages.load() << endl;
-      cout << "neworder: " << neworder.btree->pages.load() << endl;
-      cout << "order: " << order.btree->pages.load() << endl;
-      cout << "order_wdc: " << order_wdc.btree->pages.load() << endl;
-      cout << "orderline: " << orderline.btree->pages.load() << endl;
-      cout << "item: " << item.btree->pages.load() << endl;
-      cout << "stock: " << stock.btree->pages.load() << endl;
-      cout << endl;
-   };
-//   print_tables_counts();
+  gflags::SetUsageMessage("Leanstore TPC-C");
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  // -------------------------------------------------------------------------------------
+  LeanStore db;
+  tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
+  // -------------------------------------------------------------------------------------
+  warehouseCount = FLAGS_tpcc_warehouse_count;
+  warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
+  district = LeanStoreAdapter<district_t>(db, "district");
+  customer = LeanStoreAdapter<customer_t>(db, "customer");
+  customerwdl = LeanStoreAdapter<customer_wdl_t>(db, "customerwdl");
+  history = LeanStoreAdapter<history_t>(db, "history");
+  neworder = LeanStoreAdapter<neworder_t>(db, "neworder");
+  order = LeanStoreAdapter<order_t>(db, "order");
+  order_wdc = LeanStoreAdapter<order_wdc_t>(db, "order_wdc");
+  orderline = LeanStoreAdapter<orderline_t>(db, "orderline");
+  item = LeanStoreAdapter<item_t>(db, "item");
+  stock = LeanStoreAdapter<stock_t>(db, "stock");
+  // -------------------------------------------------------------------------------------
+  chrono::high_resolution_clock::time_point begin, end;
+  // -------------------------------------------------------------------------------------
+  load();
+  double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
+  cout << "data loaded - consumed space in GiB = " << gib << endl;
+  // -------------------------------------------------------------------------------------
+  auto print_tables_counts = [&]() {
+    cout << "warehouse: " << warehouse.count() << endl;
+    cout << "district: " << district.count() << endl;
+    cout << "customer: " << customer.count() << endl;
+    cout << "customerwdl: " << customerwdl.count() << endl;
+    cout << "history: " << history.count() << endl;
+    cout << "neworder: " << neworder.count() << endl;
+    cout << "order: " << order.count() << endl;
+    cout << "order_wdc: " << order_wdc.count() << endl;
+    cout << "orderline: " << orderline.count() << endl;
+    cout << "item: " << item.count() << endl;
+    cout << "stock: " << stock.count() << endl;
+    cout << endl;
+  };
+  auto print_tables_pages = [&]() {
+    cout << "warehouse: " << warehouse.btree->pages.load() << endl;
+    cout << "district: " << district.btree->pages.load() << endl;
+    cout << "customer: " << customer.btree->pages.load() << endl;
+    cout << "customerwdl: " << customerwdl.btree->pages.load() << endl;
+    cout << "history: " << history.btree->pages.load() << endl;
+    cout << "neworder: " << neworder.btree->pages.load() << endl;
+    cout << "order: " << order.btree->pages.load() << endl;
+    cout << "order_wdc: " << order_wdc.btree->pages.load() << endl;
+    cout << "orderline: " << orderline.btree->pages.load() << endl;
+    cout << "item: " << item.btree->pages.load() << endl;
+    cout << "stock: " << stock.btree->pages.load() << endl;
+    cout << endl;
+  };
+  //   print_tables_counts();
 
-   unsigned n = FLAGS_tpcc_tx_count;
-   // -------------------------------------------------------------------------------------
-   atomic<bool> last_second_news_enabled = true;
-   atomic<u64> last_second_tx_done = 0;
-   thread last_second_news([&] {
-      while ( last_second_news_enabled ) {
-         u64 tx_done_local = last_second_tx_done.exchange(0);
-         cout << endl;
-         cout << tx_done_local << " txs in the last second" << endl;
-         cout << scanned_elements.exchange(0) << endl;
-         sleep(1);
+  unsigned n = FLAGS_tpcc_tx_count;
+  // -------------------------------------------------------------------------------------
+  atomic<bool> last_second_news_enabled = true;
+  atomic<u64> last_second_tx_done = 0;
+  thread last_second_news([&] {
+    while (last_second_news_enabled) {
+      u64 tx_done_local = last_second_tx_done.exchange(0);
+      cout << endl;
+      cout << tx_done_local << " txs in the last second" << endl;
+      cout << scanned_elements.exchange(0) << endl;
+      sleep(1);
+    }
+  });
+  for (unsigned j = 0; j < FLAGS_tpcc_tx_rounds; j++) {
+    begin = chrono::high_resolution_clock::now();
+    tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
+      for (u64 i = range.begin(); i < range.end(); i++) {
+        tx();
+        last_second_tx_done++;
       }
-   });
-   for ( unsigned j = 0; j < FLAGS_tpcc_tx_rounds; j++ ) {
-      begin = chrono::high_resolution_clock::now();
-      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64> &range) {
-         for ( u64 i = range.begin(); i < range.end(); i++ ) {
-            tx();
-            last_second_tx_done++;
-         }
-      });
-      end = chrono::high_resolution_clock::now();
-//      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
-   }
-   print_tables_pages();
-   last_second_news_enabled.store(false);
-   last_second_news.join();
-   // -------------------------------------------------------------------------------------
-   gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
-   cout << "consumed space in GiB = " << gib << endl;
-   // -------------------------------------------------------------------------------------
-//   print_tables_counts();
-   // -------------------------------------------------------------------------------------
-   return 0;
+    });
+    end = chrono::high_resolution_clock::now();
+    //      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
+  }
+  print_tables_pages();
+  last_second_news_enabled.store(false);
+  last_second_news.join();
+  // -------------------------------------------------------------------------------------
+  gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
+  cout << "consumed space in GiB = " << gib << endl;
+  // -------------------------------------------------------------------------------------
+  //   print_tables_counts();
+  // -------------------------------------------------------------------------------------
+  return 0;
 }

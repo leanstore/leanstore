@@ -15,7 +15,7 @@ endif ()
 # Library
 # ---------------------------------------------------------------------------
 
-add_library(leanstore STATIC ${LEANSTORE_CC} )
+add_library(leanstore STATIC ${LEANSTORE_CC})
 
 target_link_libraries(leanstore gflags Threads::Threads aio tbb) #tbb
 #if (CMAKE_BUILD_TYPE MATCHES Debug)

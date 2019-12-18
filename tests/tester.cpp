@@ -1,14 +1,14 @@
 // -------------------------------------------------------------------------------------
-#include "gtest/gtest.h"
 #include "gflags/gflags.h"
+#include "gtest/gtest.h"
 // ---------------------------------------------------------------------------
 #include <memory>
 // -------------------------------------------------------------------------------------
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
-   testing::InitGoogleTest(&argc, argv);
-   // -------------------------------------------------------------------------------------
-   gflags::ParseCommandLineFlags(&argc, &argv, true);
-   return RUN_ALL_TESTS();
+  testing::InitGoogleTest(&argc, argv);
+  // -------------------------------------------------------------------------------------
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  return RUN_ALL_TESTS();
 }
 // ---------------------------------------------------------------------------

@@ -1,20 +1,22 @@
 #pragma once
-#include "Units.hpp"
 #include "BufferFrame.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-namespace leanstore{
-namespace buffermanager{
+namespace leanstore
+{
+namespace buffermanager
+{
 // -------------------------------------------------------------------------------------
 struct FreeList {
-   atomic<BufferFrame *> head = nullptr;
-   atomic<u64> counter = 0;
-   BufferFrame &pop();
-   void push(BufferFrame &bf);
+  atomic<BufferFrame*> head = nullptr;
+  atomic<u64> counter = 0;
+  BufferFrame& pop();
+  void push(BufferFrame& bf);
 };
 // -------------------------------------------------------------------------------------
-}
-}
+}  // namespace buffermanager
+}  // namespace leanstore
 
 // -------------------------------------------------------------------------------------
