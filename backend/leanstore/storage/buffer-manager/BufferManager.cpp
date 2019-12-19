@@ -74,32 +74,43 @@ BufferManager::BufferManager()
   // -------------------------------------------------------------------------------------
   // Background threads
   // -------------------------------------------------------------------------------------
-  std::thread page_provider_thread([&]() {
-    // https://linux.die.net/man/2/setpriority
-    if (FLAGS_root) {
-      posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
-    }
-    pageProviderThread();
-  });
-  {
+  // Page Provider threads
+  std::vector<thread> pp_threads;
+  ensure(partitions_count % FLAGS_pp_threads == 0);
+  const u64 partitions_per_thread = partitions_count / FLAGS_pp_threads;
+  // -------------------------------------------------------------------------------------
+  for(u64 t_i = 0;t_i < FLAGS_pp_threads; t_i++) {
+    pp_threads.emplace_back(
+        [&](u64 p_begin, u64 p_end) {
+          // https://linux.die.net/man/2/setpriority
+          if (FLAGS_root) {
+            posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
+          }
+          pageProviderThread(p_begin, p_end);
+        },
+        t_i * partitions_per_thread, (t_i + 1) * partitions_per_thread);
+    bg_threads_counter++;
+  }
+  for(u64 t_i = 0;t_i < FLAGS_pp_threads; t_i++) {
+    thread &page_provider_thread = pp_threads[t_i];
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
-    CPU_SET(0, &cpuset);
+    CPU_SET(t_i, &cpuset);
     posix_check(pthread_setaffinity_np(page_provider_thread.native_handle(), sizeof(cpu_set_t), &cpuset) == 0);
+    page_provider_thread.detach();
   }
-  page_provider_thread.detach();
   // -------------------------------------------------------------------------------------
   if (FLAGS_file_suffix == "") {
     file_suffix = to_string(chrono::high_resolution_clock::now().time_since_epoch().count());
   } else {
     file_suffix = FLAGS_file_suffix;
   }
-  std::thread phase_timer_thread([&]() { debuggingThread(); });
+  std::thread debugging_thread([&]() { debuggingThread(); });
   bg_threads_counter++;
-  phase_timer_thread.detach();
+  debugging_thread.detach();
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::pageProviderThread()
+  void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
 {
   pthread_setname_np(pthread_self(), "page_provider");
   // -------------------------------------------------------------------------------------
@@ -126,7 +137,9 @@ void BufferManager::pageProviderThread()
           // -------------------------------------------------------------------------------------
           // unswizzle pages (put in the cooling stage)
           ReadGuard r_guard(r_buffer->header.lock);
-          const bool is_cooling_candidate =
+          const u64 partition_i = getPartitionID(r_buffer->header.pid);
+
+          const bool is_cooling_candidate = ((partition_i) >= p_begin && (partition_i) < p_end) &&
               !(r_buffer->header.lock & WRITE_LOCK_BIT) && r_buffer->header.state == BufferFrame::State::HOT;  // && !rand_buffer->header.isWB
           if (!is_cooling_candidate) {
             r_buffer = &randomBufferFrame();
@@ -197,7 +210,7 @@ void BufferManager::pageProviderThread()
     // -------------------------------------------------------------------------------------
     // phase_2_3:
     if (phase_2_3_condition())
-      for (u64 p_i = 0; p_i < partitions_count; p_i++) {
+      for (u64 p_i = p_begin; p_i < p_end; p_i++) {
         const u64 pages_to_iterate_globally = (dram_free_list.counter < free_pages_limit) ? free_pages_limit - dram_free_list.counter : 0;
         const u64 pages_to_iterate_partition = pages_to_iterate_globally / partitions_count;
         // -------------------------------------------------------------------------------------
@@ -328,7 +341,8 @@ void BufferManager::pageProviderThread()
 void BufferManager::debuggingThread()
 {
   pthread_setname_np(pthread_self(), "debugging_thread");
-  PerfEventBlock b(e, 1);
+  PerfEvent e;
+  e.startCounters();
   // -------------------------------------------------------------------------------------
   auto file_name = [&](const string prefix) { return prefix + "_" + file_suffix + ".csv"; };
   // -------------------------------------------------------------------------------------
@@ -361,18 +375,18 @@ void BufferManager::debuggingThread()
   pp_stats.emplace_back("pc3", [&](ostream& out) { out << debugging_counters.phase_3_counter.exchange(0); });
   pp_stats.emplace_back("free_pct", [&](ostream& out) { out << (dram_free_list.counter.load() * 100.0 / dram_pool_size); });
   pp_stats.emplace_back("cool_pct", [&](ostream& out) { out << (cooling_bfs_counter.load() * 100.0 / dram_pool_size); });
-  pp_stats.emplace_back("evicted", [&](ostream& out) { out << (debugging_counters.evicted_pages.exchange(0) * 100.0 / dram_pool_size); });
+  pp_stats.emplace_back("evicted_mib", [&](ostream& out) { out << (debugging_counters.evicted_pages.exchange(0)  * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
   pp_stats.emplace_back("rounds", [&](ostream& out) { out << (debugging_counters.pp_thread_rounds.exchange(0)); });
   pp_stats.emplace_back("unswizzled", [&](ostream& out) { out << debugging_counters.unswizzled_pages_counter.exchange(0); });
   pp_stats.emplace_back("cold_hit", [&](ostream& out) { out << debugging_counters.cold_hit_counter.exchange(0); });
-  pp_stats.emplace_back("cpus", [&](ostream& out) { out << b.e.getCPUs(); });
+  pp_stats.emplace_back("cpus", [&](ostream& out) { out << e.getCPUs(); });
   pp_stats.emplace_back("submit_ms", [&](ostream& out) { out << debugging_counters.submit_ms.exchange(0); });
   pp_stats.emplace_back("async_mb_ws", [&](ostream& out) { out << debugging_counters.async_wb_ms.exchange(0); });
   pp_stats.emplace_back("allocate_ops", [&](ostream& out) { out << debugging_counters.allocate_operations_counter.exchange(0); });
   pp_stats.emplace_back(
       "r_mib", [&](ostream& out) { out << (debugging_counters.read_operations_counter.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
   pp_stats.emplace_back("w_mib",
-                        [&](ostream& out) { out << debugging_counters.awrites_submitted.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0; });
+                        [&](ostream& out) { out << debugging_counters.flushed_pages_counter.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0; });
   // -------------------------------------------------------------------------------------
   // Print header
   pp_csv << "t";
@@ -393,7 +407,11 @@ void BufferManager::debuggingThread()
     // -------------------------------------------------------------------------------------
     total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
     // -------------------------------------------------------------------------------------
-    b.e.stopCounters();
+    e.stopCounters();
+    u64 local_tx_rate = debugging_counters.tx_rate.exchange(0);
+    if (local_tx_rate) {
+      e.printReport(cout, local_tx_rate);
+    }
     if (total > 0) {
       pp_csv << time;
       for (const auto& stat : pp_stats) {
@@ -409,7 +427,7 @@ void BufferManager::debuggingThread()
       }
     }
     // -------------------------------------------------------------------------------------
-    b.e.startCounters();
+    e.startCounters();
     // -------------------------------------------------------------------------------------
     sleep(FLAGS_print_debug_interval_s);
     time += FLAGS_print_debug_interval_s;
@@ -669,9 +687,13 @@ void BufferManager::flushDropAllPages()
   // -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------
+u64 BufferManager::getPartitionID(PID pid) {
+  return pid & partitions_mask;
+}
+// -------------------------------------------------------------------------------------
 PartitionTable& BufferManager::getPartition(PID pid)
 {
-  const u64 partition_i = pid & partitions_mask;
+  const u64 partition_i = getPartitionID(pid);
   assert(partition_i < partitions_count);
   return partitions[partition_i];
 }

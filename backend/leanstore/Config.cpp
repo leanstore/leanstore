@@ -8,6 +8,7 @@ DEFINE_double(dram_gib, 1, "");  // 1 GiB
 DEFINE_uint32(cool, 10, "Start cooling pages when <= x% are free");
 DEFINE_uint32(free, 1, "pct");
 DEFINE_uint32(partition_bits, 4, "bits per partition");
+DEFINE_uint32(pp_threads, 1, "number of page provider threads");
 // -------------------------------------------------------------------------------------
 DEFINE_string(ssd_path, "./leanstore", "");
 DEFINE_string(file_suffix, "d", "");

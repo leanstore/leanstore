@@ -13,3 +13,5 @@ adhoc/
 log.txt
 git-ignore
 *#
+debug
+release

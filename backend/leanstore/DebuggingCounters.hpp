@@ -14,7 +14,7 @@ struct DebuggingCounters {
   atomic<u64> async_wb_ms = 0, submit_ms = 0;
   atomic<u64> phase_1_counter = 0, phase_2_counter = 0, phase_3_counter = 0;
   // -------------------------------------------------------------------------------------
-  atomic<u64> evicted_pages = 0, awrites_submitted = 0, pp_thread_rounds = 0;
+  atomic<u64> evicted_pages = 0, pp_thread_rounds = 0;
   // -------------------------------------------------------------------------------------
   // Only for page provider thread
   atomic<u64> flushed_pages_counter = 0;
@@ -25,6 +25,7 @@ struct DebuggingCounters {
   atomic<u64> hot_hit_counter = 0;
   atomic<u64> cold_hit_counter = 0;
   atomic<u64> allocate_operations_counter = 0;
+  atomic<u64> tx_rate = 0;
   // -------------------------------------------------------------------------------------
   std::unordered_map<u64, atomic<u64>> dt_misses_counter;
   // -------------------------------------------------------------------------------------

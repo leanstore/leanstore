@@ -371,6 +371,7 @@ void newOrder(Integer w_id,
           s_dist = rec.s_dist_10;
           break;
         default:
+          exit(1);
           throw;
       }
     });
@@ -831,9 +832,9 @@ void paymentRnd(Integer w_id)
   }
 }
 
-int tx()
+int tx(u64 w_begin=1, u64 w_end = warehouseCount)
 {
-  Integer w_id = urand(1, warehouseCount);
+  Integer w_id = urand(w_begin, w_end);
   int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);
   if (rnd < 430) {
     paymentRnd(w_id);

@@ -24,6 +24,8 @@ void BTree::init(DTID dtid)
 // -------------------------------------------------------------------------------------
 ReadPageGuard<BTreeNode> BTree::findLeafForRead(u8* key, u16 key_length)
 {
+  u32 mask = 1;
+  u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     try {
       auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
@@ -37,13 +39,19 @@ ReadPageGuard<BTreeNode> BTree::findLeafForRead(u8* key, u16 key_length)
       c_guard.recheck_done();
       return c_guard;
     } catch (RestartException e) {
-      restarts_counter++;
+      for (u32 i = mask; i; --i) {
+        _mm_pause();
+      }
+      mask = mask < max ? mask << 1 : max;
+      //_counter++;
     }
   }
 }
 // -------------------------------------------------------------------------------------
 bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
+  u32 mask = 1;
+  u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     try {
       ReadPageGuard<BTreeNode> leaf = findLeafForRead(key, key_length);
@@ -58,7 +66,12 @@ bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> paylo
         return false;
       }
     } catch (RestartException e) {
-      restarts_counter++;
+      for (u32 i = mask; i; --i) {
+        _mm_pause();
+      }
+      mask = mask < max ? mask << 1 : max;
+
+      // restarts_counter++;
     }
   }
 }
@@ -68,6 +81,8 @@ void BTree::scan(u8* start_key,
                  std::function<bool(u8* payload, u16 payload_length, std::function<string()>&)> callback,
                  function<void()> undo)
 {
+  u32 mask = 1;
+  u32 const max = 512;  // MAX_BACKOFF
   u8* next_key = start_key;
   u16 next_key_length = key_length;
   while (true) {
@@ -109,7 +124,11 @@ void BTree::scan(u8* start_key,
       }
     } catch (RestartException e) {
       undo();
-      restarts_counter++;
+      for (u32 i = mask; i; --i) {
+        _mm_pause();
+      }
+      mask = mask < max ? mask << 1 : max;
+      // restarts_counter++;
     }
   }
 }
@@ -117,7 +136,7 @@ void BTree::scan(u8* start_key,
 void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
 {
   u32 mask = 1;
-  u32 const max = 64;  // MAX_BACKOFF
+  u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     try {
       auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
@@ -146,7 +165,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      restarts_counter++;
+      //<      restarts_counter++;
     }
   }
 }
@@ -209,6 +228,8 @@ void BTree::trySplit(BufferFrame& to_split)
 // -------------------------------------------------------------------------------------
 void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback)
 {
+  u32 mask = 1;
+  u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     try {
       ReadPageGuard<BTreeNode> c_guard = findLeafForRead(key, key_length);
@@ -219,7 +240,11 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
       return;
     } catch (RestartException e) {
-      restarts_counter++;
+      for (u32 i = mask; i; --i) {
+        _mm_pause();
+      }
+      mask = mask < max ? mask << 1 : max;
+      //restarts_counter++;
     }
   }
 }
@@ -227,7 +252,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
 void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
 {
   u32 mask = 1;
-  u32 const max = 64;  // MAX_BACKOFF
+  u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     try {
       auto p_guard = ReadPageGuard<BTreeNode>::makeRootGuard(root_lock);
@@ -269,7 +294,7 @@ bool BTree::remove(u8* key, u16 key_length)
    * if there was not, and after deletion we got an empty
    * */
   u32 mask = 1;
-  u32 const max = 64;  // MAX_BACKOFF
+  u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     try {
       ReadPageGuard c_guard = findLeafForRead(key, key_length);

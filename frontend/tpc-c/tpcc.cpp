@@ -19,6 +19,7 @@
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
 DEFINE_uint32(tpcc_tx_count, 1000000, "");
 DEFINE_uint32(tpcc_tx_rounds, 10, "");
+DEFINE_bool(tpcc_warehouse_affinity, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -120,22 +121,33 @@ int main(int argc, char** argv)
   thread last_second_news([&] {
     while (last_second_news_enabled) {
       u64 tx_done_local = last_second_tx_done.exchange(0);
-      cout << endl;
       cout << tx_done_local << " txs in the last second" << endl;
-      cout << scanned_elements.exchange(0) << endl;
+      db.getBufferManager().debugging_counters.tx_rate.exchange(tx_done_local);
       sleep(1);
     }
   });
   for (unsigned j = 0; j < FLAGS_tpcc_tx_rounds; j++) {
     begin = chrono::high_resolution_clock::now();
-    tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
-      for (u64 i = range.begin(); i < range.end(); i++) {
-        tx();
-        last_second_tx_done++;
-      }
-    });
+    if(FLAGS_tpcc_warehouse_affinity) {
+      tbb::parallel_for(tbb::blocked_range<u64>(0, FLAGS_tpcc_warehouse_count), [&](const tbb::blocked_range<u64>& range) {
+
+        // cout << range.begin() + 1<< '\t' << range.end() << endl;
+        for (u64 i = 0; i < n; i++) {
+          tx(range.begin() + 1, range.end());
+          last_second_tx_done++;
+        }
+      });
+
+    } else {
+      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
+        for (u64 i = range.begin(); i < range.end(); i++) {
+          tx();
+          last_second_tx_done++;
+        }
+      });
+    }
     end = chrono::high_resolution_clock::now();
-    //      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
+    cout << calculateMTPS(begin, end, n) << " M tps" << endl;
   }
   print_tables_pages();
   last_second_news_enabled.store(false);
