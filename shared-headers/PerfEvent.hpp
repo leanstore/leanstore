@@ -205,7 +205,35 @@ struct PerfEvent {
     printCounter(headerOut, dataOut, "CPU", getCPUs());
     printCounter(headerOut, dataOut, "GHz", getGHz(), false);
   }
+  // -------------------------------------------------------------------------------------
+  void printCSVHeaders(std::ostream& headerOut) {
+    if (!events.size())
+      return;
 
+    // print all metrics
+    for (unsigned i = 0; i < events.size(); i++) {
+      headerOut << "," << names[i];
+    }
+
+    // derived metrics
+    headerOut << "," << "IPC";
+    headerOut << "," << "CPU";
+    headerOut << "," << "GHz" ;
+  }
+  // -------------------------------------------------------------------------------------
+  void printCSVData(std::ostream& dataOut, uint64_t normalizationConstant) {
+    if (!events.size())
+      return;
+    // print all metrics
+    for (unsigned i = 0; i < events.size(); i++) {
+      dataOut << "," << events[i].readCounter() / normalizationConstant;
+    }
+    // derived metrics
+    dataOut << "," << getIPC();
+    dataOut << "," << getCPUs();
+    dataOut << "," << getGHz() ;
+  }
+  // -------------------------------------------------------------------------------------
   void setParam(const std::string& name, const std::string& value) { params[name] = value; }
 
   void setParam(const std::string& name, const char* value) { params[name] = value; }

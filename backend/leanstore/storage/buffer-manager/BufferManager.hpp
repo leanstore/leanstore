@@ -5,7 +5,6 @@
 #include "PartitionTable.hpp"
 #include "Swip.hpp"
 #include "Units.hpp"
-#include "leanstore/DebuggingCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
@@ -20,6 +19,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
+class LeanStore;
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
@@ -34,9 +34,8 @@ namespace buffermanager
  */
 class BufferManager
 {
-  PerfEvent e;
-
  private:
+  friend class leanstore::LeanStore;
   // -------------------------------------------------------------------------------------
   BufferFrame* bfs;
   // -------------------------------------------------------------------------------------
@@ -60,7 +59,6 @@ class BufferManager
   // -------------------------------------------------------------------------------------
   // Threads managements
   void pageProviderThread(u64 p_begin, u64 p_end);  // [p_begin, p_end)
-  void debuggingThread();
   atomic<u64> bg_threads_counter = 0;
   atomic<bool> bg_threads_keep_running = true;
   // -------------------------------------------------------------------------------------
@@ -71,11 +69,7 @@ class BufferManager
   BufferFrame& randomBufferFrame();
   PartitionTable& getPartition(PID);
   u64 getPartitionID(PID);
-  // -------------------------------------------------------------------------------------
-  string file_suffix;
-
  public:
-  DebuggingCounters debugging_counters;
   // -------------------------------------------------------------------------------------
   BufferManager();
   ~BufferManager();

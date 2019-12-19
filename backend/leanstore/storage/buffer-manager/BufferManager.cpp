@@ -7,6 +7,8 @@
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/counters/PPCounters.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 // -------------------------------------------------------------------------------------
@@ -99,15 +101,6 @@ BufferManager::BufferManager()
     posix_check(pthread_setaffinity_np(page_provider_thread.native_handle(), sizeof(cpu_set_t), &cpuset) == 0);
     page_provider_thread.detach();
   }
-  // -------------------------------------------------------------------------------------
-  if (FLAGS_file_suffix == "") {
-    file_suffix = to_string(chrono::high_resolution_clock::now().time_since_epoch().count());
-  } else {
-    file_suffix = FLAGS_file_suffix;
-  }
-  std::thread debugging_thread([&]() { debuggingThread(); });
-  bg_threads_counter++;
-  debugging_thread.detach();
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
@@ -133,7 +126,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
     {
       try {
         while (phase_1_condition()) {
-          debugging_counters.phase_1_counter++;
+          PPCounters::myCounters().phase_1_counter++;
           // -------------------------------------------------------------------------------------
           // unswizzle pages (put in the cooling stage)
           ReadGuard r_guard(r_buffer->header.lock);
@@ -191,7 +184,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
             parent_handler.swip.unswizzle(r_buffer->header.pid);
             cooling_bfs_counter++;
             // -------------------------------------------------------------------------------------
-            debugging_counters.unswizzled_pages_counter++;
+            PPCounters::myCounters().unswizzled_pages_counter++;
             // -------------------------------------------------------------------------------------
             if (!phase_1_condition()) {
               r_buffer = &randomBufferFrame();
@@ -206,7 +199,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
       }
     };
     auto phase_1_end = chrono::high_resolution_clock::now();
-    debugging_counters.phase_1_ms += (chrono::duration_cast<chrono::microseconds>(phase_1_end - phase_1_begin).count());
+    PPCounters::myCounters().phase_1_ms += (chrono::duration_cast<chrono::microseconds>(phase_1_end - phase_1_begin).count());
     // -------------------------------------------------------------------------------------
     // phase_2_3:
     if (phase_2_3_condition())
@@ -222,6 +215,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
          */
         // phase_2:
         auto phase_2_begin = chrono::high_resolution_clock::now();
+        PPCounters::myCounters().phase_2_counter++;
         if (pages_to_iterate_partition) {
           u64 pages_left_to_iterate_partition = pages_to_iterate_partition;
           std::unique_lock g_guard(partition.cio_mutex);
@@ -254,7 +248,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
                   reclaimBufferFrame(bf);
                   // -------------------------------------------------------------------------------------
                   cooling_bfs_counter--;
-                  debugging_counters.evicted_pages++;
+                  PPCounters::myCounters().evicted_pages++;
                 } catch (RestartException e) {
                   assert(false);
                 }
@@ -269,6 +263,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
          */
         // phase_3:
         auto phase_3_begin = chrono::high_resolution_clock::now();
+        PPCounters::myCounters().phase_3_counter++;
         if (pages_to_iterate_partition) {
           auto submit_begin = chrono::high_resolution_clock::now();
           async_write_buffer.submit();
@@ -285,7 +280,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
                 // -------------------------------------------------------------------------------------
                 written_bf.header.lastWrittenLSN.store(written_lsn);
                 written_bf.header.isWB.store(false);
-                debugging_counters.flushed_pages_counter++;
+                PPCounters::myCounters().flushed_pages_counter++;
               },
               polled_events);
           auto async_wb_end = chrono::high_resolution_clock::now();
@@ -315,7 +310,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
                 reclaimBufferFrame(bf);
                 // -------------------------------------------------------------------------------------
                 cooling_bfs_counter--;
-                debugging_counters.evicted_pages++;
+                PPCounters::myCounters().evicted_pages++;
               } catch (RestartException e) {
                 ensure(false);
               }
@@ -324,119 +319,21 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
             bf_itr = next_bf_tr;
           }
           // -------------------------------------------------------------------------------------
-          debugging_counters.poll_ms += (chrono::duration_cast<chrono::microseconds>(poll_end - poll_begin).count());
-          debugging_counters.async_wb_ms += (chrono::duration_cast<chrono::microseconds>(async_wb_end - async_wb_begin).count());
-          debugging_counters.submit_ms += (chrono::duration_cast<chrono::microseconds>(submit_end - submit_begin).count());
+          PPCounters::myCounters().poll_ms += (chrono::duration_cast<chrono::microseconds>(poll_end - poll_begin).count());
+          PPCounters::myCounters().async_wb_ms += (chrono::duration_cast<chrono::microseconds>(async_wb_end - async_wb_begin).count());
+          PPCounters::myCounters().submit_ms += (chrono::duration_cast<chrono::microseconds>(submit_end - submit_begin).count());
         };
         auto phase_3_end = chrono::high_resolution_clock::now();
         // -------------------------------------------------------------------------------------
-        debugging_counters.phase_2_ms += (chrono::duration_cast<chrono::microseconds>(phase_2_end - phase_2_begin).count());
-        debugging_counters.phase_3_ms += (chrono::duration_cast<chrono::microseconds>(phase_3_end - phase_3_begin).count());
+        PPCounters::myCounters().phase_2_ms += (chrono::duration_cast<chrono::microseconds>(phase_2_end - phase_2_begin).count());
+        PPCounters::myCounters().phase_3_ms += (chrono::duration_cast<chrono::microseconds>(phase_3_end - phase_3_begin).count());
       }
-    debugging_counters.pp_thread_rounds++;
+    PPCounters::myCounters().pp_thread_rounds++;
   }
   bg_threads_counter--;
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::debuggingThread()
-{
-  pthread_setname_np(pthread_self(), "debugging_thread");
-  PerfEvent e;
-  e.startCounters();
-  // -------------------------------------------------------------------------------------
-  auto file_name = [&](const string prefix) { return prefix + "_" + file_suffix + ".csv"; };
-  // -------------------------------------------------------------------------------------
-  std::ofstream pp_csv;
-  string pp_csv_file_path;
-  pp_csv.open(file_name("pp"), ios::out | ios::trunc);
-  pp_csv << std::setprecision(2);
-  // -------------------------------------------------------------------------------------
-  std::ofstream workers_csv;
-  string workers_csv_file_path;
-  workers_csv.open(file_name("workers"), ios::out | ios::trunc);
-  workers_csv << std::setprecision(2);
-  // -------------------------------------------------------------------------------------
-  using statCallback = std::function<void(ostream&)>;
-  struct StatEntry {
-    string name;
-    statCallback callback;
-    StatEntry(string&& n, statCallback b) : name(std::move(n)), callback(b) {}
-  };
-  // -------------------------------------------------------------------------------------
-  vector<StatEntry> pp_stats;
-  s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0, total;
-  // -------------------------------------------------------------------------------------
-  pp_stats.emplace_back("p1_pct", [&](ostream& out) { out << (local_phase_1_ms * 100.0 / total); });
-  pp_stats.emplace_back("p2_pct", [&](ostream& out) { out << (local_phase_2_ms * 100.0 / total); });
-  pp_stats.emplace_back("p3_pct", [&](ostream& out) { out << (local_phase_3_ms * 100.0 / total); });
-  pp_stats.emplace_back("poll_pct", [&](ostream& out) { out << (local_poll_ms * 100.0 / total); });
-  pp_stats.emplace_back("pc1", [&](ostream& out) { out << debugging_counters.phase_1_counter.exchange(0); });
-  pp_stats.emplace_back("pc2", [&](ostream& out) { out << debugging_counters.phase_2_counter.exchange(0); });
-  pp_stats.emplace_back("pc3", [&](ostream& out) { out << debugging_counters.phase_3_counter.exchange(0); });
-  pp_stats.emplace_back("free_pct", [&](ostream& out) { out << (dram_free_list.counter.load() * 100.0 / dram_pool_size); });
-  pp_stats.emplace_back("cool_pct", [&](ostream& out) { out << (cooling_bfs_counter.load() * 100.0 / dram_pool_size); });
-  pp_stats.emplace_back("evicted_mib",
-                        [&](ostream& out) { out << (debugging_counters.evicted_pages.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
-  pp_stats.emplace_back("rounds", [&](ostream& out) { out << (debugging_counters.pp_thread_rounds.exchange(0)); });
-  pp_stats.emplace_back("unswizzled", [&](ostream& out) { out << debugging_counters.unswizzled_pages_counter.exchange(0); });
-  pp_stats.emplace_back("cold_hit", [&](ostream& out) { out << debugging_counters.cold_hit_counter.exchange(0); });
-  pp_stats.emplace_back("cpus", [&](ostream& out) { out << e.getCPUs(); });
-  pp_stats.emplace_back("submit_ms", [&](ostream& out) { out << debugging_counters.submit_ms.exchange(0); });
-  pp_stats.emplace_back("async_mb_ws", [&](ostream& out) { out << debugging_counters.async_wb_ms.exchange(0); });
-  pp_stats.emplace_back("allocate_ops", [&](ostream& out) { out << debugging_counters.allocate_operations_counter.exchange(0); });
-  pp_stats.emplace_back(
-      "r_mib", [&](ostream& out) { out << (debugging_counters.read_operations_counter.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
-  pp_stats.emplace_back("w_mib",
-                        [&](ostream& out) { out << debugging_counters.flushed_pages_counter.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0; });
-  // -------------------------------------------------------------------------------------
-  // Print header
-  pp_csv << "t";
-  for (const auto& stat : pp_stats) {
-    pp_csv << "," << stat.name;
-  }
-  // -------------------------------------------------------------------------------------
-  workers_csv << "t,name,miss" << endl;
-  // -------------------------------------------------------------------------------------
-  u64 time = 0;
-  // -------------------------------------------------------------------------------------
-  while (FLAGS_print_debug && bg_threads_keep_running) {
-    // -------------------------------------------------------------------------------------
-    local_phase_1_ms = debugging_counters.phase_1_ms.exchange(0);
-    local_phase_2_ms = debugging_counters.phase_2_ms.exchange(0);
-    local_phase_3_ms = debugging_counters.phase_3_ms.exchange(0);
-    local_poll_ms = debugging_counters.poll_ms.exchange(0);
-    // -------------------------------------------------------------------------------------
-    total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
-    // -------------------------------------------------------------------------------------
-    e.stopCounters();
-    u64 local_tx_rate = debugging_counters.tx_rate.exchange(0);
-    if (local_tx_rate) {
-      e.printReport(cout, local_tx_rate);
-    }
-    if (total > 0) {
-      pp_csv << time;
-      for (const auto& stat : pp_stats) {
-        pp_csv << ",";
-        stat.callback(pp_csv);
-      }
-      pp_csv << endl;
-      // -------------------------------------------------------------------------------------
-      for (const auto& dt : dt_registry.dt_instances_ht) {
-        const u64 dt_id = dt.first;
-        const string& dt_name = std::get<2>(dt.second);
-        workers_csv << time << "," << dt_name << "," << debugging_counters.dt_misses_counter[dt_id].exchange(0) << endl;
-      }
-    }
-    // -------------------------------------------------------------------------------------
-    e.startCounters();
-    // -------------------------------------------------------------------------------------
-    sleep(FLAGS_print_debug_interval_s);
-    time += FLAGS_print_debug_interval_s;
-  }
-  pp_csv.close();
-  bg_threads_counter--;
-}
-// -------------------------------------------------------------------------------------
+
 void BufferManager::clearSSD()
 {
   // TODO
@@ -495,8 +392,7 @@ BufferFrame& BufferManager::allocatePage()
   }
   assert((free_bf.header.lock & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
   // -------------------------------------------------------------------------------------
-  debugging_counters.allocate_operations_counter++;
-  DebuggingCounters::thread_local_counters.allocate_operations_counter++;
+  WorkerCounters::myCounters().allocate_operations_counter++;
   // -------------------------------------------------------------------------------------
   return free_bf;
 }
@@ -533,7 +429,7 @@ BufferFrame& BufferManager::resolveSwip(ReadGuard& swip_guard,
     // -------------------------------------------------------------------------------------
     // TODO: if
     //      debugging_counters.hot_hit_counter++;
-    //      DebuggingCounters::thread_local_counters.hot_hit_counter++;
+    //      PPCounters::thread_local_counters.hot_hit_counter++;
     // -------------------------------------------------------------------------------------
     return bf;
   }
@@ -562,7 +458,7 @@ BufferFrame& BufferManager::resolveSwip(ReadGuard& swip_guard,
     g_guard.unlock();
     // -------------------------------------------------------------------------------------
     readPageSync(pid, bf.page);
-    debugging_counters.dt_misses_counter[bf.page.dt_id]++;
+    WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
     assert(bf.page.magic_debugging_number == pid);
     // -------------------------------------------------------------------------------------
     // ATTENTION: Fill the BF
@@ -630,8 +526,7 @@ BufferFrame& BufferManager::resolveSwip(ReadGuard& swip_guard,
         should_clean = false;
       }
     } else {
-      debugging_counters.cold_hit_counter++;
-      DebuggingCounters::thread_local_counters.cold_hit_counter++;
+      WorkerCounters::myCounters().cold_hit_counter++;
     }
     if (should_clean) {
       partition.ht.remove(pid);
@@ -655,8 +550,7 @@ void BufferManager::readPageSync(u64 pid, u8* destination)
     bytes_left -= bytes_read;
   } while (bytes_left > 0);
   // -------------------------------------------------------------------------------------
-  debugging_counters.read_operations_counter++;
-  DebuggingCounters::thread_local_counters.read_operations_counter++;
+  WorkerCounters::myCounters().read_operations_counter++;
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()
@@ -676,7 +570,7 @@ DTID BufferManager::registerDatastructureInstance(DTType type, void* root_object
   DTID new_instance_id = dt_registry.dt_types_ht[type].instances_counter++;
   dt_registry.dt_instances_ht.insert({new_instance_id, {type, root_object, name}});
   // -------------------------------------------------------------------------------------
-  debugging_counters.dt_misses_counter[new_instance_id] = 0;
+  WorkerCounters::myCounters().dt_misses_counter[new_instance_id] = 0;
   // -------------------------------------------------------------------------------------
   return new_instance_id;
 }

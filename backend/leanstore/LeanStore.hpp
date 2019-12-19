@@ -18,7 +18,12 @@ class LeanStore
   std::unordered_map<string, std::unique_ptr<u8[]>> fs_btrees;
   std::unordered_map<string, btree::vs::BTree> vs_btrees;
   buffermanager::BufferManager buffer_manager;
-
+  // -------------------------------------------------------------------------------------
+  string file_suffix;
+  void debuggingThread();
+  atomic<u64> bg_threads_counter = 0;
+  atomic<bool> bg_threads_keep_running = true;
+  unique_ptr<PerfEvent> e;
  public:
   LeanStore();
   // -------------------------------------------------------------------------------------
