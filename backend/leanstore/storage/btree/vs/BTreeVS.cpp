@@ -244,7 +244,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      //restarts_counter++;
+      // restarts_counter++;
     }
   }
 }

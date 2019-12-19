@@ -79,7 +79,7 @@ BufferManager::BufferManager()
   ensure(partitions_count % FLAGS_pp_threads == 0);
   const u64 partitions_per_thread = partitions_count / FLAGS_pp_threads;
   // -------------------------------------------------------------------------------------
-  for(u64 t_i = 0;t_i < FLAGS_pp_threads; t_i++) {
+  for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
     pp_threads.emplace_back(
         [&](u64 p_begin, u64 p_end) {
           // https://linux.die.net/man/2/setpriority
@@ -91,8 +91,8 @@ BufferManager::BufferManager()
         t_i * partitions_per_thread, (t_i + 1) * partitions_per_thread);
     bg_threads_counter++;
   }
-  for(u64 t_i = 0;t_i < FLAGS_pp_threads; t_i++) {
-    thread &page_provider_thread = pp_threads[t_i];
+  for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
+    thread& page_provider_thread = pp_threads[t_i];
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(t_i, &cpuset);
@@ -110,7 +110,7 @@ BufferManager::BufferManager()
   debugging_thread.detach();
 }
 // -------------------------------------------------------------------------------------
-  void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
+void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
 {
   pthread_setname_np(pthread_self(), "page_provider");
   // -------------------------------------------------------------------------------------
@@ -139,8 +139,8 @@ BufferManager::BufferManager()
           ReadGuard r_guard(r_buffer->header.lock);
           const u64 partition_i = getPartitionID(r_buffer->header.pid);
 
-          const bool is_cooling_candidate = ((partition_i) >= p_begin && (partition_i) < p_end) &&
-              !(r_buffer->header.lock & WRITE_LOCK_BIT) && r_buffer->header.state == BufferFrame::State::HOT;  // && !rand_buffer->header.isWB
+          const bool is_cooling_candidate = ((partition_i) >= p_begin && (partition_i) < p_end) && !(r_buffer->header.lock & WRITE_LOCK_BIT) &&
+                                            r_buffer->header.state == BufferFrame::State::HOT;  // && !rand_buffer->header.isWB
           if (!is_cooling_candidate) {
             r_buffer = &randomBufferFrame();
             continue;
@@ -375,7 +375,8 @@ void BufferManager::debuggingThread()
   pp_stats.emplace_back("pc3", [&](ostream& out) { out << debugging_counters.phase_3_counter.exchange(0); });
   pp_stats.emplace_back("free_pct", [&](ostream& out) { out << (dram_free_list.counter.load() * 100.0 / dram_pool_size); });
   pp_stats.emplace_back("cool_pct", [&](ostream& out) { out << (cooling_bfs_counter.load() * 100.0 / dram_pool_size); });
-  pp_stats.emplace_back("evicted_mib", [&](ostream& out) { out << (debugging_counters.evicted_pages.exchange(0)  * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
+  pp_stats.emplace_back("evicted_mib",
+                        [&](ostream& out) { out << (debugging_counters.evicted_pages.exchange(0) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
   pp_stats.emplace_back("rounds", [&](ostream& out) { out << (debugging_counters.pp_thread_rounds.exchange(0)); });
   pp_stats.emplace_back("unswizzled", [&](ostream& out) { out << debugging_counters.unswizzled_pages_counter.exchange(0); });
   pp_stats.emplace_back("cold_hit", [&](ostream& out) { out << debugging_counters.cold_hit_counter.exchange(0); });
@@ -687,7 +688,8 @@ void BufferManager::flushDropAllPages()
   // -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------
-u64 BufferManager::getPartitionID(PID pid) {
+u64 BufferManager::getPartitionID(PID pid)
+{
   return pid & partitions_mask;
 }
 // -------------------------------------------------------------------------------------

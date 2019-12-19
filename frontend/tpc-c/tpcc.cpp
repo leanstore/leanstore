@@ -128,9 +128,8 @@ int main(int argc, char** argv)
   });
   for (unsigned j = 0; j < FLAGS_tpcc_tx_rounds; j++) {
     begin = chrono::high_resolution_clock::now();
-    if(FLAGS_tpcc_warehouse_affinity) {
+    if (FLAGS_tpcc_warehouse_affinity) {
       tbb::parallel_for(tbb::blocked_range<u64>(0, FLAGS_tpcc_warehouse_count), [&](const tbb::blocked_range<u64>& range) {
-
         // cout << range.begin() + 1<< '\t' << range.end() << endl;
         for (u64 i = 0; i < n; i++) {
           tx(range.begin() + 1, range.end());

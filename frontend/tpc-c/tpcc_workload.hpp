@@ -470,7 +470,7 @@ void stockLevel(Integer w_id, Integer d_id, Integer threshold)
   Integer o_id = district.lookupField({w_id, d_id}, &district_t::d_next_o_id);
 
   //"SELECT COUNT(DISTINCT (S_I_ID)) AS STOCK_COUNT FROM orderline, stock WHERE OL_W_ID = ? AND OL_D_ID = ? AND OL_O_ID < ? AND OL_O_ID >= ? AND
-  //S_W_ID = ? AND S_I_ID = OL_I_ID AND S_QUANTITY < ?"
+  // S_W_ID = ? AND S_I_ID = OL_I_ID AND S_QUANTITY < ?"
 
   /*
    * http://www.tpc.org/tpc_documents_current_versions/pdf/tpc-c_v5.11.0.pdf P 116
@@ -832,7 +832,7 @@ void paymentRnd(Integer w_id)
   }
 }
 
-int tx(u64 w_begin=1, u64 w_end = warehouseCount)
+int tx(u64 w_begin = 1, u64 w_end = warehouseCount)
 {
   Integer w_id = urand(w_begin, w_end);
   int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);

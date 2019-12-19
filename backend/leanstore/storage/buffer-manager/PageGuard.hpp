@@ -109,6 +109,7 @@ template <typename T>
 class WritePageGuard : public ReadPageGuard<T>
 {
   using ReadClass = ReadPageGuard<T>;
+
  protected:
   bool keep_alive = true;  // for the case when more than one page is allocated
                            // (2nd might fail and waste the first)
