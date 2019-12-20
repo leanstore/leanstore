@@ -60,7 +60,7 @@ void LeanStore::debuggingThread()
   // -------------------------------------------------------------------------------------
   std::ofstream dt_csv;
   string workers_csv_file_path;
-  dt_csv.open(file_name("workers"), ios::out | ios::trunc);
+  dt_csv.open(file_name("dt"), ios::out | ios::trunc);
   dt_csv << std::setprecision(2) << std::fixed;
   // -------------------------------------------------------------------------------------
   using statCallback = std::function<void(ostream&)>;

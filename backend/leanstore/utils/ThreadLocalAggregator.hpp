@@ -15,8 +15,7 @@ u64 sum(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType Co
 {
   u64 local_c = 0;
   for (typename tbb::enumerable_thread_specific<CountersClass>::iterator i = counters.begin(); i != counters.end(); ++i) {
-    local_c += (*i).*c;
-    (*i).*c = 0;
+    local_c += ((*i).*c).exchange(0);
   }
   return local_c;
 }
@@ -26,8 +25,7 @@ u64 sum(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType Co
 {
   u64 local_c = 0;
   for (typename tbb::enumerable_thread_specific<CountersClass>::iterator i = counters.begin(); i != counters.end(); ++i) {
-    local_c += ((*i).*c)[index];
-    ((*i).*c)[index]  = 0;
+    local_c += ((*i).*c)[index].exchange(0);
   }
   return local_c;
 }

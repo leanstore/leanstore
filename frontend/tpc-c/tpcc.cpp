@@ -18,8 +18,7 @@
 #include <vector>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
-DEFINE_uint32(tpcc_tx_count, 1000000, "");
-DEFINE_uint32(tpcc_tx_rounds, 10, "");
+DEFINE_uint32(tpcc_seconds, 10, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
@@ -36,19 +35,6 @@ LeanStoreAdapter<order_wdc_t> order_wdc;
 LeanStoreAdapter<orderline_t> orderline;
 LeanStoreAdapter<item_t> item;
 LeanStoreAdapter<stock_t> stock;
-/*
-StdMap<warehouse_t> warehouse;
-StdMap<district_t> district;
-StdMap<customer_t> customer;
-StdMap<customer_wdl_t> customerwdl;
-StdMap<history_t> history;
-StdMap<neworder_t> neworder;
-StdMap<order_t> order;
-StdMap<order_wdc_t> order_wdc;
-StdMap<orderline_t> orderline;
-StdMap<item_t> item;
-StdMap<stock_t> stock;
- */
 // -------------------------------------------------------------------------------------
 // yeah, dirty include...
 #include "tpcc_workload.hpp"
@@ -79,7 +65,6 @@ int main(int argc, char** argv)
   item = LeanStoreAdapter<item_t>(db, "item");
   stock = LeanStoreAdapter<stock_t>(db, "stock");
   // -------------------------------------------------------------------------------------
-  chrono::high_resolution_clock::time_point begin, end;
   // -------------------------------------------------------------------------------------
   load();
   double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
@@ -115,43 +100,58 @@ int main(int argc, char** argv)
   };
   //   print_tables_counts();
 
-  unsigned n = FLAGS_tpcc_tx_count;
   // -------------------------------------------------------------------------------------
-  atomic<bool> last_second_news_enabled = true;
-  atomic<u64> last_second_tx_done = 0;
-  thread last_second_news([&] {
-    while (last_second_news_enabled) {
-      u64 tx_done_local = last_second_tx_done.exchange(0);
-      cout << tx_done_local << " txs in the last second" << endl;
-      sleep(1);
+  atomic<u64> keep_running = true;
+  atomic<u64> running_threads_counter = 0;
+  vector<thread> threads;
+  if (FLAGS_tpcc_warehouse_affinity) {
+    if(FLAGS_tpcc_warehouse_count < FLAGS_worker_threads) {
+      cerr << "There must be more warehouses than threads in affinity mode" << endl;
+      exit(1);
     }
-  });
-  for (unsigned j = 0; j < FLAGS_tpcc_tx_rounds; j++) {
-    begin = chrono::high_resolution_clock::now();
-    if (FLAGS_tpcc_warehouse_affinity) {
-      // TODO
-      tbb::parallel_for(tbb::blocked_range<u64>(0, FLAGS_tpcc_warehouse_count), [&](const tbb::blocked_range<u64>& range) {
-        // cout << range.begin() + 1<< '\t' << range.end() << endl;
-        for (u64 i = 0; i < n; i++) {
-          tx(range.begin() + 1, range.end());
-          WorkerCounters::myCounters().tx++;
-        }
-      });
-
-    } else {
-      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
-        for (u64 i = range.begin(); i < range.end(); i++) {
+    const u64 warehouses_pro_thread = FLAGS_tpcc_warehouse_count / FLAGS_worker_threads;
+    for (u64 t_i = 0; t_i < FLAGS_worker_threads;t_i++) {
+      u64 w_begin = 1 + (t_i * warehouses_pro_thread);
+      u64 w_end = w_begin + (warehouses_pro_thread - 1);
+      if(t_i == FLAGS_worker_threads -1) {
+        w_end = FLAGS_tpcc_warehouse_count;
+      }
+      cout << w_begin <<'\t'<<w_end<<endl;
+      threads.emplace_back(
+                           [&](u64 w_begin, u64 w_end) {
+            running_threads_counter++;
+            while (keep_running) {
+              tx(w_begin, w_end);
+              WorkerCounters::myCounters().tx++;
+            }
+            running_threads_counter--;
+          },
+          w_begin, w_end);
+    }
+  } else {
+    for (u64 t_i = 0; t_i < FLAGS_worker_threads;t_i++) {
+      threads.emplace_back([&]() {
+        running_threads_counter++;
+        while (keep_running) {
           tx();
           WorkerCounters::myCounters().tx++;
         }
+        running_threads_counter--;
       });
     }
-    end = chrono::high_resolution_clock::now();
-    cout << calculateMTPS(begin, end, n) << " M tps" << endl;
+  }
+  {
+    // Shutdown threads
+    sleep(FLAGS_tpcc_seconds);
+    keep_running = false;
+    while(running_threads_counter) {
+      _mm_pause();
+    }
+    for(auto &thread : threads) {
+      thread.join();
+    }
   }
   print_tables_pages();
-  last_second_news_enabled.store(false);
-  last_second_news.join();
   // -------------------------------------------------------------------------------------
   gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
   cout << "consumed space in GiB = " << gib << endl;

@@ -91,6 +91,7 @@ struct LeanStoreAdapter {
     string key_str = getStringKey(key);
     Field local_f;
     const bool found = btree->lookup((u8*)key_str.data(), key_str.length(), [&](const u8* payload, u16 payload_length) {
+      static_cast<void>(payload_length);
       assert(payload_length == sizeof(Record));
       Record& typed_payload = *const_cast<Record*>(reinterpret_cast<const Record*>(payload));
       local_f = (typed_payload).*f;
