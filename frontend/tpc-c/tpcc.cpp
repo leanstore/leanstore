@@ -116,7 +116,6 @@ int main(int argc, char** argv)
       if(t_i == FLAGS_worker_threads -1) {
         w_end = FLAGS_tpcc_warehouse_count;
       }
-      cout << w_begin <<'\t'<<w_end<<endl;
       threads.emplace_back(
                            [&](u64 w_begin, u64 w_end) {
             running_threads_counter++;
