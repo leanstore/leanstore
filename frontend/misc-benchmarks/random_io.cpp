@@ -4,6 +4,7 @@
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>
@@ -71,24 +72,16 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   cout << "max key = " << max_key << endl;
   // -------------------------------------------------------------------------------------
-  atomic<u64> tx_second = 0;
   for (unsigned t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&]() {
       Payload local_payload;
       while (true) {
         Key rand_k = utils::RandomGenerator::getRandU64(0, max_key);
         table.lookup(rand_k, local_payload);
-        tx_second++;
+        WorkerCounters::myCounters().tx++;
       }
     });
   }
-  thread stats_thread([&]() {
-    while (true) {
-      sleep(1);
-      cout << tx_second.exchange(0) << endl;
-    }
-  });
-
   for (auto& thread : threads) {
     thread.join();
   }

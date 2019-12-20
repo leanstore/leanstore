@@ -1,4 +1,5 @@
 #include "BTreeVS.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -70,8 +71,7 @@ bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> paylo
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-
-      // restarts_counter++;
+      WorkerCounters::myCounters().dt_restarts_read[dtid]++;
     }
   }
 }
@@ -128,7 +128,7 @@ void BTree::scan(u8* start_key,
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      // restarts_counter++;
+      WorkerCounters::myCounters().dt_restarts_read[dtid]++;
     }
   }
 }
@@ -150,7 +150,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       auto c_x_guard = WritePageGuard(std::move(c_guard));
       p_guard.recheck_done();
       if (c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)), payload)) {
-        entries++;
+        //entries++;
         return;
       }
       // -------------------------------------------------------------------------------------
@@ -165,8 +165,8 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      //<      restarts_counter++;
-    }
+      WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
+   }
   }
 }
 // -------------------------------------------------------------------------------------
@@ -198,8 +198,8 @@ void BTree::trySplit(BufferFrame& to_split)
     c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
     // -------------------------------------------------------------------------------------
     height++;
-    pages++;
-    pages++;
+    //pages++;
+    //pages++;
     return;
   }
   unsigned spaced_need_for_separator = BTreeNode::spaceNeeded(sep_info.length, p_guard->prefix_length);
@@ -218,7 +218,7 @@ void BTree::trySplit(BufferFrame& to_split)
     // -------------------------------------------------------------------------------------
     c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
     // -------------------------------------------------------------------------------------
-    pages++;
+    //pages++;
   } else {
     p_guard.kill();
     c_guard.kill();
@@ -244,7 +244,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      // restarts_counter++;
+      WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
     }
   }
 }
@@ -280,7 +280,7 @@ void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      restarts_counter++;
+      WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
     }
   }
 }
@@ -317,7 +317,7 @@ bool BTree::remove(u8* key, u16 key_length)
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      restarts_counter++;
+      WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
     }
   }
 }

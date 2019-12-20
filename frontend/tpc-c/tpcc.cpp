@@ -100,17 +100,17 @@ int main(int argc, char** argv)
     cout << endl;
   };
   auto print_tables_pages = [&]() {
-    cout << "warehouse: " << warehouse.btree->pages.load() << endl;
-    cout << "district: " << district.btree->pages.load() << endl;
-    cout << "customer: " << customer.btree->pages.load() << endl;
-    cout << "customerwdl: " << customerwdl.btree->pages.load() << endl;
-    cout << "history: " << history.btree->pages.load() << endl;
-    cout << "neworder: " << neworder.btree->pages.load() << endl;
-    cout << "order: " << order.btree->pages.load() << endl;
-    cout << "order_wdc: " << order_wdc.btree->pages.load() << endl;
-    cout << "orderline: " << orderline.btree->pages.load() << endl;
-    cout << "item: " << item.btree->pages.load() << endl;
-    cout << "stock: " << stock.btree->pages.load() << endl;
+    // cout << "warehouse: " << warehouse.btree->pages.load() << endl;
+    // cout << "district: " << district.btree->pages.load() << endl;
+    // cout << "customer: " << customer.btree->pages.load() << endl;
+    // cout << "customerwdl: " << customerwdl.btree->pages.load() << endl;
+    // cout << "history: " << history.btree->pages.load() << endl;
+    // cout << "neworder: " << neworder.btree->pages.load() << endl;
+    // cout << "order: " << order.btree->pages.load() << endl;
+    // cout << "order_wdc: " << order_wdc.btree->pages.load() << endl;
+    // cout << "orderline: " << orderline.btree->pages.load() << endl;
+    // cout << "item: " << item.btree->pages.load() << endl;
+    // cout << "stock: " << stock.btree->pages.load() << endl;
     cout << endl;
   };
   //   print_tables_counts();

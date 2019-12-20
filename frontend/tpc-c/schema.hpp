@@ -128,8 +128,10 @@ struct history_t {
   static constexpr int id = 4;
   struct Key {
     static constexpr int id = 4;
+    Integer thread_id;
     Integer h_pk;
   };
+  Integer thread_id;
   Integer h_pk;
   Integer h_c_id;
   Integer h_c_d_id;
@@ -144,10 +146,11 @@ struct history_t {
   static unsigned foldRecord(uint8_t* out, const T& record)
   {
     unsigned pos = 0;
+    pos += fold(out + pos, record.thread_id);
     pos += fold(out + pos, record.h_pk);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(h_pk); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(thread_id) + sizeof(h_pk); };
 };
 
 struct neworder_t {

@@ -58,10 +58,10 @@ void LeanStore::debuggingThread()
   pp_csv.open(file_name("pp"), ios::out | ios::trunc);
   pp_csv << std::setprecision(2) << std::fixed;
   // -------------------------------------------------------------------------------------
-  std::ofstream dt_miss;
+  std::ofstream dt_csv;
   string workers_csv_file_path;
-  dt_miss.open(file_name("workers"), ios::out | ios::trunc);
-  dt_miss << std::setprecision(2) << std::fixed;
+  dt_csv.open(file_name("workers"), ios::out | ios::trunc);
+  dt_csv << std::setprecision(2) << std::fixed;
   // -------------------------------------------------------------------------------------
   using statCallback = std::function<void(ostream&)>;
   struct StatEntry {
@@ -96,6 +96,7 @@ void LeanStore::debuggingThread()
     out << sum(PPCounters::pp_counters, &PPCounters::flushed_pages_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
   });
   // -------------------------------------------------------------------------------------
+  stats.emplace_back("allocate_ops", [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::allocate_operations_counter); });
   stats.emplace_back("r_mib", [&](ostream& out) {
     out << sum(WorkerCounters::worker_counters, &WorkerCounters::read_operations_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
   });
@@ -109,7 +110,8 @@ void LeanStore::debuggingThread()
   e->printCSVHeaders(pp_csv);
   pp_csv << endl;
   // -------------------------------------------------------------------------------------
-  dt_miss << "t,name,miss" << endl;
+  dt_csv << "t,id,name,miss,restarts_modify,restarts_read" << endl;
+  // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   u64 time = 0;
   // -------------------------------------------------------------------------------------
@@ -135,11 +137,16 @@ void LeanStore::debuggingThread()
     pp_csv << endl;
     // -------------------------------------------------------------------------------------
     // -------------------------------------------------------------------------------------
-    //      for (const auto& dt : dt_registry.dt_instances_ht) {
-    //        const u64 dt_id = dt.first;
-    //        const string& dt_name = std::get<2>(dt.second);
-    //        workers_csv << time << "," << dt_name << "," << debugging_counters.dt_misses_counter[dt_id].exchange(0) << endl;
-    //      }
+    for (const auto& dt : buffer_manager.dt_registry.dt_instances_ht) {
+      const u64 dt_id = dt.first;
+      const string& dt_name = std::get<2>(dt.second);
+      dt_csv << time << "," << dt_id << "," << dt_name << "," << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_misses_counter, dt_id) << ","
+             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_modify, dt_id) << ","
+             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_read, dt_id) << endl;
+      // -------------------------------------------------------------------------------------
+      WorkerCounters::myCounters().dt_misses_counter[dt_id] = WorkerCounters::myCounters().dt_restarts_modify[dt_id] =
+          WorkerCounters::myCounters().dt_restarts_read[dt_id] = 0;
+    }
     // -------------------------------------------------------------------------------------
     e->startCounters();
     // -------------------------------------------------------------------------------------
