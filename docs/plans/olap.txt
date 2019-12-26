@@ -1,0 +1,18 @@
+OLAP:
+
+* vectorization is preferable; memory bandwidth per core is limited on moden many core systems and
+* what we call cascades and schemes nesting is kind of formalized in white-box compression model [2].
+We still have to find a way to pre-compile efficient code to (de)compress, i.e squashing the tree into one function call.
+* point lookups rarely pays off but predicate push-down must be efficient at possible, we need a solid plan on that count
+* we should find a way to accelerate nesting
+
+# Some notes on prediates push down
+* TZT makes it feasible despite compression dictionary as we will only have to binray search and decompress string on-demand while searching for the integer code for
+comparison.
+
+
+
+
+
+[1] http://www.vldb.org/pvldb/vol11/p2209-kersten.pdf
+[2] https://homepages.cwi.nl/~boncz/msc/2019-BogdanGhita.pdf
