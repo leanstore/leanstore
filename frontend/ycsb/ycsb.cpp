@@ -159,7 +159,9 @@ int main(int argc, char** argv)
     tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
       for (u64 i = range.begin(); i < range.end(); i++) {
         YCSBPayload result;
-        ensure(table.lookup(i, result) && result == payloads[i]);
+        const bool found = table.lookup(i, result);
+        assert(found && result == payloads[i]);
+        ensure(found && result == payloads[i]);
       }
     });
     end = chrono::high_resolution_clock::now();
