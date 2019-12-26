@@ -133,7 +133,6 @@ int main(int argc, char** argv)
     const u64 n = FLAGS_ycsb_tuple_count;
     cout << "-------------------------------------------------------------------------------------" << endl;
     cout << "Scan" << endl;
-    db.getBufferManager().debugging_counters.read_operations_counter.store(0);
     {
       begin = chrono::high_resolution_clock::now();
       PerfEventBlock b(e, n);
@@ -147,7 +146,6 @@ int main(int argc, char** argv)
     }
     // -------------------------------------------------------------------------------------
     cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-    cout << "IOs = " << db.getBufferManager().debugging_counters.read_operations_counter.exchange(0) << endl;
     // -------------------------------------------------------------------------------------
     cout << calculateMTPS(begin, end, n) << " M tps" << endl;
     cout << "-------------------------------------------------------------------------------------" << endl;
@@ -176,13 +174,12 @@ int main(int argc, char** argv)
     e.setParam("op", "tx");
     PerfEventBlock b(e, lookup_keys.size() * (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds));
     for (u32 r_i = 0; r_i < (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds); r_i++) {
-      db.getBufferManager().debugging_counters.read_operations_counter.store(0);
       begin = chrono::high_resolution_clock::now();
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
         for (u64 i = range.begin(); i < range.end(); i++) {
           YCSBKey key = lookup_keys[i];
           YCSBPayload result;
-          if (utils::RandomGenerator::getRand(0, 100) <= FLAGS_ycsb_read_ratio) {
+          if (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_ycsb_read_ratio) {
             table.lookup(key, result);
           } else {
             const u32 rand_payload = utils::RandomGenerator::getRand<u32>(0, FLAGS_ycsb_tuple_count);
@@ -196,7 +193,6 @@ int main(int argc, char** argv)
       end = chrono::high_resolution_clock::now();
       // -------------------------------------------------------------------------------------
       cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-      cout << "IOs = " << db.getBufferManager().debugging_counters.read_operations_counter.exchange(0) << endl;
       // -------------------------------------------------------------------------------------
       if (r_i < FLAGS_ycsb_warmup_rounds) {
         cout << "Warmup: ";
