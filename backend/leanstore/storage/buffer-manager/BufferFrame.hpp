@@ -26,7 +26,6 @@ struct BufferFrame {
     OptimisticLock lock = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;  // TODO
-    Header(lock_version_t version) { lock.store(version); }
   };
   struct alignas(512) Page {
     u64 LSN = 0;
@@ -50,7 +49,7 @@ struct BufferFrame {
   void reset()
   {
     assert(!header.isWB);
-    assert((header.lock & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+    header.lock.assertExclusivelyLocked();
     header.lastWrittenLSN = 0;
     header.state = State::FREE;  // INIT:
     header.isWB = false;
@@ -59,7 +58,9 @@ struct BufferFrame {
     header.next_free_bf = nullptr;
   }
   // -------------------------------------------------------------------------------------
-  BufferFrame() : header(0ul) {}
+  BufferFrame() {
+    header.lock->store(0ul);
+  }
 };
 // -------------------------------------------------------------------------------------
 static constexpr u64 EFFECTIVE_PAGE_SIZE = sizeof(BufferFrame::Page::dt);

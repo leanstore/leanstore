@@ -7,7 +7,7 @@ namespace leanstore
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
-void ReadGuard::spin()
+void OptimisticGuard::spin()
 {
   u32 mask = 1;
   u32 const max = 64;                                           // MAX_BACKOFF
@@ -21,11 +21,11 @@ void ReadGuard::spin()
   }
 }
 // -------------------------------------------------------------------------------------
-ExclusiveGuard::ExclusiveGuard(ReadGuard& read_lock) : ref_guard(read_lock)
+ExclusiveGuard::ExclusiveGuard(OptimisticGuard& read_lock) : ref_guard(read_lock)
 {
   assert(ref_guard.version_ptr != nullptr);
   assert((ref_guard.local_version & WRITE_LOCK_BIT) == 0);
-  lock_version_t new_version = ref_guard.local_version + WRITE_LOCK_BIT;
+  OptimisticLockType new_version = ref_guard.local_version + WRITE_LOCK_BIT;
   u64 lv = ref_guard.local_version;
   if (!std::atomic_compare_exchange_strong(ref_guard.version_ptr, &lv, new_version)) {
     throw RestartException();
@@ -47,9 +47,9 @@ ExclusiveGuard::~ExclusiveGuard()
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // TODO: part
-SharedGuard::SharedGuard(ReadGuard& read_guard) : ref_guard(read_guard)
+SharedGuard::SharedGuard(OptimisticGuard& read_guard) : ref_guard(read_guard)
 {
-  lock_version_t new_version = ref_guard.local_version + shared_bit;
+
 }
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager

@@ -3,7 +3,7 @@
 #include "Units.hpp"
 #include "leanstore/storage/buffer-manager/BufferFrame.hpp"
 #include "leanstore/storage/buffer-manager/DTRegistry.hpp"
-#include "leanstore/storage/buffer-manager/PageGuard.hpp"
+#include "leanstore/sync-primitives/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <x86intrin.h>

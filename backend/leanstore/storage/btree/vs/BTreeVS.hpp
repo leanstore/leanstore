@@ -1,7 +1,7 @@
 #pragma once
 #include "BTreeSlotted.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
-#include "leanstore/storage/buffer-manager/PageGuard.hpp"
+#include "leanstore/sync-primitives/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -27,7 +27,7 @@ struct BTree {
   BTree();
   // -------------------------------------------------------------------------------------
   void init(DTID dtid);
-  ReadPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length);
+  OptimisticPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length);
   // No side effects allowed!
   bool lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
   // -------------------------------------------------------------------------------------
@@ -50,7 +50,7 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   // Helpers
   s64 iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
-  s64 iterateAllPagesRec(ReadPageGuard<BTreeNode>& node_guard, std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
+  s64 iterateAllPagesRec(OptimisticPageGuard<BTreeNode>& node_guard, std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
   unsigned countInner();
   u32 countPages();
   u32 countEntries();

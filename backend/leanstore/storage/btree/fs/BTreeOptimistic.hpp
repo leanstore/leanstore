@@ -1,7 +1,7 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "leanstore/storage/buffer-manager/BufferFrame.hpp"
-#include "leanstore/storage/buffer-manager/PageGuard.hpp"
+#include "leanstore/sync-primitives/PageGuard.hpp"
 #include "leanstore/sync-primitives/OptimisticLock.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -202,8 +202,8 @@ struct BTree {
     auto& root_inner_swip = root_swip.cast<BTreeInner<Key>>();
     while (true) {
       try {
-        auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
-        ReadPageGuard c_guard(p_guard, root_inner_swip);
+        auto p_guard = OptimisticPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
+        OptimisticPageGuard c_guard(p_guard, root_inner_swip);
         while (c_guard->type == NodeType::BTreeInner) {
           // -------------------------------------------------------------------------------------
           if (c_guard->count == c_guard->maxEntries - 1) {
@@ -231,7 +231,7 @@ struct BTree {
           Swip<BTreeInner<Key>>& c_swip = c_guard->children[pos];
           // -------------------------------------------------------------------------------------
           p_guard = std::move(c_guard);
-          c_guard = ReadPageGuard<BTreeInner<Key>>(p_guard, c_swip);
+          c_guard = OptimisticPageGuard<BTreeInner<Key>>(p_guard, c_swip);
         }
 
         auto& leaf = c_guard.template cast<BTreeLeaf<Key, Value>>();
@@ -274,14 +274,14 @@ struct BTree {
     auto& root_inner_swip = root_swip.cast<BTreeInner<Key>>();
     while (true) {
       try {
-        auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
-        ReadPageGuard c_guard(p_guard, root_inner_swip);
+        auto p_guard = OptimisticPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
+        OptimisticPageGuard c_guard(p_guard, root_inner_swip);
         while (c_guard->type == NodeType::BTreeInner) {
           int64_t pos = c_guard->lowerBound(k);
           Swip<BTreeInner<Key>>& c_swip = c_guard->children[pos];
           // -------------------------------------------------------------------------------------
           p_guard = std::move(c_guard);
-          c_guard = ReadPageGuard(p_guard, c_swip);
+          c_guard = OptimisticPageGuard(p_guard, c_swip);
         }
         auto& leaf = c_guard.template cast<BTreeLeaf<Key, Value>>();
         p_guard.recheck_done();
@@ -336,13 +336,13 @@ struct BTree {
       auto& btree = *reinterpret_cast<BTree<Key, Value>*>(btree_object);
       auto& root_inner_swip = btree.root_swip.template cast<BTreeInner<Key>>();
       Swip<BufferFrame>* last_accessed_swip;
-      auto p_guard = ReadPageGuard<BTreeInner<Key>>::makeRootGuard(btree.root_lock);
+      auto p_guard = OptimisticPageGuard<BTreeInner<Key>>::makeRootGuard(btree.root_lock);
       last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
       if (&last_accessed_swip->asBufferFrame() == &bf) {
         p_guard.recheck_done();
         return {.swip = *last_accessed_swip, .guard = p_guard.bf_s_lock};
       }
-      ReadPageGuard c_guard(p_guard, root_inner_swip);
+      OptimisticPageGuard c_guard(p_guard, root_inner_swip);
       while (c_guard->type == NodeType::BTreeInner) {
         int64_t pos = c_guard->lowerBound(k);
         Swip<BTreeInner<Key>>& c_swip = c_guard->children[pos];
@@ -354,7 +354,7 @@ struct BTree {
         }
         // -------------------------------------------------------------------------------------
         p_guard = std::move(c_guard);
-        c_guard = ReadPageGuard(p_guard, c_swip);
+        c_guard = OptimisticPageGuard(p_guard, c_swip);
       }
     }
     ensure(false);

@@ -1,6 +1,6 @@
 #pragma once
-#include "BufferManager.hpp"
 #include "Exceptions.hpp"
+#include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -11,12 +11,12 @@ namespace buffermanager
 template <typename T>
 class WritePageGuard;
 template <typename T>
-class ReadPageGuard
+class OptimisticPageGuard
 {
  protected:
-  ReadPageGuard() : moved(true) {}
-  ReadPageGuard(OptimisticLock& swip_version) { bf_s_lock = ReadGuard(swip_version); }
-  ReadPageGuard(ReadGuard read_guard, BufferFrame* bf) : moved(false), bf(bf), bf_s_lock(read_guard) {}
+  OptimisticPageGuard() : moved(true) {}
+  OptimisticPageGuard(OptimisticLock& swip_version) { bf_s_lock = OptimisticGuard(swip_version); }
+  OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : moved(false), bf(bf), bf_s_lock(read_guard) {}
   // -------------------------------------------------------------------------------------
   bool manually_checked = false;
   // -------------------------------------------------------------------------------------
@@ -24,14 +24,14 @@ class ReadPageGuard
   // -------------------------------------------------------------------------------------
   bool moved = false;
   BufferFrame* bf = nullptr;
-  ReadGuard bf_s_lock;
+  OptimisticGuard bf_s_lock;
   // -------------------------------------------------------------------------------------
   // I: Root case
-  static ReadPageGuard makeRootGuard(OptimisticLock& swip_version) { return ReadPageGuard(swip_version); }
+  static OptimisticPageGuard makeRootGuard(OptimisticLock& swip_version) { return OptimisticPageGuard(swip_version); }
   // -------------------------------------------------------------------------------------
-  static ReadPageGuard manuallyAssembleGuard(ReadGuard read_guard, BufferFrame* bf) { return ReadPageGuard(read_guard, bf); }
+  static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf) { return OptimisticPageGuard(read_guard, bf); }
   // I: Lock coupling
-  ReadPageGuard(ReadPageGuard& p_guard, Swip<T>& swip)
+  OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip)
   {
     assert(!(p_guard.bf_s_lock.local_version & WRITE_LOCK_BIT));
     if (p_guard.moved == true) {
@@ -39,11 +39,11 @@ class ReadPageGuard
     }
     auto& bf_swip = swip.template cast<BufferFrame>();
     bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
-    bf_s_lock = ReadGuard(bf->header.lock);
+    bf_s_lock = OptimisticGuard(bf->header.lock);
     p_guard.recheck();  // TODO: ??
   }
   // I: Downgrade
-  ReadPageGuard(WritePageGuard<T>&& other)
+  OptimisticPageGuard(WritePageGuard<T>&& other)
   {
     assert(!other.moved);
     bf = other.bf;
@@ -55,7 +55,7 @@ class ReadPageGuard
     assert((bf_s_lock.local_version & WRITE_LOCK_BIT) == 0);
   }
   // -------------------------------------------------------------------------------------
-  constexpr ReadPageGuard& operator=(ReadPageGuard&& other)
+  constexpr OptimisticPageGuard& operator=(OptimisticPageGuard&& other)
   {
     bf = other.bf;
     bf_s_lock = other.bf_s_lock;
@@ -67,12 +67,12 @@ class ReadPageGuard
   }
   // -------------------------------------------------------------------------------------
   template <typename T2>
-  ReadPageGuard<T2>& cast()
+  OptimisticPageGuard<T2>& cast()
   {
-    return *reinterpret_cast<ReadPageGuard<T2>*>(this);
+    return *reinterpret_cast<OptimisticPageGuard<T2>*>(this);
   }
   // -------------------------------------------------------------------------------------
-  ReadPageGuard(ReadPageGuard& other)
+  OptimisticPageGuard(OptimisticPageGuard& other)
   {
     bf = other.bf;
     bf_s_lock = other.bf_s_lock;
@@ -95,7 +95,7 @@ class ReadPageGuard
   T* operator->() { return reinterpret_cast<T*>(bf->page.dt); }
   // Is the bufferframe loaded
   bool hasBf() const { return bf != nullptr; }
-  ~ReadPageGuard() noexcept(false)
+  ~OptimisticPageGuard() noexcept(false)
   {
 #ifdef DEBUG
     if (!manually_checked && !moved && std::uncaught_exceptions() == 0) {
@@ -106,9 +106,9 @@ class ReadPageGuard
 };
 // -------------------------------------------------------------------------------------
 template <typename T>
-class WritePageGuard : public ReadPageGuard<T>
+class WritePageGuard : public OptimisticPageGuard<T>
 {
-  using ReadClass = ReadPageGuard<T>;
+  using ReadClass = OptimisticPageGuard<T>;
 
  protected:
   bool keep_alive = true;  // for the case when more than one page is allocated
@@ -117,7 +117,7 @@ class WritePageGuard : public ReadPageGuard<T>
   WritePageGuard(BufferFrame& bf, bool keep_alive) : keep_alive(keep_alive)
   {
     ReadClass::bf = &bf;
-    ReadClass::bf_s_lock = ReadGuard(&bf.header.lock, bf.header.lock.load());
+    ReadClass::bf_s_lock = OptimisticGuard(bf.header.lock.ptr(), bf.header.lock->load());
     ReadClass::moved = false;
     assert((ReadClass::bf_s_lock.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
   }
@@ -129,7 +129,7 @@ class WritePageGuard : public ReadPageGuard<T>
     read_guard.recheck();
     ReadClass::bf = read_guard.bf;
     ReadClass::bf_s_lock = read_guard.bf_s_lock;
-    lock_version_t new_version = ReadClass::bf_s_lock.local_version + WRITE_LOCK_BIT;
+    OptimisticLockType new_version = ReadClass::bf_s_lock.local_version + WRITE_LOCK_BIT;
     if (!std::atomic_compare_exchange_strong(ReadClass::bf_s_lock.version_ptr, &ReadClass::bf_s_lock.local_version, new_version)) {
       throw RestartException();
     }

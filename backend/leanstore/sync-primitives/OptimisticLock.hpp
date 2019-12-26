@@ -18,32 +18,48 @@ struct RestartException {
 // -------------------------------------------------------------------------------------
 constexpr static u8 WRITE_LOCK_BIT = 1;
 // -------------------------------------------------------------------------------------
-class ReadGuard;
+class OptimisticGuard;
 class ExclusiveGuard;
 template <typename T>
-class ReadPageGuard;
-using lock_version_t = u64;
-using OptimisticLock = atomic<lock_version_t>;
+class OptimisticPageGuard;
+// -------------------------------------------------------------------------------------
+using OptimisticLockType = atomic<u64>;
+struct OptimisticLock {
+  OptimisticLockType  version;
+  template<typename... Args>
+  OptimisticLock(Args&&... args) : version(std::forward<Args>(args)...) {}
+  OptimisticLockType* operator->() { return &version; }
+  OptimisticLockType* ptr() { return &version; }
+  // -------------------------------------------------------------------------------------
+  void assertExclusivelyLocked() {
+    assert((version & WRITE_LOCK_BIT ) == WRITE_LOCK_BIT);
+  }
+  // -------------------------------------------------------------------------------------
+  void assertNotExclusivelyLocked() {
+    assert((version & WRITE_LOCK_BIT ) == 0);
+  }
+};
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-class ReadGuard
+class OptimisticGuard
 {
   friend class ExclusiveGuard;
   template <typename T>
-  friend class ReadPageGuard;
+  friend class OptimisticPageGuard;
   template <typename T>
   friend class WritePageGuard;
 
  private:
-  ReadGuard(atomic<u64>* version_ptr, u64 local_version) : version_ptr(version_ptr), local_version(local_version) {}
+  OptimisticGuard(atomic<u64>* version_ptr, u64 local_version) : version_ptr(version_ptr), local_version(local_version) {}
 
  public:
   atomic<u64>* version_ptr = nullptr;
   u64 local_version;
   // -------------------------------------------------------------------------------------
-  ReadGuard() = default;
+  OptimisticGuard() = default;
   // -------------------------------------------------------------------------------------
-  ReadGuard(OptimisticLock& lock) : version_ptr(&lock)
+  OptimisticGuard(OptimisticLock&
+                  lock) : version_ptr(lock.ptr())
   {
     local_version = version_ptr->load();
     if ((local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT) {
@@ -66,12 +82,12 @@ class ReadGuard
 class ExclusiveGuard
 {
  private:
-  ReadGuard& ref_guard;  // our basis
+  OptimisticGuard& ref_guard;  // our basis
   bool manually_unlocked = false;
 
  public:
   // -------------------------------------------------------------------------------------
-  ExclusiveGuard(ReadGuard& read_lock);
+  ExclusiveGuard(OptimisticGuard& read_lock);
   // -------------------------------------------------------------------------------------
   ~ExclusiveGuard();
 };
@@ -83,7 +99,7 @@ class ExclusiveGuardTry
 
  public:
   u64 local_version;
-  ExclusiveGuardTry(OptimisticLock& lock) : version_ptr(&lock)
+  ExclusiveGuardTry(OptimisticLock& lock) : version_ptr(lock.ptr())
   {
     local_version = version_ptr->load();
     if ((local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT) {
@@ -99,6 +115,7 @@ class ExclusiveGuardTry
   void unlock() { version_ptr->fetch_add(WRITE_LOCK_BIT); }
   ~ExclusiveGuardTry() {}
 };
+// -------------------------------------------------------------------------------------
 #define spinAsLongAs(expr)               \
   u32 mask = 1;                          \
   u32 const max = 64;                    \
@@ -122,10 +139,10 @@ constexpr u64 shared_bit = 1 << 0;
 class SharedGuard
 {
  private:
-  ReadGuard& ref_guard;
+  OptimisticGuard& ref_guard;
 
  public:
-  SharedGuard(ReadGuard& read_guard);
+  SharedGuard(OptimisticGuard& read_guard);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager

@@ -129,10 +129,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
           PPCounters::myCounters().phase_1_counter++;
           // -------------------------------------------------------------------------------------
           // unswizzle pages (put in the cooling stage)
-          ReadGuard r_guard(r_buffer->header.lock);
+          OptimisticGuard r_guard(r_buffer->header.lock);
           const u64 partition_i = getPartitionID(r_buffer->header.pid);
 
-          const bool is_cooling_candidate = ((partition_i) >= p_begin && (partition_i) < p_end) && !(r_buffer->header.lock & WRITE_LOCK_BIT) &&
+          const bool is_cooling_candidate = ((partition_i) >= p_begin && (partition_i) < p_end) && !(r_buffer->header.lock->load() & WRITE_LOCK_BIT) &&
                                             r_buffer->header.state == BufferFrame::State::HOT;  // && !rand_buffer->header.isWB
           if (!is_cooling_candidate) {
             r_buffer = &randomBufferFrame();
@@ -375,8 +375,8 @@ BufferFrame& BufferManager::allocatePage()
   assert(free_bf.header.state == BufferFrame::State::FREE);
   // -------------------------------------------------------------------------------------
   // Initialize Buffer Frame
-  assert((free_bf.header.lock & WRITE_LOCK_BIT) == 0);
-  free_bf.header.lock += WRITE_LOCK_BIT;  // Write lock
+  free_bf.header.lock.assertNotExclusivelyLocked();
+  free_bf.header.lock->fetch_add(WRITE_LOCK_BIT);  // Write lock
   free_bf.header.pid = free_pid;
   free_bf.header.state = BufferFrame::State::HOT;
   free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
@@ -390,7 +390,7 @@ BufferFrame& BufferManager::allocatePage()
             "------------------"
          << endl;
   }
-  assert((free_bf.header.lock & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+  free_bf.header.lock.assertExclusivelyLocked();
   // -------------------------------------------------------------------------------------
   WorkerCounters::myCounters().allocate_operations_counter++;
   // -------------------------------------------------------------------------------------
@@ -403,11 +403,11 @@ void BufferManager::reclaimBufferFrame(BufferFrame& bf)
 {
   if (bf.header.isWB) {
     // DO NOTHING ! we have a garbage collector ;-)
-    bf.header.lock.fetch_add(WRITE_LOCK_BIT);
+    bf.header.lock->fetch_add(WRITE_LOCK_BIT);
     cout << "garbage collector, yeah" << endl;
   } else {
     bf.reset();
-    bf.header.lock.fetch_add(WRITE_LOCK_BIT);
+    bf.header.lock->fetch_add(WRITE_LOCK_BIT);
     dram_free_list.push(bf);
   }
 }
@@ -420,7 +420,7 @@ void BufferManager::reclaimPage(BufferFrame& bf)
   reclaimBufferFrame(bf);
 }
 // -------------------------------------------------------------------------------------
-BufferFrame& BufferManager::resolveSwip(ReadGuard& swip_guard,
+BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
                                         Swip<BufferFrame>& swip_value)  // throws RestartException
 {
   if (swip_value.isSwizzled()) {
@@ -449,7 +449,7 @@ BufferFrame& BufferManager::resolveSwip(ReadGuard& swip_guard,
     BufferFrame& bf = dram_free_list.pop();
     CIOFrame& cio_frame = partition.ht.insert(pid);
     assert(bf.header.state == BufferFrame::State::FREE);
-    assert((bf.header.lock & WRITE_LOCK_BIT) == 0);
+    bf.header.lock.assertNotExclusivelyLocked();
     // -------------------------------------------------------------------------------------
     cio_frame.state = CIOFrame::State::READING;
     cio_frame.readers_counter = 1;
@@ -507,7 +507,7 @@ BufferFrame& BufferManager::resolveSwip(ReadGuard& swip_guard,
     // We have to exclusively lock the bf because the page provider thread will
     // try to evict them when its IO is done
     BufferFrame* bf = *cio_frame.fifo_itr;
-    ReadGuard bf_guard(bf->header.lock);
+    OptimisticGuard bf_guard(bf->header.lock);
     ExclusiveGuard swip_x_guard(swip_guard);
     ExclusiveGuard bf_x_guard(bf_guard);
     // -------------------------------------------------------------------------------------
