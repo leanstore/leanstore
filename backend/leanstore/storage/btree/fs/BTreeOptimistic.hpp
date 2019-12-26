@@ -160,7 +160,7 @@ struct BTreeInner : public BTreeInnerBase {
 template <class Key, class Value>
 struct BTree {
   Swip<NodeBase> root_swip;
-  OptimisticLock root_lock = 0;
+  OptimisticLatch root_lock = 0;
   atomic<u64> restarts_counter = 0;  // for debugging
   atomic<u64> height = 1;            // for debugging
   DTID dtid;

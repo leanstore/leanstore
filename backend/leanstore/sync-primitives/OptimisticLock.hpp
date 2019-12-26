@@ -16,27 +16,47 @@ struct RestartException {
   RestartException() {}
 };
 // -------------------------------------------------------------------------------------
-constexpr static u8 WRITE_LOCK_BIT = 1;
+  /*
+    OptimisticLatch Design: 8 bits for state, 56 bits for version
+    Shared: state = n + 1, where n = threads currently holding the shared latch
+    , last one releasing sets the state back to 0
+    Exclusively: state = 0, and version+=1
+    Optimistic: change nothing
+   */
+constexpr static u64 LATCH_EXCLUSIVE_BIT = (1 << 8);
+constexpr static u64 LATCH_STATE_MASK = ((1 << 8) - 1);  // 0xFF
+constexpr static u64 LATCH_VERSION_MASK = ~LATCH_STATE_MASK;
+constexpr static u64 LATCH_VERSION_STATE_MASK = ((1 << 9) - 1);
 // -------------------------------------------------------------------------------------
 class OptimisticGuard;
+class SharedGuard;  // TODO
 class ExclusiveGuard;
 template <typename T>
 class OptimisticPageGuard;
 // -------------------------------------------------------------------------------------
-using OptimisticLockType = atomic<u64>;
-struct OptimisticLock {
-  OptimisticLockType  version;
-  template<typename... Args>
-  OptimisticLock(Args&&... args) : version(std::forward<Args>(args)...) {}
-  OptimisticLockType* operator->() { return &version; }
-  OptimisticLockType* ptr() { return &version; }
+using OptimisticLatchVersionType = atomic<u64>;
+struct OptimisticLatch {
+  OptimisticLatchVersionType  version;
   // -------------------------------------------------------------------------------------
-  void assertExclusivelyLocked() {
-    assert((version & WRITE_LOCK_BIT ) == WRITE_LOCK_BIT);
+  template<typename... Args>
+  OptimisticLatch(Args&&... args) : version(std::forward<Args>(args)...) {}
+  OptimisticLatchVersionType* operator->() { return &version; }
+  // -------------------------------------------------------------------------------------
+  OptimisticLatchVersionType* ptr() { return &version; }
+  OptimisticLatchVersionType& ref() { return version; }
+  // -------------------------------------------------------------------------------------
+  void assertExclusivelyLatched() {
+    assert((version & LATCH_EXCLUSIVE_BIT ) == LATCH_EXCLUSIVE_BIT);
+  }
+  void assertNotExclusivelyLatched() {
+    assert((version & LATCH_EXCLUSIVE_BIT ) == 0);
   }
   // -------------------------------------------------------------------------------------
-  void assertNotExclusivelyLocked() {
-    assert((version & WRITE_LOCK_BIT ) == 0);
+  void assertSharedLatched() {
+    assert((version & LATCH_STATE_MASK) > 0);
+  }
+  void assertNotSharedLatched() {
+    assert((version & LATCH_STATE_MASK) == 0);
   }
 };
 // -------------------------------------------------------------------------------------
@@ -50,27 +70,28 @@ class OptimisticGuard
   friend class WritePageGuard;
 
  private:
-  OptimisticGuard(atomic<u64>* version_ptr, u64 local_version) : version_ptr(version_ptr), local_version(local_version) {}
+  OptimisticGuard(OptimisticLatch* latch_ptr, u64 local_version) : latch_ptr(latch_ptr), local_version(local_version) {}
 
  public:
-  atomic<u64>* version_ptr = nullptr;
+  OptimisticLatch* latch_ptr = nullptr;
   u64 local_version;
   // -------------------------------------------------------------------------------------
   OptimisticGuard() = default;
   // -------------------------------------------------------------------------------------
-  OptimisticGuard(OptimisticLock&
-                  lock) : version_ptr(lock.ptr())
+  OptimisticGuard(OptimisticLatch&
+                  lock) : latch_ptr(&lock)
   {
-    local_version = version_ptr->load();
-    if ((local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT) {
+    // Ignore the state field
+    local_version = latch_ptr->version.load() & LATCH_VERSION_MASK;
+    if ((local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
       spin();
     }
-    assert((local_version & WRITE_LOCK_BIT) != WRITE_LOCK_BIT);
+    assert((local_version & LATCH_EXCLUSIVE_BIT) != LATCH_EXCLUSIVE_BIT);
   }
   // -------------------------------------------------------------------------------------
   inline void recheck()
   {
-    if (local_version != *version_ptr) {
+    if (local_version != latch_ptr->version.load()) {
       throw RestartException();
     }
   }
@@ -83,8 +104,6 @@ class ExclusiveGuard
 {
  private:
   OptimisticGuard& ref_guard;  // our basis
-  bool manually_unlocked = false;
-
  public:
   // -------------------------------------------------------------------------------------
   ExclusiveGuard(OptimisticGuard& read_lock);
@@ -95,24 +114,24 @@ class ExclusiveGuard
 class ExclusiveGuardTry
 {
  private:
-  atomic<u64>* version_ptr = nullptr;
+  OptimisticLatch* latch_ptr = nullptr;
 
  public:
   u64 local_version;
-  ExclusiveGuardTry(OptimisticLock& lock) : version_ptr(lock.ptr())
+  ExclusiveGuardTry(OptimisticLatch& lock) : latch_ptr(&lock)
   {
-    local_version = version_ptr->load();
-    if ((local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT) {
+    local_version = latch_ptr->ref().load();
+    if ((local_version & LATCH_VERSION_STATE_MASK) > 0) {
       throw RestartException();
     }
-    u64 new_version = local_version + WRITE_LOCK_BIT;
-    if (!std::atomic_compare_exchange_strong(version_ptr, &local_version, new_version)) {
+    u64 new_version = local_version + LATCH_EXCLUSIVE_BIT;
+    if (!std::atomic_compare_exchange_strong(latch_ptr->ptr(), &local_version, new_version)) {
       throw RestartException();
     }
     local_version = new_version;
-    assert((version_ptr->load() & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+    assert((latch_ptr->ref().load() & LATCH_VERSION_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
   }
-  void unlock() { version_ptr->fetch_add(WRITE_LOCK_BIT); }
+  void unlock() { latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT); }
   ~ExclusiveGuardTry() {}
 };
 // -------------------------------------------------------------------------------------
@@ -126,16 +145,6 @@ class ExclusiveGuardTry
     mask = mask < max ? mask << 1 : max; \
   }                                      \
 // -------------------------------------------------------------------------------------
-// TODO: Shared guard for scans
-/*
- * Plan:
- * SharedGuard control the LSB 6-bits
- * Exclusive bit is the LSB 7th bit
- * TODO: rewrite the read and exclusive guards
- */
-// The constants
-constexpr u64 exclusive_bit = 1 << 7;
-constexpr u64 shared_bit = 1 << 0;
 class SharedGuard
 {
  private:

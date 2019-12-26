@@ -21,7 +21,7 @@ struct BTree {
   //atomic<u64> pages = 1;             // debugging
   //atomic<u64> entries = 1;           // debugging
   //atomic<u64> restarts_counter = 0;  // debugging
-  OptimisticLock root_lock = 0;
+  OptimisticLatch root_lock = 0;
   Swip<BTreeNode> root_swip;
   // -------------------------------------------------------------------------------------
   BTree();

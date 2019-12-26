@@ -23,7 +23,7 @@ struct BufferFrame {
     atomic<bool> isWB = false;
     bool isCooledBecauseOfReading = false;
     PID pid = 9999;           // INIT:
-    OptimisticLock lock = 0;  // INIT: // ATTENTION: NEVER DECREMENT
+    OptimisticLatch lock = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;  // TODO
   };
@@ -49,7 +49,7 @@ struct BufferFrame {
   void reset()
   {
     assert(!header.isWB);
-    header.lock.assertExclusivelyLocked();
+    header.lock.assertExclusivelyLatched();
     header.lastWrittenLSN = 0;
     header.state = State::FREE;  // INIT:
     header.isWB = false;

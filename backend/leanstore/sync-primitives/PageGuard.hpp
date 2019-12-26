@@ -15,7 +15,7 @@ class OptimisticPageGuard
 {
  protected:
   OptimisticPageGuard() : moved(true) {}
-  OptimisticPageGuard(OptimisticLock& swip_version) { bf_s_lock = OptimisticGuard(swip_version); }
+  OptimisticPageGuard(OptimisticLatch& swip_version) { bf_s_lock = OptimisticGuard(swip_version); }
   OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : moved(false), bf(bf), bf_s_lock(read_guard) {}
   // -------------------------------------------------------------------------------------
   bool manually_checked = false;
@@ -27,13 +27,13 @@ class OptimisticPageGuard
   OptimisticGuard bf_s_lock;
   // -------------------------------------------------------------------------------------
   // I: Root case
-  static OptimisticPageGuard makeRootGuard(OptimisticLock& swip_version) { return OptimisticPageGuard(swip_version); }
+  static OptimisticPageGuard makeRootGuard(OptimisticLatch& swip_version) { return OptimisticPageGuard(swip_version); }
   // -------------------------------------------------------------------------------------
   static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf) { return OptimisticPageGuard(read_guard, bf); }
   // I: Lock coupling
   OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip)
   {
-    assert(!(p_guard.bf_s_lock.local_version & WRITE_LOCK_BIT));
+    assert(!(p_guard.bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
     if (p_guard.moved == true) {
       assert(false);
     }
@@ -48,11 +48,11 @@ class OptimisticPageGuard
     assert(!other.moved);
     bf = other.bf;
     bf_s_lock = other.bf_s_lock;
-    bf_s_lock.local_version = WRITE_LOCK_BIT + bf_s_lock.version_ptr->fetch_add(WRITE_LOCK_BIT);
+    bf_s_lock.local_version = LATCH_EXCLUSIVE_BIT + bf_s_lock.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
     moved = false;
     // -------------------------------------------------------------------------------------
     other.moved = true;
-    assert((bf_s_lock.local_version & WRITE_LOCK_BIT) == 0);
+    assert((bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == 0);
   }
   // -------------------------------------------------------------------------------------
   constexpr OptimisticPageGuard& operator=(OptimisticPageGuard&& other)
@@ -117,9 +117,9 @@ class WritePageGuard : public OptimisticPageGuard<T>
   WritePageGuard(BufferFrame& bf, bool keep_alive) : keep_alive(keep_alive)
   {
     ReadClass::bf = &bf;
-    ReadClass::bf_s_lock = OptimisticGuard(bf.header.lock.ptr(), bf.header.lock->load());
+    ReadClass::bf_s_lock = OptimisticGuard(&bf.header.lock, bf.header.lock->load());
     ReadClass::moved = false;
-    assert((ReadClass::bf_s_lock.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+    assert((ReadClass::bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
   }
   // -------------------------------------------------------------------------------------
  public:
@@ -129,8 +129,8 @@ class WritePageGuard : public OptimisticPageGuard<T>
     read_guard.recheck();
     ReadClass::bf = read_guard.bf;
     ReadClass::bf_s_lock = read_guard.bf_s_lock;
-    OptimisticLockType new_version = ReadClass::bf_s_lock.local_version + WRITE_LOCK_BIT;
-    if (!std::atomic_compare_exchange_strong(ReadClass::bf_s_lock.version_ptr, &ReadClass::bf_s_lock.local_version, new_version)) {
+    OptimisticLatchVersionType new_version = ReadClass::bf_s_lock.local_version + LATCH_EXCLUSIVE_BIT;
+    if (!std::atomic_compare_exchange_strong(ReadClass::bf_s_lock.latch_ptr->ptr(), &ReadClass::bf_s_lock.local_version, new_version)) {
       throw RestartException();
     }
     ReadClass::bf_s_lock.local_version = new_version;
@@ -166,11 +166,11 @@ class WritePageGuard : public OptimisticPageGuard<T>
       if (!keep_alive) {
         reclaim();
       } else {
-        assert((ReadClass::bf_s_lock.local_version & WRITE_LOCK_BIT) == WRITE_LOCK_BIT);
+        assert((ReadClass::bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
         if (ReadClass::hasBf()) {
           ReadClass::bf->page.LSN++;  // TODO: LSN
         }
-        ReadClass::bf_s_lock.local_version = WRITE_LOCK_BIT + ReadClass::bf_s_lock.version_ptr->fetch_add(WRITE_LOCK_BIT);
+        ReadClass::bf_s_lock.local_version = LATCH_EXCLUSIVE_BIT + ReadClass::bf_s_lock.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
         ReadClass::moved = true;
       }
       // -------------------------------------------------------------------------------------
