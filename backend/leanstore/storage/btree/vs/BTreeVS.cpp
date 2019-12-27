@@ -101,12 +101,10 @@ void BTree::scan(u8* start_key,
                                                      return key;
                                                    };
           if (!callback(payload, payload_length, key_extract_fn)) {
-            leaf.recheck_done();
             return;
           }
           cur++;
         }
-        leaf.recheck_done();
         // -------------------------------------------------------------------------------------
         if (next_key != start_key) {
           delete[] next_key;
@@ -119,7 +117,6 @@ void BTree::scan(u8* start_key,
         next_key = new u8[next_key_length];
         memcpy(next_key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
         next_key[next_key_length - 1] = 0;
-        leaf.recheck_done();
         // -------------------------------------------------------------------------------------
         o_leaf = std::move(leaf);
         o_leaf = findLeafForRead(next_key, next_key_length);

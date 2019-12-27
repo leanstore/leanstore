@@ -4,6 +4,7 @@
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/utils/Parallelize.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>

@@ -7,6 +7,7 @@
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/utils/Parallelize.hpp"
 #include "leanstore/counters/PPCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
@@ -40,9 +41,11 @@ BufferManager::BufferManager()
     madvise(bfs, dram_total_size,
             MADV_DONTFORK);  // O_DIRECT does not work with forking.
     // -------------------------------------------------------------------------------------
-    for (u64 bf_i = 0; bf_i < dram_pool_size; bf_i++) {
-      dram_free_list.push(*new (bfs + bf_i) BufferFrame());
-    }
+    utils::Parallelize::parallelRange(dram_pool_size, [&](u64 bf_b, u64 bf_e) {
+      for (u64 bf_i = bf_b; bf_i < bf_e; bf_i++) {
+        dram_free_list.push(*new (bfs + bf_i) BufferFrame());
+      }
+    });
     // -------------------------------------------------------------------------------------
   }
   // -------------------------------------------------------------------------------------
