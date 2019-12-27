@@ -87,9 +87,9 @@ void BTree::scan(u8* start_key,
   u16 next_key_length = key_length;
   while (true) {
     try {
-      OptimisticPageGuard<BTreeNode> leaf = findLeafForRead(next_key, next_key_length);
+      OptimisticPageGuard<BTreeNode> o_leaf = findLeafForRead(next_key, next_key_length);
       while (true) {
-        //auto leaf = SharedPageGuard<BTreeNode>(std::move(o_leaf));
+        auto leaf = SharedPageGuard<BTreeNode>(std::move(o_leaf));
         s32 cur = leaf->lowerBound<false>(start_key, key_length);
         while (cur < leaf->count) {
           u16 payload_length = leaf->getPayloadLength(cur);
@@ -121,8 +121,8 @@ void BTree::scan(u8* start_key,
         next_key[next_key_length - 1] = 0;
         leaf.recheck_done();
         // -------------------------------------------------------------------------------------
-        //o_leaf = std::move(leaf);
-        leaf = findLeafForRead(next_key, next_key_length);
+        o_leaf = std::move(leaf);
+        o_leaf = findLeafForRead(next_key, next_key_length);
       }
     } catch (RestartException e) {
       undo();
@@ -157,7 +157,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       }
       // -------------------------------------------------------------------------------------
       // Release lock
-      c_guard = OptimisticPageGuard(std::move(c_x_guard));
+      c_guard = std::move(c_x_guard);
       c_guard.kill();
       // -------------------------------------------------------------------------------------
       trySplit(*c_x_guard.bf);
@@ -272,7 +272,7 @@ void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       // no more space, need to split
       // -------------------------------------------------------------------------------------
       // Release lock
-      c_guard = OptimisticPageGuard(std::move(c_x_guard));
+      c_guard = std::move(c_x_guard);
       c_guard.kill();
       // -------------------------------------------------------------------------------------
       trySplit(*c_x_guard.bf);
@@ -305,7 +305,7 @@ bool BTree::remove(u8* key, u16 key_length)
         return false;
       }
       if (c_x_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-        c_guard = OptimisticPageGuard(std::move(c_x_guard));
+        c_guard = std::move(c_x_guard);
         c_guard.kill();
         try {
           tryMerge(*c_guard.bf);
@@ -354,8 +354,8 @@ void BTree::tryMerge(BufferFrame& to_split)
     l_x_guard->merge(pos - 1, p_x_guard, c_x_guard);
     l_x_guard.reclaim();
     // -------------------------------------------------------------------------------------
-    p_guard = OptimisticPageGuard(std::move(p_x_guard));
-    c_guard = OptimisticPageGuard(std::move(c_x_guard));
+    p_guard = std::move(p_x_guard);
+    c_guard = std::move(c_x_guard);
     return true;
   };
   auto merge_right = [&]() {
@@ -371,7 +371,7 @@ void BTree::tryMerge(BufferFrame& to_split)
     c_x_guard->merge(pos, p_x_guard, r_x_guard);
     c_x_guard.reclaim();
     // -------------------------------------------------------------------------------------
-    p_guard = OptimisticPageGuard(std::move(p_x_guard));
+    p_guard = std::move(p_x_guard);
     return true;
   };
   // ATTENTION: don't use c_guard without making sure it was not reclaimed

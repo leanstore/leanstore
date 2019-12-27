@@ -26,7 +26,7 @@ struct RestartException {
 constexpr static u64 LATCH_EXCLUSIVE_BIT = (1 << 8);
 constexpr static u64 LATCH_STATE_MASK = ((1 << 8) - 1);  // 0xFF
 constexpr static u64 LATCH_VERSION_MASK = ~LATCH_STATE_MASK;
-constexpr static u64 LATCH_VERSION_STATE_MASK = ((1 << 9) - 1);
+constexpr static u64 LATCH_EXCLUSIVE_STATE_MASK = ((1 << 9) - 1);
 // -------------------------------------------------------------------------------------
 class OptimisticGuard;
 class SharedGuard;  // TODO
@@ -106,21 +106,9 @@ class ExclusiveGuard
  private:
   OptimisticGuard& ref_guard;  // our basis
  public:
-  /*
-
-    u64 old_compound = OptimisticClass::bf_s_lock.local_version;
-    assert((old_compound & LATCH_VERSION_STATE_MASK) == 0);
-    const u64 new_version = OptimisticClass::bf_s_lock.local_version + LATCH_EXCLUSIVE_BIT;
-    u64 new_compound = new_version;
-    if(!OptimisticClass::bf_s_lock.latch_ptr->ref().compare_exchange_strong(old_compound, new_compound)) {
-      throw RestartException();
-    }
-    OptimisticClass::bf_s_lock.local_version = new_version;
-
-  */
   static inline void latch(OptimisticGuard &ref_guard) {
     assert(ref_guard.latch_ptr != nullptr);
-    assert((ref_guard.local_version & LATCH_VERSION_STATE_MASK) == 0);
+    assert((ref_guard.local_version & LATCH_EXCLUSIVE_STATE_MASK) == 0);
     const u64 new_version = ref_guard.local_version + LATCH_EXCLUSIVE_BIT;
     u64 new_compound = new_version;
     u64 lv = ref_guard.local_version;  // assuming state == 0
@@ -134,7 +122,7 @@ class ExclusiveGuard
   static inline void unlatch(OptimisticGuard &ref_guard) {
     assert(ref_guard.latch_ptr != nullptr);
     assert(ref_guard.local_version == ref_guard.latch_ptr->ref().load());
-    assert((ref_guard.local_version & LATCH_VERSION_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
+    assert((ref_guard.local_version & LATCH_EXCLUSIVE_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
     ref_guard.local_version = LATCH_EXCLUSIVE_BIT + ref_guard.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
     assert((ref_guard.local_version & LATCH_STATE_MASK) == 0);
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_BIT) == 0);
@@ -158,7 +146,7 @@ class ExclusiveGuardTry
   ExclusiveGuardTry(OptimisticLatch& lock) : latch_ptr(&lock)
   {
     u64 current_compound = latch_ptr->ref().load();
-    if ((current_compound & LATCH_VERSION_STATE_MASK) > 0) {
+    if ((current_compound & LATCH_EXCLUSIVE_STATE_MASK) > 0) {
       throw RestartException();
     }
     const u64 new_version = current_compound + LATCH_EXCLUSIVE_BIT;
@@ -166,7 +154,7 @@ class ExclusiveGuardTry
     if (!latch_ptr->ref().compare_exchange_strong(current_compound, new_compound)) {
       throw RestartException();
     }
-    assert((latch_ptr->ref().load() & LATCH_VERSION_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
+    assert((latch_ptr->ref().load() & LATCH_EXCLUSIVE_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
   }
   void unlock() { latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT); }
   ~ExclusiveGuardTry() {}
@@ -205,7 +193,7 @@ class SharedGuard
     } else {
       new_compound -=1;
     }
-    if(!basis_guard.latch_ptr->ref().compare_exchange_strong(current_compound, new_compound)){
+    if(!basis_guard.latch_ptr->ref().compare_exchange_strong(current_compound, new_compound)) {
       goto try_release_shared_guard;
     }
   }

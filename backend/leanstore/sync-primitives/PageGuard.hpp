@@ -45,27 +45,33 @@ class OptimisticPageGuard
     bf_s_lock = OptimisticGuard(bf->header.lock);
     p_guard.recheck();  // TODO: ??
   }
-  // I: Downgrade
-  OptimisticPageGuard(ExclusivePageGuard<T>&& other)
+  // I: Downgrade exclusive
+  OptimisticPageGuard(ExclusivePageGuard<T>&&) { ensure(false); }
+  OptimisticPageGuard& operator=(ExclusivePageGuard<T> &&other)
   {
     assert(!other.moved);
     bf = other.bf;
     bf_s_lock = other.bf_s_lock;
-    bf_s_lock.local_version = LATCH_EXCLUSIVE_BIT + bf_s_lock.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
-    moved = false;
     // -------------------------------------------------------------------------------------
+    ExclusiveGuard::unlatch(bf_s_lock);
+    // -------------------------------------------------------------------------------------
+    moved = false;
     other.moved = true;
     assert((bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == 0);
+    return *this;
   }
-  // I: Downgrade
-  OptimisticPageGuard(SharedPageGuard<T> &&other)
+  // I: Downgrade shared
+  OptimisticPageGuard(SharedPageGuard<T>&&) { ensure(false); }
+  OptimisticPageGuard& operator=(SharedPageGuard<T> &&other)
   {
     bf = other.bf;
     bf_s_lock = other.bf_s_lock;
-    SharedGuard::unlatch(bf_s_lock);
-    moved = false;
     // -------------------------------------------------------------------------------------
+    SharedGuard::unlatch(bf_s_lock);
+    // -------------------------------------------------------------------------------------
+    moved = false;
     other.moved = true;
+    return *this;
   }
   // -------------------------------------------------------------------------------------
   // Assignment operator
@@ -210,6 +216,15 @@ public:
       SharedGuard::unlatch(OptimisticClass::bf_s_lock);
     }
   }
+  // -------------------------------------------------------------------------------------
+  void recheck() {
+    assert((OptimisticClass::bf_s_lock.latch_ptr->ref().load() & LATCH_EXCLUSIVE_BIT) == 0);
+  }
+  void recheck_done()
+  {
+    recheck();
+  }
+  // -------------------------------------------------------------------------------------
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager
