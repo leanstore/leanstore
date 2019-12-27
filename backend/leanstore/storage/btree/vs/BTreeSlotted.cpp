@@ -126,7 +126,7 @@ void BTreeNode::compactify()
   assert(freeSpace() == should);
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::merge(unsigned slotId, WritePageGuard<BTreeNode>& parent, WritePageGuard<BTreeNode>& right)
+bool BTreeNode::merge(unsigned slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right)
 {
   if (is_leaf) {
     assert(right->is_leaf);
@@ -349,7 +349,7 @@ Swip<BTreeNode>& BTreeNode::lookupInner(u8* key, unsigned keyLength)
   return getValue(pos);
 }
 // -------------------------------------------------------------------------------------
-void BTreeNode::split(WritePageGuard<BTreeNode>& parent, WritePageGuard<BTreeNode>& nodeLeft, unsigned sepSlot, u8* sepKey, unsigned sepLength)
+void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& nodeLeft, unsigned sepSlot, u8* sepKey, unsigned sepLength)
 {
   // PRE: current, parent and nodeLeft are x locked
   assert(sepSlot > 0);

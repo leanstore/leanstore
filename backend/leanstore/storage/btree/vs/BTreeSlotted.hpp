@@ -275,14 +275,14 @@ struct BTreeNode : public BTreeNodeHeader {
   void compactify();
   // -------------------------------------------------------------------------------------
   // merge right node into this node
-  bool merge(unsigned slotId, WritePageGuard<BTreeNode>& parent, WritePageGuard<BTreeNode>& right);
+  bool merge(unsigned slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
   // store key/value pair at slotId
   void storeKeyValue(u16 slotId, u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);
   void copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, unsigned count);
   void copyKeyValue(u16 srcSlot, BTreeNode* dst, u16 dstSlot);
   void insertFence(FenceKey& fk, u8* key, unsigned keyLength);
   void setFences(u8* lowerKey, unsigned lowerLen, u8* upperKey, unsigned upperLen);
-  void split(WritePageGuard<BTreeNode>& parent, WritePageGuard<BTreeNode>& new_node, unsigned sepSlot, u8* sepKey, unsigned sepLength);
+  void split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& new_node, unsigned sepSlot, u8* sepKey, unsigned sepLength);
   unsigned commonPrefix(unsigned aPos, unsigned bPos);
   SeparatorInfo findSep();
   void getSep(u8* sepKeyOut, SeparatorInfo info);

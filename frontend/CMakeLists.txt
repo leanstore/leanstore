@@ -16,3 +16,7 @@ add_executable(random_io misc-benchmarks/random_io.cpp)
 target_link_libraries(random_io leanstore Threads::Threads)
 target_include_directories(random_io PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
+
+add_executable(scan misc-benchmarks/scan.cpp)
+target_link_libraries(scan leanstore Threads::Threads)
+target_include_directories(scan PRIVATE ${SHARED_INCLUDE_DIRECTORY})

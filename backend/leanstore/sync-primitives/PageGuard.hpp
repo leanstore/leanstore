@@ -9,7 +9,9 @@ namespace buffermanager
 // -------------------------------------------------------------------------------------
 // Objects of this class must be thread local !
 template <typename T>
-class WritePageGuard;
+class ExclusivePageGuard;
+template <typename T>
+class SharedPageGuard;
 template <typename T>
 class OptimisticPageGuard
 {
@@ -26,10 +28,11 @@ class OptimisticPageGuard
   BufferFrame* bf = nullptr;
   OptimisticGuard bf_s_lock;
   // -------------------------------------------------------------------------------------
+  static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf) { return OptimisticPageGuard(read_guard, bf); }
+  // -------------------------------------------------------------------------------------
   // I: Root case
   static OptimisticPageGuard makeRootGuard(OptimisticLatch& swip_version) { return OptimisticPageGuard(swip_version); }
   // -------------------------------------------------------------------------------------
-  static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf) { return OptimisticPageGuard(read_guard, bf); }
   // I: Lock coupling
   OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip)
   {
@@ -43,7 +46,7 @@ class OptimisticPageGuard
     p_guard.recheck();  // TODO: ??
   }
   // I: Downgrade
-  OptimisticPageGuard(WritePageGuard<T>&& other)
+  OptimisticPageGuard(ExclusivePageGuard<T>&& other)
   {
     assert(!other.moved);
     bf = other.bf;
@@ -54,7 +57,18 @@ class OptimisticPageGuard
     other.moved = true;
     assert((bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == 0);
   }
+  // I: Downgrade
+  OptimisticPageGuard(SharedPageGuard<T> &&other)
+  {
+    bf = other.bf;
+    bf_s_lock = other.bf_s_lock;
+    SharedGuard::unlatch(bf_s_lock);
+    moved = false;
+    // -------------------------------------------------------------------------------------
+    other.moved = true;
+  }
   // -------------------------------------------------------------------------------------
+  // Assignment operator
   constexpr OptimisticPageGuard& operator=(OptimisticPageGuard&& other)
   {
     bf = other.bf;
@@ -72,6 +86,7 @@ class OptimisticPageGuard
     return *reinterpret_cast<OptimisticPageGuard<T2>*>(this);
   }
   // -------------------------------------------------------------------------------------
+  // Copy constructor
   OptimisticPageGuard(OptimisticPageGuard& other)
   {
     bf = other.bf;
@@ -86,15 +101,16 @@ class OptimisticPageGuard
     manually_checked = true;
     bf_s_lock.recheck();
   }
+  // -------------------------------------------------------------------------------------
   // Guard not needed anymore
   void kill() { moved = true; }
-  // -------------------------------------------------------------------------------------
   T& ref() { return *reinterpret_cast<T*>(bf->page.dt); }
   T* ptr() { return reinterpret_cast<T*>(bf->page.dt); }
   Swip<T> swip() { return Swip<T>(bf); }
   T* operator->() { return reinterpret_cast<T*>(bf->page.dt); }
   // Is the bufferframe loaded
   bool hasBf() const { return bf != nullptr; }
+  // -------------------------------------------------------------------------------------
   ~OptimisticPageGuard() noexcept(false)
   {
 #ifdef DEBUG
@@ -106,74 +122,92 @@ class OptimisticPageGuard
 };
 // -------------------------------------------------------------------------------------
 template <typename T>
-class WritePageGuard : public OptimisticPageGuard<T>
+class ExclusivePageGuard : public OptimisticPageGuard<T>
 {
-  using ReadClass = OptimisticPageGuard<T>;
+  using OptimisticClass = OptimisticPageGuard<T>;
 
  protected:
   bool keep_alive = true;  // for the case when more than one page is allocated
                            // (2nd might fail and waste the first)
   // Called by the buffer manager when allocating a new page
-  WritePageGuard(BufferFrame& bf, bool keep_alive) : keep_alive(keep_alive)
+  ExclusivePageGuard(BufferFrame& bf, bool keep_alive) : keep_alive(keep_alive)
   {
-    ReadClass::bf = &bf;
-    ReadClass::bf_s_lock = OptimisticGuard(&bf.header.lock, bf.header.lock->load());
-    ReadClass::moved = false;
-    assert((ReadClass::bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
+    OptimisticClass::bf = &bf;
+    OptimisticClass::bf_s_lock = OptimisticGuard(&bf.header.lock, bf.header.lock->load());
+    OptimisticClass::moved = false;
+    assert((OptimisticClass::bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
   }
   // -------------------------------------------------------------------------------------
  public:
   // I: Upgrade
-  WritePageGuard(ReadClass&& read_guard)
+  ExclusivePageGuard(OptimisticClass&& o_guard)
   {
-    read_guard.recheck();
-    ReadClass::bf = read_guard.bf;
-    ReadClass::bf_s_lock = read_guard.bf_s_lock;
-    OptimisticLatchVersionType new_version = ReadClass::bf_s_lock.local_version + LATCH_EXCLUSIVE_BIT;
-    if (!std::atomic_compare_exchange_strong(ReadClass::bf_s_lock.latch_ptr->ptr(), &ReadClass::bf_s_lock.local_version, new_version)) {
-      throw RestartException();
-    }
-    ReadClass::bf_s_lock.local_version = new_version;
-    read_guard.moved = true;
-    ReadClass::moved = false;
+    o_guard.recheck();
+    OptimisticClass::bf = o_guard.bf;
+    OptimisticClass::bf_s_lock = o_guard.bf_s_lock;
+    // -------------------------------------------------------------------------------------
+    ExclusiveGuard::latch(OptimisticClass::bf_s_lock);
+    // -------------------------------------------------------------------------------------
+    o_guard.moved = true;
+    OptimisticClass::moved = false;
   }
   // -------------------------------------------------------------------------------------
-  static WritePageGuard allocateNewPage(DTID dt_id, bool keep_alive = true)
+  static ExclusivePageGuard allocateNewPage(DTID dt_id, bool keep_alive = true)
   {
     ensure(BMC::global_bf != nullptr);
     auto& bf = BMC::global_bf->allocatePage();
     bf.page.dt_id = dt_id;
-    return WritePageGuard(bf, keep_alive);
+    return ExclusivePageGuard(bf, keep_alive);
   }
 
   template <typename... Args>
   void init(Args&&... args)
   {
-    new (ReadClass::bf->page.dt) T(std::forward<Args>(args)...);
+    new (OptimisticClass::bf->page.dt) T(std::forward<Args>(args)...);
   }
   // -------------------------------------------------------------------------------------
   void keepAlive() { keep_alive = true; }
   // -------------------------------------------------------------------------------------
   void reclaim()
   {
-    BMC::global_bf->reclaimPage(*ReadClass::bf);
-    ReadClass::moved = true;
+    BMC::global_bf->reclaimPage(*OptimisticClass::bf);
+    OptimisticClass::moved = true;
   }
   // -------------------------------------------------------------------------------------
-  ~WritePageGuard()
+  ~ExclusivePageGuard()
   {
-    if (!ReadClass::moved) {
+    if (!OptimisticClass::moved) {
       if (!keep_alive) {
         reclaim();
       } else {
-        assert((ReadClass::bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
-        if (ReadClass::hasBf()) {
-          ReadClass::bf->page.LSN++;  // TODO: LSN
+        if (OptimisticClass::hasBf()) {
+          OptimisticClass::bf->page.LSN++;  // TODO: LSN
         }
-        ReadClass::bf_s_lock.local_version = LATCH_EXCLUSIVE_BIT + ReadClass::bf_s_lock.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
-        ReadClass::moved = true;
+        ExclusiveGuard::unlatch(OptimisticClass::bf_s_lock);
+        OptimisticClass::moved = true;
       }
       // -------------------------------------------------------------------------------------
+    }
+  }
+};
+// -------------------------------------------------------------------------------------
+template <typename T>
+class SharedPageGuard : public OptimisticPageGuard<T>
+{
+  using OptimisticClass = OptimisticPageGuard<T>;
+public:
+  SharedPageGuard(OptimisticPageGuard<T>&& o_guard) {
+    OptimisticClass::bf = o_guard.bf;
+    OptimisticClass::bf_s_lock = o_guard.bf_s_lock;
+    // -------------------------------------------------------------------------------------
+    SharedGuard::latch(OptimisticClass::bf_s_lock);
+    // -------------------------------------------------------------------------------------
+    o_guard.moved = true;
+    OptimisticClass::moved = false;
+  }
+  ~SharedPageGuard() {
+    if (!OptimisticClass::moved) {
+      SharedGuard::unlatch(OptimisticClass::bf_s_lock);
     }
   }
 };

@@ -170,7 +170,7 @@ struct BTree {
   void init(DTID dtid)
   {
     this->dtid = dtid;
-    auto root_write_guard = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
+    auto root_write_guard = ExclusivePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
     root_write_guard.init();
     root_swip = root_write_guard.bf;
   }
@@ -181,7 +181,7 @@ struct BTree {
     return btree_meta;
   }
   // -------------------------------------------------------------------------------------
-  void makeRoot(Key k, WritePageGuard<BTreeInner<Key>>& new_root_inner, Swip<NodeBase> leftChild, Swip<NodeBase> rightChild)
+  void makeRoot(Key k, ExclusivePageGuard<BTreeInner<Key>>& new_root_inner, Swip<NodeBase> leftChild, Swip<NodeBase> rightChild)
   {
     new_root_inner.init();
     root_swip.swizzle(new_root_inner.bf);
@@ -208,17 +208,17 @@ struct BTree {
           // -------------------------------------------------------------------------------------
           if (c_guard->count == c_guard->maxEntries - 1) {
             // Split inner eagerly
-            auto p_x_guard = WritePageGuard(std::move(p_guard));
-            auto c_x_guard = WritePageGuard(std::move(c_guard));
+            auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
+            auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
             Key sep;
-            auto new_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage(dtid, false);
+            auto new_inner = ExclusivePageGuard<BTreeInner<Key>>::allocateNewPage(dtid, false);
             new_inner.init();
             if (p_guard.hasBf()) {
               new_inner.keepAlive();
               c_guard->split(sep, new_inner.ref());
               p_guard->insert(sep, new_inner.bf);
             } else {
-              auto new_root_inner = WritePageGuard<BTreeInner<Key>>::allocateNewPage(dtid);
+              auto new_root_inner = ExclusivePageGuard<BTreeInner<Key>>::allocateNewPage(dtid);
               new_inner.keepAlive();
               c_guard->split(sep, new_inner.ref());
               makeRoot(sep, new_root_inner, c_guard.bf, new_inner.bf);
@@ -236,17 +236,17 @@ struct BTree {
 
         auto& leaf = c_guard.template cast<BTreeLeaf<Key, Value>>();
         if (leaf->count == leaf->maxEntries) {
-          auto p_x_guard = WritePageGuard(std::move(p_guard));
-          auto c_x_guard = WritePageGuard(std::move(leaf));
+          auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
+          auto c_x_guard = ExclusivePageGuard(std::move(leaf));
           // Leaf is full, split it
           Key sep;
-          auto new_leaf = WritePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid, false);
+          auto new_leaf = ExclusivePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid, false);
           new_leaf.init();
           if (p_guard.hasBf()) {
             leaf->split(sep, new_leaf.ref());
             p_guard->insert(sep, new_leaf.bf);
           } else {
-            auto new_inner_root = WritePageGuard<BTreeInner<Key>>::allocateNewPage(dtid);
+            auto new_inner_root = ExclusivePageGuard<BTreeInner<Key>>::allocateNewPage(dtid);
             new_leaf.keepAlive();
             leaf->split(sep, new_leaf.ref());
             makeRoot(sep, new_inner_root, leaf.bf, new_leaf.bf);
@@ -255,7 +255,7 @@ struct BTree {
           throw RestartException();
         }
         // -------------------------------------------------------------------------------------
-        auto c_x_lock = WritePageGuard(std::move(leaf));
+        auto c_x_lock = ExclusivePageGuard(std::move(leaf));
         p_guard.kill();
         leaf->insert(k, v);
         return;
