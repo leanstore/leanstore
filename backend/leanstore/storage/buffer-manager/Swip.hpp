@@ -43,7 +43,6 @@ class Swip
   u64 asPageID() { return pid & unswizzle_mask; }
   BufferFrame& asBufferFrame() { return *bf; }
   u64 raw() const { return pid; }
-  atomic<u64>& asAtomic() { return *reinterpret_cast<atomic<u64>*>(this); }
   // -------------------------------------------------------------------------------------
   template <typename T2>
   void swizzle(T2* bf)

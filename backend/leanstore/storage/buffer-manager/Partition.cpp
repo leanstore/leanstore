@@ -1,4 +1,5 @@
-#include "PartitionTable.hpp"
+#include "Partition.hpp"
+#include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <sys/mman.h>
@@ -92,5 +93,7 @@ bool HashTable::has(u64 key)
   return false;
 }
 // -------------------------------------------------------------------------------------
+  Partition::Partition(u64 free_bfs_limit, u64 cooling_bfs_limit) : ht(utils::getBitsNeeded(cooling_bfs_limit)) , free_bfs_limit(free_bfs_limit), cooling_bfs_limit(cooling_bfs_limit) {}
+  // -------------------------------------------------------------------------------------
 }  // namespace buffermanager
 }

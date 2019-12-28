@@ -2,7 +2,7 @@
 #include "BufferFrame.hpp"
 #include "DTRegistry.hpp"
 #include "FreeList.hpp"
-#include "PartitionTable.hpp"
+#include "Partition.hpp"
 #include "Swip.hpp"
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
@@ -44,7 +44,6 @@ class BufferManager
   // Free  Pages
   const u8 safety_pages = 10;  // we reserve these extra pages to prevent segfaults
   u64 dram_pool_size;          // total number of dram buffer frames
-  FreeList dram_free_list;
   atomic<u64> ssd_used_pages_counter = 0;   // used as a hack for pid generation
   atomic<u64> ssd_freed_pages_counter = 0;  // used to track how many pages did we really allocate
   // -------------------------------------------------------------------------------------
@@ -52,9 +51,7 @@ class BufferManager
   // For cooling and inflight io
   u64 partitions_count;
   u64 partitions_mask;
-  PartitionTable* partitions;
-  atomic<u64> cooling_bfs_counter = 0;
-
+  Partition* partitions;
  private:
   // -------------------------------------------------------------------------------------
   // Threads managements
@@ -66,8 +63,10 @@ class BufferManager
   DTRegistry dt_registry;
   // -------------------------------------------------------------------------------------
   // Misc
+  Partition& randomPartition();
   BufferFrame& randomBufferFrame();
-  PartitionTable& getPartition(PID);
+  BufferFrame& randomBufferFrame(u64 partition_id);
+  Partition& getPartition(PID);
   u64 getPartitionID(PID);
  public:
   // -------------------------------------------------------------------------------------

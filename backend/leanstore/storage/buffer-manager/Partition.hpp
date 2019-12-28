@@ -1,4 +1,5 @@
 #pragma once
+#include "FreeList.hpp"
 #include "BufferFrame.hpp"
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
@@ -56,11 +57,15 @@ struct HashTable {
   HashTable(u64 size_in_bits);
 };
 // -------------------------------------------------------------------------------------
-struct PartitionTable {
+struct Partition {
   std::mutex cio_mutex;
   HashTable ht;
   std::list<BufferFrame*> cooling_queue;
-  PartitionTable(u64 size_in_bits) : ht(size_in_bits) {}
+  atomic<u64> cooling_bfs_counter = 0;
+  const u64 free_bfs_limit;
+  const u64 cooling_bfs_limit;
+  FreeList dram_free_list;
+  Partition(u64 free_bfs_limit, u64 cooling_bfs_limit);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager
