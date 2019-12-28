@@ -78,6 +78,8 @@ void LeanStore::debuggingThread()
   stats.emplace_back("p2_pct", [&](ostream& out) { out << (local_phase_2_ms * 100.0 / total); });
   stats.emplace_back("p3_pct", [&](ostream& out) { out << (local_phase_3_ms * 100.0 / total); });
   stats.emplace_back("poll_pct", [&](ostream& out) { out << (local_poll_ms * 100.0 / total); });
+  stats.emplace_back("find_parent_pct", [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::find_parent_ms) * 100.0 / total); });
+  stats.emplace_back("iterate_children_pct", [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::iterate_children_ms) * 100.0 / total); });
   stats.emplace_back("pc1", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_1_counter); });
   stats.emplace_back("pc2", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_2_counter); });
   stats.emplace_back("pc3", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_3_counter); });

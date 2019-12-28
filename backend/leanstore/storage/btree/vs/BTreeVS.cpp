@@ -44,7 +44,7 @@ OptimisticPageGuard<BTreeNode> BTree::findLeafForRead(u8* key, u16 key_length)
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      //_counter++;
+      WorkerCounters::myCounters().dt_restarts_read[dtid]++;
     }
   }
 }

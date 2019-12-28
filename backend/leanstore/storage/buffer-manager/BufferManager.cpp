@@ -144,6 +144,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
           r_guard.recheck();
           // -------------------------------------------------------------------------------------
           bool picked_a_child_instead = false;
+          auto iterate_children_begin = chrono::high_resolution_clock::now();
           dt_registry.iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
             if (swip.isSwizzled()) {
               r_buffer = &swip.asBufferFrame();
@@ -154,6 +155,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
             r_guard.recheck();
             return true;
           });
+          auto iterate_children_end = chrono::high_resolution_clock::now();
+          PPCounters::myCounters().iterate_children_ms  += (chrono::duration_cast<chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
           if (picked_a_child_instead) {
             continue;  // restart the inner loop
           }
@@ -161,14 +164,17 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
           // Suitable page founds, lets unswizzle
           {
             const PID pid = r_buffer->header.pid;
+            auto find_parent_begin = chrono::high_resolution_clock::now();
             ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
+            auto find_parent_end = chrono::high_resolution_clock::now();
+            PPCounters::myCounters().find_parent_ms  += (chrono::duration_cast<chrono::microseconds>(find_parent_end - find_parent_begin).count());
             ExclusiveGuard p_x_guard(parent_handler.guard);
             ExclusiveGuard r_x_guad(r_guard);
             PartitionTable& partition = getPartition(pid);
             std::lock_guard g_guard(partition.cio_mutex);
             // -------------------------------------------------------------------------------------
             assert(r_buffer->header.state == BufferFrame::State::HOT);
-            assert(parent_handler.guard.local_version == parent_handler.guard.latch_ptr->ref().load());
+            assert(parent_handler.guard.local_version == (parent_handler.guard.latch_ptr->ref().load() & LATCH_VERSION_MASK));
             assert(parent_handler.swip.bf == r_buffer);
             // -------------------------------------------------------------------------------------
             if (partition.ht.has(r_buffer->header.pid)) {
@@ -185,6 +191,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)
             r_buffer->header.state = BufferFrame::State::COLD;
             r_buffer->header.isCooledBecauseOfReading = false;
             parent_handler.swip.unswizzle(r_buffer->header.pid);
+            //const u64 raw = parent_handler.swip.raw(); parent_handler.swip.asAtomic().store(raw);
             cooling_bfs_counter++;
             // -------------------------------------------------------------------------------------
             PPCounters::myCounters().unswizzled_pages_counter++;
@@ -423,6 +430,7 @@ void BufferManager::reclaimPage(BufferFrame& bf)
   reclaimBufferFrame(bf);
 }
 // -------------------------------------------------------------------------------------
+// returns a non-latched BufferFrame
 BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
                                         Swip<BufferFrame>& swip_value)  // throws RestartException
 {
@@ -441,6 +449,11 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
   PartitionTable& partition = getPartition(pid);
   std::unique_lock g_guard(partition.cio_mutex);
   swip_guard.recheck();
+  // if ((swip_value.asAtomic().load() & (u64(1) << 63)) == 0) {
+  //   swip_guard.recheck();
+  //   //cerr << "wtf" <<endl;
+  //   throw RestartException();
+  // }
   assert(!swip_value.isSwizzled());
   // -------------------------------------------------------------------------------------
   auto frame_handler = partition.ht.lookup(pid);
@@ -470,19 +483,39 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
     bf.header.state = BufferFrame::State::COLD;
     bf.header.pid = pid;
     // -------------------------------------------------------------------------------------
-    // Move to cooling stage
-    g_guard.lock();
-    cio_frame.state = CIOFrame::State::COOLING;
-    partition.cooling_queue.push_back(&bf);
-    cio_frame.fifo_itr = --partition.cooling_queue.end();
-    cooling_bfs_counter++;
-    // -------------------------------------------------------------------------------------
-    bf.header.isCooledBecauseOfReading = true;
-    // -------------------------------------------------------------------------------------
-    g_guard.unlock();
-    cio_frame.mutex.unlock();
-    // -------------------------------------------------------------------------------------
-    throw RestartException();
+    try {
+          ExclusiveGuard swip_x_guard(swip_guard);
+          g_guard.lock();
+          cio_frame.mutex.unlock();
+          swip_value.swizzle(&bf);
+          bf.header.state = BufferFrame::State::HOT;  // ATTENTION: SET TO HOT AFTER
+                                                      // IT IS SWIZZLED IN
+          // -------------------------------------------------------------------------------------
+          // Simply written, let the compiler optimize it
+          bool should_clean = true;
+          if (cio_frame.readers_counter.fetch_add(-1) > 1) {
+            should_clean = false;
+          }
+          if (should_clean) {
+            partition.ht.remove(pid);
+          }
+          g_guard.unlock();
+          return bf;
+    } catch(RestartException e) {
+      // Move to cooling stage
+      g_guard.lock();
+      cio_frame.state = CIOFrame::State::COOLING;
+      partition.cooling_queue.push_back(&bf);
+      cio_frame.fifo_itr = --partition.cooling_queue.end();
+      cooling_bfs_counter++;
+      // -------------------------------------------------------------------------------------
+      bf.header.isCooledBecauseOfReading = true;
+      // -------------------------------------------------------------------------------------
+      g_guard.unlock();
+      cio_frame.mutex.unlock();
+      // -------------------------------------------------------------------------------------
+      throw RestartException();
+    }
   }
   // -------------------------------------------------------------------------------------
   CIOFrame& cio_frame = frame_handler.frame();
@@ -516,6 +549,8 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
     // -------------------------------------------------------------------------------------
     assert(bf->header.pid == pid);
     swip_value.swizzle(bf);
+    //swip_value.asAtomic().store(u64(bf));
+    assert(swip_value.isSwizzled());
     partition.cooling_queue.erase(cio_frame.fifo_itr);
     cooling_bfs_counter--;
     assert(bf->header.state == BufferFrame::State::COLD);

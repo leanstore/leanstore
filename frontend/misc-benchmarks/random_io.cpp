@@ -13,7 +13,7 @@
 #include <iostream>
 // -------------------------------------------------------------------------------------
 DEFINE_double(target_gib, 10, "");
-DEFINE_bool(fs, true, "");
+DEFINE_bool(fs, false, "");
 DEFINE_bool(verify, false, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
