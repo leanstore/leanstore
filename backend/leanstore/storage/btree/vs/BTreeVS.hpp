@@ -2,6 +2,7 @@
 #include "BTreeSlotted.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "leanstore/sync-primitives/PageGuard.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -27,7 +28,6 @@ struct BTree {
   BTree();
   // -------------------------------------------------------------------------------------
   void init(DTID dtid);
-  OptimisticPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length);
   // No side effects allowed!
   bool lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
   // -------------------------------------------------------------------------------------
@@ -49,11 +49,42 @@ struct BTree {
   ~BTree();
   // -------------------------------------------------------------------------------------
   // Helpers
+  template<bool is_read = true>
+  OptimisticPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length) {
+    u32 mask = 1;
+    u32 const max = 512;  // MAX_BACKOFF
+    while (true) {
+      try {
+        auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
+        OptimisticPageGuard c_guard(p_guard, root_swip);
+        while (!c_guard->is_leaf) {
+          Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
+          p_guard = std::move(c_guard);
+          c_guard = OptimisticPageGuard(p_guard, c_swip);
+        }
+        p_guard.kill();
+        c_guard.recheck_done();
+        return c_guard;
+      } catch (RestartException e) {
+        for (u32 i = mask; i; --i) {
+          _mm_pause();
+        }
+        mask = mask < max ? mask << 1 : max;
+        if(is_read) {
+           WorkerCounters::myCounters().dt_restarts_read[dtid]++;
+        } else {
+           WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
+        }
+      }
+    }
+  }
+  // -------------------------------------------------------------------------------------
   s64 iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
   s64 iterateAllPagesRec(OptimisticPageGuard<BTreeNode>& node_guard, std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
   unsigned countInner();
   u32 countPages();
   u32 countEntries();
+  double averageSpaceUsage();
   u32 bytesFree();
   void printInfos(uint64_t totalSize);
 };

@@ -44,8 +44,8 @@ BufferManager::BufferManager()
     // Initialize partitions
     partitions_count = (1 << FLAGS_partition_bits);
     partitions_mask = partitions_count - 1;
-    const u64 free_bfs_limit = std::ceil(FLAGS_free * 1.0 * dram_pool_size / 100.0);
-    const u64 cooling_bfs_upper_bound = std::ceil(FLAGS_cool * 1.0 * dram_pool_size / 100.0 / static_cast<double>(partitions_count));
+    const u64 free_bfs_limit = std::ceil((FLAGS_free * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
+    const u64 cooling_bfs_upper_bound = std::ceil((FLAGS_cool * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
     partitions = reinterpret_cast<Partition*>(malloc(sizeof(Partition) * partitions_count));
     for (u64 p_i = 0; p_i < partitions_count; p_i++) {
       new (partitions + p_i) Partition(free_bfs_limit, cooling_bfs_upper_bound);
@@ -126,9 +126,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end) // [p_begin, p_en
      * Phase 1:
      */
     // phase_1:
-    auto phase_1_begin = chrono::high_resolution_clock::now();
       for (u64 p_i = p_begin; p_i < p_end; p_i++) {
        Partition& partition = partitions[p_i];
+       auto phase_1_begin = chrono::high_resolution_clock::now();
        try {
           while (phase_1_condition(partition)) {
             PPCounters::myCounters().phase_1_counter++;
@@ -216,7 +216,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end) // [p_begin, p_en
         // -------------------------------------------------------------------------------------
         // phase_2_3:
         if (phase_2_3_condition(partition)) {
-          const u64 pages_to_iterate_partition = partition.dram_free_list.counter - partition.free_bfs_limit;
+          const u64 pages_to_iterate_partition = partition.free_bfs_limit - partition.dram_free_list.counter;
           // -------------------------------------------------------------------------------------
           /*
            * Phase 2:
@@ -225,8 +225,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end) // [p_begin, p_en
            */
           // phase_2:
           auto phase_2_begin = chrono::high_resolution_clock::now();
-          PPCounters::myCounters().phase_2_counter++;
           if (pages_to_iterate_partition) {
+            PPCounters::myCounters().phase_2_counter++;
             u64 pages_left_to_iterate_partition = pages_to_iterate_partition;
             std::unique_lock g_guard(partition.cio_mutex);
             auto bf_itr = partition.cooling_queue.begin();
@@ -260,7 +260,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end) // [p_begin, p_en
                     partition.cooling_bfs_counter--;
                     PPCounters::myCounters().evicted_pages++;
                   } catch (RestartException e) {
-                    assert(false);
+                    ensure(false);
                   }
                 }
               }
@@ -273,8 +273,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end) // [p_begin, p_en
            */
           // phase_3:
           auto phase_3_begin = chrono::high_resolution_clock::now();
-          PPCounters::myCounters().phase_3_counter++;
           if (pages_to_iterate_partition) {
+            PPCounters::myCounters().phase_3_counter++;
             auto submit_begin = chrono::high_resolution_clock::now();
             async_write_buffer.submit();
             auto submit_end = chrono::high_resolution_clock::now();
@@ -393,9 +393,6 @@ BufferFrame& BufferManager::allocatePage()
 {
   // Pick a pratition randomly
   Partition &partition = randomPartition();
-  if (partition.dram_free_list.counter < (FLAGS_free_threshold)) {
-    throw RestartException();
-  }
   BufferFrame& free_bf = partition.dram_free_list.pop();
   PID free_pid = ssd_used_pages_counter++;
   assert(free_bf.header.state == BufferFrame::State::FREE);
@@ -470,11 +467,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
   // -------------------------------------------------------------------------------------
   auto frame_handler = partition.ht.lookup(pid);
   if (!frame_handler) {
-    if (partition.dram_free_list.counter < (FLAGS_free_threshold)) {
-      g_guard.unlock();
-      throw RestartException();
-    }
-    BufferFrame& bf = partition.dram_free_list.pop();
+    BufferFrame& bf = partition.dram_free_list.tryPop(g_guard);
     CIOFrame& cio_frame = partition.ht.insert(pid);
     assert(bf.header.state == BufferFrame::State::FREE);
     bf.header.lock.assertNotExclusivelyLatched();

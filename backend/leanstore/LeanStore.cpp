@@ -72,7 +72,7 @@ void LeanStore::debuggingThread()
   // -------------------------------------------------------------------------------------
   vector<StatEntry> stats;
   s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0, total;
-  u64 local_tx, local_total_free = 0, local_total_cool = 0;
+  u64 local_tx, local_total_free, local_total_cool;
   // -------------------------------------------------------------------------------------
   stats.emplace_back("p1_pct", [&](ostream& out) { out << (local_phase_1_ms * 100.0 / total); });
   stats.emplace_back("p2_pct", [&](ostream& out) { out << (local_phase_2_ms * 100.0 / total); });
@@ -128,6 +128,7 @@ void LeanStore::debuggingThread()
     total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
     // -------------------------------------------------------------------------------------
     local_tx = sum(WorkerCounters::worker_counters, &WorkerCounters::tx);
+    local_total_free = 0; local_total_cool =0;
     for(u64 p_i = 0; p_i< buffer_manager.partitions_count; p_i++) {
       local_total_free += buffer_manager.partitions[p_i].dram_free_list.counter.load();
       local_total_cool += buffer_manager.partitions[p_i].cooling_bfs_counter.load();

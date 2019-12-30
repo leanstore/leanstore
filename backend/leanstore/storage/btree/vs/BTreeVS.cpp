@@ -1,5 +1,4 @@
 #include "BTreeVS.hpp"
-#include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -21,32 +20,6 @@ void BTree::init(DTID dtid)
   auto root_write_guard = ExclusivePageGuard<BTreeNode>::allocateNewPage(dtid);
   root_write_guard.init(true);
   root_swip = root_write_guard.bf;
-}
-// -------------------------------------------------------------------------------------
-OptimisticPageGuard<BTreeNode> BTree::findLeafForRead(u8* key, u16 key_length)
-{
-  u32 mask = 1;
-  u32 const max = 512;  // MAX_BACKOFF
-  while (true) {
-    try {
-      auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-      OptimisticPageGuard c_guard(p_guard, root_swip);
-      while (!c_guard->is_leaf) {
-        Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
-        p_guard = std::move(c_guard);
-        c_guard = OptimisticPageGuard(p_guard, c_swip);
-      }
-      p_guard.kill();
-      c_guard.recheck_done();
-      return c_guard;
-    } catch (RestartException e) {
-      for (u32 i = mask; i; --i) {
-        _mm_pause();
-      }
-      mask = mask < max ? mask << 1 : max;
-      WorkerCounters::myCounters().dt_restarts_read[dtid]++;
-    }
-  }
 }
 // -------------------------------------------------------------------------------------
 bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
@@ -231,7 +204,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     try {
-      OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead(key, key_length);
+      OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead<false>(key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       s32 pos = c_x_guard->lowerBound<true>(key, key_length);
       assert(pos != -1);
@@ -510,6 +483,11 @@ u32 BTree::countPages()
 u32 BTree::countInner()
 {
   return iterateAllPages([](BTreeNode&) { return 1; }, [](BTreeNode&) { return 0; });
+}
+// -------------------------------------------------------------------------------------
+double BTree::averageSpaceUsage()
+{
+  ensure(false); // TODO
 }
 // -------------------------------------------------------------------------------------
 u32 BTree::bytesFree()

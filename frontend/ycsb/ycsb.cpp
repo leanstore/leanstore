@@ -2,6 +2,7 @@
 #include "leanstore/BTreeAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
@@ -9,7 +10,6 @@
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>
-#include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
 #include <iostream>
 // -------------------------------------------------------------------------------------
@@ -46,8 +46,6 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
-  PerfEvent e;
-  e.setParam("threads", FLAGS_worker_threads);
   chrono::high_resolution_clock::time_point begin, end;
   // -------------------------------------------------------------------------------------
   // LeanStore DB
@@ -103,12 +101,10 @@ int main(int argc, char** argv)
   // Insert values
   {
     const u64 n = FLAGS_ycsb_tuple_count;
-    e.setParam("op", "insert");
     cout << "-------------------------------------------------------------------------------------" << endl;
     cout << "Inserting values" << endl;
     begin = chrono::high_resolution_clock::now();
     {
-      PerfEventBlock b(e, n);
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
         for (u64 i = range.begin(); i < range.end(); i++) {
           YCSBPayload& payload = payloads[i];
@@ -129,13 +125,11 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   // Scan
   if (FLAGS_ycsb_scan) {
-    e.setParam("op", "scan");
     const u64 n = FLAGS_ycsb_tuple_count;
     cout << "-------------------------------------------------------------------------------------" << endl;
     cout << "Scan" << endl;
     {
       begin = chrono::high_resolution_clock::now();
-      PerfEventBlock b(e, n);
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
         for (u64 i = range.begin(); i < range.end(); i++) {
           YCSBPayload result;
@@ -173,15 +167,13 @@ int main(int argc, char** argv)
     const u64 n = lookup_keys.size();
     cout << "-------------------------------------------------------------------------------------" << endl;
     cout << "~Transactions" << endl;
-    e.setParam("op", "tx");
-    PerfEventBlock b(e, lookup_keys.size() * (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds));
     for (u32 r_i = 0; r_i < (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds); r_i++) {
       begin = chrono::high_resolution_clock::now();
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
         for (u64 i = range.begin(); i < range.end(); i++) {
           YCSBKey key = lookup_keys[i];
           YCSBPayload result;
-          if (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_ycsb_read_ratio) {
+          if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_ycsb_read_ratio) {
             table.lookup(key, result);
           } else {
             const u32 rand_payload = utils::RandomGenerator::getRand<u32>(0, FLAGS_ycsb_tuple_count);
@@ -190,6 +182,7 @@ int main(int argc, char** argv)
               ensure(table.lookup(key, result) && result == payloads[rand_payload]);
             }
           }
+         WorkerCounters::myCounters().tx++;
         }
       });
       end = chrono::high_resolution_clock::now();

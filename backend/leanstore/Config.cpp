@@ -20,6 +20,5 @@ DEFINE_bool(print_debug, true, "");
 DEFINE_uint32(print_debug_interval_s, 1, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(worker_threads, 20, "");
-DEFINE_uint32(free_threshold, 10, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(root, false, "does this process have root rights ?");
