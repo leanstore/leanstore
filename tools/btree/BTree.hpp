@@ -113,13 +113,11 @@ struct BTreeInner : public BTreeInnerBase {
       unsigned mid = ((upper - lower) / 2) + lower;
       if (k < keys[mid]) {
         if (!(mid <= upper)) {
-          assert(false);
           jumpmu::restore();
         }
         upper = mid;
       } else if (k > keys[mid]) {
         if (!(lower <= mid)) {
-          assert(false);
           jumpmu::restore();
         }
         lower = mid + 1;
@@ -180,7 +178,6 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   void insert(Key k, Value v)
   {
-    assert(jumpmu::checkpoint_counter == 0);
     while (true) {
       jumpmuTry()
       {
@@ -237,10 +234,6 @@ struct BTree {
           jumpmu::restore();
         }
         leaf->insert(k, v);
-        {
-          int64_t pos = leaf->lowerBound(k);
-          assert((pos < leaf->count) && (leaf->keys[pos] == k));
-        }
         jumpmu_return;
       }
       jumpmuCatch()
@@ -248,7 +241,6 @@ struct BTree {
         restarts_counter++;
       }
     }
-    assert(jumpmu::checkpoint_counter == 0);
   }
   bool lookup(Key k, Value& result)
   {
