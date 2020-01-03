@@ -200,11 +200,7 @@ struct BTree {
           if (inner->count == inner->maxEntries - 1) {
             // Split inner eagerly
             ExclusiveLock p_x_lock(p_lock);
-            assert(jumpmu::checkpoint_counter == 1);
-            assert(jumpmu::de_stack_counter == 1);
             ExclusiveLock c_x_lock(c_lock);
-            assert(jumpmu::checkpoint_counter == 1);
-            assert(jumpmu::de_stack_counter == 2);
             Key sep;
             BTreeInner<Key>* newInner = inner->split(sep);
             if (p_node != nullptr)
@@ -214,9 +210,7 @@ struct BTree {
             }
 
             BTreeInner<Key>* new_root = static_cast<BTreeInner<Key>*>(root.load());
-            //raise(SIGTRAP);
             jumpmu::restore();
-            assert(false);
           }
           // -------------------------------------------------------------------------------------
           unsigned pos = inner->lowerBound(k);
@@ -232,30 +226,14 @@ struct BTree {
           // -------------------------------------------------------------------------------------
           level++;
           tmp = p_node->count;
-          assert(jumpmu::checkpoint_counter == 1);
-          assert(jumpmu::de_stack_counter == 0);
           if(level > 1) {
             //cout << "more than 1  " << endl;
             //raise(SIGTRAP);
           }
         }
-        if(level > 1) {
-          auto root_ptr = root.load();
-          assert( p_node != root.load());
-          assert( c_node != root.load());
-          assert( c_node->type == PageType::BTreeLeaf);
-        }
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
         ExclusiveLock p_x_lock(p_lock);
         ExclusiveLock c_x_lock(c_lock);
-        jumpmuTry() {
-          //r_lock.recheck();
-        } jumpmuCatch() {
-          //assert(p_lock.)
-          raise(SIGTRAP);
-          jumpmu::restore();
-        }
-        assert(jumpmu::de_stack_counter == 2);
         if (leaf->count == leaf->maxEntries) {
           // Leaf is full, split it
           Key sep;
@@ -263,16 +241,10 @@ struct BTree {
           if (p_node != nullptr)
             p_node->insert(sep, newLeaf);
           else {
-            //raise(SIGTRAP);
             makeRoot(sep, leaf, newLeaf);
           }
-
-          assert(jumpmu::checkpoint_counter == 1);
-          assert(jumpmu::de_stack_counter == 2);
           jumpmu::restore();
-          assert(false);
         }
-        assert(jumpmu::de_stack_counter == 2);
         leaf->insert(k, v);
         {
           int64_t pos = leaf->lowerBound(k);
@@ -282,8 +254,6 @@ struct BTree {
       }
       jumpmuCatch()
       {
-        assert(jumpmu::checkpoint_counter == 0);
-        assert(jumpmu::de_stack_counter == 0);
         restarts_counter++;
       }
     }
@@ -291,7 +261,6 @@ struct BTree {
   }
   bool lookup(Key k, Value& result)
   {
-    assert(jumpmu::checkpoint_counter == 0);
     while (true) {
       jumpmuTry()
       {
@@ -328,7 +297,6 @@ struct BTree {
           c_lock.recheck();
           jumpmu_return true;
         }
-        assert(false);
         jumpmu_return false;
       }
       jumpmuCatch() { restarts_counter++; }
