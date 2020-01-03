@@ -1,7 +1,7 @@
 #pragma once
 #include <random>
-#include "Primitives.hpp"
 #include "JumpMU.hpp"
+#include "Primitives.hpp"
 
 namespace libgcc
 {
@@ -161,6 +161,8 @@ struct BTree {
 
   BTree()
   {
+    cout << BTreeLeaf<Key, Value>::maxEntries << endl;
+    cout << BTreeInner<Key>::maxEntries << endl;
     root = new BTreeLeaf<Key, Value>();
     root_version = 0;
   }
@@ -173,53 +175,86 @@ struct BTree {
     inner->children[0] = leftChild;
     inner->children[1] = rightChild;
     root = inner;
+    cout << "make root" << endl;
   }
- // -------------------------------------------------------------------------------------
+  // -------------------------------------------------------------------------------------
   void insert(Key k, Value v)
   {
     assert(jumpmu::checkpoint_counter == 0);
     while (true) {
+      int level = 0;
+      u64 tmp = 0;
       assert(jumpmu::checkpoint_counter == 0);
-      jumpmuTry() {
+      jumpmuTry()
+      {
         SharedLock r_lock(root_version);
+        // -------------------------------------------------------------------------------------
         NodeBase* c_node = root;
         BTreeInner<Key>* p_node = nullptr;
+        SharedLock p_lock(root_version);
         SharedLock c_lock(c_node->version);
-        SharedLock p_lock;
-
         while (c_node->type == PageType::BTreeInner) {
           auto inner = static_cast<BTreeInner<Key>*>(c_node);
+          p_lock.recheck();
           // -------------------------------------------------------------------------------------
           if (inner->count == inner->maxEntries - 1) {
             // Split inner eagerly
-            ExclusiveLock p_x_lock((p_node) ? p_lock : r_lock);
+            ExclusiveLock p_x_lock(p_lock);
+            assert(jumpmu::checkpoint_counter == 1);
+            assert(jumpmu::de_stack_counter == 1);
             ExclusiveLock c_x_lock(c_lock);
+            assert(jumpmu::checkpoint_counter == 1);
+            assert(jumpmu::de_stack_counter == 2);
             Key sep;
             BTreeInner<Key>* newInner = inner->split(sep);
             if (p_node != nullptr)
               p_node->insert(sep, newInner);
-            else
+            else {
               makeRoot(sep, inner, newInner);
+            }
 
-            assert(jumpmu::de_stack_counter == 2);
-            jumpmu::restore();  // restart
+            BTreeInner<Key>* new_root = static_cast<BTreeInner<Key>*>(root.load());
+            //raise(SIGTRAP);
+            jumpmu::restore();
+            assert(false);
           }
           // -------------------------------------------------------------------------------------
-          p_lock.recheck();  // ^release^ parent before searching in the current node
           unsigned pos = inner->lowerBound(k);
+          auto ptr = inner->children[pos];
           p_node = inner;
-          c_node = inner->children[pos];
-          p_lock.recheck();
-          c_lock.recheck();
-          // -------------------------------------------------------------------------------------
           p_lock = c_lock;
-          c_lock = SharedLock(c_node->version);
-          assert(c_node);
-        }
 
+          c_node = ptr;
+          c_lock = SharedLock(c_node->version);
+          p_lock.recheck();
+          // -------------------------------------------------------------------------------------
+          assert(c_node);
+          // -------------------------------------------------------------------------------------
+          level++;
+          tmp = p_node->count;
+          assert(jumpmu::checkpoint_counter == 1);
+          assert(jumpmu::de_stack_counter == 0);
+          if(level > 1) {
+            //cout << "more than 1  " << endl;
+            //raise(SIGTRAP);
+          }
+        }
+        if(level > 1) {
+          auto root_ptr = root.load();
+          assert( p_node != root.load());
+          assert( c_node != root.load());
+          assert( c_node->type == PageType::BTreeLeaf);
+        }
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
-        ExclusiveLock p_x_lock((p_node != nullptr) ? p_lock : r_lock);
+        ExclusiveLock p_x_lock(p_lock);
         ExclusiveLock c_x_lock(c_lock);
+        jumpmuTry() {
+          //r_lock.recheck();
+        } jumpmuCatch() {
+          //assert(p_lock.)
+          raise(SIGTRAP);
+          jumpmu::restore();
+        }
         assert(jumpmu::de_stack_counter == 2);
         if (leaf->count == leaf->maxEntries) {
           // Leaf is full, split it
@@ -227,27 +262,27 @@ struct BTree {
           BTreeLeaf<Key, Value>* newLeaf = leaf->split(sep);
           if (p_node != nullptr)
             p_node->insert(sep, newLeaf);
-          else
+          else {
+            //raise(SIGTRAP);
             makeRoot(sep, leaf, newLeaf);
-          if (k >= sep)
-            leaf = newLeaf;
+          }
 
+          assert(jumpmu::checkpoint_counter == 1);
           assert(jumpmu::de_stack_counter == 2);
           jumpmu::restore();
+          assert(false);
         }
-        // -------------------------------------------------------------------------------------
-        // if (rand() % 10 >= 5) {
-        //   jumpmu::restore();
-        // }
-        // -------------------------------------------------------------------------------------
         assert(jumpmu::de_stack_counter == 2);
         leaf->insert(k, v);
         {
-           int64_t pos = leaf->lowerBound(k);
-           assert ((pos < leaf->count) && (leaf->keys[pos] == k));
+          int64_t pos = leaf->lowerBound(k);
+          assert((pos < leaf->count) && (leaf->keys[pos] == k));
         }
         jumpmu_return;
-      } jumpmuCatch() {
+      }
+      jumpmuCatch()
+      {
+        assert(jumpmu::checkpoint_counter == 0);
         assert(jumpmu::de_stack_counter == 0);
         restarts_counter++;
       }
@@ -258,7 +293,8 @@ struct BTree {
   {
     assert(jumpmu::checkpoint_counter == 0);
     while (true) {
-      jumpmuTry() {
+      jumpmuTry()
+      {
         NodeBase* c_node = root.load();
 
         SharedLock c_lock(c_node->version);
@@ -273,6 +309,9 @@ struct BTree {
 
           int64_t pos = inner->lowerBound(k);
           c_node = inner->children[pos];
+          if (p_lock) {
+            p_lock.recheck();
+          }
           c_lock.recheck();
           p_lock = c_lock;
           c_lock = SharedLock(c_node->version);
@@ -291,11 +330,10 @@ struct BTree {
         }
         assert(false);
         jumpmu_return false;
-      } jumpmuCatch() {
-        restarts_counter++;
       }
+      jumpmuCatch() { restarts_counter++; }
     }
   }
   ~BTree() { cout << "restarts counter = " << restarts_counter << endl; }
 };
-}
+}  // namespace libgcc
