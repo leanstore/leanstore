@@ -28,7 +28,7 @@ int main(int argc, char** argv)
         {
            PerfEventBlock b(e, n);
            e.setParam("workload", "insert");
-           e.setParam("approach", "libgcc_opt");
+           e.setParam("approach", "jumpmu");
            e.setParam("threads", threads);
 
            tbb::parallel_for(tbb::blocked_range<uint32_t>(0, n), [&](const tbb::blocked_range<uint32_t> &range) {
@@ -43,7 +43,7 @@ int main(int argc, char** argv)
            {
               PerfEventBlock b(e, n);
               e.setParam("workload", "lookup");
-              e.setParam("approach", "libgcc_opt");
+              e.setParam("approach", "jumpmu");
               e.setParam("threads", threads);
 
               tbb::parallel_for(tbb::blocked_range<uint32_t>(0, n), [&](const tbb::blocked_range<uint32_t> &range) {
@@ -60,7 +60,7 @@ int main(int argc, char** argv)
            {
               PerfEventBlock b(e, n);
               e.setParam("workload", "mix");
-              e.setParam("approach", "libgcc_opt");
+              e.setParam("approach", "jumpmu");
               e.setParam("threads", threads);
 
               tbb::parallel_for(tbb::blocked_range<uint32_t>(0, n), [&](const tbb::blocked_range<uint32_t> &range) {

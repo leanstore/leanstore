@@ -265,20 +265,20 @@ struct BTree {
 
     BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(node);
 
-    if (parent_node) {
-      if (!upgradeToWriteLockOrRestart(*parent_node, parent_version)) {
-        goto insert_start;
-      }
-    } else {
-      if (!upgradeToWriteLockOrRestart(root_lock, root_version)) {
-        goto insert_start;
-      }
-    }
-    if (!upgradeToWriteLockOrRestart(*node, version)) {
-      goto insert_start;
-    }
-
     if (leaf->count == leaf->maxEntries) {
+      if (parent_node) {
+        if (!upgradeToWriteLockOrRestart(*parent_node, parent_version)) {
+          goto insert_start;
+        }
+      } else {
+        if (!upgradeToWriteLockOrRestart(root_lock, root_version)) {
+          goto insert_start;
+        }
+      }
+      if (!upgradeToWriteLockOrRestart(*node, version)) {
+        goto insert_start;
+      }
+
       auto parent_inner = static_cast<BTreeInner<Key>*>(parent_node);
       // Leaf is full, split it
       Key sep;
@@ -296,16 +296,16 @@ struct BTree {
         writeUnlock(root_lock);
       }
       goto insert_start;
-    }
-    // -------------------------------------------------------------------------------------
-    leaf->insert(k, v);
+    } else {
+       if (!upgradeToWriteLockOrRestart(*node, version)) {
+        goto insert_start;
+      }
+       leaf->insert(k, v);
 
     writeUnlock(*node);
-    if (parent_node) {
-      writeUnlock(*parent_node);
-    } else {
-      writeUnlock(root_lock);
     }
+    // -------------------------------------------------------------------------------------
+
   }
 
   bool lookup(Key k, Value& result)

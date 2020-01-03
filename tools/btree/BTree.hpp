@@ -206,21 +206,21 @@ struct BTree {
           // -------------------------------------------------------------------------------------
           unsigned pos = inner->lowerBound(k);
           auto ptr = inner->children[pos];
+          c_lock.recheck();
 
           p_node = inner;
-          p_lock.recheck();
           p_lock = c_lock;
-
           c_node = ptr;
           c_lock = SharedLock(c_node->version);
+          p_lock.recheck();
           // -------------------------------------------------------------------------------------
           assert(c_node);
           // -------------------------------------------------------------------------------------
         }
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
-        ExclusiveLock p_x_lock(p_lock);
-        ExclusiveLock c_x_lock(c_lock);
         if (leaf->count == leaf->maxEntries) {
+          ExclusiveLock p_x_lock(p_lock);
+          ExclusiveLock c_x_lock(c_lock);
           // Leaf is full, split it
           Key sep;
           BTreeLeaf<Key, Value>* newLeaf = leaf->split(sep);
@@ -230,9 +230,11 @@ struct BTree {
             makeRoot(sep, leaf, newLeaf);
           }
           jumpmu::restore();
+        } else {
+          ExclusiveLock c_x_lock(c_lock);
+          leaf->insert(k, v);
+          jumpmu_return;
         }
-        leaf->insert(k, v);
-        jumpmu_return;
       }
       jumpmuCatch()
       {
