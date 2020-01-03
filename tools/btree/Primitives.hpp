@@ -1,6 +1,7 @@
 #pragma once
 #include <atomic>
 #include "Units.hpp"
+#include "JumpMU.hpp"
 using namespace std;
 // -------------------------------------------------------------------------------------
 
@@ -41,7 +42,7 @@ class SharedLock
   void recheck()
   {
     if (locked && local_version != *version_ptr) {
-      throw OptimisticLockException();
+      jumpmu::restore();
     }
   }
   // -------------------------------------------------------------------------------------
@@ -61,17 +62,22 @@ class ExclusiveLock
     assert(ref_lock.version_ptr != nullptr);
     lock_version_t new_version = ref_lock.local_version + 2;
     if (!std::atomic_compare_exchange_strong(ref_lock.version_ptr, &ref_lock.local_version, new_version)) {
-      throw OptimisticLockException();
+      jumpmu::restore();
     }
     ref_lock.local_version = new_version;
+    jumpmu_registerDestructor();
+    assert(jumpmu::de_stack_counter <=2);
   }
   // -------------------------------------------------------------------------------------
+  jumpmu_defineCustomDestructor(ExclusiveLock)
   ~ExclusiveLock()
   {
     assert(ref_lock.version_ptr != nullptr);
     if (ref_lock.version_ptr != nullptr) {
       ref_lock.local_version = 2 + ref_lock.version_ptr->fetch_add(2);
     }
+    assert(jumpmu::de_stack_counter <=2);
+    jumpmu::decrement();
   }
 };
 // -------------------------------------------------------------------------------------

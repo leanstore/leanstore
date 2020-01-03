@@ -236,7 +236,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end) // [p_begin, p_en
               const PID pid = bf.header.pid;
               // -------------------------------------------------------------------------------------
               if (!bf.header.isCooledBecauseOfReading) {
-                assert(!bfheader.isWB);
+                assert(!bf.header.isWB);
                 if (bf.isDirty()) {
                   if (!async_write_buffer.add(bf)) {
                     // AsyncBuffer is full, break and start with phase 3

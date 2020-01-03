@@ -1,6 +1,7 @@
 #pragma once
 #include <random>
 #include "Primitives.hpp"
+#include "JumpMU.hpp"
 
 namespace libgcc
 {
@@ -112,12 +113,14 @@ struct BTreeInner : public BTreeInnerBase {
       unsigned mid = ((upper - lower) / 2) + lower;
       if (k < keys[mid]) {
         if (!(mid <= upper)) {
-          throw OptimisticLockException();
+          assert(false);
+          jumpmu::restore();
         }
         upper = mid;
       } else if (k > keys[mid]) {
         if (!(lower <= mid)) {
-          throw OptimisticLockException();
+          assert(false);
+          jumpmu::restore();
         }
         lower = mid + 1;
       } else {
@@ -171,15 +174,13 @@ struct BTree {
     inner->children[1] = rightChild;
     root = inner;
   }
-  struct TestObject {
-    TestObject() { throw OptimisticLockException(); }
-  };
-  // -------------------------------------------------------------------------------------
+ // -------------------------------------------------------------------------------------
   void insert(Key k, Value v)
   {
+    assert(jumpmu::checkpoint_counter == 0);
     while (true) {
-      try {
-        // TestObject o1;
+      assert(jumpmu::checkpoint_counter == 0);
+      jumpmuTry() {
         SharedLock r_lock(root_version);
         NodeBase* c_node = root;
         BTreeInner<Key>* p_node = nullptr;
@@ -200,13 +201,15 @@ struct BTree {
             else
               makeRoot(sep, inner, newInner);
 
-            throw OptimisticLockException();  // restart
+            assert(jumpmu::de_stack_counter == 2);
+            jumpmu::restore();  // restart
           }
           // -------------------------------------------------------------------------------------
           p_lock.recheck();  // ^release^ parent before searching in the current node
           unsigned pos = inner->lowerBound(k);
           p_node = inner;
           c_node = inner->children[pos];
+          p_lock.recheck();
           c_lock.recheck();
           // -------------------------------------------------------------------------------------
           p_lock = c_lock;
@@ -217,6 +220,7 @@ struct BTree {
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
         ExclusiveLock p_x_lock((p_node != nullptr) ? p_lock : r_lock);
         ExclusiveLock c_x_lock(c_lock);
+        assert(jumpmu::de_stack_counter == 2);
         if (leaf->count == leaf->maxEntries) {
           // Leaf is full, split it
           Key sep;
@@ -228,24 +232,33 @@ struct BTree {
           if (k >= sep)
             leaf = newLeaf;
 
-          throw OptimisticLockException();
+          assert(jumpmu::de_stack_counter == 2);
+          jumpmu::restore();
         }
         // -------------------------------------------------------------------------------------
-        if (rand() % 10 >= 5) {
-          throw OptimisticLockException();
-        }
+        // if (rand() % 10 >= 5) {
+        //   jumpmu::restore();
+        // }
         // -------------------------------------------------------------------------------------
+        assert(jumpmu::de_stack_counter == 2);
         leaf->insert(k, v);
-        return;
-      } catch (OptimisticLockException e) {
+        {
+           int64_t pos = leaf->lowerBound(k);
+           assert ((pos < leaf->count) && (leaf->keys[pos] == k));
+        }
+        jumpmu_return;
+      } jumpmuCatch() {
+        assert(jumpmu::de_stack_counter == 0);
         restarts_counter++;
       }
     }
+    assert(jumpmu::checkpoint_counter == 0);
   }
   bool lookup(Key k, Value& result)
   {
+    assert(jumpmu::checkpoint_counter == 0);
     while (true) {
-      try {
+      jumpmuTry() {
         NodeBase* c_node = root.load();
 
         SharedLock c_lock(c_node->version);
@@ -274,10 +287,11 @@ struct BTree {
         if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
           result = leaf->payloads[pos];
           c_lock.recheck();
-          return true;
+          jumpmu_return true;
         }
-        return false;
-      } catch (OptimisticLockException e) {
+        assert(false);
+        jumpmu_return false;
+      } jumpmuCatch() {
         restarts_counter++;
       }
     }
