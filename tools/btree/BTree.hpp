@@ -182,9 +182,6 @@ struct BTree {
   {
     assert(jumpmu::checkpoint_counter == 0);
     while (true) {
-      int level = 0;
-      u64 tmp = 0;
-      assert(jumpmu::checkpoint_counter == 0);
       jumpmuTry()
       {
         SharedLock r_lock(root_version);
@@ -195,7 +192,6 @@ struct BTree {
         SharedLock c_lock(c_node->version);
         while (c_node->type == PageType::BTreeInner) {
           auto inner = static_cast<BTreeInner<Key>*>(c_node);
-          p_lock.recheck();
           // -------------------------------------------------------------------------------------
           if (inner->count == inner->maxEntries - 1) {
             // Split inner eagerly
@@ -215,21 +211,16 @@ struct BTree {
           // -------------------------------------------------------------------------------------
           unsigned pos = inner->lowerBound(k);
           auto ptr = inner->children[pos];
+
           p_node = inner;
+          p_lock.recheck();
           p_lock = c_lock;
 
           c_node = ptr;
           c_lock = SharedLock(c_node->version);
-          p_lock.recheck();
           // -------------------------------------------------------------------------------------
           assert(c_node);
           // -------------------------------------------------------------------------------------
-          level++;
-          tmp = p_node->count;
-          if(level > 1) {
-            //cout << "more than 1  " << endl;
-            //raise(SIGTRAP);
-          }
         }
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
         ExclusiveLock p_x_lock(p_lock);
