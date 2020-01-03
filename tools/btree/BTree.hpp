@@ -173,7 +173,6 @@ struct BTree {
     inner->children[0] = leftChild;
     inner->children[1] = rightChild;
     root = inner;
-    cout << "make root" << endl;
   }
   // -------------------------------------------------------------------------------------
   void insert(Key k, Value v)
@@ -202,7 +201,6 @@ struct BTree {
               makeRoot(sep, inner, newInner);
             }
 
-            BTreeInner<Key>* new_root = static_cast<BTreeInner<Key>*>(root.load());
             jumpmu::restore();
           }
           // -------------------------------------------------------------------------------------
