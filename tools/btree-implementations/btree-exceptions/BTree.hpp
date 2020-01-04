@@ -179,7 +179,10 @@ struct BTree {
   void insert(Key k, Value v)
   {
     while (true) {
-      try {
+      try
+      {
+        SharedLock r_lock(root_version);
+        // -------------------------------------------------------------------------------------
         NodeBase* c_node = root;
         BTreeInner<Key>* p_node = nullptr;
         SharedLock p_lock(root_version);
@@ -187,7 +190,6 @@ struct BTree {
         p_lock.recheck();
         while (c_node->type == PageType::BTreeInner) {
           auto inner = static_cast<BTreeInner<Key>*>(c_node);
-          p_lock.recheck();
           // -------------------------------------------------------------------------------------
           if (inner->count == inner->maxEntries - 1) {
             // Split inner eagerly
@@ -197,10 +199,10 @@ struct BTree {
             BTreeInner<Key>* newInner = inner->split(sep);
             if (p_node != nullptr)
               p_node->insert(sep, newInner);
-            else
+            else {
               makeRoot(sep, inner, newInner);
-
-            throw OptimisticLockException();  // restart
+            }
+            throw OptimisticLockException();
           }
           // -------------------------------------------------------------------------------------
           unsigned pos = inner->lowerBound(k);
@@ -214,6 +216,10 @@ struct BTree {
           p_lock.recheck();
           // -------------------------------------------------------------------------------------
           assert(c_node);
+          // -------------------------------------------------------------------------------------
+        }
+        if(rand() % 2 ==1) {
+          throw OptimisticLockException();
         }
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
         if (leaf->count == leaf->maxEntries) {
@@ -224,17 +230,17 @@ struct BTree {
           BTreeLeaf<Key, Value>* newLeaf = leaf->split(sep);
           if (p_node != nullptr)
             p_node->insert(sep, newLeaf);
-          else
+          else {
             makeRoot(sep, leaf, newLeaf);
+          }
           throw OptimisticLockException();
         } else {
           ExclusiveLock c_x_lock(c_lock);
           leaf->insert(k, v);
           return;
         }
-      } catch (OptimisticLockException e) {
-        restarts_counter++;
       }
+      catch(OptimisticLockException e) { restarts_counter++; }
     }
   }
   bool lookup(Key k, Value& result)

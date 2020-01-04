@@ -12,9 +12,8 @@
 // -------------------------------------------------------------------------------------
 using namespace std;
 template <typename BTreeType>
-void bench(string name, const std::vector<u64>& work, u64 t)
+void bench(string name, const std::vector<u64>& work, u64 t, PerfEvent& e)
 {
-  PerfEvent e;
   BTreeType btree;
   const u64 n = work.size();
   // insert
@@ -73,19 +72,25 @@ void bench(string name, const std::vector<u64>& work, u64 t)
   }
 }
 // -------------------------------------------------------------------------------------
-int main(int argc, char** argv)
+int main(int, char**)
 {
   u64 n = getenv("N") ? atoi(getenv("N")) : 1e6;
   u64 t = getenv("T") ? atoi(getenv("T")) : 4;
   // -------------------------------------------------------------------------------------
-  std::vector<u64> work(n);
-  for (u64 i = 0; i < n; i++)
-    work[i] = i;
-  std::random_shuffle(work.begin(), work.end());
+  PerfEvent e;
   // -------------------------------------------------------------------------------------
   tbb::task_scheduler_init taskScheduler(t);
-  //bench<btree::uglygoto::BTree<u64, u64>>("goto", work, t); // goto implementation is still buggy
-  bench<btree::jmu::BTree<u64, u64>>("jumpmu", work, t);
-  bench<btree::libgcc::BTree<u64, u64>>("libgcc", work, t);
+  std::vector<u64> work(n);
+  tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
+    for (u64 i = range.begin(); i < range.end(); i++) {
+      work[i] = i;
+    }
+  });
+  std::random_shuffle(work.begin(), work.end());
+  cout << "start" << endl;
+  // -------------------------------------------------------------------------------------
+  // bench<btree::uglygoto::BTree<u64, u64>>("goto", work, t); // goto implementation is still buggy
+  bench<btree::libgcc::BTree<u64, u64>>("libgcc", work, t, e);
+  bench<btree::jmu::BTree<u64, u64>>("jumpmu", work, t, e);
   return 0;
 }

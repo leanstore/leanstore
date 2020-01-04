@@ -221,6 +221,9 @@ struct BTree {
           assert(c_node);
           // -------------------------------------------------------------------------------------
         }
+        if(rand() % 2 ==1) {
+          jumpmu::restore();
+        }
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
         if (leaf->count == leaf->maxEntries) {
           ExclusiveLock p_x_lock(p_lock);
