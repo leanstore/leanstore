@@ -1,10 +1,14 @@
 #pragma once
 #include <unistd.h>
+
 #include <atomic>
 
 using namespace std;
-namespace optimistic
+namespace btree
 {
+namespace uglygoto
+{
+enum class PageType : uint8_t { BTreeInner = 1, BTreeLeaf = 2 };
 struct NodeBase {
   PageType type;
   uint16_t count;
@@ -107,4 +111,5 @@ bool isObsolete(uint64_t v)
 {
   return (v & 1) == 1;
 }
-}  // namespace optimistic
+}  // namespace uglygoto
+}  // namespace btree

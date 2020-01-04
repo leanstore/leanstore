@@ -1,10 +1,14 @@
 #pragma once
 #include <random>
+
 #include "JumpMU.hpp"
 #include "Primitives.hpp"
 
-namespace libgcc
+namespace btree
 {
+namespace jmu
+{
+enum class PageType : uint8_t { BTreeInner = 1, BTreeLeaf = 2 };
 struct NodeBase {
   PageType type;
   uint16_t count;
@@ -186,6 +190,7 @@ struct BTree {
         BTreeInner<Key>* p_node = nullptr;
         SharedLock p_lock(root_version);
         SharedLock c_lock(c_node->version);
+        p_lock.recheck();
         while (c_node->type == PageType::BTreeInner) {
           auto inner = static_cast<BTreeInner<Key>*>(c_node);
           // -------------------------------------------------------------------------------------
@@ -200,14 +205,13 @@ struct BTree {
             else {
               makeRoot(sep, inner, newInner);
             }
-
             jumpmu::restore();
           }
           // -------------------------------------------------------------------------------------
           unsigned pos = inner->lowerBound(k);
           auto ptr = inner->children[pos];
           c_lock.recheck();
-
+          // -------------------------------------------------------------------------------------
           p_node = inner;
           p_lock = c_lock;
           c_node = ptr;
@@ -236,10 +240,7 @@ struct BTree {
           jumpmu_return;
         }
       }
-      jumpmuCatch()
-      {
-        restarts_counter++;
-      }
+      jumpmuCatch() { restarts_counter++; }
     }
   }
   bool lookup(Key k, Value& result)
@@ -247,32 +248,26 @@ struct BTree {
     while (true) {
       jumpmuTry()
       {
-        NodeBase* c_node = root.load();
-
+        NodeBase* c_node = root;
+        BTreeInner<Key>* p_node = nullptr;
+        SharedLock p_lock(root_version);
         SharedLock c_lock(c_node->version);
-        SharedLock p_lock;
-
+        p_lock.recheck();
+        // -------------------------------------------------------------------------------------
         while (c_node->type == PageType::BTreeInner) {
           BTreeInner<Key>* inner = static_cast<BTreeInner<Key>*>(c_node);
-
-          if (p_lock) {
-            p_lock.recheck();
-          }
-
-          int64_t pos = inner->lowerBound(k);
-          c_node = inner->children[pos];
-          if (p_lock) {
-            p_lock.recheck();
-          }
+          // -------------------------------------------------------------------------------------
+          unsigned pos = inner->lowerBound(k);
+          auto ptr = inner->children[pos];
           c_lock.recheck();
+
+          p_node = inner;
           p_lock = c_lock;
+          c_node = ptr;
           c_lock = SharedLock(c_node->version);
-        }
-
-        if (p_lock) {
           p_lock.recheck();
+          // -------------------------------------------------------------------------------------
         }
-
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
         int64_t pos = leaf->lowerBound(k);
         if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
@@ -280,6 +275,7 @@ struct BTree {
           c_lock.recheck();
           jumpmu_return true;
         }
+        c_lock.recheck();
         jumpmu_return false;
       }
       jumpmuCatch() { restarts_counter++; }
@@ -287,4 +283,5 @@ struct BTree {
   }
   ~BTree() { cout << "restarts counter = " << restarts_counter << endl; }
 };
-}  // namespace libgcc
+}  // namespace jmu
+}  // namespace btree

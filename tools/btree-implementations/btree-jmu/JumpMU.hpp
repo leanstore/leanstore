@@ -1,5 +1,6 @@
 #pragma once
 #include <setjmp.h>
+
 #include <cassert>
 
 #define JUMPMU_STACK_SIZE 10
@@ -21,18 +22,18 @@ inline void decrement()
 
 }  // namespace jumpmu
 // -------------------------------------------------------------------------------------
-#define jumpmu_registerDestructor()                      \
-  assert(jumpmu::de_stack_counter < JUMPMU_STACK_SIZE);  \
-  assert(jumpmu::checkpoint_counter < JUMPMU_STACK_SIZE);  \
-  jumpmu::de_stack_arr[jumpmu::de_stack_counter] = &des; \
-  jumpmu::de_stack_obj[jumpmu::de_stack_counter] = this; \
+#define jumpmu_registerDestructor()                       \
+  assert(jumpmu::de_stack_counter < JUMPMU_STACK_SIZE);   \
+  assert(jumpmu::checkpoint_counter < JUMPMU_STACK_SIZE); \
+  jumpmu::de_stack_arr[jumpmu::de_stack_counter] = &des;  \
+  jumpmu::de_stack_obj[jumpmu::de_stack_counter] = this;  \
   jumpmu::de_stack_counter++;
 
 #define jumpmu_defineCustomDestructor(NAME) \
   static void des(void* t) { reinterpret_cast<NAME*>(t)->~NAME(); }
 
-#define jumpmu_return \
-  jumpmu::checkpoint_counter--;                 \
+#define jumpmu_return           \
+  jumpmu::checkpoint_counter--; \
   return
 
 // ATTENTION DO NOT DO ANYTHING BETWEEN setjmp and if !!

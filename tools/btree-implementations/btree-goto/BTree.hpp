@@ -1,9 +1,10 @@
 #pragma once
-#include "Common.hpp"
 #include "OptimisticNode.hpp"
 
 using namespace std;
-namespace optimistic
+namespace btree
+{
+namespace uglygoto
 {
 using ub8 = uint64_t;
 
@@ -187,7 +188,9 @@ struct BTree {
     if (!(version = readLockOrRestart(*node))) {
       goto insert_start;
     }
-
+    if (!readUnlockOrRestart(root_lock, root_version)) {
+      goto insert_start;
+    }
     while (node->type == PageType::BTreeInner) {
       auto inner = static_cast<BTreeInner<Key>*>(node);
 
@@ -297,15 +300,13 @@ struct BTree {
       }
       goto insert_start;
     } else {
-       if (!upgradeToWriteLockOrRestart(*node, version)) {
+      if (!upgradeToWriteLockOrRestart(*node, version)) {
         goto insert_start;
       }
-       leaf->insert(k, v);
-
-    writeUnlock(*node);
+      leaf->insert(k, v);
+      writeUnlock(*node);
     }
     // -------------------------------------------------------------------------------------
-
   }
 
   bool lookup(Key k, Value& result)
@@ -319,16 +320,34 @@ struct BTree {
     }
     ub8 version;
     ub8 parent_version;
+
+    if (!(parent_version = readLockOrRestart(root_lock))) {
+      goto lookup_start;
+    }
     bool is_root = true;
     NodeBase *node = root.load(), *parent_node;
-
     if (!(version = readLockOrRestart(*node))) {
+      goto lookup_start;
+    }
+
+    if (!readUnlockOrRestart(root_lock, parent_version)) {
       goto lookup_start;
     }
 
     while (node->type == PageType::BTreeInner) {
       BTreeInner<Key>* inner = static_cast<BTreeInner<Key>*>(node);
 
+      // -------------------------------------------------------------------------------------
+//      unsigned pos = inner->lowerBound(k);
+//      auto ptr = inner->children[pos];
+//      c_lock.recheck();
+//
+//      p_node = inner;
+//      p_lock = c_lock;
+//      c_node = ptr;
+//      c_lock = SharedLock(c_node->version);
+//      p_lock.recheck();
+      // -------------------------------------------------------------------------------------
       if (is_root) {
         is_root = false;
       } else {
@@ -341,18 +360,21 @@ struct BTree {
       if ((pos = inner->lowerBound(k)) == -1) {
         goto lookup_start;
       }
+      auto ptr =inner->children[pos];
+      if (!checkOrRestart(*node, version)) {  // refers to current node
+        goto lookup_start;
+      }
 
       parent_node = node;
       parent_version = version;
-
-      node = inner->children[pos];
+      node = ptr;
+      if (!(version = readLockOrRestart(*node))) {
+        goto lookup_start;
+      }
       if (!checkOrRestart(*parent_node, parent_version)) {  // refers to current node
         goto lookup_start;
       }
 
-      if (!(version = readLockOrRestart(*node))) {
-        goto lookup_start;
-      }
     }
 
     if (!is_root) {
@@ -381,4 +403,5 @@ struct BTree {
 
   ~BTree() { cout << "restarts counter = " << restarts_counter << endl; }
 };
-}  // namespace optimistic
+}  // namespace uglygoto
+}  // namespace btree

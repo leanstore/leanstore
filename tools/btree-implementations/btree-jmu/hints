@@ -1,0 +1,4 @@
+make -j btree_benchmark && ALL=8 T=10 N=124770   ./btree_benchmark
+
+
+read the locks top down, always !!
