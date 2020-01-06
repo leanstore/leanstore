@@ -1,6 +1,6 @@
 #pragma once
 #include <setjmp.h>
-
+#include <utility>
 #include <cassert>
 
 #define JUMPMU_STACK_SIZE 10
@@ -46,3 +46,18 @@ inline void decrement()
   jumpmu::checkpoint_counter--; \
   }                             \
   else
+
+
+template <typename T>
+class JMUW {
+ public:
+  T obj;
+  template <typename... Args>
+  JMUW(Args&&... args) : obj(std::forward<Args>(args)...) {
+    jumpmu_registerDestructor();
+  }
+  jumpmu_defineCustomDestructor(T)
+  ~JMUW() {
+    jumpmu::decrement();
+  }
+};

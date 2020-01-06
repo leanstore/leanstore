@@ -71,6 +71,14 @@ void bench(string name, const std::vector<u64>& work, u64 t, PerfEvent& e)
     });
   }
 }
+struct TestObject {
+  TestObject(){
+    cout <<"con"<<endl;
+  }
+  ~TestObject(){
+    cout <<"des"<<endl;
+  }
+};
 // -------------------------------------------------------------------------------------
 int main(int, char**)
 {

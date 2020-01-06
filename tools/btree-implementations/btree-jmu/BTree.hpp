@@ -221,7 +221,7 @@ struct BTree {
           assert(c_node);
           // -------------------------------------------------------------------------------------
         }
-        if(rand() % 2 ==1) {
+        if(rand() % 10 >2) {
           jumpmu::restore();
         }
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
