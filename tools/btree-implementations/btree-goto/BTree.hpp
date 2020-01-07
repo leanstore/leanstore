@@ -1,5 +1,17 @@
 #pragma once
-#include "OptimisticNode.hpp"
+
+#include <sstream>
+#include <cassert>
+#include <cstring>
+#include <atomic>
+#include <immintrin.h>
+#include <sched.h>
+
+#include <tbb/tbb.h>
+#include <vector>
+#include <array>
+#include <cassert>
+#include <algorithm>
 
 using namespace std;
 namespace btree
@@ -8,14 +20,98 @@ namespace uglygoto
 {
 using ub8 = uint64_t;
 
+enum class PageType : uint8_t { BTreeInner = 1, BTreeLeaf = 2 };
+static const uint64_t pageSize = 16 * 1024;
+struct OptLock {
+  std::atomic<uint64_t> typeVersionLockObsolete{0b100};
+
+  uint64_t waitFor()
+  {
+    uint64_t version = typeVersionLockObsolete.load();
+    while (isLocked(version)) {
+      _mm_pause();
+      version = typeVersionLockObsolete.load();
+    }
+    return version;
+  }
+
+  bool isLocked(uint64_t version) { return ((version & 0b10) == 0b10); }
+
+  uint64_t readLockOrRestart(bool& needRestart)
+  {
+    uint64_t version;
+    version = typeVersionLockObsolete.load();
+    if (isLocked(version) || isObsolete(version)) {
+      _mm_pause();
+      needRestart = true;
+    }
+    return version;
+  }
+
+  void writeLockOrRestart(bool& needRestart)
+  {
+    uint64_t version;
+    version = readLockOrRestart(needRestart);
+    if (needRestart)
+      return;
+
+    upgradeToWriteLockOrRestart(version, needRestart);
+    if (needRestart)
+      return;
+  }
+
+  void upgradeToWriteLockOrRestart(uint64_t& version, bool& needRestart)
+  {
+    if (typeVersionLockObsolete.compare_exchange_strong(version, version + 0b10)) {
+      version = version + 0b10;
+    } else {
+      _mm_pause();
+      needRestart = true;
+    }
+  }
+
+  void upgradeToWriteLock(uint64_t& version)
+  {
+  retry:
+    if (typeVersionLockObsolete.compare_exchange_strong(version, version + 0b10)) {
+      version = version + 0b10;
+    } else {
+      do {
+        _mm_pause();
+        version = typeVersionLockObsolete.load();
+      } while (isLocked(version));
+      goto retry;
+    }
+  }
+
+  void writeUnlock() { typeVersionLockObsolete.fetch_add(0b10); }
+
+  bool isObsolete(uint64_t version) { return (version & 1) == 1; }
+
+  void checkOrRestart(uint64_t startRead, bool& needRestart) const { readUnlockOrRestart(startRead, needRestart); }
+
+  void readUnlockOrRestart(uint64_t startRead, bool& needRestart) const { needRestart = (startRead != typeVersionLockObsolete.load()); }
+
+  void writeUnlockObsolete() { typeVersionLockObsolete.fetch_add(0b11); }
+};
+
+struct NodeBase : public OptLock {
+  PageType type;
+  uint16_t count;
+};
+
 struct BTreeLeafBase : public NodeBase {
   static const PageType typeMarker = PageType::BTreeLeaf;
 };
 
 template <class Key, class Payload>
 struct BTreeLeaf : public BTreeLeafBase {
-  static const uint64_t pageSizeLeaf = 16 * 1024;
-  static const uint64_t maxEntries = ((pageSizeLeaf - sizeof(NodeBase)) / (sizeof(Key) + sizeof(Payload))) - 1 /* slightly wasteful */;
+  struct Entry {
+    Key k;
+    Payload p;
+  };
+
+  static const uint64_t maxEntries = (pageSize - sizeof(NodeBase)) / (sizeof(Key) + sizeof(Payload));
 
   Key keys[maxEntries];
   Payload payloads[maxEntries];
@@ -26,21 +122,17 @@ struct BTreeLeaf : public BTreeLeafBase {
     type = typeMarker;
   }
 
-  int64_t lowerBound(Key k)
+  bool isFull() { return count == maxEntries; };
+
+  unsigned lowerBound(Key k)
   {
     unsigned lower = 0;
     unsigned upper = count;
     do {
       unsigned mid = ((upper - lower) / 2) + lower;
       if (k < keys[mid]) {
-        if (!(mid <= upper)) {
-          return -1;
-        }
         upper = mid;
       } else if (k > keys[mid]) {
-        if (!(lower <= mid)) {
-          return -1;
-        }
         lower = mid + 1;
       } else {
         return mid;
@@ -49,12 +141,25 @@ struct BTreeLeaf : public BTreeLeafBase {
     return lower;
   }
 
+  unsigned lowerBoundBF(Key k)
+  {
+    auto base = keys;
+    unsigned n = count;
+    while (n > 1) {
+      const unsigned half = n / 2;
+      base = (base[half] < k) ? (base + half) : base;
+      n -= half;
+    }
+    return (*base < k) + base - keys;
+  }
+
   void insert(Key k, Payload p)
   {
+    assert(count < maxEntries);
     if (count) {
       unsigned pos = lowerBound(k);
-      if (pos < count && keys[pos] == k) {
-        // overwrite page
+      if ((pos < count) && (keys[pos] == k)) {
+        // Upsert
         payloads[pos] = p;
         return;
       }
@@ -67,6 +172,16 @@ struct BTreeLeaf : public BTreeLeafBase {
       payloads[0] = p;
     }
     count++;
+  }
+
+  void remove(Key k)
+  {
+    unsigned pos = lowerBound(k);
+    if ((pos == count) || (keys[pos] != k))
+      return;
+    memmove(keys + pos, keys + pos + 1, sizeof(Key) * (count - pos - 1));
+    memmove(payloads + pos, payloads + pos + 1, sizeof(Payload) * (count - pos - 1));
+    count--;
   }
 
   BTreeLeaf* split(Key& sep)
@@ -87,9 +202,7 @@ struct BTreeInnerBase : public NodeBase {
 
 template <class Key>
 struct BTreeInner : public BTreeInnerBase {
-  static const uint64_t pageSizeInner = 16 * 1024;
-  static const uint64_t maxEntries = ((pageSizeInner - sizeof(NodeBase)) / (sizeof(Key) + sizeof(NodeBase*))) - 1 /* slightly wasteful */;
-
+  static const uint64_t maxEntries = (pageSize - sizeof(NodeBase)) / (sizeof(Key) + sizeof(NodeBase*));
   NodeBase* children[maxEntries];
   Key keys[maxEntries];
 
@@ -99,23 +212,29 @@ struct BTreeInner : public BTreeInnerBase {
     type = typeMarker;
   }
 
-  int64_t lowerBound(Key k)
+  bool isFull() { return count == (maxEntries - 1); };
+
+  unsigned lowerBoundBF(Key k)
+  {
+    auto base = keys;
+    unsigned n = count;
+    while (n > 1) {
+      const unsigned half = n / 2;
+      base = (base[half] < k) ? (base + half) : base;
+      n -= half;
+    }
+    return (*base < k) + base - keys;
+  }
+
+  unsigned lowerBound(Key k)
   {
     unsigned lower = 0;
     unsigned upper = count;
     do {
       unsigned mid = ((upper - lower) / 2) + lower;
       if (k < keys[mid]) {
-        if (!(mid <= upper)) {
-          cout << " weird" << endl;
-          return -1;
-        }
         upper = mid;
       } else if (k > keys[mid]) {
-        if (!(lower <= mid)) {
-          cout << " weird" << endl;
-          return -1;
-        }
         lower = mid + 1;
       } else {
         return mid;
@@ -137,6 +256,7 @@ struct BTreeInner : public BTreeInnerBase {
 
   void insert(Key k, NodeBase* child)
   {
+    assert(count < maxEntries - 1);
     unsigned pos = lowerBound(k);
     memmove(keys + pos + 1, keys + pos, sizeof(Key) * (count - pos + 1));
     memmove(children + pos + 1, children + pos, sizeof(NodeBase*) * (count - pos + 1));
@@ -149,9 +269,8 @@ struct BTreeInner : public BTreeInnerBase {
 
 template <class Key, class Value>
 struct BTree {
-  atomic<NodeBase*> root;
-  NodeBase root_lock;
-  atomic<uint64_t> restarts_counter = 0;
+  std::atomic<NodeBase*> root;
+
   BTree() { root = new BTreeLeaf<Key, Value>(); }
 
   void makeRoot(Key k, NodeBase* leftChild, NodeBase* rightChild)
@@ -164,244 +283,200 @@ struct BTree {
     root = inner;
   }
 
+  void yield(int count)
+  {
+    if (count > 3)
+      sched_yield();
+    else
+      _mm_pause();
+  }
+
   void insert(Key k, Value v)
   {
-    bool first = true;
-  insert_start:
-    if (!first) {
-      restarts_counter++;
-    } else {
-      first = false;
-    }
-    ub8 root_version;
+    int restartCount = 0;
+  restart:
+    if (restartCount++)
+      yield(restartCount);
+    bool needRestart = false;
 
-    if (!(root_version = readLockOrRestart(root_lock))) {
-      goto insert_start;
-    }
+    // Current node
+    NodeBase* node = root;
+    uint64_t versionNode = node->readLockOrRestart(needRestart);
+    if (needRestart || (node != root))
+      goto restart;
 
-    ub8 version;
-    ub8 parent_version = 0;
-    uint16_t level = 0;  // more for debugging
+    // Parent of current node
+    BTreeInner<Key>* parent = nullptr;
+    uint64_t versionParent;
 
-    NodeBase *node = root.load(), *parent_node = nullptr;
-
-    if (!(version = readLockOrRestart(*node))) {
-      goto insert_start;
-    }
-    if (!readUnlockOrRestart(root_lock, root_version)) {
-      goto insert_start;
-    }
     while (node->type == PageType::BTreeInner) {
       auto inner = static_cast<BTreeInner<Key>*>(node);
 
-      if (inner->count == inner->maxEntries - 1) {  // Split inner eagerly
-        if (parent_node) {
-          if (!upgradeToWriteLockOrRestart(*parent_node, parent_version)) {
-            goto insert_start;
-          }
-        } else {
-          if (!upgradeToWriteLockOrRestart(root_lock, root_version)) {
-            goto insert_start;
-          }
+      // Split eagerly if full
+      if (inner->isFull()) {
+        // Lock
+        if (parent) {
+          parent->upgradeToWriteLockOrRestart(versionParent, needRestart);
+          if (needRestart)
+            goto restart;
         }
-        if (!upgradeToWriteLockOrRestart(*node, version)) {
-          if (parent_node) {
-            writeUnlock(*parent_node);
-          } else {
-            writeUnlock(root_lock);
-          }
-          goto insert_start;
+        node->upgradeToWriteLockOrRestart(versionNode, needRestart);
+        if (needRestart) {
+          if (parent)
+            parent->writeUnlock();
+          goto restart;
         }
-
+        if (!parent && (node != root)) {  // there's a new parent
+          node->writeUnlock();
+          goto restart;
+        }
+        // Split
         Key sep;
         BTreeInner<Key>* newInner = inner->split(sep);
-
-        auto parent_inner = static_cast<BTreeInner<Key>*>(parent_node);
-
-        if (parent_node) {
-          parent_inner->insert(sep, newInner);
-          writeUnlock(*node);
-          writeUnlock(*parent_node);
-        } else {
+        if (parent)
+          parent->insert(sep, newInner);
+        else
           makeRoot(sep, inner, newInner);
-          writeUnlock(*node);
-          writeUnlock(root_lock);
-        }
-        goto insert_start;
+        // Unlock and restart
+        node->writeUnlock();
+        if (parent)
+          parent->writeUnlock();
+        goto restart;
       }
 
-      if (parent_node) {
-        if (!readUnlockOrRestart(*parent_node, parent_version)) {
-          goto insert_start;
-        }
-      } else {
-        if (!readUnlockOrRestart(root_lock, root_version)) {
-          goto insert_start;
-        }
+      if (parent) {
+        parent->readUnlockOrRestart(versionParent, needRestart);
+        if (needRestart)
+          goto restart;
       }
 
-      int64_t pos;
-      if ((pos = inner->lowerBound(k)) == -1) {
-        goto insert_start;
-      }
+      parent = inner;
+      versionParent = versionNode;
 
-      parent_node = node;
-      parent_version = version;
+      node = inner->children[inner->lowerBound(k)];
+      inner->checkOrRestart(versionNode, needRestart);
+      if (needRestart)
+        goto restart;
 
-      node = inner->children[pos];
-      assert(node);
-
-      if (level == 0 && !checkOrRestart(root_lock, root_version)) {
-        goto insert_start;
-      }
-
-      if (!checkOrRestart(*parent_node, parent_version)) {  // it refers to current node
-        goto insert_start;
-      }
-
-      if (!(version = readLockOrRestart(*node))) {
-        goto insert_start;
-      }
-
-      level++;
+      // versionNode = node->waitFor();
+      versionNode = node->readLockOrRestart(needRestart);
+      if (needRestart)
+        goto restart;
     }
 
-    BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(node);
+    auto leaf = static_cast<BTreeLeaf<Key, Value>*>(node);
 
+    // Split leaf if full
     if (leaf->count == leaf->maxEntries) {
-      if (parent_node) {
-        if (!upgradeToWriteLockOrRestart(*parent_node, parent_version)) {
-          goto insert_start;
-        }
-      } else {
-        if (!upgradeToWriteLockOrRestart(root_lock, root_version)) {
-          goto insert_start;
-        }
+      // Lock
+      if (parent) {
+        parent->upgradeToWriteLockOrRestart(versionParent, needRestart);
+        if (needRestart)
+          goto restart;
       }
-      if (!upgradeToWriteLockOrRestart(*node, version)) {
-        goto insert_start;
+      node->upgradeToWriteLockOrRestart(versionNode, needRestart);
+      if (needRestart) {
+        if (parent)
+          parent->writeUnlock();
+        goto restart;
       }
-
-      auto parent_inner = static_cast<BTreeInner<Key>*>(parent_node);
-      // Leaf is full, split it
+      if (!parent && (node != root)) {  // there's a new parent
+        node->writeUnlock();
+        goto restart;
+      }
+      // Split
       Key sep;
       BTreeLeaf<Key, Value>* newLeaf = leaf->split(sep);
-      if (parent_node) {
-        parent_inner->insert(sep, newLeaf);
-      } else {
+      if (parent)
+        parent->insert(sep, newLeaf);
+      else
         makeRoot(sep, leaf, newLeaf);
+      // Unlock and restart
+      node->writeUnlock();
+      if (parent)
+        parent->writeUnlock();
+      goto restart;
+    } else {
+      // only lock leaf node
+
+      // node->upgradeToWriteLockOrRestart(versionNode, needRestart);
+      // if (needRestart) goto restart;
+
+      node->upgradeToWriteLock(versionNode);
+      if (leaf->count == leaf->maxEntries) {
+        node->writeUnlock();
+        goto restart;
       }
 
-      writeUnlock(*node);
-      if (parent_node) {
-        writeUnlock(*parent_node);
-      } else {
-        writeUnlock(root_lock);
-      }
-      goto insert_start;
-    } else {
-      if (!upgradeToWriteLockOrRestart(*node, version)) {
-        goto insert_start;
+      if (parent) {
+        parent->readUnlockOrRestart(versionParent, needRestart);
+        if (needRestart) {
+          node->writeUnlock();
+          goto restart;
+        }
       }
       leaf->insert(k, v);
-      writeUnlock(*node);
+      node->writeUnlock();
+      return;  // success
     }
-    // -------------------------------------------------------------------------------------
   }
 
   bool lookup(Key k, Value& result)
   {
-    bool first = true;
-  lookup_start:
-    if (!first) {
-      restarts_counter++;
-    } else {
-      first = false;
-    }
-    ub8 version;
-    ub8 parent_version;
+    int restartCount = 0;
+  restart:
+    if (restartCount++)
+      yield(restartCount);
+    bool needRestart = false;
 
-    if (!(parent_version = readLockOrRestart(root_lock))) {
-      goto lookup_start;
-    }
-    bool is_root = true;
-    NodeBase *node = root.load(), *parent_node;
-    if (!(version = readLockOrRestart(*node))) {
-      goto lookup_start;
-    }
+    NodeBase* node = root;
+    uint64_t versionNode = node->readLockOrRestart(needRestart);
+    if (needRestart || (node != root))
+      goto restart;
 
-    if (!readUnlockOrRestart(root_lock, parent_version)) {
-      goto lookup_start;
-    }
+    // Parent of current node
+    BTreeInner<Key>* parent = nullptr;
+    uint64_t versionParent = 0;
 
     while (node->type == PageType::BTreeInner) {
-      BTreeInner<Key>* inner = static_cast<BTreeInner<Key>*>(node);
+      auto inner = static_cast<BTreeInner<Key>*>(node);
 
-      // -------------------------------------------------------------------------------------
-//      unsigned pos = inner->lowerBound(k);
-//      auto ptr = inner->children[pos];
-//      c_lock.recheck();
-//
-//      p_node = inner;
-//      p_lock = c_lock;
-//      c_node = ptr;
-//      c_lock = SharedLock(c_node->version);
-//      p_lock.recheck();
-      // -------------------------------------------------------------------------------------
-      if (is_root) {
-        is_root = false;
-      } else {
-        if (!readUnlockOrRestart(*parent_node, parent_version)) {
-          goto lookup_start;
-        }
+      if (parent) {
+        parent->readUnlockOrRestart(versionParent, needRestart);
+        if (needRestart)
+          goto restart;
       }
 
-      int64_t pos;
-      if ((pos = inner->lowerBound(k)) == -1) {
-        goto lookup_start;
-      }
-      auto ptr =inner->children[pos];
-      if (!checkOrRestart(*node, version)) {  // refers to current node
-        goto lookup_start;
-      }
+      parent = inner;
+      versionParent = versionNode;
 
-      parent_node = node;
-      parent_version = version;
-      node = ptr;
-      if (!(version = readLockOrRestart(*node))) {
-        goto lookup_start;
-      }
-      if (!checkOrRestart(*parent_node, parent_version)) {  // refers to current node
-        goto lookup_start;
-      }
-
-    }
-
-    if (!is_root) {
-      readUnlockOrRestart(*parent_node, parent_version);
+      node = inner->children[inner->lowerBound(k)];
+      inner->checkOrRestart(versionNode, needRestart);
+      if (needRestart)
+        goto restart;
+      versionNode = node->readLockOrRestart(needRestart);
+      if (needRestart)
+        goto restart;
     }
 
     BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(node);
-    int64_t pos;
-
-    if ((pos = leaf->lowerBound(k)) == -1) {
-      goto lookup_start;
-    }
-
+    unsigned pos = leaf->lowerBound(k);
+    bool success;
     if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
+      success = true;
       result = leaf->payloads[pos];
-
-      if (!checkOrRestart(*node, version)) {  // refers to current node
-        goto lookup_start;
-      }
-
-      return true;
     }
+    if (parent) {
+      parent->readUnlockOrRestart(versionParent, needRestart);
+      if (needRestart)
+        goto restart;
+    }
+    node->readUnlockOrRestart(versionNode, needRestart);
+    if (needRestart)
+      goto restart;
 
-    return false;
+    return success;
   }
-
-  ~BTree() { cout << "restarts counter = " << restarts_counter << endl; }
 };
 }  // namespace uglygoto
 }  // namespace btree

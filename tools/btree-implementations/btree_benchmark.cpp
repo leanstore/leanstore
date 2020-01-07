@@ -97,7 +97,7 @@ int main(int, char**)
   std::random_shuffle(work.begin(), work.end());
   cout << "start" << endl;
   // -------------------------------------------------------------------------------------
-  // bench<btree::uglygoto::BTree<u64, u64>>("goto", work, t); // goto implementation is still buggy
+  bench<btree::uglygoto::BTree<u64, u64>>("goto", work, t, e); // goto implementation is still buggy
   bench<btree::libgcc::BTree<u64, u64>>("libgcc", work, t, e);
   bench<btree::jmu::BTree<u64, u64>>("jumpmu", work, t, e);
   return 0;

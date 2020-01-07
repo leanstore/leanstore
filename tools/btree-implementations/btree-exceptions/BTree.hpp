@@ -218,7 +218,7 @@ struct BTree {
           assert(c_node);
           // -------------------------------------------------------------------------------------
         }
-        if(rand() % 10 >2) {
+        if( 0 && rand() % 10 >2) {
           throw OptimisticLockException();
         }
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
