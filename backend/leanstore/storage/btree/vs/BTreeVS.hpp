@@ -54,7 +54,7 @@ struct BTree {
     u32 mask = 1;
     u32 const max = 512;  // MAX_BACKOFF
     while (true) {
-      try {
+      jumpmuTry() {
         auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
         OptimisticPageGuard c_guard(p_guard, root_swip);
         while (!c_guard->is_leaf) {
@@ -64,8 +64,8 @@ struct BTree {
         }
         p_guard.kill();
         c_guard.recheck_done();
-        return c_guard;
-      } catch (RestartException e) {
+        jumpmu_return c_guard;
+      } jumpmuCatch () {
         for (u32 i = mask; i; --i) {
           _mm_pause();
         }

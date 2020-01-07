@@ -17,10 +17,10 @@ void FreeList::push(BufferFrame& bf)
   counter++;
 }
 // -------------------------------------------------------------------------------------
-  struct BufferFrame& FreeList::tryPop(std::unique_lock<std::mutex> &lock)
+struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<std::mutex>>& lock)
 {
   BufferFrame* c_header = head;
-  if(c_header != nullptr) {
+  if (c_header != nullptr) {
     BufferFrame* next = c_header->header.next_free_bf;
     if (head.compare_exchange_strong(c_header, next)) {
       BufferFrame& bf = *c_header;
@@ -30,12 +30,12 @@ void FreeList::push(BufferFrame& bf)
       assert(bf.header.state == BufferFrame::State::FREE);
       return bf;
     } else {
-      lock.unlock();
-      throw RestartException();
+      lock->unlock();
+      jumpmu::restore();
     }
   } else {
-      lock.unlock();
-    throw RestartException();
+    lock->unlock();
+    jumpmu::restore();
   }
 }
 // -------------------------------------------------------------------------------------
@@ -52,15 +52,15 @@ struct BufferFrame& FreeList::pop()
       assert(bf.header.state == BufferFrame::State::FREE);
       return bf;
     } else {
-      if(c_header == nullptr) {
-        throw RestartException();
+      if (c_header == nullptr) {
+        jumpmu::restore();
       } else {
         c_header = head.load();
       }
     }
   }
-  throw RestartException();
+  jumpmu::restore();
 }
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager
-}
+}  // namespace leanstore

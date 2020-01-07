@@ -142,6 +142,8 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
     OptimisticClass::bf_s_lock = OptimisticGuard(&bf.header.lock, bf.header.lock->load());
     OptimisticClass::moved = false;
     assert((OptimisticClass::bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
+    // -------------------------------------------------------------------------------------
+    jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
  public:
@@ -156,6 +158,8 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
     // -------------------------------------------------------------------------------------
     o_guard.moved = true;
     OptimisticClass::moved = false;
+    // -------------------------------------------------------------------------------------
+    jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
   static ExclusivePageGuard allocateNewPage(DTID dt_id, bool keep_alive = true)
@@ -180,8 +184,11 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
     OptimisticClass::moved = true;
   }
   // -------------------------------------------------------------------------------------
+  jumpmu_defineCustomDestructor(ExclusivePageGuard)
   ~ExclusivePageGuard()
   {
+    jumpmu::decrement();
+    // -------------------------------------------------------------------------------------
     if (!OptimisticClass::moved) {
       if (!keep_alive) {
         reclaim();
@@ -192,7 +199,6 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
         ExclusiveGuard::unlatch(OptimisticClass::bf_s_lock);
         OptimisticClass::moved = true;
       }
-      // -------------------------------------------------------------------------------------
     }
   }
 };

@@ -1,5 +1,6 @@
 #pragma once
 #include "Units.hpp"
+#include "leanstore/utils/JumpMU.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <emmintrin.h>
@@ -93,7 +94,7 @@ class OptimisticGuard
   inline void recheck()
   {
     if (local_version != (latch_ptr->ref().load() & LATCH_VERSION_MASK)) {
-      throw RestartException();
+      jumpmu::restore();
     }
   }
   // -------------------------------------------------------------------------------------
@@ -114,7 +115,7 @@ class ExclusiveGuard
     u64 lv = ref_guard.local_version;  // assuming state == 0
     if (!ref_guard.latch_ptr->ref().compare_exchange_strong(lv, new_compound)) {
       // we restart when another thread has shared latched
-      throw RestartException();
+      jumpmu::restore();
     }
     ref_guard.local_version = new_version;
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
@@ -130,10 +131,15 @@ class ExclusiveGuard
   // -------------------------------------------------------------------------------------
   ExclusiveGuard(OptimisticGuard& o_lock) : ref_guard(o_lock) {
     ExclusiveGuard::latch(ref_guard);
+    assert(jumpmu::de_stack_counter < 5);
+    jumpmu_registerDestructor();
   }
+  // -------------------------------------------------------------------------------------
+  jumpmu_defineCustomDestructor(ExclusiveGuard)
   // -------------------------------------------------------------------------------------
   ~ExclusiveGuard() {
     ExclusiveGuard::unlatch(ref_guard);
+    jumpmu::decrement();
   }
 };
 // -------------------------------------------------------------------------------------
@@ -147,17 +153,16 @@ class ExclusiveGuardTry
   {
     u64 current_compound = latch_ptr->ref().load();
     if ((current_compound & LATCH_EXCLUSIVE_STATE_MASK) > 0) {
-      throw RestartException();
+      jumpmu::restore();
     }
     const u64 new_version = current_compound + LATCH_EXCLUSIVE_BIT;
     u64 new_compound = new_version;
     if (!latch_ptr->ref().compare_exchange_strong(current_compound, new_compound)) {
-      throw RestartException();
+      jumpmu::restore();
     }
     assert((latch_ptr->ref().load() & LATCH_EXCLUSIVE_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
   }
   void unlock() { latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT); }
-  ~ExclusiveGuardTry() {}
 };
 // -------------------------------------------------------------------------------------
 class SharedGuard
@@ -178,7 +183,7 @@ class SharedGuard
     u64 new_compound = basis_guard.local_version | new_state;
     if(!basis_guard.latch_ptr->ref().compare_exchange_strong(expected_old_compound, new_compound)) {
       if((expected_old_compound & LATCH_VERSION_MASK) != basis_guard.local_version) {
-        throw RestartException();
+        jumpmu::restore();
       } else {
         goto try_accquire_shared_guard;
       }

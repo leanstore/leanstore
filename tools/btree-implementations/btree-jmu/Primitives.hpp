@@ -73,7 +73,8 @@ class ExclusiveLock
     assert(jumpmu::de_stack_counter <= 2);
   }
   // -------------------------------------------------------------------------------------
-  jumpmu_defineCustomDestructor(ExclusiveLock) ~ExclusiveLock()
+  jumpmu_defineCustomDestructor(ExclusiveLock)
+  ~ExclusiveLock()
   {
     assert(ref_lock.version_ptr != nullptr);
     if (ref_lock.version_ptr != nullptr) {

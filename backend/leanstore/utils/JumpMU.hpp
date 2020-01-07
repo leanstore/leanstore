@@ -1,9 +1,10 @@
 #pragma once
 #include <setjmp.h>
-#include <utility>
 #include <cassert>
+#include <signal.h>
+#include <utility>
 
-#define JUMPMU_STACK_SIZE 10
+#define JUMPMU_STACK_SIZE 20
 namespace jumpmu
 {
 extern __thread int checkpoint_counter;
@@ -16,6 +17,8 @@ extern __thread int de_stack_counter;
 void restore();
 inline void decrement()
 {
+  de_stack_obj[de_stack_counter - 1] = nullptr;
+  de_stack_arr[de_stack_counter - 1] = nullptr;
   de_stack_counter--;
   assert(de_stack_counter >= 0);
 }
@@ -36,6 +39,10 @@ inline void decrement()
   jumpmu::checkpoint_counter--; \
   return
 
+#define jumpmu_continue         \
+  jumpmu::checkpoint_counter--; \
+  continue
+
 // ATTENTION DO NOT DO ANYTHING BETWEEN setjmp and if !!
 #define jumpmuTry()                                                                         \
   assert(jumpmu::de_stack_counter >= 0);                                                    \
@@ -47,17 +54,22 @@ inline void decrement()
   }                             \
   else
 
-
 template <typename T>
-class JMUW {
+class JMUW
+{
  public:
   T obj;
   template <typename... Args>
-  JMUW(Args&&... args) : obj(std::forward<Args>(args)...) {
+  JMUW(Args&&... args) : obj(std::forward<Args>(args)...)
+  {
     jumpmu_registerDestructor();
   }
-  jumpmu_defineCustomDestructor(T)
+  static void des(void* t) { reinterpret_cast<JMUW<T>*>(t)->~JMUW<T>(); }
   ~JMUW() {
+    const auto before = jumpmu::de_stack_counter;
     jumpmu::decrement();
+    const auto after = jumpmu::de_stack_counter;
+    assert(before - 1 == after);
   }
+  T* operator->() { return reinterpret_cast<T*>(&obj); }
 };

@@ -27,19 +27,22 @@ bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> paylo
   u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
-    try {
+    jumpmuTry()
+    {
       OptimisticPageGuard<BTreeNode> leaf = findLeafForRead(key, key_length);
       s32 pos = leaf->lowerBound<true>(key, key_length);
       if (pos != -1) {
         u16 payload_length = leaf->getPayloadLength(pos);
         payload_callback((leaf->isLarge(pos)) ? leaf->getPayloadLarge(pos) : leaf->getPayload(pos), payload_length);
         leaf.recheck_done();
-        return true;
+        jumpmu_return true;
       } else {
         leaf.recheck_done();
-        return false;
+        jumpmu_return false;
       }
-    } catch (RestartException e) {
+    }
+    jumpmuCatch()
+    {
       for (u32 i = mask; i; --i) {
         _mm_pause();
       }
@@ -59,7 +62,8 @@ void BTree::scan(u8* start_key,
   u8* next_key = start_key;
   u16 next_key_length = key_length;
   while (true) {
-    try {
+    jumpmuTry()
+    {
       OptimisticPageGuard<BTreeNode> o_leaf = findLeafForRead(next_key, next_key_length);
       while (true) {
         auto leaf = SharedPageGuard<BTreeNode>(std::move(o_leaf));
@@ -68,13 +72,14 @@ void BTree::scan(u8* start_key,
           u16 payload_length = leaf->getPayloadLength(cur);
           u8* payload = leaf->isLarge(cur) ? leaf->getPayloadLarge(cur) : leaf->getPayload(cur);
           std::function<string()> key_extract_fn = [&]() {
-                                                     u16 key_length = leaf->getFullKeyLength(cur);
-                                                     string key(key_length, '0');
-                                                     leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()), key_length);
-                                                     return key;
-                                                   };
+            ensure(false); // TODO
+            u16 key_length = leaf->getFullKeyLength(cur);
+            string key(key_length, '0');
+            leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()), key_length);
+            return key;
+          };
           if (!callback(payload, payload_length, key_extract_fn)) {
-            return;
+            jumpmu_return;
           }
           cur++;
         }
@@ -83,7 +88,7 @@ void BTree::scan(u8* start_key,
           delete[] next_key;
         }
         if (leaf->isUpperFenceInfinity()) {
-          return;
+          jumpmu_return;
         }
         // -------------------------------------------------------------------------------------
         next_key_length = leaf->upper_fence.length + 1;
@@ -94,7 +99,9 @@ void BTree::scan(u8* start_key,
         o_leaf = std::move(leaf);
         o_leaf = findLeafForRead(next_key, next_key_length);
       }
-    } catch (RestartException e) {
+    }
+    jumpmuCatch()
+    {
       undo();
       for (u32 i = mask; i; --i) {
         _mm_pause();
@@ -110,7 +117,8 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
   u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
-    try {
+    jumpmuTry()
+    {
       auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
       OptimisticPageGuard c_guard(p_guard, root_swip);
       while (!c_guard->is_leaf) {
@@ -122,8 +130,8 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       p_guard.recheck_done();
       if (c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)), payload)) {
-        //entries++;
-        return;
+        // entries++;
+        jumpmu_return;
       }
       // -------------------------------------------------------------------------------------
       // Release lock
@@ -131,14 +139,16 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       c_guard.kill();
       // -------------------------------------------------------------------------------------
       trySplit(*c_x_guard.bf);
-      continue;
-    } catch (RestartException e) {
+      jumpmu_continue;
+    }
+    jumpmuCatch()
+    {
       for (u32 i = mask; i; --i) {
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
       WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
-   }
+    }
   }
 }
 // -------------------------------------------------------------------------------------
@@ -170,8 +180,8 @@ void BTree::trySplit(BufferFrame& to_split)
     c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
     // -------------------------------------------------------------------------------------
     height++;
-    //pages++;
-    //pages++;
+    // pages++;
+    // pages++;
     return;
   }
   unsigned spaced_need_for_separator = BTreeNode::spaceNeeded(sep_info.length, p_guard->prefix_length);
@@ -190,7 +200,7 @@ void BTree::trySplit(BufferFrame& to_split)
     // -------------------------------------------------------------------------------------
     c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
     // -------------------------------------------------------------------------------------
-    //pages++;
+    // pages++;
   } else {
     p_guard.kill();
     c_guard.kill();
@@ -203,15 +213,18 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
   u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
-    try {
+    jumpmuTry()
+    {
       OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead<false>(key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       s32 pos = c_x_guard->lowerBound<true>(key, key_length);
       assert(pos != -1);
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
-      return;
-    } catch (RestartException e) {
+      jumpmu_return;
+    }
+    jumpmuCatch()
+    {
       for (u32 i = mask; i; --i) {
         _mm_pause();
       }
@@ -226,7 +239,8 @@ void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
   u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
-    try {
+    jumpmuTry()
+    {
       auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
       OptimisticPageGuard c_guard(p_guard, root_swip);
       while (!c_guard->is_leaf) {
@@ -237,7 +251,7 @@ void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       p_guard.kill();
       if (c_x_guard->update(key, key_length, payloadLength, payload)) {
-        return;
+        jumpmu_return;
       }
       // no more space, need to split
       // -------------------------------------------------------------------------------------
@@ -246,8 +260,10 @@ void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       c_guard.kill();
       // -------------------------------------------------------------------------------------
       trySplit(*c_x_guard.bf);
-      continue;
-    } catch (RestartException e) {
+      jumpmu_continue;
+    }
+    jumpmuCatch()
+    {
       for (u32 i = mask; i; --i) {
         _mm_pause();
       }
@@ -268,23 +284,26 @@ bool BTree::remove(u8* key, u16 key_length)
   u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
-    try {
+    jumpmuTry()
+    {
       OptimisticPageGuard c_guard = findLeafForRead(key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (!c_x_guard->remove(key, key_length)) {
-        return false;
+        jumpmu_return false;
       }
       if (c_x_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
         c_guard = std::move(c_x_guard);
         c_guard.kill();
-        try {
-          tryMerge(*c_guard.bf);
-        } catch (RestartException e) {
+        jumpmuTry() { tryMerge(*c_guard.bf); }
+        jumpmuCatch()
+        {
           // nothing, it is fine not to merge
         }
       }
-      return true;
-    } catch (RestartException e) {
+      jumpmu_return true;
+    }
+    jumpmuCatch()
+    {
       for (u32 i = mask; i; --i) {
         _mm_pause();
       }
@@ -417,7 +436,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   if (found) {
     return {.swip = c_swip->cast<BufferFrame>(), .guard = c_guard.bf_s_lock, .parent = c_guard.bf};
   } else {
-    throw RestartException();
+    jumpmu::restore();
   }
 }
 // -------------------------------------------------------------------------------------
@@ -461,12 +480,13 @@ s64 BTree::iterateAllPagesRec(OptimisticPageGuard<BTreeNode>& node_guard, std::f
 s64 BTree::iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf)
 {
   while (true) {
-    try {
+    jumpmuTry()
+    {
       auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
       OptimisticPageGuard c_guard(p_guard, root_swip);
-      return iterateAllPagesRec(c_guard, inner, leaf);
-    } catch (RestartException e) {
+      jumpmu_return iterateAllPagesRec(c_guard, inner, leaf);
     }
+    jumpmuCatch() {}
   }
 }
 // -------------------------------------------------------------------------------------
@@ -487,7 +507,7 @@ u32 BTree::countInner()
 // -------------------------------------------------------------------------------------
 double BTree::averageSpaceUsage()
 {
-  ensure(false); // TODO
+  ensure(false);  // TODO
 }
 // -------------------------------------------------------------------------------------
 u32 BTree::bytesFree()

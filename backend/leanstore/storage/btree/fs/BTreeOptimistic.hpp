@@ -1,8 +1,8 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "leanstore/storage/buffer-manager/BufferFrame.hpp"
-#include "leanstore/sync-primitives/PageGuard.hpp"
 #include "leanstore/sync-primitives/OptimisticLock.hpp"
+#include "leanstore/sync-primitives/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -51,12 +51,12 @@ struct BTreeLeaf : public BTreeLeafBase {
       unsigned mid = ((upper - lower) / 2) + lower;
       if (k < keys[mid]) {
         if (!(mid <= upper)) {
-          throw RestartException();
+          jumpmu::restore();
         }
         upper = mid;
       } else if (k > keys[mid]) {
         if (!(lower <= mid)) {
-          throw RestartException();
+          jumpmu::restore();
         }
         lower = mid + 1;
       } else {
@@ -121,12 +121,12 @@ struct BTreeInner : public BTreeInnerBase {
       unsigned mid = ((upper - lower) / 2) + lower;
       if (k < keys[mid]) {
         if (!(mid <= upper)) {
-          throw RestartException();
+          jumpmu::restore();
         }
         upper = mid;
       } else if (k > keys[mid]) {
         if (!(lower <= mid)) {
-          throw RestartException();
+          jumpmu::restore();
         }
         lower = mid + 1;
       } else {
@@ -170,9 +170,13 @@ struct BTree {
   void init(DTID dtid)
   {
     this->dtid = dtid;
-    auto root_write_guard = ExclusivePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
-    root_write_guard.init();
-    root_swip = root_write_guard.bf;
+    jumpmuTry()
+    {
+      auto root_write_guard = ExclusivePageGuard<BTreeLeaf<Key, Value>>::allocateNewPage(dtid);
+      root_write_guard.init();
+      root_swip = root_write_guard.bf;
+    }
+    jumpmuCatch() { ensure(false); }
   }
   // -------------------------------------------------------------------------------------
   DTRegistry::DTMeta getMeta()
@@ -201,7 +205,8 @@ struct BTree {
     // -------------------------------------------------------------------------------------
     auto& root_inner_swip = root_swip.cast<BTreeInner<Key>>();
     while (true) {
-      try {
+      jumpmuTry()
+      {
         auto p_guard = OptimisticPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
         OptimisticPageGuard c_guard(p_guard, root_inner_swip);
         while (c_guard->type == NodeType::BTreeInner) {
@@ -224,7 +229,7 @@ struct BTree {
               makeRoot(sep, new_root_inner, c_guard.bf, new_inner.bf);
             }
             // -------------------------------------------------------------------------------------
-            throw RestartException();  // restart
+            jumpmu::restore();
           }
           // -------------------------------------------------------------------------------------
           unsigned pos = c_guard->lowerBound(k);
@@ -252,14 +257,16 @@ struct BTree {
             makeRoot(sep, new_inner_root, leaf.bf, new_leaf.bf);
           }
           new_leaf.keepAlive();
-          throw RestartException();
+          jumpmu::restore();
         }
         // -------------------------------------------------------------------------------------
         auto c_x_lock = ExclusivePageGuard(std::move(leaf));
         p_guard.kill();
         leaf->insert(k, v);
-        return;
-      } catch (RestartException e) {
+        jumpmu_return;
+      }
+      jumpmuCatch()
+      {
         for (u32 i = mask; i; --i) {
           _mm_pause();
         }
@@ -273,7 +280,9 @@ struct BTree {
   {
     auto& root_inner_swip = root_swip.cast<BTreeInner<Key>>();
     while (true) {
-      try {
+      jumpmuTry()
+      {
+        assert(jumpmu::de_stack_counter == 0);
         auto p_guard = OptimisticPageGuard<BTreeInner<Key>>::makeRootGuard(root_lock);
         OptimisticPageGuard c_guard(p_guard, root_inner_swip);
         while (c_guard->type == NodeType::BTreeInner) {
@@ -289,13 +298,12 @@ struct BTree {
         if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
           result = leaf->payloads[pos];
           c_guard.recheck_done();
-          return true;
+          jumpmu_return true;
         }
         c_guard.recheck_done();
-        return false;
-      } catch (RestartException e) {
-        restarts_counter++;
+        jumpmu_return false;
       }
+      jumpmuCatch() { restarts_counter++; }
     }
   }
   ~BTree() { cout << "restarts counter = " << restarts_counter << endl; }
@@ -369,4 +377,4 @@ struct BTree {
 // -------------------------------------------------------------------------------------
 }  // namespace fs
 }  // namespace btree
-}
+}  // namespace leanstore

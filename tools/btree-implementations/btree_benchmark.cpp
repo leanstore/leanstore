@@ -78,6 +78,9 @@ struct TestObject {
   ~TestObject(){
     cout <<"des"<<endl;
   }
+  void tata (){
+    cout << "tata" <<endl;
+  }
 };
 // -------------------------------------------------------------------------------------
 int main(int, char**)
