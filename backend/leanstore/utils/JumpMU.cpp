@@ -6,7 +6,6 @@ namespace jumpmu
 {
 __thread int checkpoint_counter = 0;
 __thread jmp_buf env[JUMPMU_STACK_SIZE];
-__thread int val[JUMPMU_STACK_SIZE] = {0};
 __thread int checkpoint_stacks_counter[JUMPMU_STACK_SIZE];
 __thread void (*de_stack_arr[JUMPMU_STACK_SIZE])(void*);
 __thread void* de_stack_obj[JUMPMU_STACK_SIZE];

@@ -1,7 +1,6 @@
 #pragma once
 #include <random>
-
-#include "JumpMU.hpp"
+#include "leanstore/utils/JumpMU.hpp"
 #include "Primitives.hpp"
 
 namespace btree
