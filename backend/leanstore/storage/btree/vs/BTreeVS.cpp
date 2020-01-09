@@ -216,8 +216,8 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
     jumpmuTry()
     {
       OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead<false>(key, key_length);
+      s32 pos = c_guard->lowerBound<true>(key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-      s32 pos = c_x_guard->lowerBound<true>(key, key_length);
       assert(pos != -1);
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
