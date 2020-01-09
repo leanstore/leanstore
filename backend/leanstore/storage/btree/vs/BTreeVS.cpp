@@ -8,8 +8,7 @@
 using namespace std;
 using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
-DEFINE_uint64(contention_update_tracker_threshold, 10, "");
-DEFINE_uint64(contention_split_threshold, 10, "");
+DEFINE_uint64(contention_update_tracker_pct, 10, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -230,32 +229,19 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       assert(pos != -1);
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
-      u64 new_value = local_restarts_counter + c_x_guard.bf->header.contention_tracker.last_latch_version->fetch_add(local_restarts_counter);
-      if (new_value > FLAGS_contention_split_threshold) {
-        if (c_guard->count > 2) {
-          WorkerCounters::myCounters().dt_researchy[dtid]++;
-          c_guard = std::move(c_x_guard);
-          c_guard.kill();
-          trySplit(*c_guard.bf);
+      if (local_restarts_counter > 0 && utils::RandomGenerator::getRandU64(0, 100) < FLAGS_contention_update_tracker_pct) {
+        c_x_guard.bf->header.contention_tracker.last_latch_version->store(1);
+      } else {
+        if (c_x_guard.bf->header.contention_tracker.last_latch_version->load() >= 1) {
+          if (c_guard->count > 2) {
+            WorkerCounters::myCounters().dt_researchy[dtid]++;
+            c_guard = std::move(c_x_guard);
+            c_guard.kill();
+            trySplit(*c_guard.bf);
+          }
         }
-      }
-      if (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_contention_update_tracker_threshold) {
         c_x_guard.bf->header.contention_tracker.last_latch_version->store(0);
       }
-      // if (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_contention_update_tracker_threshold) {  //
-      //   u64 new_value = c_x_guard.bf->page.LSN;
-      //   u64 last_value = c_x_guard.bf->header.contention_tracker.last_latch_version->exchange(new_value);
-      //   ensure(c_x_guard.bf->header.contention_tracker.last_latch_version->load() == new_value);
-      //   u64 difference = new_value - last_value;
-      //   if (difference > WorkerCounters::myCounters().dt_researchy[dtid]) {
-      //     WorkerCounters::myCounters().dt_researchy[dtid] = difference;
-      //   }
-      // }
-      // else if (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_contention_split_threhsold) {
-      //   c_guard = std::move(c_x_guard);
-      //   c_guard.kill();
-      //   trySplit(*c_guard.bf);
-      // }
       jumpmu_return;
     }
     jumpmuCatch()
