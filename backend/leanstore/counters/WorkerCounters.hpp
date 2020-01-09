@@ -19,8 +19,10 @@ struct WorkerCounters {
   atomic<u64> tx = 0;
   // -------------------------------------------------------------------------------------
   atomic<u64> dt_misses_counter[20] = {0};
-  atomic<u64> dt_restarts_modify[20] = {0};
+  atomic<u64> dt_restarts_update_same_size[20] = {0}; // without structural change
+  atomic<u64> dt_restarts_structural_change[20] = {0}; // includes insert, remove, update with different size
   atomic<u64> dt_restarts_read[20] = {0};
+  atomic<u64> dt_researchy[20] = {0}; // temporary counter used to track some value for an idea in my mind
   // -------------------------------------------------------------------------------------
   WorkerCounters() { t_id = workers_counter++; }
   // -------------------------------------------------------------------------------------

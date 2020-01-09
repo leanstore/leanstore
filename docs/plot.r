@@ -153,3 +153,13 @@ sqldf("select t,tx, free_pct from d")
 # Skx 20
 d=read.csv('/home/adnan/dev/workspace/db/leanstore/cmake-build-release-g9/frontend/pp_20.csv')
 sqldf("select t,tx from d")
+
+dt=read.csv('/home/adnan/dev/workspace/db/leanstore/cmake-build-release-g9/frontend/dt_jmu.csv')
+pp=read.csv('/home/adnan/dev/workspace/db/leanstore/cmake-build-release-g9/frontend/pp_jmu.csv')
+sqldf("select name, sum(restarts_read), sum(restarts_updates), sum(restarts_structural) from dt group by name")
+                                        #sqldf("select t,tx from pp")
+
+# 484466
+
+d=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_jmu.csv')
+sqldf("select t,tx, free_pct from d")

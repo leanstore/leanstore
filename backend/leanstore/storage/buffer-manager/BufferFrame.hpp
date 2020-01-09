@@ -17,6 +17,9 @@ const u64 PAGE_SIZE = 16 * 1024;
 struct BufferFrame {
   enum class State : u8 { FREE = 0, HOT = 1, COLD = 2 };
   struct Header {
+    struct ContentionTracker {
+      OptimisticLatch last_latch_version = 0;
+    };
     // TODO: for logging
     atomic<u64> lastWrittenLSN = 0;
     atomic<State> state = State::FREE;  // INIT:
@@ -26,6 +29,7 @@ struct BufferFrame {
     OptimisticLatch lock = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;  // TODO
+    ContentionTracker contention_tracker;
   };
   struct alignas(512) Page {
     u64 LSN = 0;
@@ -56,6 +60,7 @@ struct BufferFrame {
     header.isCooledBecauseOfReading = false;
     header.pid = 9999;
     header.next_free_bf = nullptr;
+    header.contention_tracker.last_latch_version->store(0);
   }
   // -------------------------------------------------------------------------------------
   BufferFrame() {

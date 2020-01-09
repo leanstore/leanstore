@@ -9,11 +9,7 @@
 #include <leanstore/counters/WorkerCounters.hpp>
 // -------------------------------------------------------------------------------------
 #include <unistd.h>
-#include <algorithm>
-#include <csignal>
-#include <cstdint>
 #include <iostream>
-#include <limits>
 #include <string>
 #include <vector>
 // -------------------------------------------------------------------------------------

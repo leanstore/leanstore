@@ -1,9 +1,15 @@
 #include "BTreeVS.hpp"
+
+#include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
+#include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::buffermanager;
+// -------------------------------------------------------------------------------------
+DEFINE_uint64(contention_update_tracker_threshold, 10, "");
+DEFINE_uint64(contention_split_threshold, 10, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -72,7 +78,7 @@ void BTree::scan(u8* start_key,
           u16 payload_length = leaf->getPayloadLength(cur);
           u8* payload = leaf->isLarge(cur) ? leaf->getPayloadLarge(cur) : leaf->getPayload(cur);
           std::function<string()> key_extract_fn = [&]() {
-            ensure(false); // TODO
+            ensure(false);  // TODO
             u16 key_length = leaf->getFullKeyLength(cur);
             string key(key_length, '0');
             leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()), key_length);
@@ -147,7 +153,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
     }
   }
 }
@@ -157,6 +163,8 @@ void BTree::trySplit(BufferFrame& to_split)
   auto parent_handler = findParent(this, to_split);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
+  if (c_guard->count <= 2)
+    return;
   // -------------------------------------------------------------------------------------
   BTreeNode::SeparatorInfo sep_info = c_guard->findSep();
   u8 sep_key[sep_info.length];
@@ -212,15 +220,42 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
 {
   u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
+  u64 local_restarts_counter = 0;
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead<false>(key, key_length);
+      OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead<1>(key, key_length);
       s32 pos = c_guard->lowerBound<true>(key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       assert(pos != -1);
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
+      u64 new_value = local_restarts_counter + c_x_guard.bf->header.contention_tracker.last_latch_version->fetch_add(local_restarts_counter);
+      if (new_value > FLAGS_contention_split_threshold) {
+        if (c_guard->count > 2) {
+          WorkerCounters::myCounters().dt_researchy[dtid]++;
+          c_guard = std::move(c_x_guard);
+          c_guard.kill();
+          trySplit(*c_guard.bf);
+        }
+      }
+      if (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_contention_update_tracker_threshold) {
+        c_x_guard.bf->header.contention_tracker.last_latch_version->store(0);
+      }
+      // if (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_contention_update_tracker_threshold) {  //
+      //   u64 new_value = c_x_guard.bf->page.LSN;
+      //   u64 last_value = c_x_guard.bf->header.contention_tracker.last_latch_version->exchange(new_value);
+      //   ensure(c_x_guard.bf->header.contention_tracker.last_latch_version->load() == new_value);
+      //   u64 difference = new_value - last_value;
+      //   if (difference > WorkerCounters::myCounters().dt_researchy[dtid]) {
+      //     WorkerCounters::myCounters().dt_researchy[dtid] = difference;
+      //   }
+      // }
+      // else if (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_contention_split_threhsold) {
+      //   c_guard = std::move(c_x_guard);
+      //   c_guard.kill();
+      //   trySplit(*c_guard.bf);
+      // }
       jumpmu_return;
     }
     jumpmuCatch()
@@ -229,11 +264,13 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
+      local_restarts_counter++;
+      WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;
     }
   }
 }
 // -------------------------------------------------------------------------------------
+// TODO: not used and not well tested
 void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
 {
   u32 mask = 1;
@@ -268,7 +305,7 @@ void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
     }
   }
 }
@@ -286,7 +323,7 @@ bool BTree::remove(u8* key, u16 key_length)
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard c_guard = findLeafForRead(key, key_length);
+      OptimisticPageGuard c_guard = findLeafForRead<2>(key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (!c_x_guard->remove(key, key_length)) {
         jumpmu_return false;
@@ -308,7 +345,7 @@ bool BTree::remove(u8* key, u16 key_length)
         _mm_pause();
       }
       mask = mask < max ? mask << 1 : max;
-      WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
     }
   }
 }

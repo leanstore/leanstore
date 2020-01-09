@@ -1,8 +1,8 @@
 #pragma once
 #include "BTreeSlotted.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "leanstore/sync-primitives/PageGuard.hpp"
-#include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -18,10 +18,10 @@ namespace vs
 struct BTree {
   DTID dtid;
   // -------------------------------------------------------------------------------------
-  atomic<u16> height = 1;            // debugging
-  //atomic<u64> pages = 1;             // debugging
-  //atomic<u64> entries = 1;           // debugging
-  //atomic<u64> restarts_counter = 0;  // debugging
+  atomic<u16> height = 1;  // debugging
+  // atomic<u64> pages = 1;             // debugging
+  // atomic<u64> entries = 1;           // debugging
+  // atomic<u64> restarts_counter = 0;  // debugging
   OptimisticLatch root_lock = 0;
   Swip<BTreeNode> root_swip;
   // -------------------------------------------------------------------------------------
@@ -49,12 +49,14 @@ struct BTree {
   ~BTree();
   // -------------------------------------------------------------------------------------
   // Helpers
-  template<bool is_read = true>
-  OptimisticPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length) {
+  template <int op_type = 0>  // 0 read, 1 update same size, 2 structural change // TODO better code
+  OptimisticPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length)
+  {
     u32 mask = 1;
     u32 const max = 512;  // MAX_BACKOFF
     while (true) {
-      jumpmuTry() {
+      jumpmuTry()
+      {
         auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
         OptimisticPageGuard c_guard(p_guard, root_swip);
         while (!c_guard->is_leaf) {
@@ -65,15 +67,19 @@ struct BTree {
         p_guard.kill();
         c_guard.recheck_done();
         jumpmu_return c_guard;
-      } jumpmuCatch () {
+      }
+      jumpmuCatch()
+      {
         for (u32 i = mask; i; --i) {
           _mm_pause();
         }
         mask = mask < max ? mask << 1 : max;
-        if(is_read) {
-           WorkerCounters::myCounters().dt_restarts_read[dtid]++;
-        } else {
-           WorkerCounters::myCounters().dt_restarts_modify[dtid]++;
+        if (op_type == 0) {
+          WorkerCounters::myCounters().dt_restarts_read[dtid]++;
+        } else if (op_type == 1) {
+          WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;
+        } else if (op_type == 2) {
+          WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
         }
       }
     }
