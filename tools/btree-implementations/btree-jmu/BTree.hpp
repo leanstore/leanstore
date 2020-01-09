@@ -116,12 +116,12 @@ struct BTreeInner : public BTreeInnerBase {
       unsigned mid = ((upper - lower) / 2) + lower;
       if (k < keys[mid]) {
         if (!(mid <= upper)) {
-          jumpmu::restore();
+          jumpmu::jump();
         }
         upper = mid;
       } else if (k > keys[mid]) {
         if (!(lower <= mid)) {
-          jumpmu::restore();
+          jumpmu::jump();
         }
         lower = mid + 1;
       } else {
@@ -204,7 +204,7 @@ struct BTree {
             else {
               makeRoot(sep, inner, newInner);
             }
-            jumpmu::restore();
+            jumpmu::jump();
           }
           // -------------------------------------------------------------------------------------
           unsigned pos = inner->lowerBound(k);
@@ -221,7 +221,7 @@ struct BTree {
           // -------------------------------------------------------------------------------------
         }
         if(0 && rand() % 10 >2) {
-          jumpmu::restore();
+          jumpmu::jump();
         }
         BTreeLeaf<Key, Value>* leaf = static_cast<BTreeLeaf<Key, Value>*>(c_node);
         if (leaf->count == leaf->maxEntries) {
@@ -235,7 +235,7 @@ struct BTree {
           else {
             makeRoot(sep, leaf, newLeaf);
           }
-          jumpmu::restore();
+          jumpmu::jump();
         } else {
           ExclusiveLock c_x_lock(c_lock);
           leaf->insert(k, v);

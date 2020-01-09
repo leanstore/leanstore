@@ -259,30 +259,9 @@ void load()
       }
     }
   });
-  //   for (Integer w_id=1; w_id<=warehouseCount; w_id++) {
-  //      loadStock(w_id);
-  //      loadDistrinct(w_id);
-  //      for (Integer d_id = 1; d_id<=10; d_id++) {
-  //         loadCustomer(w_id, d_id);
-  //         loadOrders(w_id, d_id);
-  //      }
-  //   }
-  //   loadItem();
-  //   loadWarehouse();
-  //   tbb::parallel_for(tbb::blocked_range<u64>(1, warehouseCount), [&](const tbb::blocked_range<u64> &range) {
-  //      for ( u64 w_id = range.begin(); w_id <= range.end(); w_id++ ) {
-  //         loadStock(w_id);
-  //         loadDistrinct(w_id);
-  //         for ( Integer d_id = 1; d_id <= 10; d_id++ ) {
-  //            loadCustomer(w_id, d_id);
-  //            loadOrders(w_id, d_id);
-  //         }
-  //      }
-  //   });
 }
 
 // run
-
 void newOrder(Integer w_id,
               Integer d_id,
               Integer c_id,
@@ -296,19 +275,11 @@ void newOrder(Integer w_id,
   Numeric c_discount = customer.lookupField({w_id, d_id, c_id}, &customer_t::c_discount);
   Numeric d_tax;
   Integer o_id;
-  //   district.lookup1({w_id, d_id}, [&](const district_t &rec) {
-  //      o_id = rec.d_next_o_id;
-  //      d_tax = rec.d_tax;
-  //   });
+
   district.update1({w_id, d_id}, [&](district_t& rec) {
     d_tax = rec.d_tax;
     o_id = rec.d_next_o_id++;
   });
-  //   district.lookup1({w_id, d_id}, [&](const district_t &rec) {
-  //      o_id = rec.d_next_o_id;
-  //      d_tax = rec.d_tax;
-  //   });
-  //   district.update1({w_id, d_id}, [&](district_t &rec) { rec.d_next_o_id++; });
 
   Numeric all_local = 1;
   for (Integer sw : supwares)

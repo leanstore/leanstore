@@ -10,7 +10,7 @@ __thread int checkpoint_stacks_counter[JUMPMU_STACK_SIZE];
 __thread void (*de_stack_arr[JUMPMU_STACK_SIZE])(void*);
 __thread void* de_stack_obj[JUMPMU_STACK_SIZE];
 __thread int de_stack_counter = 0;
-void restore()
+void jump()
 {
   assert(checkpoint_counter > 0);
   assert(de_stack_counter >= 0);

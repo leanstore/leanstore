@@ -51,12 +51,12 @@ struct BTreeLeaf : public BTreeLeafBase {
       unsigned mid = ((upper - lower) / 2) + lower;
       if (k < keys[mid]) {
         if (!(mid <= upper)) {
-          jumpmu::restore();
+          jumpmu::jump();
         }
         upper = mid;
       } else if (k > keys[mid]) {
         if (!(lower <= mid)) {
-          jumpmu::restore();
+          jumpmu::jump();
         }
         lower = mid + 1;
       } else {
@@ -121,12 +121,12 @@ struct BTreeInner : public BTreeInnerBase {
       unsigned mid = ((upper - lower) / 2) + lower;
       if (k < keys[mid]) {
         if (!(mid <= upper)) {
-          jumpmu::restore();
+          jumpmu::jump();
         }
         upper = mid;
       } else if (k > keys[mid]) {
         if (!(lower <= mid)) {
-          jumpmu::restore();
+          jumpmu::jump();
         }
         lower = mid + 1;
       } else {
@@ -229,7 +229,7 @@ struct BTree {
               makeRoot(sep, new_root_inner, c_guard.bf, new_inner.bf);
             }
             // -------------------------------------------------------------------------------------
-            jumpmu::restore();
+            jumpmu::jump();
           }
           // -------------------------------------------------------------------------------------
           unsigned pos = c_guard->lowerBound(k);
@@ -257,7 +257,7 @@ struct BTree {
             makeRoot(sep, new_inner_root, leaf.bf, new_leaf.bf);
           }
           new_leaf.keepAlive();
-          jumpmu::restore();
+          jumpmu::jump();
         }
         // -------------------------------------------------------------------------------------
         auto c_x_lock = ExclusivePageGuard(std::move(leaf));

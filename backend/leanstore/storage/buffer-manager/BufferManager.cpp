@@ -519,7 +519,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
       g_guard->unlock();
       cio_frame.mutex.unlock();
       // -------------------------------------------------------------------------------------
-      jumpmu::restore();
+      jumpmu::jump();
     }
   }
   // -------------------------------------------------------------------------------------
@@ -540,7 +540,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
       g_guard->unlock();
     }
     // -------------------------------------------------------------------------------------
-    jumpmu::restore();
+    jumpmu::jump();
   }
   // -------------------------------------------------------------------------------------
   if (cio_frame.state == CIOFrame::State::COOLING) {

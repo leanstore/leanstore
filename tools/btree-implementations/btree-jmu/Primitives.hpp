@@ -41,7 +41,7 @@ class SharedLock
   void recheck()
   {
     if (locked && local_version != *version_ptr) {
-      jumpmu::restore();
+      jumpmu::jump();
     }
   }
   // -------------------------------------------------------------------------------------
@@ -63,7 +63,7 @@ class ExclusiveLock
     lock_version_t new_version = ref_lock.local_version + 1;
     if (!std::atomic_compare_exchange_strong(ref_lock.version_ptr, &ref_lock.local_version, new_version)) {
       assert(jumpmu::checkpoint_counter == 1);
-      jumpmu::restore();
+      jumpmu::jump();
     }
     ref_lock.local_version = new_version;
     assert((ref_lock.local_version & 1) == 1);
@@ -83,7 +83,7 @@ class ExclusiveLock
     assert((ref_lock.local_version & 1) == 0);
     assert(jumpmu::checkpoint_counter <= 1);
     assert(jumpmu::de_stack_counter <= 2);
-    jumpmu::decrement();
+    jumpmu::clearLastDestructor();
   }
 };
 // -------------------------------------------------------------------------------------

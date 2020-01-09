@@ -436,7 +436,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   if (found) {
     return {.swip = c_swip->cast<BufferFrame>(), .guard = c_guard.bf_s_lock, .parent = c_guard.bf};
   } else {
-    jumpmu::restore();
+    jumpmu::jump();
   }
 }
 // -------------------------------------------------------------------------------------

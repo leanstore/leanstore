@@ -31,11 +31,11 @@ struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<std::mutex>>& lock)
       return bf;
     } else {
       lock->unlock();
-      jumpmu::restore();
+      jumpmu::jump();
     }
   } else {
     lock->unlock();
-    jumpmu::restore();
+    jumpmu::jump();
   }
 }
 // -------------------------------------------------------------------------------------
@@ -53,13 +53,13 @@ struct BufferFrame& FreeList::pop()
       return bf;
     } else {
       if (c_header == nullptr) {
-        jumpmu::restore();
+        jumpmu::jump();
       } else {
         c_header = head.load();
       }
     }
   }
-  jumpmu::restore();
+  jumpmu::jump();
 }
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager

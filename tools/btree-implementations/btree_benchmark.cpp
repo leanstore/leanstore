@@ -71,16 +71,12 @@ void bench(string name, const std::vector<u64>& work, u64 t, PerfEvent& e)
     });
   }
 }
-struct TestObject {
-  TestObject(){
-    cout <<"con"<<endl;
-  }
-  ~TestObject(){
-    cout <<"des"<<endl;
-  }
-  void tata (){
-    cout << "tata" <<endl;
-  }
+struct Base {
+  ~Base() { cout << "base des" << endl; }
+};
+struct TestObject : public Base {
+  TestObject() { cout << "con" << endl; }
+  ~TestObject() { cout << "des" << endl; }
 };
 // -------------------------------------------------------------------------------------
 int main(int, char**)
@@ -100,7 +96,7 @@ int main(int, char**)
   std::random_shuffle(work.begin(), work.end());
   cout << "start" << endl;
   // -------------------------------------------------------------------------------------
-  bench<btree::uglygoto::BTree<u64, u64>>("goto", work, t, e); // goto implementation is still buggy
+  bench<btree::uglygoto::BTree<u64, u64>>("goto", work, t, e);  // goto implementation is still buggy
   bench<btree::libgcc::BTree<u64, u64>>("libgcc", work, t, e);
   bench<btree::jmu::BTree<u64, u64>>("jumpmu", work, t, e);
   return 0;

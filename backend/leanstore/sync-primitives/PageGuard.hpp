@@ -187,7 +187,7 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
   jumpmu_defineCustomDestructor(ExclusivePageGuard)
   ~ExclusivePageGuard()
   {
-    jumpmu::decrement();
+    jumpmu::clearLastDestructor();
     // -------------------------------------------------------------------------------------
     if (!OptimisticClass::moved) {
       if (!keep_alive) {
