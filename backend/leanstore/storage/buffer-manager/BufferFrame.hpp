@@ -19,6 +19,8 @@ struct BufferFrame {
   struct Header {
     struct ContentionTracker {
       OptimisticLatch last_latch_version = 0;
+      bool high = 1;
+      bool low = 1;
     };
     // TODO: for logging
     atomic<u64> lastWrittenLSN = 0;
@@ -61,6 +63,8 @@ struct BufferFrame {
     header.pid = 9999;
     header.next_free_bf = nullptr;
     header.contention_tracker.last_latch_version->store(0);
+    header.contention_tracker.high = 1;
+    header.contention_tracker.low = 1;
   }
   // -------------------------------------------------------------------------------------
   BufferFrame() {

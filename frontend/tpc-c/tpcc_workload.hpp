@@ -211,7 +211,7 @@ void loadCustomer(Integer w_id, Integer d_id)
                      0,
                      randomastring<500>(300, 500)});
     customerwdl.insert({w_id, d_id, c_last, c_first, i + 1});
-    Integer t_id = (Integer) WorkerCounters::myCounters().t_id;
+    Integer t_id = (Integer)WorkerCounters::myCounters().t_id;
     history.insert({t_id, h_pk++, i + 1, d_id, w_id, d_id, w_id, now, 10.00, randomastring<24>(12, 24)});
   }
 }
@@ -677,7 +677,7 @@ void paymentById(Integer w_id, Integer d_id, Integer c_w_id, Integer c_d_id, Int
   }
 
   Varchar<24> h_new_data = Varchar<24>(w_name) || Varchar<24>("    ") || d_name;
-  Integer t_id = (Integer) WorkerCounters::myCounters().t_id.load();
+  Integer t_id = (Integer)WorkerCounters::myCounters().t_id.load();
   history.insert({t_id, h_pk++, c_id, c_d_id, c_w_id, d_id, w_id, datetime, h_amount, h_new_data});
 }
 
@@ -807,9 +807,8 @@ void paymentRnd(Integer w_id)
 }
 
 // [w_begin, w_end]
-int tx(u64 w_begin = 1, u64 w_end = warehouseCount)
+int tx(Integer w_id)
 {
-  Integer w_id = urand(w_begin, w_end);
   int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);
   if (rnd < 430) {
     paymentRnd(w_id);

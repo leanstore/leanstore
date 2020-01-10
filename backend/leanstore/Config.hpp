@@ -19,3 +19,5 @@ DECLARE_bool(root);
 DECLARE_bool(print_debug);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
+DECLARE_string(zipf_path);
+DECLARE_double(zipf_factor);

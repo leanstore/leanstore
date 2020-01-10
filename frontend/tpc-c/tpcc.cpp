@@ -1,14 +1,18 @@
+#include <leanstore/counters/WorkerCounters.hpp>
+
 #include "adapter.hpp"
+#include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/utils/ZipfRandom.hpp"
 #include "schema.hpp"
 #include "types.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>
+
 #include "PerfEvent.hpp"
-#include "leanstore/utils/RandomGenerator.hpp"
-#include <leanstore/counters/WorkerCounters.hpp>
 // -------------------------------------------------------------------------------------
 #include <unistd.h>
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -100,23 +104,24 @@ int main(int argc, char** argv)
   atomic<u64> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
+  auto random = std::make_unique<leanstore::utils::ZipfRandom>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
   if (FLAGS_tpcc_warehouse_affinity) {
-    if(FLAGS_tpcc_warehouse_count < FLAGS_worker_threads) {
+    if (FLAGS_tpcc_warehouse_count < FLAGS_worker_threads) {
       cerr << "There must be more warehouses than threads in affinity mode" << endl;
       exit(1);
     }
     const u64 warehouses_pro_thread = FLAGS_tpcc_warehouse_count / FLAGS_worker_threads;
-    for (u64 t_i = 0; t_i < FLAGS_worker_threads;t_i++) {
+    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       u64 w_begin = 1 + (t_i * warehouses_pro_thread);
       u64 w_end = w_begin + (warehouses_pro_thread - 1);
-      if(t_i == FLAGS_worker_threads -1) {
+      if (t_i == FLAGS_worker_threads - 1) {
         w_end = FLAGS_tpcc_warehouse_count;
       }
       threads.emplace_back(
-                           [&](u64 w_begin, u64 w_end) {
+          [&](u64 w_begin, u64 w_end) {
             running_threads_counter++;
             while (keep_running) {
-              tx(w_begin, w_end);
+              tx(urand(w_begin, w_end));
               WorkerCounters::myCounters().tx++;
             }
             running_threads_counter--;
@@ -124,11 +129,17 @@ int main(int argc, char** argv)
           w_begin, w_end);
     }
   } else {
-    for (u64 t_i = 0; t_i < FLAGS_worker_threads;t_i++) {
+    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       threads.emplace_back([&]() {
         running_threads_counter++;
         while (keep_running) {
-          tx();
+          Integer w_id;
+          if (FLAGS_zipf_factor == 0) {
+            w_id = urand(1, FLAGS_tpcc_warehouse_count);
+          } else {
+            w_id = 1 + (random->rand() % (FLAGS_tpcc_warehouse_count));
+          }
+          tx(w_id);
           WorkerCounters::myCounters().tx++;
         }
         running_threads_counter--;
@@ -139,10 +150,10 @@ int main(int argc, char** argv)
     // Shutdown threads
     sleep(FLAGS_tpcc_seconds);
     keep_running = false;
-    while(running_threads_counter) {
+    while (running_threads_counter) {
       _mm_pause();
     }
-    for(auto &thread : threads) {
+    for (auto& thread : threads) {
       thread.join();
     }
   }

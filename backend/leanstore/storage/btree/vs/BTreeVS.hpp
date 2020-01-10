@@ -40,7 +40,7 @@ struct BTree {
   void update(u8* key, u16 key_length, u64 payloadLength, u8* payload);
   // -------------------------------------------------------------------------------------
   bool remove(u8* key, u16 key_length);
-  void tryMerge(BufferFrame& to_split);
+  bool tryMerge(BufferFrame& to_split);
   // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();
   static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
@@ -52,7 +52,7 @@ struct BTree {
   template <int op_type = 0>  // 0 read, 1 update same size, 2 structural change // TODO better code
   OptimisticPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length)
   {
-    u32 mask = 1;
+    u32 volatile mask = 1;
     u32 const max = 512;  // MAX_BACKOFF
     while (true) {
       jumpmuTry()

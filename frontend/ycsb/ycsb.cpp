@@ -23,8 +23,6 @@ DEFINE_bool(fs, true, "");
 DEFINE_bool(verify, false, "");
 DEFINE_bool(ycsb_scan, false, "");
 DEFINE_bool(ycsb_tx, true, "");
-DEFINE_string(zipf_path, "/bulk/zipf", "");
-DEFINE_double(zipf_factor, 1.0, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------

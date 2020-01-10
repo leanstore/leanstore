@@ -8,7 +8,7 @@
 using namespace std;
 using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
-DEFINE_uint64(contention_update_tracker_pct, 10, "");
+DEFINE_uint64(contention_update_tracker_pct, 1, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -29,7 +29,7 @@ void BTree::init(DTID dtid)
 // -------------------------------------------------------------------------------------
 bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
-  u32 mask = 1;
+  volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     jumpmuTry()
@@ -62,10 +62,10 @@ void BTree::scan(u8* start_key,
                  std::function<bool(u8* payload, u16 payload_length, std::function<string()>&)> callback,
                  function<void()> undo)
 {
-  u32 mask = 1;
+  volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
-  u8* next_key = start_key;
-  u16 next_key_length = key_length;
+  u8* volatile next_key = start_key;
+  volatile u16 next_key_length = key_length;
   while (true) {
     jumpmuTry()
     {
@@ -119,7 +119,7 @@ void BTree::scan(u8* start_key,
 // -------------------------------------------------------------------------------------
 void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
 {
-  u32 mask = 1;
+  volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     jumpmuTry()
@@ -217,9 +217,9 @@ void BTree::trySplit(BufferFrame& to_split)
 // -------------------------------------------------------------------------------------
 void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback)
 {
-  u32 mask = 1;
+  volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
-  u64 local_restarts_counter = 0;
+  volatile u64 local_restarts_counter = 0;
   while (true) {
     jumpmuTry()
     {
@@ -229,19 +229,62 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       assert(pos != -1);
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
-      if (local_restarts_counter > 0 && utils::RandomGenerator::getRandU64(0, 100) < FLAGS_contention_update_tracker_pct) {
-        c_x_guard.bf->header.contention_tracker.last_latch_version->store(1);
-      } else {
-        if (c_x_guard.bf->header.contention_tracker.last_latch_version->load() >= 1) {
-          if (c_guard->count > 2) {
-            WorkerCounters::myCounters().dt_researchy[dtid]++;
+      // -------------------------------------------------------------------------------------
+      const bool has_contention = (local_restarts_counter > 0);
+      c_x_guard.bf->header.contention_tracker.high &= has_contention;
+      c_x_guard.bf->header.contention_tracker.low &= !has_contention;
+      if (utils::RandomGenerator::getRandU64(0, 1000000) < FLAGS_contention_update_tracker_pct) {
+        if (!(c_x_guard.bf->header.contention_tracker.high && c_x_guard.bf->header.contention_tracker.low)) {
+          if (c_x_guard.bf->header.contention_tracker.high) {
             c_guard = std::move(c_x_guard);
             c_guard.kill();
-            trySplit(*c_guard.bf);
+            jumpmuTry()
+            {
+              trySplit(*c_guard.bf);
+              WorkerCounters::myCounters().dt_researchy_0[dtid]++;
+            }
+            jumpmuCatch() {}
+          }
+          if (c_x_guard.bf->header.contention_tracker.low && c_x_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
+            c_guard = std::move(c_x_guard);
+            c_guard.kill();
+            jumpmuTry()
+            {
+              const bool did_merge = tryMerge(*c_guard.bf);
+              if (did_merge)
+                WorkerCounters::myCounters().dt_researchy_1[dtid]++;
+              else
+                WorkerCounters::myCounters().dt_researchy_2[dtid]++;
+            }
+            jumpmuCatch() { WorkerCounters::myCounters().dt_researchy_2[dtid]++; }
           }
         }
-        c_x_guard.bf->header.contention_tracker.last_latch_version->store(0);
+        c_x_guard.bf->header.contention_tracker.high = 1;
+        c_x_guard.bf->header.contention_tracker.low = 1;
       }
+      // if (utils::RandomGenerator::getRandU64(0, 1000000) < FLAGS_contention_update_tracker_pct) {
+      //   if (local_restarts_counter > 0) {
+      //     if (c_x_guard.bf->header.contention_tracker.last_latch_version->load() >= 1) {
+      //       if (c_x_guard->count > 2) {
+      //         WorkerCounters::myCounters().dt_researchy_0[dtid]++;
+      //         c_guard = std::move(c_x_guard);
+      //         c_guard.kill();
+      //         trySplit(*c_guard.bf);
+      //       }
+      //     }
+      //     c_x_guard.bf->header.contention_tracker.last_latch_version->store(1);
+      //   } else {
+      //     if (c_x_guard.bf->header.contention_tracker.last_latch_version->load() == 0 &&
+      //         c_x_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
+      //       WorkerCounters::myCounters().dt_researchy_1[dtid]++;
+      //       c_guard = std::move(c_x_guard);
+      //       c_guard.kill();
+      //       tryMerge(*c_guard.bf);
+      //     }
+      //   }
+      // } else {
+      //   c_x_guard.bf->header.contention_tracker.last_latch_version->store(0);
+      // }
       jumpmu_return;
     }
     jumpmuCatch()
@@ -259,7 +302,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
 // TODO: not used and not well tested
 void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
 {
-  u32 mask = 1;
+  volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     jumpmuTry()
@@ -304,7 +347,7 @@ bool BTree::remove(u8* key, u16 key_length)
    * if yes, then lock exclusively
    * if there was not, and after deletion we got an empty
    * */
-  u32 mask = 1;
+  volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     jumpmuTry()
@@ -336,13 +379,13 @@ bool BTree::remove(u8* key, u16 key_length)
   }
 }
 // -------------------------------------------------------------------------------------
-void BTree::tryMerge(BufferFrame& to_split)
+bool BTree::tryMerge(BufferFrame& to_split)
 {
   auto parent_handler = findParent(this, to_split);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
   if (!p_guard.hasBf() || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
-    return;
+    return false;
   }
   assert(parent_handler.swip.bf == &to_split);
   // -------------------------------------------------------------------------------------
@@ -388,21 +431,24 @@ void BTree::tryMerge(BufferFrame& to_split)
   };
   // ATTENTION: don't use c_guard without making sure it was not reclaimed
   // -------------------------------------------------------------------------------------
+  bool merged_successfully = false;
   bool merged_right = false;
   if (p_guard->count >= 2) {
     if (pos + 1 < p_guard->count) {
       if (merge_right()) {
         merged_right = true;
+        merged_successfully = true;
       }
     }
     if (!merged_right && pos > 0) {
-      merge_left();
+      merged_successfully |= merge_left();
     }
   }
   // -------------------------------------------------------------------------------------
   if (p_guard.hasBf() && p_guard->freeSpaceAfterCompaction() >= BTreeNode::underFullSize && root_swip.bf != p_guard.bf) {
     tryMerge(*p_guard.bf);
   }
+  return merged_successfully;
 }
 // -------------------------------------------------------------------------------------
 BTree::~BTree() {}
@@ -456,11 +502,10 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   p_guard.kill();
   const bool found = c_swip->bf == &to_find;
   c_guard.recheck_done();
-  if (found) {
-    return {.swip = c_swip->cast<BufferFrame>(), .guard = c_guard.bf_s_lock, .parent = c_guard.bf};
-  } else {
+  if (!found) {
     jumpmu::jump();
   }
+  return {.swip = c_swip->cast<BufferFrame>(), .guard = c_guard.bf_s_lock, .parent = c_guard.bf};
 }
 // -------------------------------------------------------------------------------------
 void BTree::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)

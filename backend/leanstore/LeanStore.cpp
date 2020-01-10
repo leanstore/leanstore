@@ -114,7 +114,7 @@ void LeanStore::debuggingThread()
   e->printCSVHeaders(pp_csv);
   pp_csv << endl;
   // -------------------------------------------------------------------------------------
-  dt_csv << "t,id,name,miss,restarts_updates,restarts_structural,restarts_read, researchy" << endl;
+  dt_csv << "t,id,name,miss,restarts_updates,restarts_structural,restarts_read, researchy_0, researchy_1, researchy_2" << endl;
   // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   u64 time = 0;
@@ -154,11 +154,16 @@ void LeanStore::debuggingThread()
              << "," << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_update_same_size, dt_id) << ","
              << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_structural_change, dt_id) << ","
              << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_read, dt_id) << ","
-             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy, dt_id) << endl;
+             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_0, dt_id) << ","
+             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_1, dt_id) << ","
+             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_2, dt_id) << endl;
       // -------------------------------------------------------------------------------------
       WorkerCounters::myCounters().dt_misses_counter[dt_id] = WorkerCounters::myCounters().dt_restarts_update_same_size[dt_id] =
-          WorkerCounters::myCounters().dt_restarts_read[dt_id] = WorkerCounters::myCounters().dt_restarts_structural_change[dt_id] =
-              WorkerCounters::myCounters().dt_researchy[dt_id] = 0;
+          WorkerCounters::myCounters().dt_restarts_read[dt_id] =
+              WorkerCounters::myCounters().dt_restarts_structural_change[dt_id] =
+              WorkerCounters::myCounters().dt_researchy_0[dt_id] =
+              WorkerCounters::myCounters().dt_researchy_1[dt_id] =
+              WorkerCounters::myCounters().dt_researchy_2[dt_id] = 0;
     }
     // -------------------------------------------------------------------------------------
     e->startCounters();
