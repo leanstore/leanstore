@@ -121,6 +121,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
 {
   volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
+  volatile u32 local_restarts_counter = 0;
   while (true) {
     jumpmuTry()
     {
@@ -135,7 +136,8 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       p_guard.recheck_done();
       if (c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)), payload)) {
-        // entries++;
+        const bool has_contention = (local_restarts_counter > 0);
+        c_x_guard.bf->header.contention_tracker.high &= has_contention;
         jumpmu_return;
       }
       // -------------------------------------------------------------------------------------
@@ -153,6 +155,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       }
       mask = mask < max ? mask << 1 : max;
       WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
+      local_restarts_counter++;
     }
   }
 }
@@ -219,7 +222,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
 {
   volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
-  volatile u64 local_restarts_counter = 0;
+  volatile u32 local_restarts_counter = 0;
   while (true) {
     jumpmuTry()
     {
@@ -233,58 +236,34 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       const bool has_contention = (local_restarts_counter > 0);
       c_x_guard.bf->header.contention_tracker.high &= has_contention;
       c_x_guard.bf->header.contention_tracker.low &= !has_contention;
-      if (utils::RandomGenerator::getRandU64(0, 1000000) < FLAGS_contention_update_tracker_pct) {
-        if (!(c_x_guard.bf->header.contention_tracker.high && c_x_guard.bf->header.contention_tracker.low)) {
-          if (c_x_guard.bf->header.contention_tracker.high) {
+      c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
+      if (utils::RandomGenerator::getRandU64(0, 1000000) < (FLAGS_contention_update_tracker_pct * c_x_guard->count)) {
+        bool high = c_x_guard.bf->header.contention_tracker.high;
+        bool low = c_x_guard.bf->header.contention_tracker.low;
+        c_x_guard.bf->header.contention_tracker.high = 1;
+        c_x_guard.bf->header.contention_tracker.low = 1;
+        // -------------------------------------------------------------------------------------
+        if (!(high && low)) {
+          if (high) {
             c_guard = std::move(c_x_guard);
             c_guard.kill();
             jumpmuTry()
             {
+              cout << c_x_guard->count << '\t' << c_x_guard.bf->header.contention_tracker.restarts_counter << endl;
+              c_x_guard.bf->header.contention_tracker.restarts_counter = 0;
               trySplit(*c_guard.bf);
               WorkerCounters::myCounters().dt_researchy_0[dtid]++;
             }
             jumpmuCatch() {}
           }
-          if (c_x_guard.bf->header.contention_tracker.low && c_x_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
+          if (low && c_x_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
             c_guard = std::move(c_x_guard);
             c_guard.kill();
-            jumpmuTry()
-            {
-              const bool did_merge = tryMerge(*c_guard.bf);
-              if (did_merge)
-                WorkerCounters::myCounters().dt_researchy_1[dtid]++;
-              else
-                WorkerCounters::myCounters().dt_researchy_2[dtid]++;
-            }
+            jumpmuTry() { WorkerCounters::myCounters().dt_researchy_1[dtid] += tryMerge(*c_guard.bf); }
             jumpmuCatch() { WorkerCounters::myCounters().dt_researchy_2[dtid]++; }
           }
         }
-        c_x_guard.bf->header.contention_tracker.high = 1;
-        c_x_guard.bf->header.contention_tracker.low = 1;
       }
-      // if (utils::RandomGenerator::getRandU64(0, 1000000) < FLAGS_contention_update_tracker_pct) {
-      //   if (local_restarts_counter > 0) {
-      //     if (c_x_guard.bf->header.contention_tracker.last_latch_version->load() >= 1) {
-      //       if (c_x_guard->count > 2) {
-      //         WorkerCounters::myCounters().dt_researchy_0[dtid]++;
-      //         c_guard = std::move(c_x_guard);
-      //         c_guard.kill();
-      //         trySplit(*c_guard.bf);
-      //       }
-      //     }
-      //     c_x_guard.bf->header.contention_tracker.last_latch_version->store(1);
-      //   } else {
-      //     if (c_x_guard.bf->header.contention_tracker.last_latch_version->load() == 0 &&
-      //         c_x_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
-      //       WorkerCounters::myCounters().dt_researchy_1[dtid]++;
-      //       c_guard = std::move(c_x_guard);
-      //       c_guard.kill();
-      //       tryMerge(*c_guard.bf);
-      //     }
-      //   }
-      // } else {
-      //   c_x_guard.bf->header.contention_tracker.last_latch_version->store(0);
-      // }
       jumpmu_return;
     }
     jumpmuCatch()
@@ -455,8 +434,28 @@ BTree::~BTree() {}
 // -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTree::getMeta()
 {
-  DTRegistry::DTMeta btree_meta = {.iterate_children = iterateChildrenSwips, .find_parent = findParent};
+  DTRegistry::DTMeta btree_meta = {
+      .iterate_children = iterateChildrenSwips, .find_parent = findParent, .check_space_utilization = checkSpaceUtilization};
   return btree_meta;
+}
+// -------------------------------------------------------------------------------------
+// Called by buffer manager before eviction
+void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
+{
+  // TODO
+  auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
+  auto& btree = *reinterpret_cast<BTree*>(btree_object);
+  // OptimisticGuard o_guard(to_find.header.lock);
+  if (c_node.freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+    jumpmuTry()
+    {
+      btree.tryMerge(bf);
+      WorkerCounters::myCounters().dt_researchy_1[btree.dtid]++;
+    }
+    jumpmuCatch() {}
+  } else {
+    WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
+  }
 }
 // -------------------------------------------------------------------------------------
 struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_find)

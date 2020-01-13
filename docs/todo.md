@@ -8,7 +8,7 @@
 * AWS Batch
 * White-box compression
 
-# Last episode:
+Last episode:
 * Shared Latches (used only in scan atm)
 * Partition buffer pool, cleaner page provider threads code (for each partiton, do all the phases), randomly pick a partition during allocation
 * Remove free_threshold parameter, introduce pop() on allocation path and tryPop() on read path

@@ -5,6 +5,7 @@
 // -------------------------------------------------------------------------------------
 #include <emmintrin.h>
 #include <unistd.h>
+
 #include <atomic>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -17,13 +18,13 @@ struct RestartException {
   RestartException() {}
 };
 // -------------------------------------------------------------------------------------
-  /*
-    OptimisticLatch Design: 8 bits for state, 56 bits for version
-    Shared: state = n + 1, where n = threads currently holding the shared latch
-    , last one releasing sets the state back to 0
-    Exclusively: state = 0, and version+=1
-    Optimistic: change nothing
-   */
+/*
+  OptimisticLatch Design: 8 bits for state, 56 bits for version
+  Shared: state = n + 1, where n = threads currently holding the shared latch
+  , last one releasing sets the state back to 0
+  Exclusively: state = 0, and version+=1
+  Optimistic: change nothing
+ */
 constexpr static u64 LATCH_EXCLUSIVE_BIT = (1 << 8);
 constexpr static u64 LATCH_STATE_MASK = ((1 << 8) - 1);  // 0xFF
 constexpr static u64 LATCH_VERSION_MASK = ~LATCH_STATE_MASK;
@@ -39,26 +40,24 @@ using OptimisticLatchVersionType = atomic<u64>;
 struct OptimisticLatch {
   OptimisticLatchVersionType raw;
   // -------------------------------------------------------------------------------------
-  template<typename... Args>
-  OptimisticLatch(Args&&... args) : raw(std::forward<Args>(args)...) {}
+  template <typename... Args>
+  OptimisticLatch(Args&&... args) : raw(std::forward<Args>(args)...)
+  {
+  }
   OptimisticLatchVersionType* operator->() { return &raw; }
   // -------------------------------------------------------------------------------------
   OptimisticLatchVersionType* ptr() { return &raw; }
   OptimisticLatchVersionType& ref() { return raw; }
   // -------------------------------------------------------------------------------------
-  void assertExclusivelyLatched() {
-    assert((raw & LATCH_EXCLUSIVE_BIT ) == LATCH_EXCLUSIVE_BIT);
-  }
-  void assertNotExclusivelyLatched() {
-    assert((raw & LATCH_EXCLUSIVE_BIT ) == 0);
-  }
+  void assertExclusivelyLatched() { assert(isExclusivelyLatched()); }
+  void assertNotExclusivelyLatched() { assert(!isExclusivelyLatched()); }
   // -------------------------------------------------------------------------------------
-  void assertSharedLatched() {
-    assert((raw & LATCH_STATE_MASK) > 0);
-  }
-  void assertNotSharedLatched() {
-    assert((raw & LATCH_STATE_MASK) == 0);
-  }
+  void assertSharedLatched() { assert(isSharedLatched()); }
+  void assertNotSharedLatched() { assert(!isSharedLatched()); }
+  // -------------------------------------------------------------------------------------
+  bool isExclusivelyLatched() { return (raw & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT; }
+  bool isSharedLatched() { return (raw & LATCH_STATE_MASK) > 0; }
+  bool isAnyLatched() { return (raw & LATCH_EXCLUSIVE_STATE_MASK) > 0; }
 };
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -76,12 +75,11 @@ class OptimisticGuard
 
  public:
   OptimisticLatch* latch_ptr = nullptr;
-  u64 local_version; // without the state
+  u64 local_version;  // without the state
   // -------------------------------------------------------------------------------------
   OptimisticGuard() = default;
   // -------------------------------------------------------------------------------------
-  OptimisticGuard(OptimisticLatch&
-                  lock) : latch_ptr(&lock)
+  OptimisticGuard(OptimisticLatch& lock) : latch_ptr(&lock)
   {
     // Ignore the state field
     local_version = latch_ptr->raw.load() & LATCH_VERSION_MASK;
@@ -107,7 +105,8 @@ class ExclusiveGuard
  private:
   OptimisticGuard& ref_guard;  // our basis
  public:
-  static inline void latch(OptimisticGuard &ref_guard) {
+  static inline void latch(OptimisticGuard& ref_guard)
+  {
     assert(ref_guard.latch_ptr != nullptr);
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_STATE_MASK) == 0);
     const u64 new_version = ref_guard.local_version + LATCH_EXCLUSIVE_BIT;
@@ -120,7 +119,8 @@ class ExclusiveGuard
     ref_guard.local_version = new_version;
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
   }
-  static inline void unlatch(OptimisticGuard &ref_guard) {
+  static inline void unlatch(OptimisticGuard& ref_guard)
+  {
     assert(ref_guard.latch_ptr != nullptr);
     assert(ref_guard.local_version == ref_guard.latch_ptr->ref().load());
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
@@ -129,15 +129,17 @@ class ExclusiveGuard
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_BIT) == 0);
   }
   // -------------------------------------------------------------------------------------
-  ExclusiveGuard(OptimisticGuard& o_lock) : ref_guard(o_lock) {
+  ExclusiveGuard(OptimisticGuard& o_lock) : ref_guard(o_lock)
+  {
     ExclusiveGuard::latch(ref_guard);
     assert(jumpmu::de_stack_counter < 5);
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
   jumpmu_defineCustomDestructor(ExclusiveGuard)
-  // -------------------------------------------------------------------------------------
-  ~ExclusiveGuard() {
+      // -------------------------------------------------------------------------------------
+      ~ExclusiveGuard()
+  {
     ExclusiveGuard::unlatch(ref_guard);
     jumpmu::clearLastDestructor();
   }
@@ -169,9 +171,11 @@ class SharedGuard
 {
  private:
   OptimisticGuard& ref_guard;
+
  public:
   // -------------------------------------------------------------------------------------
-  static inline void latch(OptimisticGuard &basis_guard) {
+  static inline void latch(OptimisticGuard& basis_guard)
+  {
     /*
       it is fine if the state changed in-between therefore we have to keep trying as long
       as the version stayed the same
@@ -181,24 +185,25 @@ class SharedGuard
     u64 expected_old_compound = basis_guard.local_version | current_state;
     u64 new_state = current_state + ((current_state == 0) ? 2 : 1);
     u64 new_compound = basis_guard.local_version | new_state;
-    if(!basis_guard.latch_ptr->ref().compare_exchange_strong(expected_old_compound, new_compound)) {
-      if((expected_old_compound & LATCH_VERSION_MASK) != basis_guard.local_version) {
+    if (!basis_guard.latch_ptr->ref().compare_exchange_strong(expected_old_compound, new_compound)) {
+      if ((expected_old_compound & LATCH_VERSION_MASK) != basis_guard.local_version) {
         jumpmu::jump();
       } else {
         goto try_accquire_shared_guard;
       }
     }
   }
-  static inline void unlatch(OptimisticGuard &basis_guard) {
+  static inline void unlatch(OptimisticGuard& basis_guard)
+  {
   try_release_shared_guard:
     u64 current_compound = basis_guard.latch_ptr->ref().load();
     u64 new_compound = current_compound;
-    if((current_compound & LATCH_STATE_MASK) == 2) {
+    if ((current_compound & LATCH_STATE_MASK) == 2) {
       new_compound -= 2;
     } else {
-      new_compound -=1;
+      new_compound -= 1;
     }
-    if(!basis_guard.latch_ptr->ref().compare_exchange_strong(current_compound, new_compound)) {
+    if (!basis_guard.latch_ptr->ref().compare_exchange_strong(current_compound, new_compound)) {
       goto try_release_shared_guard;
     }
   }
@@ -216,6 +221,6 @@ class SharedGuard
     }                                    \
     mask = mask < max ? mask << 1 : max; \
   }                                      \
-// -------------------------------------------------------------------------------------
+  // -------------------------------------------------------------------------------------
 }  // namespace buffermanager
-}
+}  // namespace leanstore

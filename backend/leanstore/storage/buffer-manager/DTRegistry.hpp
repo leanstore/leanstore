@@ -28,9 +28,8 @@ struct ParentSwipHandler {
 struct DTRegistry {
   struct DTMeta {
     std::function<void(void*, BufferFrame&, std::function<bool(Swip<BufferFrame>&)>)> iterate_children;
-    // the caller must have locked the current buffer frame exclusively before
-    // calling
     std::function<ParentSwipHandler(void*, BufferFrame&)> find_parent;
+    std::function<void(void*, BufferFrame&)> check_space_utilization;
     u64 instances_counter = 0;
   };
   // Not syncrhonized
@@ -39,6 +38,7 @@ struct DTRegistry {
   // -------------------------------------------------------------------------------------
   void iterateChildrenSwips(DTID dtid, BufferFrame&, std::function<bool(Swip<BufferFrame>&)>);
   ParentSwipHandler findParent(DTID dtid, BufferFrame&);
+  void checkSpaceUtilization(DTID dtid, BufferFrame &);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager

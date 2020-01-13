@@ -181,7 +181,8 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   DTRegistry::DTMeta getMeta()
   {
-    DTRegistry::DTMeta btree_meta = {.iterate_children = iterateChildSwips, .find_parent = findParent};
+    DTRegistry::DTMeta btree_meta = {
+        .iterate_children = iterateChildSwips, .find_parent = findParent, .check_space_utilization = checkSpaceUtilization};
     return btree_meta;
   }
   // -------------------------------------------------------------------------------------
@@ -320,6 +321,10 @@ struct BTree {
         return;
       }
     }
+  }
+  // -------------------------------------------------------------------------------------
+  static void checkSpaceUtilization(void* btree_object, BufferFrame& bf) {
+    ensure(false); // todo
   }
   // -------------------------------------------------------------------------------------
   static ParentSwipHandler findParent(void* btree_object, BufferFrame& bf)

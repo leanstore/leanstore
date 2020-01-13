@@ -43,6 +43,7 @@ struct BTree {
   bool tryMerge(BufferFrame& to_split);
   // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();
+  static void checkSpaceUtilization(void* btree_object, BufferFrame&);
   static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
   static void iterateChildrenSwips(void* /*btree_object*/, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback);
   // -------------------------------------------------------------------------------------

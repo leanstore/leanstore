@@ -8,7 +8,6 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-// Well, we might need atomics here...
 struct WorkerCounters {
   atomic<u64> t_id = 9999; // TODO;
   atomic<u64> hot_hit_counter = 0; // TODO: give it a try ?

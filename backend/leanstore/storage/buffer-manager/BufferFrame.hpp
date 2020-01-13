@@ -18,9 +18,9 @@ struct BufferFrame {
   enum class State : u8 { FREE = 0, HOT = 1, COLD = 2 };
   struct Header {
     struct ContentionTracker {
-      OptimisticLatch last_latch_version = 0;
       bool high = 1;
       bool low = 1;
+      u64 restarts_counter = 0;
     };
     // TODO: for logging
     atomic<u64> lastWrittenLSN = 0;
@@ -62,7 +62,6 @@ struct BufferFrame {
     header.isCooledBecauseOfReading = false;
     header.pid = 9999;
     header.next_free_bf = nullptr;
-    header.contention_tracker.last_latch_version->store(0);
     header.contention_tracker.high = 1;
     header.contention_tracker.low = 1;
   }
