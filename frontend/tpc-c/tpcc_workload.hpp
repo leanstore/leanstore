@@ -806,7 +806,7 @@ void paymentRnd(Integer w_id)
   }
 }
 
-// [w_begin, w_end]
+// was: [w_begin, w_end]
 int tx(Integer w_id)
 {
   int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);

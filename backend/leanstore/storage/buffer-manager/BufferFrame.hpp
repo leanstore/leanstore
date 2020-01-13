@@ -21,6 +21,7 @@ struct BufferFrame {
       bool high = 1;
       bool low = 1;
       u64 restarts_counter = 0;
+      u64 access_counter = 0;
     };
     // TODO: for logging
     atomic<u64> lastWrittenLSN = 0;
@@ -64,6 +65,8 @@ struct BufferFrame {
     header.next_free_bf = nullptr;
     header.contention_tracker.high = 1;
     header.contention_tracker.low = 1;
+    header.contention_tracker.restarts_counter = 0;
+    header.contention_tracker.access_counter = 0;
   }
   // -------------------------------------------------------------------------------------
   BufferFrame() {

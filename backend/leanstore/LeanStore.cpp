@@ -93,7 +93,7 @@ void LeanStore::debuggingThread()
   stats.emplace_back("rounds", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::pp_thread_rounds); });
   stats.emplace_back("unswizzled", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::unswizzled_pages_counter); });
   stats.emplace_back("cpus", [&](ostream& out) { out << e->getCPUs(); });
-  stats.emplace_back("submit_ms", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::submit_ms); });
+  stats.emplace_back("submit_ms", [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::submit_ms) * 100.0 / total); });
   stats.emplace_back("async_mb_ws", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::async_wb_ms); });
   stats.emplace_back("w_mib", [&](ostream& out) {
     out << sum(PPCounters::pp_counters, &PPCounters::flushed_pages_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;

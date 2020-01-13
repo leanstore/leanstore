@@ -135,7 +135,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
       {
         while (phase_1_condition(partition)) {
           PPCounters::myCounters().phase_1_counter++;
-          if(r_buffer->header.lock.isAnyLatched()) {
+          if (r_buffer->header.lock.isAnyLatched()) {
             r_buffer = &randomBufferFrame();
             continue;
           }
@@ -173,6 +173,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           // Suitable page founds, lets unswizzle
           {
             const PID pid = r_buffer->header.pid;
+            dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer); // BETA:
+
             auto find_parent_begin = chrono::high_resolution_clock::now();
             ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
             auto find_parent_end = chrono::high_resolution_clock::now();
@@ -240,7 +242,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             const PID pid = bf.header.pid;
             // -------------------------------------------------------------------------------------
             if (!bf.header.isCooledBecauseOfReading) {
-              //dt_registry.checkSpaceUtilization(bf.page.dt_id, bf);
               assert(!bf.header.isWB);
               if (bf.isDirty()) {
                 if (!async_write_buffer.add(bf)) {
