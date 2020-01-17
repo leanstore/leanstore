@@ -18,17 +18,16 @@ struct BufferFrame {
   enum class State : u8 { FREE = 0, HOT = 1, COLD = 2 };
   struct Header {
     struct ContentionTracker {
-      bool high = 1;
-      bool low = 1;
       u64 restarts_counter = 0;
       u64 access_counter = 0;
+      s64 last_modified_pos = -1;
     };
     // TODO: for logging
     atomic<u64> lastWrittenLSN = 0;
     atomic<State> state = State::FREE;  // INIT:
     atomic<bool> isWB = false;
     bool isCooledBecauseOfReading = false;
-    PID pid = 9999;           // INIT:
+    PID pid = 9999;            // INIT:
     OptimisticLatch lock = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;  // TODO
@@ -63,15 +62,12 @@ struct BufferFrame {
     header.isCooledBecauseOfReading = false;
     header.pid = 9999;
     header.next_free_bf = nullptr;
-    header.contention_tracker.high = 1;
-    header.contention_tracker.low = 1;
+    header.contention_tracker.last_modified_pos = -1;
     header.contention_tracker.restarts_counter = 0;
     header.contention_tracker.access_counter = 0;
   }
   // -------------------------------------------------------------------------------------
-  BufferFrame() {
-    header.lock->store(0ul);
-  }
+  BufferFrame() { header.lock->store(0ul); }
 };
 // -------------------------------------------------------------------------------------
 static constexpr u64 EFFECTIVE_PAGE_SIZE = sizeof(BufferFrame::Page::dt);

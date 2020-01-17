@@ -65,7 +65,7 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   union {
     u64 x;
-    u8 key_start[4];
+    u8 key_start[8];
   };
   x = 0ul;
   u64 counter = 0;
@@ -76,7 +76,6 @@ int main(int argc, char** argv)
                   return true;
                 }, [](){});
   cout << counter << endl;
-  cout << vs_btree.countEntries() << endl;
   // -------------------------------------------------------------------------------------
   return 0;
 }

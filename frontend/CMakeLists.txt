@@ -24,3 +24,7 @@ target_include_directories(random_io PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(scan misc-benchmarks/scan.cpp)
 target_link_libraries(scan leanstore Threads::Threads)
 target_include_directories(scan PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(zipf misc-benchmarks/zipf.cpp)
+target_link_libraries(zipf leanstore Threads::Threads)
+target_include_directories(zipf PRIVATE ${SHARED_INCLUDE_DIRECTORY})

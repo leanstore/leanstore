@@ -5,6 +5,29 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
+unsigned fold(uint8_t* writer, const s32& x)
+{
+  *reinterpret_cast<u32*>(writer) = __builtin_bswap32(x ^ (1ul << 31));
+  return sizeof(x);
+}
+
+unsigned fold(uint8_t* writer, const s64& x)
+{
+  *reinterpret_cast<u64*>(writer) = __builtin_bswap64(x ^ (1ull << 63));
+  return sizeof(x);
+}
+
+unsigned fold(uint8_t* writer, const u64& x)
+{
+  *reinterpret_cast<u64*>(writer) = __builtin_bswap64(x);
+  return sizeof(x);
+}
+
+unsigned fold(uint8_t* writer, const u32& x)
+{
+  *reinterpret_cast<u32*>(writer) = __builtin_bswap32(x);
+  return sizeof(x);
+}
 // -------------------------------------------------------------------------------------
 template <typename Key, typename Payload>
 struct BTreeInterface {
@@ -13,35 +36,31 @@ struct BTreeInterface {
   virtual void update(Key k, Payload& v) = 0;
 };
 // -------------------------------------------------------------------------------------
+// template <typename Record>
+// struct DataStructureInterface {
+//   void insert(const Record& r);
+//   bool lookup(const typename Record::Key& k);
+//   template <class Fn>
+//   void update(const typename Record::Key& k, const Fn& fn);
+//   template <class Fn>
+//   void scan(const typename Record::Key& k, const Fn& fn, std::function<void()> undo);
+// };
+// // -------------------------------------------------------------------------------------
+// template <typename Record>
+// struct VSBTreeAdapter : DataStructureInterface<Record> {
+//   leanstore::btree::vs::BTree& btree;
+//   VSBTreeAdapter(leanstore::btree::vs::BTree& btree) : btree(btree) {}
+//   void insert(const Record &r) {
+//     u8 key_bytes[Record::maxFoldSize()];
+//     btree.insert(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8*>(&v));
+//   }
+// }
+// -------------------------------------------------------------------------------------
 template <typename Key, typename Payload>
 struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
   leanstore::btree::vs::BTree& btree;
 
   BTreeVSAdapter(leanstore::btree::vs::BTree& btree) : btree(btree) {}
-
-  unsigned fold(uint8_t* writer, const s32& x)
-  {
-    *reinterpret_cast<u32*>(writer) = __builtin_bswap32(x ^ (1ul << 31));
-    return sizeof(x);
-  }
-
-  unsigned fold(uint8_t* writer, const s64& x)
-  {
-    *reinterpret_cast<u64*>(writer) = __builtin_bswap64(x ^ (1ull << 63));
-    return sizeof(x);
-  }
-
-  unsigned fold(uint8_t* writer, const u64& x)
-  {
-    *reinterpret_cast<u64*>(writer) = __builtin_bswap64(x);
-    return sizeof(x);
-  }
-
-  unsigned fold(uint8_t* writer, const u32& x)
-  {
-    *reinterpret_cast<u32*>(writer) = __builtin_bswap32(x);
-    return sizeof(x);
-  }
 
   bool lookup(Key k, Payload& v) override
   {

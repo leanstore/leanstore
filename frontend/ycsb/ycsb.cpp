@@ -12,17 +12,20 @@
 #include <tbb/tbb.h>
 // -------------------------------------------------------------------------------------
 #include <iostream>
+#include <set>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(ycsb_read_ratio, 100, "");
-DEFINE_uint64(ycsb_tuple_count, 100000, "");
+DEFINE_double(target_gib, 1, "");
+DEFINE_uint64(ycsb_tuple_count, 0, "");
 DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
-DEFINE_uint32(ycsb_warmup_rounds, 1, "");
+DEFINE_uint32(ycsb_warmup_rounds, 0, "");
 DEFINE_uint32(ycsb_tx_rounds, 1, "");
 DEFINE_uint32(ycsb_tx_count, 0, "default = tuples");
-DEFINE_bool(fs, true, "");
+DEFINE_bool(fs, false, "");
 DEFINE_bool(verify, false, "");
 DEFINE_bool(ycsb_scan, false, "");
 DEFINE_bool(ycsb_tx, true, "");
+DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -56,57 +59,25 @@ int main(int argc, char** argv)
     auto& vs_btree = db.registerVSBTree("ycsb");
     adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
   }
+  // -------------------------------------------------------------------------------------
   auto& table = *adapter;
-  // -------------------------------------------------------------------------------------
-  // Prepare lookup_keys in Zipf distribution
-  const u64 tx_count = (FLAGS_ycsb_tx_count) ? FLAGS_ycsb_tx_count : FLAGS_ycsb_tuple_count;
-  vector<YCSBKey> lookup_keys(tx_count);
-  vector<YCSBPayload> payloads(FLAGS_ycsb_tuple_count);
-  // -------------------------------------------------------------------------------------
-  cout << "-------------------------------------------------------------------------------------" << endl;
-  cout << "Preparing Workload" << endl;
-  {
-    const string lookup_keys_file =
-        FLAGS_zipf_path + "ycsb_" + to_string(tx_count) + "_lookup_keys_" + to_string(sizeof(YCSBKey)) + "b_zipf_" + to_string(FLAGS_zipf_factor);
-    if (utils::fileExists(lookup_keys_file)) {
-      utils::fillVectorFromBinaryFile(lookup_keys_file.c_str(), lookup_keys);
-    } else {
-      auto random = std::make_unique<utils::ZipfRandom>(FLAGS_ycsb_tuple_count, FLAGS_zipf_factor);
-      std::generate(lookup_keys.begin(), lookup_keys.end(), [&]() { return random->rand() % (FLAGS_ycsb_tuple_count); });
-      utils::writeBinary(lookup_keys_file.c_str(), lookup_keys);
-    }
-  }
-  // -------------------------------------------------------------------------------------
-  // Prepare Payload
-  {
-    cout << "-------------------------------------------------------------------------------------" << endl;
-    cout << "Preparing Payload" << endl;
-    const string payload_file = FLAGS_zipf_path + "ycsb_payload_" + to_string(FLAGS_ycsb_tuple_count) + "_" + to_string(sizeof(YCSBPayload)) + "b";
-    if (utils::fileExists(payload_file)) {
-      utils::fillVectorFromBinaryFile(payload_file.c_str(), payloads);
-    } else {
-      tbb::parallel_for(tbb::blocked_range<u64>(0, payloads.size()), [&](const tbb::blocked_range<u64>& range) {
-        for (u64 i = range.begin(); i < range.end(); i++) {
-          utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(payloads.data() + i), sizeof(YCSBPayload));
-        }
-      });
-      utils::writeBinary(payload_file.c_str(), payloads);
-    }
-  }
-  cout << "-------------------------------------------------------------------------------------" << endl;
-  cout << setprecision(4);
-  // -------------------------------------------------------------------------------------
+  const u64 ycsb_tuple_count =
+      (FLAGS_ycsb_tuple_count) ? FLAGS_ycsb_tuple_count : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
   // Insert values
   {
-    const u64 n = FLAGS_ycsb_tuple_count;
+    const u64 n = ycsb_tuple_count;
     cout << "-------------------------------------------------------------------------------------" << endl;
     cout << "Inserting values" << endl;
     begin = chrono::high_resolution_clock::now();
     {
       tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
-        for (u64 i = range.begin(); i < range.end(); i++) {
-          YCSBPayload& payload = payloads[i];
-          table.insert(i, payload);
+        vector<u64> keys(range.size());
+        std::iota(keys.begin(), keys.end(), range.begin());
+        std::random_shuffle(keys.begin(), keys.end());
+        for (const auto& key : keys) {
+          YCSBPayload payload;
+          utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
+          table.insert(key, payload);
         }
       });
     }
@@ -116,14 +87,45 @@ int main(int argc, char** argv)
     // -------------------------------------------------------------------------------------
     const u64 written_pages = db.getBufferManager().consumedPages();
     const u64 mib = written_pages * PAGE_SIZE / 1024 / 1024;
-    cout << "inserted volume: (pages, MiB) = (" << written_pages << ", " << mib << ")" << endl;
+    cout << "Inserted volume: (pages, MiB) = (" << written_pages << ", " << mib << ")" << endl;
     cout << "-------------------------------------------------------------------------------------" << endl;
   }
+  // -------------------------------------------------------------------------------------
+  // Prepare lookup_keys in Zipf distribution
+  const u64 tx_count = (FLAGS_ycsb_tx_count) ? FLAGS_ycsb_tx_count : ycsb_tuple_count;
+  vector<YCSBKey> lookup_keys(tx_count);
+  std::set<u64> lookup_unique_keys;
+  // -------------------------------------------------------------------------------------
+  cout << "-------------------------------------------------------------------------------------" << endl;
+  cout << "Preparing Lookup Keys" << endl;
+  {
+    const string lookup_keys_file =
+        FLAGS_zipf_path + "/ycsb_" + to_string(tx_count) + "_lookup_keys_" + to_string(sizeof(YCSBKey)) + "b_zipf_" + to_string(FLAGS_zipf_factor);
+    if (utils::fileExists(lookup_keys_file)) {
+      utils::fillVectorFromBinaryFile(lookup_keys_file.c_str(), lookup_keys);
+      if (FLAGS_ycsb_count_unique_lookup_keys) {
+        for (const auto& key : lookup_keys) {
+          lookup_unique_keys.insert(key);
+        }
+        cout << "unique lookup keys = " << lookup_unique_keys.size() << endl;
+      }
+    } else {
+      auto random = std::make_unique<utils::ZipfRandom>(ycsb_tuple_count, FLAGS_zipf_factor);
+      std::generate(lookup_keys.begin(), lookup_keys.end(), [&]() {
+        u64 key = random->rand() % (ycsb_tuple_count);
+        lookup_unique_keys.insert(key);
+        return key;
+      });
+      utils::writeBinary(lookup_keys_file.c_str(), lookup_keys);
+      cout << "unique lookup keys = " << lookup_unique_keys.size() << endl;
+    }
+  }
+  cout << setprecision(4);
   // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   // Scan
   if (FLAGS_ycsb_scan) {
-    const u64 n = FLAGS_ycsb_tuple_count;
+    const u64 n = ycsb_tuple_count;
     cout << "-------------------------------------------------------------------------------------" << endl;
     cout << "Scan" << endl;
     {
@@ -143,59 +145,26 @@ int main(int argc, char** argv)
     cout << "-------------------------------------------------------------------------------------" << endl;
   }
   // -------------------------------------------------------------------------------------
-  if (FLAGS_verify) {
-    const u64 n = FLAGS_ycsb_tuple_count;
-    cout << "-------------------------------------------------------------------------------------" << endl;
-    cout << "Verification" << endl;
-    begin = chrono::high_resolution_clock::now();
+  const u64 n = lookup_keys.size();
+  cout << "-------------------------------------------------------------------------------------" << endl;
+  cout << "~Transactions" << endl;
+  while (true) {
     tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
       for (u64 i = range.begin(); i < range.end(); i++) {
+        YCSBKey key = lookup_keys[i];
         YCSBPayload result;
-        const bool found = table.lookup(i, result);
-        assert(found && result == payloads[i]);
-        ensure(found && result == payloads[i]);
+        if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
+          table.lookup(key, result);
+        } else {
+          YCSBPayload payload;
+          utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
+          table.update(key, payload);
+        }
+        WorkerCounters::myCounters().tx++;
       }
     });
-    end = chrono::high_resolution_clock::now();
-    cout << calculateMTPS(begin, end, n) << " M tps" << endl;
-    cout << "-------------------------------------------------------------------------------------" << endl;
   }
-  // -------------------------------------------------------------------------------------
-  if (FLAGS_ycsb_tx) {
-    const u64 n = lookup_keys.size();
-    cout << "-------------------------------------------------------------------------------------" << endl;
-    cout << "~Transactions" << endl;
-    for (u32 r_i = 0; r_i < (FLAGS_ycsb_warmup_rounds + FLAGS_ycsb_tx_rounds); r_i++) {
-      begin = chrono::high_resolution_clock::now();
-      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
-        for (u64 i = range.begin(); i < range.end(); i++) {
-          YCSBKey key = lookup_keys[i];
-          YCSBPayload result;
-          if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_ycsb_read_ratio) {
-            table.lookup(key, result);
-          } else {
-            const u32 rand_payload = utils::RandomGenerator::getRand<u32>(0, FLAGS_ycsb_tuple_count);
-            table.update(key, payloads[rand_payload]);
-            if (FLAGS_verify) {
-              ensure(table.lookup(key, result) && result == payloads[rand_payload]);
-            }
-          }
-         WorkerCounters::myCounters().tx++;
-        }
-      });
-      end = chrono::high_resolution_clock::now();
-      // -------------------------------------------------------------------------------------
-      cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-      // -------------------------------------------------------------------------------------
-      if (r_i < FLAGS_ycsb_warmup_rounds) {
-        cout << "Warmup: ";
-      } else {
-        cout << "Hot run: ";
-      }
-      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
-    }
-    cout << "-------------------------------------------------------------------------------------" << endl;
-  }
+  cout << "-------------------------------------------------------------------------------------" << endl;
   // -------------------------------------------------------------------------------------
   return 0;
 }
