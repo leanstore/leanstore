@@ -25,3 +25,4 @@ DEFINE_bool(root, false, "does this process have root rights ?");
 // -------------------------------------------------------------------------------------
 DEFINE_string(zipf_path, "/bulk/zipf", "");
 DEFINE_double(zipf_factor, 0.0, "");
+DEFINE_uint64(run_for_seconds, 10, "Keep the experiment running for x seconds");

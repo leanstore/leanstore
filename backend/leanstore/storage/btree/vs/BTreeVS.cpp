@@ -8,6 +8,7 @@
 using namespace std;
 using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
+DEFINE_bool(contention_management, true, "");
 DEFINE_uint64(contention_update_tracker_pct, 1, "");
 DEFINE_uint64(restarts_threshold, 1, "");
 // -------------------------------------------------------------------------------------
@@ -234,7 +235,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
       // -------------------------------------------------------------------------------------
-      if (local_restarts_counter > 0) {
+      if (FLAGS_contention_management && local_restarts_counter > 0) {
         s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
         c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
         // -------------------------------------------------------------------------------------
@@ -442,6 +443,9 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // Called by buffer manager before eviction
 void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
+  if (!FLAGS_contention_management) {
+    return;
+  }
   // TODO
   auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
   auto& btree = *reinterpret_cast<BTree*>(btree_object);

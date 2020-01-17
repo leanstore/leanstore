@@ -66,7 +66,7 @@ int main(int argc, char** argv)
   vector<YCSBPayload> payloads(FLAGS_ycsb_tuple_count);
   // -------------------------------------------------------------------------------------
   {
-      auto random = std::make_unique<utils::ZipfRandom>(FLAGS_ycsb_tuple_count, FLAGS_zipf_factor);
+      auto random = std::make_unique<utils::ZipfGenerator>(FLAGS_ycsb_tuple_count, FLAGS_zipf_factor);
       std::generate(lookup_keys.begin(), lookup_keys.end(), [&]() { return random->rand() % (FLAGS_ycsb_tuple_count); });
       for(auto &i : lookup_keys) {
         cout << i << endl;

@@ -21,3 +21,4 @@ DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
 DECLARE_string(zipf_path);
 DECLARE_double(zipf_factor);
+DECLARE_uint64(run_for_seconds);
