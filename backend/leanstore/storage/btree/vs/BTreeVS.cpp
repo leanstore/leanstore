@@ -10,7 +10,7 @@ using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
 DEFINE_bool(contention_management, true, "");
 DEFINE_uint64(contention_update_tracker_pct, 1, "");
-DEFINE_uint64(restarts_threshold, 1, "");
+DEFINE_uint64(restarts_threshold, 100, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {

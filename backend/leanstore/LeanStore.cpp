@@ -52,7 +52,7 @@ void LeanStore::debuggingThread()
 {
   pthread_setname_np(pthread_self(), "debugging_thread");
   // -------------------------------------------------------------------------------------
-  auto file_name = [&](const string prefix) { return prefix + "_" + file_suffix + ".csv"; };
+  auto file_name = [&](const string prefix) { return FLAGS_csv_dir + "/" + prefix + "_" + file_suffix + ".csv"; };
   // -------------------------------------------------------------------------------------
   std::ofstream pp_csv;
   string pp_csv_file_path;

@@ -71,16 +71,29 @@ void bench(string name, const std::vector<u64>& work, u64 t, PerfEvent& e)
     });
   }
 }
+struct Tata {
+  ~Tata() {
+    cout << "tata" << endl;
+  }
+};
 struct Base {
   ~Base() { cout << "base des" << endl; }
 };
 struct TestObject : public Base {
+  Tata t;
   TestObject() { cout << "con" << endl; }
   ~TestObject() { cout << "des" << endl; }
 };
 // -------------------------------------------------------------------------------------
 int main(int, char**)
 {
+  jumpmuTry() {
+    JMUW<TestObject> to;
+    jumpmu::jump();
+  } jumpmuCatch() {
+
+  }
+  return 0;
   u64 n = getenv("N") ? atoi(getenv("N")) : 1e6;
   u64 t = getenv("T") ? atoi(getenv("T")) : 4;
   // -------------------------------------------------------------------------------------

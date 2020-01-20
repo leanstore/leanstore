@@ -1,8 +1,7 @@
-#include <leanstore/counters/WorkerCounters.hpp>
-
 #include "adapter.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
-#include "leanstore/utils/ZipfGenerator.hpp"
+#include "leanstore/utils/ScrambledZipfGenerator.hpp"
 #include "schema.hpp"
 #include "types.hpp"
 // -------------------------------------------------------------------------------------
@@ -12,13 +11,11 @@
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
 #include <unistd.h>
-
 #include <iostream>
 #include <string>
 #include <vector>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
-DEFINE_uint32(tpcc_seconds, 10, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
@@ -50,7 +47,6 @@ int main(int argc, char** argv)
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   // -------------------------------------------------------------------------------------
   LeanStore db;
-  tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
   warehouseCount = FLAGS_tpcc_warehouse_count;
   warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
@@ -65,46 +61,18 @@ int main(int argc, char** argv)
   item = LeanStoreAdapter<item_t>(db, "item");
   stock = LeanStoreAdapter<stock_t>(db, "stock");
   // -------------------------------------------------------------------------------------
-  // -------------------------------------------------------------------------------------
+  tbb::task_scheduler_init task_scheduler(thread::hardware_concurrency());
   load();
+  task_scheduler.terminate();
+  task_scheduler.initialize(FLAGS_worker_threads);
+  // -------------------------------------------------------------------------------------
   double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
   cout << "data loaded - consumed space in GiB = " << gib << endl;
-  // -------------------------------------------------------------------------------------
-  auto print_tables_counts = [&]() {
-    cout << "warehouse: " << warehouse.count() << endl;
-    cout << "district: " << district.count() << endl;
-    cout << "customer: " << customer.count() << endl;
-    cout << "customerwdl: " << customerwdl.count() << endl;
-    cout << "history: " << history.count() << endl;
-    cout << "neworder: " << neworder.count() << endl;
-    cout << "order: " << order.count() << endl;
-    cout << "order_wdc: " << order_wdc.count() << endl;
-    cout << "orderline: " << orderline.count() << endl;
-    cout << "item: " << item.count() << endl;
-    cout << "stock: " << stock.count() << endl;
-    cout << endl;
-  };
-  auto print_tables_pages = [&]() {
-    // cout << "warehouse: " << warehouse.btree->pages.load() << endl;
-    // cout << "district: " << district.btree->pages.load() << endl;
-    // cout << "customer: " << customer.btree->pages.load() << endl;
-    // cout << "customerwdl: " << customerwdl.btree->pages.load() << endl;
-    // cout << "history: " << history.btree->pages.load() << endl;
-    // cout << "neworder: " << neworder.btree->pages.load() << endl;
-    // cout << "order: " << order.btree->pages.load() << endl;
-    // cout << "order_wdc: " << order_wdc.btree->pages.load() << endl;
-    // cout << "orderline: " << orderline.btree->pages.load() << endl;
-    // cout << "item: " << item.btree->pages.load() << endl;
-    // cout << "stock: " << stock.btree->pages.load() << endl;
-    cout << endl;
-  };
-  //   print_tables_counts();
-
   // -------------------------------------------------------------------------------------
   atomic<u64> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
-  auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
+  auto random = std::make_unique<leanstore::utils::ScrambledZipfGenerator>(1, FLAGS_tpcc_warehouse_count + 1, FLAGS_zipf_factor);
   if (FLAGS_tpcc_warehouse_affinity) {
     if (FLAGS_tpcc_warehouse_count < FLAGS_worker_threads) {
       cerr << "There must be more warehouses than threads in affinity mode" << endl;
@@ -148,7 +116,7 @@ int main(int argc, char** argv)
   }
   {
     // Shutdown threads
-    sleep(FLAGS_tpcc_seconds);
+    sleep(FLAGS_run_for_seconds);
     keep_running = false;
     while (running_threads_counter) {
       _mm_pause();
@@ -157,7 +125,6 @@ int main(int argc, char** argv)
       thread.join();
     }
   }
-  print_tables_pages();
   // -------------------------------------------------------------------------------------
   gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
   cout << "consumed space in GiB = " << gib << endl;
