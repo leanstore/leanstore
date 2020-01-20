@@ -28,3 +28,7 @@ target_include_directories(scan PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(zipf misc-benchmarks/zipf.cpp)
 target_link_libraries(zipf leanstore Threads::Threads)
 target_include_directories(zipf PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(latest misc-benchmarks/latest.cpp)
+target_link_libraries(latest leanstore Threads::Threads)
+target_include_directories(latest PRIVATE ${SHARED_INCLUDE_DIRECTORY})

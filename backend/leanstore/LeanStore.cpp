@@ -7,8 +7,9 @@
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
+#include <sstream>
 // -------------------------------------------------------------------------------------
-DEFINE_bool(log_stdout, false, "");
+DEFINE_bool(csv_truncate, false, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -18,12 +19,10 @@ LeanStore::LeanStore()
   // Set the default logger to file logger
   BMC::global_bf = &buffer_manager;
   buffer_manager.registerDatastructureType(99, btree::vs::BTree::getMeta());
-  // -------------------------------------------------------------------------------------
-  if (FLAGS_file_suffix == "") {
-    file_suffix = to_string(chrono::high_resolution_clock::now().time_since_epoch().count());
-  } else {
-    file_suffix = FLAGS_file_suffix;
-  }
+}
+// -------------------------------------------------------------------------------------
+void LeanStore::startDebuggingThread()
+{
   e = make_unique<PerfEvent>();
   std::thread debugging_thread([&]() { debuggingThread(); });
   bg_threads_counter++;
@@ -48,74 +47,112 @@ btree::vs::BTree& LeanStore::retrieveVSBTree(string name)
 }
 using leanstore::utils::threadlocal::sum;
 // -------------------------------------------------------------------------------------
+void LeanStore::registerConfigEntry(string name, statCallback b)
+{
+  stat_entries.emplace_back(std::move(name), b);
+}
+// -------------------------------------------------------------------------------------
+
 void LeanStore::debuggingThread()
 {
   pthread_setname_np(pthread_self(), "debugging_thread");
   // -------------------------------------------------------------------------------------
-  auto file_name = [&](const string prefix) { return FLAGS_csv_dir + "/" + prefix + "_" + file_suffix + ".csv"; };
+  std::ofstream csv;
+  std::ofstream::openmode open_flags;
+  if (FLAGS_csv_truncate) {
+    open_flags = ios::trunc;
+  } else {
+    open_flags = ios::app;
+  }
+  csv.open(FLAGS_csv_path, open_flags);
+  csv.seekp(0, ios::end);
+  csv << std::setprecision(2) << std::fixed;
   // -------------------------------------------------------------------------------------
-  std::ofstream pp_csv;
-  string pp_csv_file_path;
-  pp_csv.open(file_name("pp"), ios::out | ios::trunc);
-  pp_csv << std::setprecision(2) << std::fixed;
-  // -------------------------------------------------------------------------------------
-  std::ofstream dt_csv;
-  string workers_csv_file_path;
-  dt_csv.open(file_name("dt"), ios::out | ios::trunc);
-  dt_csv << std::setprecision(2) << std::fixed;
-  // -------------------------------------------------------------------------------------
-  using statCallback = std::function<void(ostream&)>;
-  struct StatEntry {
-    string name;
-    statCallback callback;
-    StatEntry(string&& n, statCallback b) : name(std::move(n)), callback(b) {}
-  };
-  // -------------------------------------------------------------------------------------
-  vector<StatEntry> stats;
   s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0, total;
   u64 local_tx, local_total_free, local_total_cool;
+  u64 dt_id;
+  string dt_name;
   // -------------------------------------------------------------------------------------
-  stats.emplace_back("p1_pct", [&](ostream& out) { out << (local_phase_1_ms * 100.0 / total); });
-  stats.emplace_back("p2_pct", [&](ostream& out) { out << (local_phase_2_ms * 100.0 / total); });
-  stats.emplace_back("p3_pct", [&](ostream& out) { out << (local_phase_3_ms * 100.0 / total); });
-  stats.emplace_back("poll_pct", [&](ostream& out) { out << (local_poll_ms * 100.0 / total); });
-  stats.emplace_back("find_parent_pct", [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::find_parent_ms) * 100.0 / total); });
-  stats.emplace_back("iterate_children_pct",
-                     [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::iterate_children_ms) * 100.0 / total); });
-  stats.emplace_back("pc1", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_1_counter); });
-  stats.emplace_back("pc2", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_2_counter); });
-  stats.emplace_back("pc3", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_3_counter); });
-  stats.emplace_back("free_pct", [&](ostream& out) { out << (local_total_free * 100.0 / buffer_manager.dram_pool_size); });
-  stats.emplace_back("cool_pct", [&](ostream& out) { out << (local_total_cool * 100.0 / buffer_manager.dram_pool_size); });
-  stats.emplace_back("evicted_mib", [&](ostream& out) {
+  stat_entries.emplace_back("space_usage_gib", [&](ostream& out) {
+    const double gib = buffer_manager.consumedPages() * 1.0 * PAGE_SIZE / 1024.0 / 1024.0 / 1024.0;
+    out << gib;
+  });
+  stat_entries.emplace_back("p1_pct", [&](ostream& out) { out << (local_phase_1_ms * 100.0 / total); });
+  stat_entries.emplace_back("p2_pct", [&](ostream& out) { out << (local_phase_2_ms * 100.0 / total); });
+  stat_entries.emplace_back("p3_pct", [&](ostream& out) { out << (local_phase_3_ms * 100.0 / total); });
+  stat_entries.emplace_back("poll_pct", [&](ostream& out) { out << (local_poll_ms * 100.0 / total); });
+  stat_entries.emplace_back("find_parent_pct",
+                            [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::find_parent_ms) * 100.0 / total); });
+  stat_entries.emplace_back("iterate_children_pct",
+                            [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::iterate_children_ms) * 100.0 / total); });
+  stat_entries.emplace_back("pc1", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_1_counter); });
+  stat_entries.emplace_back("pc2", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_2_counter); });
+  stat_entries.emplace_back("pc3", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_3_counter); });
+  stat_entries.emplace_back("free_pct", [&](ostream& out) { out << (local_total_free * 100.0 / buffer_manager.dram_pool_size); });
+  stat_entries.emplace_back("cool_pct", [&](ostream& out) { out << (local_total_cool * 100.0 / buffer_manager.dram_pool_size); });
+  stat_entries.emplace_back("evicted_mib", [&](ostream& out) {
     out << (sum(PPCounters::pp_counters, &PPCounters::evicted_pages) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
   });
-  stats.emplace_back("rounds", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::pp_thread_rounds); });
-  stats.emplace_back("unswizzled", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::unswizzled_pages_counter); });
-  stats.emplace_back("cpus", [&](ostream& out) { out << e->getCPUs(); });
-  stats.emplace_back("submit_ms", [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::submit_ms) * 100.0 / total); });
-  stats.emplace_back("async_mb_ws", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::async_wb_ms); });
-  stats.emplace_back("w_mib", [&](ostream& out) {
+  stat_entries.emplace_back("rounds", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::pp_thread_rounds); });
+  stat_entries.emplace_back("unswizzled", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::unswizzled_pages_counter); });
+  stat_entries.emplace_back("cpus", [&](ostream& out) { out << e->getCPUs(); });
+  stat_entries.emplace_back("submit_ms", [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::submit_ms) * 100.0 / total); });
+  stat_entries.emplace_back("async_mb_ws", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::async_wb_ms); });
+  stat_entries.emplace_back("w_mib", [&](ostream& out) {
     out << sum(PPCounters::pp_counters, &PPCounters::flushed_pages_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
   });
   // -------------------------------------------------------------------------------------
-  stats.emplace_back("allocate_ops",
-                     [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::allocate_operations_counter); });
-  stats.emplace_back("r_mib", [&](ostream& out) {
+  stat_entries.emplace_back("allocate_ops",
+                            [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::allocate_operations_counter); });
+  stat_entries.emplace_back("r_mib", [&](ostream& out) {
     out << sum(WorkerCounters::worker_counters, &WorkerCounters::read_operations_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0;
   });
-  stats.emplace_back("tx", [&](ostream& out) { out << local_tx; });
+  stat_entries.emplace_back("tx", [&](ostream& out) { out << local_tx; });
+  // -------------------------------------------------------------------------------------
+  // Constants for identifying the run [c for constants]
+  config_entries.emplace_back("c_worker_threads", [&](ostream& out) { out << FLAGS_worker_threads; });
+  config_entries.emplace_back("c_free_pct", [&](ostream& out) { out << FLAGS_free_pct; });
+  config_entries.emplace_back("c_cool_pct", [&](ostream& out) { out << FLAGS_cool_pct; });
+  config_entries.emplace_back("c_pp_threads", [&](ostream& out) { out << FLAGS_pp_threads; });
+  config_entries.emplace_back("c_partition_bits", [&](ostream& out) { out << FLAGS_partition_bits; });
+  config_entries.emplace_back("c_dram_gib", [&](ostream& out) { out << FLAGS_dram_gib; });
+  config_entries.emplace_back("c_target_gib", [&](ostream& out) { out << FLAGS_target_gib; });
+  config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
+  config_entries.emplace_back("c_fs", [&](ostream& out) { out << FLAGS_fs; });
+  config_entries.emplace_back("c_contention_management", [&](ostream& out) { out << FLAGS_contention_management; });
+  // -------------------------------------------------------------------------------------
+  dt_entries.emplace_back("dt_id", [&](ostream& out) { out << dt_id; });
+  dt_entries.emplace_back("dt_name", [&](ostream& out) { out << dt_name; });
+  dt_entries.emplace_back("dt_misses_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_misses_counter, dt_id); });
+  dt_entries.emplace_back("dt_restarts_update_same_size",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_update_same_size, dt_id); });
+  dt_entries.emplace_back("dt_restarts_structural_change",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_structural_change, dt_id); });
+  dt_entries.emplace_back("dt_restarts_read",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_read, dt_id); });
+  dt_entries.emplace_back("dt_researchy_0",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_0, dt_id); });
+  dt_entries.emplace_back("dt_researchy_1",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_1, dt_id); });
+  dt_entries.emplace_back("dt_researchy_2",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_2, dt_id); });
   // -------------------------------------------------------------------------------------
   // Print header
-  pp_csv << "t";
-  for (const auto& stat : stats) {
-    pp_csv << "," << stat.name;
+  if (csv.tellp() == 0) {
+    csv << "t";
+    for (const auto& stat : config_entries) {
+      csv << "," << stat.name;
+    }
+    for (const auto& stat : stat_entries) {
+      csv << "," << stat.name;
+    }
+    e->printCSVHeaders(csv);
+    for (const auto& stat : dt_entries) {
+      csv << "," << stat.name;
+    }
+    csv << endl;
   }
-  e->printCSVHeaders(pp_csv);
-  pp_csv << endl;
-  // -------------------------------------------------------------------------------------
-  dt_csv << "t,id,name,miss,restarts_updates,restarts_structural,restarts_read, researchy_0, researchy_1, researchy_2" << endl;
-  // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   u64 time = 0;
   // -------------------------------------------------------------------------------------
@@ -138,32 +175,27 @@ void LeanStore::debuggingThread()
     }
     e->stopCounters();
     // -------------------------------------------------------------------------------------
-    pp_csv << time;
-    for (const auto& stat : stats) {
-      pp_csv << ",";
-      stat.callback(pp_csv);
+    std::stringstream all_except_dt_entries;
+    all_except_dt_entries << time;
+    for (const auto& entry : config_entries) {
+      all_except_dt_entries << ",";
+      entry.callback(all_except_dt_entries);
     }
-    e->printCSVData(pp_csv, local_tx);
-    pp_csv << endl;
-    // -------------------------------------------------------------------------------------
+    for (const auto& entry : stat_entries) {
+      all_except_dt_entries << ",";
+      entry.callback(all_except_dt_entries);
+    }
+    e->printCSVData(all_except_dt_entries, local_tx);
     // -------------------------------------------------------------------------------------
     for (const auto& dt : buffer_manager.dt_registry.dt_instances_ht) {
-      const u64 dt_id = dt.first;
-      const string& dt_name = std::get<2>(dt.second);
-      dt_csv << time << "," << dt_id << "," << dt_name << "," << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_misses_counter, dt_id)
-             << "," << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_update_same_size, dt_id) << ","
-             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_structural_change, dt_id) << ","
-             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_read, dt_id) << ","
-             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_0, dt_id) << ","
-             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_1, dt_id) << ","
-             << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_2, dt_id) << endl;
-      // -------------------------------------------------------------------------------------
-      WorkerCounters::myCounters().dt_misses_counter[dt_id] = WorkerCounters::myCounters().dt_restarts_update_same_size[dt_id] =
-          WorkerCounters::myCounters().dt_restarts_read[dt_id] =
-              WorkerCounters::myCounters().dt_restarts_structural_change[dt_id] =
-              WorkerCounters::myCounters().dt_researchy_0[dt_id] =
-              WorkerCounters::myCounters().dt_researchy_1[dt_id] =
-              WorkerCounters::myCounters().dt_researchy_2[dt_id] = 0;
+      csv << all_except_dt_entries.str();
+      dt_id = dt.first;
+      dt_name = std::get<2>(dt.second);
+      for (const auto& entry : dt_entries) {
+        csv << ",";
+        entry.callback(csv);
+      }
+      csv << endl;
     }
     // -------------------------------------------------------------------------------------
     e->startCounters();
@@ -171,7 +203,7 @@ void LeanStore::debuggingThread()
     sleep(FLAGS_print_debug_interval_s);
     time += FLAGS_print_debug_interval_s;
   }
-  pp_csv.close();
+  csv.close();
   bg_threads_counter--;
 }
 // -------------------------------------------------------------------------------------

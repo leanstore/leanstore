@@ -12,8 +12,6 @@
 // -------------------------------------------------------------------------------------
 #include <iostream>
 // -------------------------------------------------------------------------------------
-DEFINE_double(target_gib, 10, "");
-DEFINE_bool(fs, false, "");
 DEFINE_bool(verify, false, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
@@ -44,6 +42,7 @@ int main(int argc, char** argv)
     adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   }
   auto& table = *adapter;
+  db.startDebuggingThread();
   // -------------------------------------------------------------------------------------
   const u64 target_pages = FLAGS_target_gib * 1024 * 1024 * 1024 / PAGE_SIZE;
   Payload dummy_payload;

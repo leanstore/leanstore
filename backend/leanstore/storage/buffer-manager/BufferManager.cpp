@@ -46,8 +46,8 @@ BufferManager::BufferManager()
     // Initialize partitions
     partitions_count = (1 << FLAGS_partition_bits);
     partitions_mask = partitions_count - 1;
-    const u64 free_bfs_limit = std::ceil((FLAGS_free * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
-    const u64 cooling_bfs_upper_bound = std::ceil((FLAGS_cool * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
+    const u64 free_bfs_limit = std::ceil((FLAGS_free_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
+    const u64 cooling_bfs_upper_bound = std::ceil((FLAGS_cool_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
     partitions = reinterpret_cast<Partition*>(malloc(sizeof(Partition) * partitions_count));
     for (u64 p_i = 0; p_i < partitions_count; p_i++) {
       new (partitions + p_i) Partition(free_bfs_limit, cooling_bfs_upper_bound);
@@ -553,18 +553,13 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
   }
   // -------------------------------------------------------------------------------------
   if (cio_frame.state == CIOFrame::State::COOLING) {
-    assert(jumpmu::de_stack_counter < 5);
     // -------------------------------------------------------------------------------------
     // We have to exclusively lock the bf because the page provider thread will
     // try to evict them when its IO is done
     BufferFrame* bf = *cio_frame.fifo_itr;
-    assert(jumpmu::de_stack_counter < 5);
     OptimisticGuard bf_guard(bf->header.lock);
-    assert(jumpmu::de_stack_counter < 5);
     ExclusiveGuard swip_x_guard(swip_guard);
-    assert(jumpmu::de_stack_counter < 5);
     ExclusiveGuard bf_x_guard(bf_guard);
-    assert(jumpmu::de_stack_counter < 5);
     // -------------------------------------------------------------------------------------
     assert(bf->header.pid == pid);
     swip_value.swizzle(bf);
@@ -588,6 +583,8 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
     if (should_clean) {
       partition.ht.remove(pid);
     }
+    // -------------------------------------------------------------------------------------
+    // dt_registry.checkSpaceUtilization(bf->page.dt_id, *bf); // BETA:
     // -------------------------------------------------------------------------------------
     return *bf;
   }

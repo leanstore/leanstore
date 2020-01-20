@@ -15,13 +15,11 @@
 #include <set>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(ycsb_read_ratio, 100, "");
-DEFINE_double(target_gib, 1, "");
 DEFINE_uint64(ycsb_tuple_count, 0, "");
 DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
 DEFINE_uint32(ycsb_warmup_rounds, 0, "");
 DEFINE_uint32(ycsb_tx_rounds, 1, "");
 DEFINE_uint32(ycsb_tx_count, 0, "default = tuples");
-DEFINE_bool(fs, false, "");
 DEFINE_bool(verify, false, "");
 DEFINE_bool(ycsb_scan, false, "");
 DEFINE_bool(ycsb_tx, true, "");
@@ -59,6 +57,9 @@ int main(int argc, char** argv)
     auto& vs_btree = db.registerVSBTree("ycsb");
     adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
   }
+  db.registerConfigEntry("ycsb_read_ratio", [&](ostream& out) {out << FLAGS_ycsb_read_ratio;});
+  db.registerConfigEntry("ycsb_target_gib", [&](ostream& out) {out << FLAGS_target_gib;});
+  db.startDebuggingThread();
   // -------------------------------------------------------------------------------------
   auto& table = *adapter;
   const u64 ycsb_tuple_count =

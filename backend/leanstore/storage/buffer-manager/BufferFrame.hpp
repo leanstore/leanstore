@@ -18,9 +18,9 @@ struct BufferFrame {
   enum class State : u8 { FREE = 0, HOT = 1, COLD = 2 };
   struct Header {
     struct ContentionTracker {
-      u64 restarts_counter = 0;
-      u64 access_counter = 0;
-      s64 last_modified_pos = -1;
+      u32 restarts_counter = 0;
+      u32 access_counter = 0;
+      s32 last_modified_pos = -1;
     };
     // TODO: for logging
     atomic<u64> lastWrittenLSN = 0;

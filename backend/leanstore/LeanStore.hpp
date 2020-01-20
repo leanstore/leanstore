@@ -13,6 +13,13 @@ namespace leanstore
 constexpr auto btree_size = sizeof(btree::fs::BTree<void*, void*>);
 class LeanStore
 {
+  using statCallback = std::function<void(ostream&)>;
+  struct StatEntry {
+    string name;
+    statCallback callback;
+    StatEntry(string&& n, statCallback b) : name(std::move(n)), callback(b) {}
+  };
+  // -------------------------------------------------------------------------------------
  private:
   // Poor man catalog
   std::unordered_map<string, std::unique_ptr<u8[]>> fs_btrees;
@@ -21,11 +28,14 @@ class LeanStore
   // -------------------------------------------------------------------------------------
   string file_suffix;
   void debuggingThread();
+  vector<StatEntry> stat_entries, config_entries, dt_entries;
   atomic<u64> bg_threads_counter = 0;
   atomic<bool> bg_threads_keep_running = true;
   unique_ptr<PerfEvent> e;
+
  public:
   LeanStore();
+  void registerConfigEntry(string name, statCallback b);
   // -------------------------------------------------------------------------------------
   template <typename Key, typename Value>
   btree::fs::BTree<Key, Value>& registerFSBTree(string name, DTType type_id = 0)
@@ -54,10 +64,11 @@ class LeanStore
   // -------------------------------------------------------------------------------------
   BufferManager& getBufferManager() { return buffer_manager; }
   // -------------------------------------------------------------------------------------
+  void startDebuggingThread();
   void persist();
   void restore();
   // -------------------------------------------------------------------------------------
   ~LeanStore();
 };
 // -------------------------------------------------------------------------------------
-}
+}  // namespace leanstore

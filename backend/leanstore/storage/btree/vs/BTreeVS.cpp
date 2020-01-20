@@ -8,7 +8,7 @@
 using namespace std;
 using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
-DEFINE_bool(contention_management, true, "");
+DECLARE_bool(contention_management);
 DEFINE_uint64(contention_update_tracker_pct, 1, "");
 DEFINE_uint64(restarts_threshold, 100, "");
 // -------------------------------------------------------------------------------------
@@ -236,32 +236,31 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
       // -------------------------------------------------------------------------------------
       if (FLAGS_contention_management && local_restarts_counter > 0) {
-        s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
-        c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
-        // -------------------------------------------------------------------------------------
-        c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
-        c_x_guard.bf->header.contention_tracker.access_counter++;
-        const u64 current_restarts_counter = c_x_guard.bf->header.contention_tracker.restarts_counter;
-        const u64 current_access_counter = c_x_guard.bf->header.contention_tracker.access_counter;
-        const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
         if (utils::RandomGenerator::getRandU64(0, 100) < (FLAGS_contention_update_tracker_pct)) {
-          if (normalized_restarts >= FLAGS_restarts_threshold) {
-            WorkerCounters::myCounters().dt_researchy_2[dtid]++;
-          }
-          c_x_guard.bf->header.contention_tracker.restarts_counter = 0;
-          c_x_guard.bf->header.contention_tracker.access_counter = 0;
+          s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
+          c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
           // -------------------------------------------------------------------------------------
-          if (last_modified_pos != pos && normalized_restarts >= FLAGS_restarts_threshold && c_x_guard->count > 2) {
-            c_guard = std::move(c_x_guard);
-            c_guard.kill();
-            jumpmuTry()
-            {
-              // cout << c_x_guard->count << '\t' << c_x_guard.bf->header.contention_tracker.restarts_counter << endl;
-              // cout << *reinterpret_cast<u64*>(key) << " splitting" << endl;
-              trySplit(*c_guard.bf);
-              WorkerCounters::myCounters().dt_researchy_0[dtid]++;
+          c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
+          c_x_guard.bf->header.contention_tracker.access_counter++;
+          const u64 current_restarts_counter = c_x_guard.bf->header.contention_tracker.restarts_counter;
+          const u64 current_access_counter = c_x_guard.bf->header.contention_tracker.access_counter;
+          const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
+          if (utils::RandomGenerator::getRandU64(0, 100) < (FLAGS_contention_update_tracker_pct)) {
+            c_x_guard.bf->header.contention_tracker.restarts_counter = 0;
+            c_x_guard.bf->header.contention_tracker.access_counter = 0;
+            // -------------------------------------------------------------------------------------
+            if (last_modified_pos != pos && normalized_restarts >= FLAGS_restarts_threshold && c_x_guard->count > 2) {
+              c_guard = std::move(c_x_guard);
+              c_guard.kill();
+              jumpmuTry()
+              {
+                // cout << c_x_guard->count << '\t' << c_x_guard.bf->header.contention_tracker.restarts_counter << endl;
+                // cout << *reinterpret_cast<u64*>(key) << " splitting" << endl;
+                trySplit(*c_guard.bf);
+                WorkerCounters::myCounters().dt_researchy_0[dtid]++;
+              }
+              jumpmuCatch() { WorkerCounters::myCounters().dt_researchy_1[dtid]++; }
             }
-            jumpmuCatch() { WorkerCounters::myCounters().dt_researchy_1[dtid]++; }
           }
         }
       }
@@ -460,7 +459,10 @@ void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
         WorkerCounters::myCounters().dt_researchy_1[btree.dtid] += btree.tryMerge(bf);
         jumpmu::jump();
       }
-      jumpmuCatch() { WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++; }
+      jumpmuCatch()
+      {
+        // WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
+      }
     }
   } else {
     // WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;

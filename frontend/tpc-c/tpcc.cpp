@@ -61,6 +61,10 @@ int main(int argc, char** argv)
   item = LeanStoreAdapter<item_t>(db, "item");
   stock = LeanStoreAdapter<stock_t>(db, "stock");
   // -------------------------------------------------------------------------------------
+  db.registerConfigEntry("tpcc_warehouse_count", [&](ostream& out) {out << FLAGS_tpcc_warehouse_count;});
+  db.registerConfigEntry("tpcc_warehouse_affinity", [&](ostream& out) {out << FLAGS_tpcc_warehouse_affinity;});
+  db.startDebuggingThread();
+  // -------------------------------------------------------------------------------------
   tbb::task_scheduler_init task_scheduler(thread::hardware_concurrency());
   load();
   task_scheduler.terminate();
