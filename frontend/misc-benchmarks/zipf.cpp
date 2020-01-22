@@ -21,6 +21,7 @@ DEFINE_string(out, "", "");
 DEFINE_string(op, "convert", "");
 DEFINE_string(generator, "scrambled", "");
 DEFINE_uint64(count, 1000, "");
+DEFINE_uint64(n, 1000, "");
 DEFINE_uint64(repeat, 2, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
@@ -50,12 +51,12 @@ int main(int argc, char** argv)
     csv.open(FLAGS_out, ios::out | ios::trunc);
     csv << std::setprecision(2) << std::fixed << "i,k" << std::endl;
     if (FLAGS_generator == "zipf") {
-      auto random = std::make_unique<utils::ZipfGenerator>(FLAGS_count, FLAGS_zipf_factor);
+      auto random = std::make_unique<utils::ZipfGenerator>(FLAGS_n, FLAGS_zipf_factor);
       for (u64 i = 0; i < FLAGS_count * FLAGS_repeat; i++) {
         csv << i << "," << random->rand() << std::endl;
       }
     } else if (FLAGS_generator == "scrambled") {
-      auto random = std::make_unique<utils::ScrambledZipfGenerator>(0, FLAGS_count, FLAGS_zipf_factor);
+      auto random = std::make_unique<utils::ScrambledZipfGenerator>(0, FLAGS_n, FLAGS_zipf_factor);
       for (u64 i = 0; i < FLAGS_count * FLAGS_repeat; i++) {
         csv << i << "," << random->rand() << std::endl;
       }
@@ -66,13 +67,13 @@ int main(int argc, char** argv)
     PerfEvent e;
     u64 sum = 0;
     if (FLAGS_generator == "zipf") {
-      auto random = std::make_unique<utils::ZipfGenerator>(FLAGS_count, FLAGS_zipf_factor);
+      auto random = std::make_unique<utils::ZipfGenerator>(FLAGS_n, FLAGS_zipf_factor);
       PerfEventBlock b(e, FLAGS_count);
       for (u64 i = 0; i < FLAGS_count; i++) {
         sum += random->rand();
       }
     } else if (FLAGS_generator == "scrambled") {
-      auto random = std::make_unique<utils::ScrambledZipfGenerator>(0, FLAGS_count, FLAGS_zipf_factor);
+      auto random = std::make_unique<utils::ScrambledZipfGenerator>(0, FLAGS_n, FLAGS_zipf_factor);
       PerfEventBlock b(e, FLAGS_count);
       for (u64 i = 0; i < FLAGS_count; i++) {
         sum += random->rand();

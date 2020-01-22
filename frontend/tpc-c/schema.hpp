@@ -1,3 +1,4 @@
+// 93 Bytes
 struct warehouse_t {
   static constexpr int id = 0;
   struct Key {

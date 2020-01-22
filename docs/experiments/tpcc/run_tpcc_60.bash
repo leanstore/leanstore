@@ -10,12 +10,11 @@ function benchmark() {
     (cd $EXEC_DIR; make -j tpcc)
 
     for FLAGS_worker_threads in 56; do
-    for FLAGS_zipf_factor in 0.95; do
     for FLAGS_target_gib in 150; do # 25 50 75
     for FLAGS_dram_gib in 200 201 202; do
     for FLAGS_tpcc_warehouse_count in 1 10 100 200 300; do
     for FLAGS_contention_management in false true; do
-    for FLAGS_worker_threads in 60; do
+    for FLAGS_backoff_strategy in 0 1 2; do
         (
         $EXEC_DIR/tpcc \
             -worker_threads=$FLAGS_worker_threads \
@@ -29,11 +28,9 @@ function benchmark() {
             -free_pct=1 \
             -tpcc_warehouse_count=$FLAGS_tpcc_warehouse_count \
             -contention_management=$FLAGS_contention_management
+            -backoff_strategy=$FLAGS_backoff_strategy
     )
 
-    done
-    done
-    done
     done
     done
     done

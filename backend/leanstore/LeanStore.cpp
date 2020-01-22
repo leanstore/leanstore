@@ -120,6 +120,7 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
   config_entries.emplace_back("c_fs", [&](ostream& out) { out << FLAGS_fs; });
   config_entries.emplace_back("c_contention_management", [&](ostream& out) { out << FLAGS_contention_management; });
+  config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });
   // -------------------------------------------------------------------------------------
   dt_entries.emplace_back("dt_id", [&](ostream& out) { out << dt_id; });
   dt_entries.emplace_back("dt_name", [&](ostream& out) { out << dt_name; });

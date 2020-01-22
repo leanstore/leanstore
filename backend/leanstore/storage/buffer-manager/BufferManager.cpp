@@ -580,7 +580,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
       partition.ht.remove(pid);
     }
     // -------------------------------------------------------------------------------------
-    // dt_registry.checkSpaceUtilization(bf->page.dt_id, *bf); // BETA:
+    dt_registry.checkSpaceUtilization(bf->page.dt_id, *bf); // BETA:
     // -------------------------------------------------------------------------------------
     return *bf;
   }

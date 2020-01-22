@@ -57,11 +57,14 @@ int main(int argc, char** argv)
   // Insert values
   {
     const u64 n = tuple_count;
-    tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
-      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-        table.insert(t_i, payload);
-      }
-    });
+    for (u64 t_i = 0; t_i < n; t_i++) {
+      table.insert(t_i, payload);
+    }
+    // tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
+    //   for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+    //     table.insert(t_i, payload);
+    //   }
+    // });
     size_at_insert_point = db.getBufferManager().consumedPages();
     const u64 mib = size_at_insert_point * PAGE_SIZE / 1024 / 1024;
     cout << "Inserted volume: (pages, MiB) = (" << size_at_insert_point << ", " << mib << ")" << endl;
@@ -87,7 +90,6 @@ int main(int argc, char** argv)
       running_threads_counter++;
       while (keep_running) {
         Key key = window_offset - zipf_random->rand();
-        // Key key = window_offset - utils::RandomGenerator::getRandU64(0, window_tuple_count);
         if ((FLAGS_latest_read_ratio > 0) &&
             (FLAGS_latest_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_latest_read_ratio)) {
           table.lookup(key, payload);

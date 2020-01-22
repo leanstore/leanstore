@@ -1,12 +1,35 @@
 #pragma once
 #include "BTreeSlotted.hpp"
+#include "leanstore/Config.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "leanstore/sync-primitives/PageGuard.hpp"
+#include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 using namespace leanstore::buffermanager;
+// -------------------------------------------------------------------------------------
+#define BACKOFF_STRATEGIES()   \
+  for (u32 i = mask; i; --i) { \
+    _mm_pause();               \
+  }                            \
+  mask = mask < max ? mask << 1 : max;
+
+//  if (FLAGS_backoff_strategy == 0) {                                                                                 \
+  //   for (u32 i = mask; i; --i) {                                                                                     \
+  //     _mm_pause();                                                                                                   \
+  //   }                                                                                                                \
+  //   mask = mask < max ? mask << 1 : max;                                                                             \
+  // } else if (FLAGS_backoff_strategy == 1) {                                                                          \
+  //   const u64 wait = std::min<u64>(512, utils::RandomGenerator::getRandU64(0, ((1 << local_restarts_counter) + 1))); \
+  //   for (u64 i = wait; i; --i) {                                                                                     \
+  //     _mm_pause();                                                                                                   \
+  //   }                                                                                                                \
+  // } else if (FLAGS_backoff_strategy == 2) {                                                                          \
+  // } else {                                                                                                           \
+  //   ensure(false);                                                                                                   \
+  // }
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -55,6 +78,7 @@ struct BTree {
   {
     u32 volatile mask = 1;
     u32 const max = 512;  // MAX_BACKOFF
+    volatile u32 local_restarts_counter = 0;
     while (true) {
       jumpmuTry()
       {
@@ -71,10 +95,8 @@ struct BTree {
       }
       jumpmuCatch()
       {
-        for (u32 i = mask; i; --i) {
-          _mm_pause();
-        }
-        mask = mask < max ? mask << 1 : max;
+        BACKOFF_STRATEGIES()
+        // -------------------------------------------------------------------------------------
         if (op_type == 0) {
           WorkerCounters::myCounters().dt_restarts_read[dtid]++;
         } else if (op_type == 1) {

@@ -22,7 +22,7 @@ DEFINE_uint32(print_debug_interval_s, 1, "");
 DEFINE_uint32(worker_threads, 20, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(root, false, "does this process have root rights ?");
-DEFINE_bool(fs, false, "use fixed size btree");
+DEFINE_bool(fs, false, "use fix\ed size btree");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(contention_management, true, "");
 // -------------------------------------------------------------------------------------
@@ -30,3 +30,4 @@ DEFINE_string(zipf_path, "/bulk/zipf", "");
 DEFINE_double(zipf_factor, 0.0, "");
 DEFINE_double(target_gib, 0.0, "size of dataset in gib (exact interpretation depends on the driver)");
 DEFINE_uint64(run_for_seconds, 10, "Keep the experiment running for x seconds");
+DEFINE_uint64(backoff_strategy, 0, "");

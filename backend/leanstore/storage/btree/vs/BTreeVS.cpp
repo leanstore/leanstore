@@ -1,6 +1,5 @@
 #include "BTreeVS.hpp"
 
-#include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
@@ -8,7 +7,6 @@
 using namespace std;
 using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
-DECLARE_bool(contention_management);
 DEFINE_uint64(contention_update_tracker_pct, 1, "");
 DEFINE_uint64(restarts_threshold, 100, "");
 // -------------------------------------------------------------------------------------
@@ -31,6 +29,7 @@ void BTree::init(DTID dtid)
 // -------------------------------------------------------------------------------------
 bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
+  volatile u64 local_restarts_counter = 0;
   volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
@@ -50,10 +49,7 @@ bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> paylo
     }
     jumpmuCatch()
     {
-      for (u32 i = mask; i; --i) {
-        _mm_pause();
-      }
-      mask = mask < max ? mask << 1 : max;
+      BACKOFF_STRATEGIES()
       WorkerCounters::myCounters().dt_restarts_read[dtid]++;
     }
   }
@@ -152,10 +148,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
     }
     jumpmuCatch()
     {
-      for (u32 i = mask; i; --i) {
-        _mm_pause();
-      }
-      mask = mask < max ? mask << 1 : max;
+      BACKOFF_STRATEGIES()
       WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
       local_restarts_counter++;
     }
@@ -268,10 +261,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
     }
     jumpmuCatch()
     {
-      for (u32 i = mask; i; --i) {
-        _mm_pause();
-      }
-      mask = mask < max ? mask << 1 : max;
+      BACKOFF_STRATEGIES()
       local_restarts_counter++;
       WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;
     }
@@ -442,7 +432,6 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // Called by buffer manager before eviction
 void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
-  return;
   if (!FLAGS_contention_management) {
     return;
   }
