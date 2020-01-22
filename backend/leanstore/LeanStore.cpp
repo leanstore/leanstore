@@ -121,6 +121,8 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_fs", [&](ostream& out) { out << FLAGS_fs; });
   config_entries.emplace_back("c_contention_management", [&](ostream& out) { out << FLAGS_contention_management; });
   config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });
+  config_entries.emplace_back("c_contention_update_tracker_pct", [&](ostream& out) { out << FLAGS_contention_update_tracker_pct; });
+  config_entries.emplace_back("c_restarts_threshold", [&](ostream& out) { out << FLAGS_restarts_threshold; });
   // -------------------------------------------------------------------------------------
   dt_entries.emplace_back("dt_id", [&](ostream& out) { out << dt_id; });
   dt_entries.emplace_back("dt_name", [&](ostream& out) { out << dt_name; });

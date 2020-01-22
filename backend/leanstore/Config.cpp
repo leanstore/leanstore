@@ -30,4 +30,8 @@ DEFINE_string(zipf_path, "/bulk/zipf", "");
 DEFINE_double(zipf_factor, 0.0, "");
 DEFINE_double(target_gib, 0.0, "size of dataset in gib (exact interpretation depends on the driver)");
 DEFINE_uint64(run_for_seconds, 10, "Keep the experiment running for x seconds");
+// -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff_strategy, 0, "");
+DEFINE_uint64(contention_update_tracker_pct, 1, "");
+DEFINE_uint64(restarts_threshold, 100, "");
+// -------------------------------------------------------------------------------------

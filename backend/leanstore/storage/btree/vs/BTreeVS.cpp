@@ -7,9 +7,6 @@
 using namespace std;
 using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
-DEFINE_uint64(contention_update_tracker_pct, 1, "");
-DEFINE_uint64(restarts_threshold, 100, "");
-// -------------------------------------------------------------------------------------
 namespace leanstore
 {
 namespace btree
@@ -435,7 +432,6 @@ void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
   if (!FLAGS_contention_management) {
     return;
   }
-  // TODO
   auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
   // OptimisticGuard o_guard(bf.header.lock);
@@ -451,7 +447,7 @@ void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
       }
       jumpmuCatch()
       {
-        // WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
+        WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
       }
     }
   } else {
