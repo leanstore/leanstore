@@ -63,7 +63,6 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   db.registerConfigEntry("tpcc_warehouse_count", [&](ostream& out) {out << FLAGS_tpcc_warehouse_count;});
   db.registerConfigEntry("tpcc_warehouse_affinity", [&](ostream& out) {out << FLAGS_tpcc_warehouse_affinity;});
-  db.startDebuggingThread();
   // -------------------------------------------------------------------------------------
   tbb::task_scheduler_init task_scheduler(thread::hardware_concurrency());
   load();
@@ -77,6 +76,7 @@ int main(int argc, char** argv)
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
   auto random = std::make_unique<leanstore::utils::ScrambledZipfGenerator>(1, FLAGS_tpcc_warehouse_count + 1, FLAGS_zipf_factor);
+  db.startDebuggingThread();
   if (FLAGS_tpcc_warehouse_affinity) {
     if (FLAGS_tpcc_warehouse_count < FLAGS_worker_threads) {
       cerr << "There must be more warehouses than threads in affinity mode" << endl;

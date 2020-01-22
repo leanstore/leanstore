@@ -201,7 +201,7 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   void insert(Key k, Value& v)
   {
-    u32 mask = 1;
+    volatile u32 mask = 1;
     u32 const max = 64;  // MAX_BACKOFF
     // -------------------------------------------------------------------------------------
     auto& root_inner_swip = root_swip.cast<BTreeInner<Key>>();

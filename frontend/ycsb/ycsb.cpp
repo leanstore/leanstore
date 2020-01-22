@@ -59,11 +59,10 @@ int main(int argc, char** argv)
   }
   db.registerConfigEntry("ycsb_read_ratio", [&](ostream& out) {out << FLAGS_ycsb_read_ratio;});
   db.registerConfigEntry("ycsb_target_gib", [&](ostream& out) {out << FLAGS_target_gib;});
-  db.startDebuggingThread();
   // -------------------------------------------------------------------------------------
   auto& table = *adapter;
   const u64 ycsb_tuple_count =
-      (FLAGS_ycsb_tuple_count) ? FLAGS_ycsb_tuple_count : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
+      (FLAGS_ycsb_tuple_count) ? FLAGS_ycsb_tuple_count : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
   // Insert values
   {
     const u64 n = ycsb_tuple_count;
@@ -123,6 +122,7 @@ int main(int argc, char** argv)
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
+  db.startDebuggingThread();
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&]() {
       running_threads_counter++;

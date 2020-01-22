@@ -1,3 +1,6 @@
+# Spin Mutex
+* Nuances
+
 * we should not decrement the version counter by reclaiming
 * what happen with empty pages when we fail to merge them, because we can deduct a key to look them up
 (search for the lower fence key)

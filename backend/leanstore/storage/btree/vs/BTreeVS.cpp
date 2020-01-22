@@ -442,6 +442,7 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // Called by buffer manager before eviction
 void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
+  return;
   if (!FLAGS_contention_management) {
     return;
   }

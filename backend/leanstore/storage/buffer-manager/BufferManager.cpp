@@ -173,7 +173,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           // Suitable page founds, lets unswizzle
           {
             const PID pid = r_buffer->header.pid;
-            dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer); // BETA:
+            dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);  // BETA:
 
             auto find_parent_begin = chrono::high_resolution_clock::now();
             ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
@@ -410,14 +410,10 @@ BufferFrame& BufferManager::allocatePage()
   free_bf.header.state = BufferFrame::State::HOT;
   free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
   // -------------------------------------------------------------------------------------
-  if (ssd_used_pages_counter == dram_pool_size) {
-    cout << "------------------------------------------------------------------"
-            "------------------"
-         << endl;
+  if (free_pid == dram_pool_size) {
+    cout << "-------------------------------------------------------------------------------------" << endl;
     cout << "Going out of memory !" << endl;
-    cout << "------------------------------------------------------------------"
-            "------------------"
-         << endl;
+    cout << "-------------------------------------------------------------------------------------" << endl;
   }
   free_bf.header.lock.assertExclusivelyLatched();
   // -------------------------------------------------------------------------------------

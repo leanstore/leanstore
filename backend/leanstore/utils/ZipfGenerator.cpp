@@ -1,4 +1,5 @@
 #include "ZipfGenerator.hpp"
+
 #include "RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -36,7 +37,7 @@ uint64_t ZipfGenerator::rand()
   if (uz < 1) {
     return 1;
   }
-  if (uz < 1 + std::pow(0.5, theta))
+  if (uz < (1 + std::pow(0.5, theta)))
     return 2;
   u64 ret = 1 + (long)(n * pow(eta * u - eta + 1, alpha));
   return ret;
