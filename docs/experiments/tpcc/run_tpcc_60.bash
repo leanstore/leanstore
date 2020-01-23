@@ -6,13 +6,12 @@ set -e
 EXEC_DIR=../../../release/frontend/
 function benchmark() {
     CSV_PATH="$(pwd)/tpcc_60.csv"
-    rm -f $CSV_PATH
+    #rm -f $CSV_PATH
     (cd $EXEC_DIR; make -j tpcc)
 
     for FLAGS_worker_threads in 60; do
-    for FLAGS_target_gib in 150; do # 25 50 75
     for FLAGS_dram_gib in 200; do
-    for FLAGS_tpcc_warehouse_count in 30 60 100 120; do
+    for FLAGS_tpcc_warehouse_count in 60 100 120; do #  60 100 120
     for FLAGS_contention_management in false true; do
         (
         $EXEC_DIR/tpcc \
@@ -24,12 +23,12 @@ function benchmark() {
             -ssd_path="/dev/md0" \
             -run_for_seconds=30 \
             -cool_pct=20 \
+            -pp_threads=1 \
             -free_pct=1 \
             -tpcc_warehouse_count=$FLAGS_tpcc_warehouse_count \
             -contention_management=$FLAGS_contention_management
     )
 
-    done
     done
     done
     done

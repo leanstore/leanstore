@@ -15,21 +15,6 @@ using namespace leanstore::buffermanager;
     _mm_pause();               \
   }                            \
   mask = mask < max ? mask << 1 : max;
-
-//  if (FLAGS_backoff_strategy == 0) {                                  \
-//   for (u32 i = mask; i; --i) {                                                                                     \
-//     _mm_pause();                                                                                                   \
-//   }                                                                                                                \
-//   mask = mask < max ? mask << 1 : max;                                                                             \
-// } else if (FLAGS_backoff_strategy == 1) {                                                                          \
-//   const u64 wait = std::min<u64>(512, utils::RandomGenerator::getRandU64(0, ((1 << local_restarts_counter) + 1))); \
-//   for (u64 i = wait; i; --i) {                                                                                     \
-//     _mm_pause();                                                                                                   \
-//   }                                                                                                                \
-// } else if (FLAGS_backoff_strategy == 2) {                                                                          \
-// } else {                                                                                                           \
-//   ensure(false);                                                                                                   \
-// }
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
