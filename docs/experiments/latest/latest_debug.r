@@ -18,10 +18,14 @@ aux =sqldf("select t, max(GHz) GHz, min(instr) instr,
  sum(dt_researchy_0) splits,
  sum(dt_researchy_1) merge_succ,
  sum(dt_researchy_2) merge_fail,
-latest_window_ms,  c_backoff_strategy, c_dram_gib, c_zipf_factor, c_worker_threads from d where c_contention_management = 1 group by t, c_dram_gib, c_zipf_factor, latest_window_ms,c_worker_threads, c_backoff_strategy")
+c_contention_management,
+latest_window_ms,  c_backoff_strategy, c_dram_gib, c_zipf_factor, c_worker_threads,c_contention_update_tracker_pct from d  group by t, c_dram_gib, c_zipf_factor, latest_window_ms,c_worker_threads, c_backoff_strategy,c_contention_update_tracker_pct, c_contention_management")
+head(aux)
 plot <- ggplot(aux, aes(t)) + geom_line(aes(y=splits), color="red") + geom_line(aes(y=merge_succ), colour="blue")
-plot <- plot + facet_grid (row=vars(c_zipf_factor, latest_window_ms), cols=vars(c_dram_gib))
+#plot <- ggplot(aux, aes(t)) + geom_line(aes(y=space_usage_gib), color="red")
+plot <- plot + facet_grid (row=vars(latest_window_ms, c_contention_management), cols=vars(c_contention_update_tracker_pct,c_dram_gib))
 print(plot)
+
                                         #+ geom_line(aes(y=merge_fail), color="green", linetype="dotted")
 # + geom_line(aes(y=space_usage_gib), color="purple", linetype="longdash")
 sqldf("select max(tx)/1e6, c_contention_management from d group by c_contention_management")

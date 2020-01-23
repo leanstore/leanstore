@@ -105,7 +105,7 @@ int main(int argc, char** argv)
       FLAGS_latest_window_offset_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage;
   cout << tuple_count << "\t:\t" << window_tuple_count << "\t:\t" << step_size << endl;
   ensure(step_size < window_tuple_count);
-  if (FLAGS_run_for_seconds > FLAGS_latest_window_ms / 1000)
+  if (FLAGS_run_for_seconds > (FLAGS_latest_window_ms / 1000))
     threads.emplace_back([&]() {
       running_threads_counter++;
       while (keep_running && window_offset + step_size <= tuple_count) {
@@ -120,11 +120,17 @@ int main(int argc, char** argv)
     // Shutdown threads
     sleep(FLAGS_run_for_seconds);
     keep_running = false;
+    // -------------------------------------------------------------------------------------
     while (running_threads_counter) {
       _mm_pause();
     }
     for (auto& thread : threads) {
       thread.join();
+    }
+    // -------------------------------------------------------------------------------------
+    for (u64 t_i = 0; t_i < tuple_count; t_i++) {
+      table.lookup(t_i, payload);
+      WorkerCounters::myCounters().tx++;
     }
   }
   // -------------------------------------------------------------------------------------

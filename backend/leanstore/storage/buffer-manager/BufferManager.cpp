@@ -550,34 +550,37 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
   // -------------------------------------------------------------------------------------
   if (cio_frame.state == CIOFrame::State::COOLING) {
     // -------------------------------------------------------------------------------------
-    // We have to exclusively lock the bf because the page provider thread will
-    // try to evict them when its IO is done
-    BufferFrame* bf = *cio_frame.fifo_itr;
-    OptimisticGuard bf_guard(bf->header.lock);
-    ExclusiveGuard swip_x_guard(swip_guard);
-    ExclusiveGuard bf_x_guard(bf_guard);
-    // -------------------------------------------------------------------------------------
-    assert(bf->header.pid == pid);
-    swip_value.swizzle(bf);
-    // swip_value.asAtomic().store(u64(bf));
-    assert(swip_value.isSwizzled());
-    partition.cooling_queue.erase(cio_frame.fifo_itr);
-    partition.cooling_bfs_counter--;
-    assert(bf->header.state == BufferFrame::State::COLD);
-    bf->header.state = BufferFrame::State::HOT;  // ATTENTION: SET TO HOT AFTER
-                                                 // IT IS SWIZZLED IN
-    // -------------------------------------------------------------------------------------
-    // Simply written, let the compiler optimize it
-    bool should_clean = true;
-    if (bf->header.isCooledBecauseOfReading) {
-      if (cio_frame.readers_counter.fetch_add(-1) > 1) {
-        should_clean = false;
+      BufferFrame* bf = *cio_frame.fifo_itr;
+    {
+      // We have to exclusively lock the bf because the page provider thread will
+      // try to evict them when its IO is done
+      OptimisticGuard bf_guard(bf->header.lock);
+      ExclusiveGuard swip_x_guard(swip_guard);
+      ExclusiveGuard bf_x_guard(bf_guard);
+      // -------------------------------------------------------------------------------------
+      assert(bf->header.pid == pid);
+      swip_value.swizzle(bf);
+      // swip_value.asAtomic().store(u64(bf));
+      assert(swip_value.isSwizzled());
+      partition.cooling_queue.erase(cio_frame.fifo_itr);
+      partition.cooling_bfs_counter--;
+      assert(bf->header.state == BufferFrame::State::COLD);
+      bf->header.state = BufferFrame::State::HOT;  // ATTENTION: SET TO HOT AFTER
+                                                   // IT IS SWIZZLED IN
+      // -------------------------------------------------------------------------------------
+      // Simply written, let the compiler optimize it
+      bool should_clean = true;
+      if (bf->header.isCooledBecauseOfReading) {
+        if (cio_frame.readers_counter.fetch_add(-1) > 1) {
+          should_clean = false;
+        }
+      } else {
+        WorkerCounters::myCounters().cold_hit_counter++;
       }
-    } else {
-      WorkerCounters::myCounters().cold_hit_counter++;
-    }
-    if (should_clean) {
-      partition.ht.remove(pid);
+      if (should_clean) {
+        partition.ht.remove(pid);
+      }
+      g_guard->unlock();
     }
     // -------------------------------------------------------------------------------------
     dt_registry.checkSpaceUtilization(bf->page.dt_id, *bf); // BETA:

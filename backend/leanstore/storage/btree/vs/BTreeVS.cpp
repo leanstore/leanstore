@@ -182,8 +182,6 @@ void BTree::trySplit(BufferFrame& to_split)
     c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
     // -------------------------------------------------------------------------------------
     height++;
-    // pages++;
-    // pages++;
     return;
   }
   unsigned spaced_need_for_separator = BTreeNode::spaceNeeded(sep_info.length, p_guard->prefix_length);
@@ -202,7 +200,6 @@ void BTree::trySplit(BufferFrame& to_split)
     // -------------------------------------------------------------------------------------
     c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
     // -------------------------------------------------------------------------------------
-    // pages++;
   } else {
     p_guard.kill();
     c_guard.kill();
@@ -249,7 +246,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
                 trySplit(*c_guard.bf);
                 WorkerCounters::myCounters().dt_researchy_0[dtid]++;
               }
-              jumpmuCatch() { WorkerCounters::myCounters().dt_researchy_1[dtid]++; }
+              jumpmuCatch() {  }
             }
           }
         }
@@ -429,7 +426,7 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // Called by buffer manager before eviction
 void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
-  if (!FLAGS_contention_management) {
+  if (!FLAGS_space_utilization) {
     return;
   }
   auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
@@ -449,6 +446,8 @@ void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
       {
         WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
       }
+    } else {
+      bf.header.contention_tracker.reset();
     }
   } else {
     // WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;

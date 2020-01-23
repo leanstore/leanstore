@@ -21,6 +21,7 @@ DECLARE_bool(print_debug);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(contention_management);
+DECLARE_bool(space_utilization);
 // -------------------------------------------------------------------------------------
 DECLARE_string(zipf_path);
 DECLARE_double(zipf_factor);

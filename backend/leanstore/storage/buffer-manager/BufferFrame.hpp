@@ -21,6 +21,11 @@ struct BufferFrame {
       u32 restarts_counter = 0;
       u32 access_counter = 0;
       s32 last_modified_pos = -1;
+      void reset() {
+        restarts_counter = 0;
+        access_counter = 0;
+        last_modified_pos = -1;
+      }
     };
     // TODO: for logging
     atomic<u64> lastWrittenLSN = 0;
@@ -62,9 +67,7 @@ struct BufferFrame {
     header.isCooledBecauseOfReading = false;
     header.pid = 9999;
     header.next_free_bf = nullptr;
-    header.contention_tracker.last_modified_pos = -1;
-    header.contention_tracker.restarts_counter = 0;
-    header.contention_tracker.access_counter = 0;
+    header.contention_tracker.reset();
   }
   // -------------------------------------------------------------------------------------
   BufferFrame() { header.lock->store(0ul); }
