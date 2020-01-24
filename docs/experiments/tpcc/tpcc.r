@@ -4,7 +4,7 @@ library(sqldf)
 # Rome
 
 pcsv=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/tpcc/tpcc_60.csv')
-ggplot(pcsv,aes(x=t, y=tx, color = c_contention_management)) + geom_line() + facet_grid(row=vars(tpcc_warehouse_count))
+ggplot(pcsv,aes(x=t, y=tx, color = c_contention_management, group=c_contention_management)) + geom_line() + facet_grid(row=vars(tpcc_warehouse_count))
 
 
 pcsv=read.csv('/home/adnan/rome/dev/leanstore/docs/analysis/csv/tpcc_100_skew.csv')
@@ -17,3 +17,7 @@ withoutcontention = sqldf("select * from pcsv where c = 0")
   ylab('TX') +  expand_limits(y = 0)
 
 print(p)
+
+
+pcsv=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/tpcc/tpcc_overnight.csv')
+ggplot(pcsv,aes(x=t, y=tx, color = c_contention_management, group=c_contention_management)) + geom_line() + facet_grid(row=vars(c_zipf_factor,tpcc_warehouse_count), cols=vars(c_worker_threads))

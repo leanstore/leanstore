@@ -12,8 +12,8 @@ tx <- ggplot(d, aes(t, tx, color=c_contention_management, group=c_contention_man
 tx <- tx + facet_grid (row=vars(c_zipf_factor, latest_window_ms), cols=vars(c_worker_threads,c_dram_gib))
 print(tx)
 
-r =sqldf("select t,max(GHz) GHz, min(instr) instr, max(space_usage_gib) space_usage_gib, latest_window_ms,  c_backoff_strategy, c_dram_gib, c_zipf_factor,c_worker_threads, sum(dt_researchy_0) s, sum(dt_restarts_update_same_size) re from d group by t, c_dram_gib, c_zipf_factor, latest_window_ms,c_worker_threads, c_backoff_strategy")
-restarts <- ggplot(r, aes(t,space_usage_gib)) + geom_line()
+r =sqldf("select t,max(GHz) GHz, min(instr) instr, max(space_usage_gib) space_usage_gib, latest_window_ms,  c_backoff_strategy, c_dram_gib, c_zipf_factor,c_worker_threads, sum(dt_researchy_0) s, sum(dt_restarts_update_same_size) re from d where c_contention_management = 1 group by t, c_dram_gib, c_zipf_factor, latest_window_ms,c_worker_threads, c_backoff_strategy")
+restarts <- ggplot(r, aes(t,s)) + geom_line()
 restarts <- restarts + facet_grid (row=vars(c_zipf_factor, latest_window_ms), cols=vars(c_worker_threads,c_dram_gib))
 print(restarts)
 

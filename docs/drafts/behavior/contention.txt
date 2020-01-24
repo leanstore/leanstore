@@ -1,0 +1,4 @@
+One PP Thread scans around 90K Buffer Frames per seconds
+A worst case scenario with a 120 cores cpu would look like the following:
+Each two cores constantly updating two tuples in a different buffer frame leading to 60 splits per G
+where G is the time needed to detect contention and split the page.

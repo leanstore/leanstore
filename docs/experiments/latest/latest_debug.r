@@ -6,11 +6,12 @@ library(scales)
 # Rome
 
 dev.set(0)
-df=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/latest/results.csv')
+df=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/latest/results_touches.csv')
 d=sqldf("select * from df ")
 tx <- ggplot(d, aes(t, tx, color=c_contention_management, group=c_contention_management)) + geom_line()
-tx <- tx + facet_grid (row=vars(c_zipf_factor), cols=vars(c_contention_update_tracker_pct, c_dram_gib))
+tx <- tx + facet_grid (row=vars(c_zipf_factor, latest_window_ms), cols=vars(c_contention_update_tracker_pct, c_dram_gib))
 print(tx)
+sqldf("select  max(touches) from df")
 
 aux =sqldf("select t, max(GHz) GHz, min(instr) instr,
  max(space_usage_gib) space_usage_gib,
@@ -21,7 +22,7 @@ aux =sqldf("select t, max(GHz) GHz, min(instr) instr,
 c_contention_management,
 latest_window_ms,  c_backoff_strategy, c_dram_gib, c_zipf_factor, c_worker_threads,c_contention_update_tracker_pct from d  group by t, c_dram_gib, c_zipf_factor, latest_window_ms,c_worker_threads, c_backoff_strategy,c_contention_update_tracker_pct, c_contention_management")
 head(aux)
-plot <- ggplot(aux, aes(t)) + geom_line(aes(y=splits), color="red") + geom_line(aes(y=merge_succ), colour="blue")
+plot <- ggplot(aux, aes(t)) + geom_line(aes(y=splits), color="red") + geom_line(aes(y=merge_succ), colour="blue")  + geom_line(aes(y=merge_fail), colour="green")
 #plot <- ggplot(aux, aes(t)) + geom_line(aes(y=space_usage_gib), color="red")
 plot <- plot + facet_grid (row=vars(latest_window_ms, c_contention_management), cols=vars(c_contention_update_tracker_pct,c_dram_gib))
 print(plot)
