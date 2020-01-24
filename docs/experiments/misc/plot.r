@@ -75,7 +75,7 @@ w60ac=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_60ac.csv')
 w120ac=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_120ac.csv')
 w1=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_1.csv')
 w30=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_30.csv')
-#w10=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_10.csv')
+#w10 = read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_10.csv')
 w60=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_60.csv')
 w120=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_120.csv')
 w120a=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_120a.csv')
@@ -109,24 +109,20 @@ w=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/workers_rio_light.cs
 sqldf("select name,restarts_read, restarts_modify from w order by name ")
 sqldf("select t,evicted_mib,r_mib,free_pct,cool_pct from pp order by t desc limit 20")
 
-
-
-# Skylake
+#Skylake
 w1=read.csv('/home/adnan/dev/workspace/db/leanstore/cmake-build-release-g9/frontend/pp_1.csv')
 w10=read.csv('/home/adnan/dev/workspace/db/leanstore/cmake-build-release-g9/frontend/pp_10.csv')
 sqldf("select t,cool_pct,instr,cycle,cpus,GHz,\"L1.miss\",IPC, tx from w1 where tx > 10 limit 10")
 sqldf("select t,cool_pct,instr,cycle,cpus,GHz,\"L1.miss\",IPC, tx from w10 where tx > 10 limit 10")
 
-
-# Rome
+#Rome
 d=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_verify.csv')
 sqldf("select t,tx,unswizzled,free_pct,r_mib,evicted_mib,CPU,p1_pct,find_parent_pct,iterate_children_pct,p2_pct,p3_pct from d where tx > 0 order by t desc limit 10")
 sqldf("select max(tx) from d")
 d=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/dt_verify.csv')
 sqldf("select * from d order by t desc limit 10")
 
-
-# YCSB - Contention
+#YCSB - Contention
 d=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_ycsb_20.csv')
 sqldf("select t,tx,unswizzled,free_pct,r_mib,evicted_mib,CPU,p1_pct,find_parent_pct,iterate_children_pct,p2_pct,p3_pct from d where tx > 0 order by t asc limit 10")
 sqldf("select max(tx) from d")
@@ -139,27 +135,42 @@ sqldf("select max(tx) from d")
 d=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/dt_ycsb_120.csv')
 sqldf("select * from d order by t desc limit 10")
 
-
-
-
-
-
-
-
-# Rome 120
+#Rome 120
 d=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_120ac.csv')
 sqldf("select t,tx, free_pct from d")
 
-# Skx 20
+#Skx 20
 d=read.csv('/home/adnan/dev/workspace/db/leanstore/cmake-build-release-g9/frontend/pp_20.csv')
 sqldf("select t,tx from d")
 
 dt=read.csv('/home/adnan/dev/workspace/db/leanstore/cmake-build-release-g9/frontend/dt_jmu.csv')
 pp=read.csv('/home/adnan/dev/workspace/db/leanstore/cmake-build-release-g9/frontend/pp_jmu.csv')
 sqldf("select name, sum(restarts_read), sum(restarts_updates), sum(restarts_structural) from dt group by name")
-                                        #sqldf("select t,tx from pp")
+#sqldf("select t,tx from pp")
 
 # 484466
 
 d=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_jmu.csv')
 sqldf("select t,tx, free_pct from d")
+
+#Space Utilization
+df=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/latest/results_touches.csv')
+d=sqldf("select * from df ")
+tx <- ggplot(d, aes(t, tx, color=c_contention_management, group=c_contention_management)) + geom_line()
+tx <- tx + facet_grid (row=vars(c_zipf_factor, latest_window_ms), cols=vars(c_contention_update_tracker_pct, c_dram_gib))
+print(tx)
+sqldf("select  max(touches) from df")
+
+aux =sqldf("select t, max(GHz) GHz, min(instr) instr,
+ max(space_usage_gib) space_usage_gib,
+ sum(dt_restarts_update_same_size) restarts,
+ sum(dt_researchy_0) splits,
+ sum(dt_researchy_1) merge_succ,
+ sum(dt_researchy_2) merge_fail,
+c_contention_management,
+latest_window_ms,  c_backoff_strategy, c_dram_gib, c_zipf_factor, c_worker_threads,c_contention_update_tracker_pct from d  group by t, c_dram_gib, c_zipf_factor, latest_window_ms,c_worker_threads, c_backoff_strategy,c_contention_update_tracker_pct, c_contention_management")
+head(aux)
+plot <- ggplot(aux, aes(t)) + geom_line(aes(y=splits), color="red") + geom_line(aes(y=merge_succ), colour="blue")  + geom_line(aes(y=merge_fail), colour="green")
+#plot < -ggplot(aux, aes(t)) + geom_line(aes(y = space_usage_gib), color = "red")
+plot <- plot + facet_grid (row=vars(latest_window_ms, c_contention_management), cols=vars(c_contention_update_tracker_pct,c_dram_gib))
+print(plot)

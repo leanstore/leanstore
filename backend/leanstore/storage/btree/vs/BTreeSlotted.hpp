@@ -44,6 +44,7 @@ static inline u16 swap(u16 x)
 // -------------------------------------------------------------------------------------
 struct BTreeNodeHeader {
   static const unsigned underFullSize = EFFECTIVE_PAGE_SIZE * 0.6;
+  static const unsigned HALF_FILLED = EFFECTIVE_PAGE_SIZE * 0.45;
 
   struct SeparatorInfo {
     unsigned length;

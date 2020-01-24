@@ -47,7 +47,7 @@ struct BTree {
   bool remove(u8* key, u16 key_length);
   bool tryMerge(BufferFrame& to_split);
   // -------------------------------------------------------------------------------------
-  void kWayMerge(BufferFrame &);
+  bool kWayMerge(BufferFrame &);
   // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();
   static void checkSpaceUtilization(void* btree_object, BufferFrame&);

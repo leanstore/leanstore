@@ -1,4 +1,5 @@
 #include "BTreeSlotted.hpp"
+
 #include "leanstore/sync-primitives/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -349,7 +350,11 @@ Swip<BTreeNode>& BTreeNode::lookupInner(u8* key, unsigned keyLength)
   return getValue(pos);
 }
 // -------------------------------------------------------------------------------------
-void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& nodeLeft, unsigned sepSlot, u8* sepKey, unsigned sepLength)
+void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent,
+                      ExclusivePageGuard<BTreeNode>& nodeLeft,
+                      unsigned sepSlot,
+                      u8* sepKey,
+                      unsigned sepLength)
 {
   // PRE: current, parent and nodeLeft are x locked
   assert(sepSlot > 0);
@@ -398,4 +403,4 @@ bool BTreeNode::remove(u8* key, unsigned keyLength)
 // -------------------------------------------------------------------------------------
 }  // namespace vs
 }  // namespace btree
-}
+}  // namespace leanstore

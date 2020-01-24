@@ -5,6 +5,7 @@
 #include "gtest/gtest.h"
 // -------------------------------------------------------------------------------------
 #include <tbb/tbb.h>
+
 #include <unordered_set>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(btree_n, 1e5, "");
@@ -15,7 +16,7 @@ namespace leanstore
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
-TEST(BTree, VariableSize)
+TEST(BTree, VS)
 {
   tbb::task_scheduler_init taskScheduler(FLAGS_btree_t);
   LeanStore db;
@@ -74,7 +75,7 @@ TEST(BTree, VariableSize)
     u64 counter = 0;
     btree.scan(
         reinterpret_cast<u8*>(key.data()), 1,
-        [&](u8* payload, u16 payload_length, std::function<string()>& getKey) {
+        [&](u8*, u16, std::function<string()>& getKey) {
           counter++;
           auto c_key = getKey();
           return true;
