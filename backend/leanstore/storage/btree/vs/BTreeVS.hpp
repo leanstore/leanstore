@@ -27,9 +27,6 @@ struct BTree {
   DTID dtid;
   // -------------------------------------------------------------------------------------
   atomic<u16> height = 1;  // debugging
-  // atomic<u64> pages = 1;             // debugging
-  // atomic<u64> entries = 1;           // debugging
-  // atomic<u64> restarts_counter = 0;  // debugging
   OptimisticLatch root_lock = 0;
   Swip<BTreeNode> root_swip;
   // -------------------------------------------------------------------------------------
@@ -50,6 +47,8 @@ struct BTree {
   bool remove(u8* key, u16 key_length);
   bool tryMerge(BufferFrame& to_split);
   // -------------------------------------------------------------------------------------
+  void kWayMerge(BufferFrame &);
+  // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();
   static void checkSpaceUtilization(void* btree_object, BufferFrame&);
   static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
@@ -63,7 +62,6 @@ struct BTree {
   {
     u32 volatile mask = 1;
     u32 const max = 512;  // MAX_BACKOFF
-    volatile u32 local_restarts_counter = 0;
     while (true) {
       jumpmuTry()
       {

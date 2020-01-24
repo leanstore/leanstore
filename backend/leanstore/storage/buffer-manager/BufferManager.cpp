@@ -139,9 +139,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             r_buffer = &randomBufferFrame();
             continue;
           }
-          OptimisticGuard r_guard(r_buffer->header.lock);
+          OptimisticGuard r_guard(r_buffer->header.lock, false);
           const u64 partition_i = getPartitionID(r_buffer->header.pid);
-
+          // -------------------------------------------------------------------------------------
           const bool is_cooling_candidate = ((partition_i) >= p_begin && (partition_i) < p_end) &&
                                             !(r_buffer->header.lock->load() & LATCH_EXCLUSIVE_BIT) &&
                                             r_buffer->header.state == BufferFrame::State::HOT;  // && !rand_buffer->header.isWB
@@ -149,6 +149,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             r_buffer = &randomBufferFrame();
             continue;
           }
+          r_guard.recheck();
+          // -------------------------------------------------------------------------------------
+          PPCounters::myCounters().touched_bfs_counter++;
+          dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);  // BETA:
           r_guard.recheck();
           // -------------------------------------------------------------------------------------
           bool picked_a_child_instead = false;
@@ -173,7 +177,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           // Suitable page founds, lets unswizzle
           {
             const PID pid = r_buffer->header.pid;
-            dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);  // BETA:
 
             auto find_parent_begin = chrono::high_resolution_clock::now();
             ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
@@ -550,7 +553,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
   // -------------------------------------------------------------------------------------
   if (cio_frame.state == CIOFrame::State::COOLING) {
     // -------------------------------------------------------------------------------------
-      BufferFrame* bf = *cio_frame.fifo_itr;
+    BufferFrame* bf = *cio_frame.fifo_itr;
     {
       // We have to exclusively lock the bf because the page provider thread will
       // try to evict them when its IO is done
@@ -583,7 +586,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
       g_guard->unlock();
     }
     // -------------------------------------------------------------------------------------
-    dt_registry.checkSpaceUtilization(bf->page.dt_id, *bf); // BETA:
+    // dt_registry.checkSpaceUtilization(bf->page.dt_id, *bf); // BETA:
     // -------------------------------------------------------------------------------------
     return *bf;
   }

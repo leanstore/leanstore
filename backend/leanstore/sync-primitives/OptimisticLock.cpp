@@ -7,7 +7,7 @@ namespace leanstore
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
-void OptimisticGuard::spin()
+void OptimisticGuard::spinTillLatching()
 {
   u32 mask = 1;
   u32 const max = 64;                                           // MAX_BACKOFF

@@ -26,7 +26,6 @@ void BTree::init(DTID dtid)
 // -------------------------------------------------------------------------------------
 bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
-  volatile u64 local_restarts_counter = 0;
   volatile u32 mask = 1;
   u32 const max = 512;  // MAX_BACKOFF
   while (true) {
@@ -72,7 +71,6 @@ void BTree::scan(u8* start_key,
           u16 payload_length = leaf->getPayloadLength(cur);
           u8* payload = leaf->isLarge(cur) ? leaf->getPayloadLarge(cur) : leaf->getPayload(cur);
           std::function<string()> key_extract_fn = [&]() {
-            ensure(false);  // TODO
             u16 key_length = leaf->getFullKeyLength(cur);
             string key(key_length, '0');
             leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()), key_length);
@@ -131,8 +129,6 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       p_guard.recheck_done();
       if (c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)), payload)) {
-        c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
-        c_x_guard.bf->header.contention_tracker.access_counter++;
         jumpmu_return;
       }
       // -------------------------------------------------------------------------------------
@@ -189,7 +185,7 @@ void BTree::trySplit(BufferFrame& to_split)
                                                                 // for the separator?
     auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
     auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-    p_guard->requestSpaceFor(spaced_need_for_separator);
+    p_x_guard->requestSpaceFor(spaced_need_for_separator);
     assert(p_x_guard.hasBf());
     assert(!p_x_guard->is_leaf);
     // -------------------------------------------------------------------------------------
@@ -246,7 +242,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
                 trySplit(*c_guard.bf);
                 WorkerCounters::myCounters().dt_researchy_0[dtid]++;
               }
-              jumpmuCatch() {  }
+              jumpmuCatch() {}
             }
           }
         }
@@ -352,10 +348,9 @@ bool BTree::tryMerge(BufferFrame& to_split)
   }
   assert(parent_handler.swip.bf == &to_split);
   // -------------------------------------------------------------------------------------
-  // TODO: use upper fence instead of fully copying the head key
-  u16 key_length = c_guard->getFullKeyLength(0);
+  u16 key_length = c_guard->upper_fence.length;
   u8 key[key_length];
-  c_guard->copyFullKey(0, key, key_length);
+  memcpy(key, c_guard->getUpperFenceKey(), c_guard->upper_fence.length);
   int pos = p_guard->lowerBound<false>(key, key_length);
   assert(pos != -1);
   // -------------------------------------------------------------------------------------
@@ -414,6 +409,8 @@ bool BTree::tryMerge(BufferFrame& to_split)
   return merged_successfully;
 }
 // -------------------------------------------------------------------------------------
+void BTree::kWayMerge(BufferFrame& bf) {}
+// -------------------------------------------------------------------------------------
 BTree::~BTree() {}
 // -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTree::getMeta()
@@ -431,26 +428,21 @@ void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
   }
   auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
-  // OptimisticGuard o_guard(bf.header.lock);
-  if (c_node.freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-    u64 current_restarts_counter = bf.header.contention_tracker.restarts_counter;
-    // u64 current_access_counter = bf.header.contention_tracker.access_counter;
-    // (utils::RandomGenerator::getRandU64(0, 100) < (FLAGS_contention_update_tracker_pct)) && current_access_counter > 0 &&
-    if (current_restarts_counter == 0) {
-      jumpmuTry()
-      {
-        WorkerCounters::myCounters().dt_researchy_1[btree.dtid] += btree.tryMerge(bf);
-        jumpmu::jump();
+  if (bf.page.dt_id == btree.dtid && c_node.freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+    jumpmuTry()
+    {
+      if (btree.tryMerge(bf)) {
+        WorkerCounters::myCounters().dt_researchy_1[btree.dtid]++;
+      } else {
+        // do nothing
+        jumpmu_return;
       }
-      jumpmuCatch()
-      {
-        WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
-      }
-    } else {
-      bf.header.contention_tracker.reset();
     }
-  } else {
-    // WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
+    jumpmuCatch()
+    {
+      WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
+      jumpmu::jump();
+    }
   }
 }
 // -------------------------------------------------------------------------------------

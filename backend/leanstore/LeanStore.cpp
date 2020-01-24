@@ -94,6 +94,7 @@ void LeanStore::debuggingThread()
     out << (sum(PPCounters::pp_counters, &PPCounters::evicted_pages) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
   });
   stat_entries.emplace_back("rounds", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::pp_thread_rounds); });
+  stat_entries.emplace_back("touches", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::touched_bfs_counter); });
   stat_entries.emplace_back("unswizzled", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::unswizzled_pages_counter); });
   stat_entries.emplace_back("cpus", [&](ostream& out) { out << e->getCPUs(); });
   stat_entries.emplace_back("submit_ms", [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::submit_ms) * 100.0 / total); });
@@ -118,6 +119,7 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_dram_gib", [&](ostream& out) { out << FLAGS_dram_gib; });
   config_entries.emplace_back("c_target_gib", [&](ostream& out) { out << FLAGS_target_gib; });
   config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
+  config_entries.emplace_back("c_run_for_seconds", [&](ostream& out) { out << FLAGS_run_for_seconds; });
   config_entries.emplace_back("c_fs", [&](ostream& out) { out << FLAGS_fs; });
   config_entries.emplace_back("c_contention_management", [&](ostream& out) { out << FLAGS_contention_management; });
   config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });

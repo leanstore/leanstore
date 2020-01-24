@@ -323,7 +323,7 @@ struct BTree {
     }
   }
   // -------------------------------------------------------------------------------------
-  static void checkSpaceUtilization(void* btree_object, BufferFrame& bf) {
+  static void checkSpaceUtilization(void*, BufferFrame&) {
     ensure(false); // todo
   }
   // -------------------------------------------------------------------------------------

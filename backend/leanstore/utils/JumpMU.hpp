@@ -35,6 +35,9 @@ inline void clearLastDestructor()
 #define jumpmu_return           \
   jumpmu::checkpoint_counter--; return
 
+#define jumpmu_break            \
+  jumpmu::checkpoint_counter--; break
+
 #define jumpmu_continue         \
   jumpmu::checkpoint_counter--; continue
 

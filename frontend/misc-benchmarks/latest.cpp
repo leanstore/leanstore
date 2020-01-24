@@ -73,12 +73,6 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   atomic<u64> window_offset = window_tuple_count;
   auto zipf_random = std::make_unique<utils::ZipfGenerator>(window_tuple_count, FLAGS_zipf_factor);
-  // vector<u64> zipf_keys(window_tuple_count);
-  // tbb::parallel_for(tbb::blocked_range<u64>(0, window_tuple_count), [&](const tbb::blocked_range<u64>& range) {
-  //   for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-  //     zipf_keys[t_i] = zipf_random->rand();
-  //   }
-  // });
   // -------------------------------------------------------------------------------------
   cout << setprecision(4) << endl;
   atomic<bool> keep_running = true;
@@ -128,10 +122,10 @@ int main(int argc, char** argv)
       thread.join();
     }
     // -------------------------------------------------------------------------------------
-    for (u64 t_i = 0; t_i < tuple_count; t_i++) {
-      table.lookup(t_i, payload);
-      WorkerCounters::myCounters().tx++;
-    }
+    // for (u64 t_i = 0; t_i < tuple_count; t_i++) {
+    //   table.lookup(t_i, payload);
+    //   WorkerCounters::myCounters().tx++;
+    // }
   }
   // -------------------------------------------------------------------------------------
   const s64 amplification_pages = db.getBufferManager().consumedPages() - size_at_insert_point;

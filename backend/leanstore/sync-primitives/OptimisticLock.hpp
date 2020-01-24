@@ -84,7 +84,21 @@ class OptimisticGuard
     // Ignore the state field
     local_version = latch_ptr->raw.load() & LATCH_VERSION_MASK;
     if ((local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
-      spin();
+      spinTillLatching();
+    }
+    assert((local_version & LATCH_EXCLUSIVE_BIT) != LATCH_EXCLUSIVE_BIT);
+  }
+  // -------------------------------------------------------------------------------------
+  OptimisticGuard(OptimisticLatch& lock, bool spin_if_latched) : latch_ptr(&lock)
+  {
+    // Ignore the state field
+    local_version = latch_ptr->raw.load() & LATCH_VERSION_MASK;
+    if ((local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
+      if (spin_if_latched) {
+        spinTillLatching();
+      } else {
+        jumpmu::jump();
+      }
     }
     assert((local_version & LATCH_EXCLUSIVE_BIT) != LATCH_EXCLUSIVE_BIT);
   }
@@ -96,7 +110,7 @@ class OptimisticGuard
     }
   }
   // -------------------------------------------------------------------------------------
-  void spin();
+  void spinTillLatching();
   // -------------------------------------------------------------------------------------
 };
 // -------------------------------------------------------------------------------------
