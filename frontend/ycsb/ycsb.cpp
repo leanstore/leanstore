@@ -57,8 +57,9 @@ int main(int argc, char** argv)
     auto& vs_btree = db.registerVSBTree("ycsb");
     adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
   }
-  db.registerConfigEntry("ycsb_read_ratio", [&](ostream& out) {out << FLAGS_ycsb_read_ratio;});
-  db.registerConfigEntry("ycsb_target_gib", [&](ostream& out) {out << FLAGS_target_gib;});
+  db.registerConfigEntry("ycsb_read_ratio", [&](ostream& out) { out << FLAGS_ycsb_read_ratio; });
+  db.registerConfigEntry("ycsb_target_gib", [&](ostream& out) { out << FLAGS_target_gib; });
+  db.startDebuggingThread();
   // -------------------------------------------------------------------------------------
   auto& table = *adapter;
   const u64 ycsb_tuple_count =
@@ -122,7 +123,6 @@ int main(int argc, char** argv)
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
-  db.startDebuggingThread();
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&]() {
       running_threads_counter++;

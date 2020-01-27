@@ -2,12 +2,13 @@
 #include "leanstore/BTreeAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
-#include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>
+
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
 #include <iostream>
@@ -69,6 +70,10 @@ int main(int argc, char** argv)
   threads.clear();
   u64 max_key = *std::max_element(largest_keys, largest_keys + FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
+  u64 size_at_insert_point = db.getBufferManager().consumedPages();
+  const u64 mib = size_at_insert_point * PAGE_SIZE / 1024 / 1024;
+  cout << "Inserted volume: (pages, MiB) = (" << size_at_insert_point << ", " << mib << ")" << endl;
+  cout << "-------------------------------------------------------------------------------------" << endl;
   cout << "max key = " << max_key << endl;
   // -------------------------------------------------------------------------------------
   for (unsigned t_i = 0; t_i < FLAGS_worker_threads; t_i++) {

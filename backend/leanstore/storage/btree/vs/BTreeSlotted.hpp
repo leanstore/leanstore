@@ -44,7 +44,7 @@ static inline u16 swap(u16 x)
 // -------------------------------------------------------------------------------------
 struct BTreeNodeHeader {
   static const unsigned underFullSize = EFFECTIVE_PAGE_SIZE * 0.6;
-  static const unsigned HALF_FILLED = EFFECTIVE_PAGE_SIZE * 0.45;
+  static const unsigned K_WAY_MERGE_THRESHOLD = EFFECTIVE_PAGE_SIZE * 0.45;
 
   struct SeparatorInfo {
     unsigned length;
@@ -61,7 +61,7 @@ struct BTreeNodeHeader {
   FenceKey lower_fence = {0, 0};
   FenceKey upper_fence = {0, 0};
 
-  u16 count = 0;
+  u16 count = 0; // count number of separators, excluding the upper swip
   bool is_leaf;
   u16 space_used = 0;
   u16 data_offset = static_cast<u16>(EFFECTIVE_PAGE_SIZE);
@@ -271,6 +271,7 @@ struct BTreeNode : public BTreeNodeHeader {
   void updateHint(unsigned slotId);
   // -------------------------------------------------------------------------------------
   bool insert(u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);
+  bool canInsert(u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);
   bool update(u8* key, unsigned keyLength, u16 payload_length, u8* payload);
   // -------------------------------------------------------------------------------------
   void compactify();

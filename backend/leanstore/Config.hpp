@@ -32,3 +32,5 @@ DECLARE_uint64(backoff_strategy);
 DECLARE_uint64(contention_update_tracker_pct);
 DECLARE_uint64(restarts_threshold);
 // -------------------------------------------------------------------------------------
+DECLARE_uint64(x);
+DECLARE_uint64(y);

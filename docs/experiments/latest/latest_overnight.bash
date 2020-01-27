@@ -56,3 +56,8 @@ function benchmark() {
 benchmark
 
 exit 0
+
+# + for FLAGS_contention_management in true false
+# + ../../../release/frontend//latest -worker_threads=120 -zipf_factor=0.99 -dram_gib=2 -target_gib=300 -csv_path=/home/alhomssi/dev/leanstore/docs/experiments/latest/results_overnight.csv -nocsv_truncate -ssd_path=/dev/md0 -run_for_seconds=120 -pp_threads=1 -cool_pct=10 -free_pct=1 -latest_read_ratio=25 -latest_window_gib=1 -latest_window_offset_gib=0.2 -latest_window_ms=10000 -contention_management=false -space_utilization=false -contention_update_tracker_pct=1
+# -------------------------------------------------------------------------------------
+# Going out of memory !

@@ -79,14 +79,23 @@ void BTreeNode::updateHint(unsigned slotId)
     assert(hint[i] == slot[dist * (i + 1)].sketch);
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::insert(u8* key, unsigned keyLength, ValueType value, u8* payload)
+bool BTreeNode::canInsert(u8* key, unsigned keyLength, ValueType value, u8* payload)
 {
-  assert(sanityCheck(key, keyLength));
+  bool sanity_check_result = sanityCheck(key, keyLength);
+  static_cast<void>(sanity_check_result);
+  assert(sanity_check_result);
   // -------------------------------------------------------------------------------------
   const u16 space_needed = (is_leaf) ? value.raw() + spaceNeeded(keyLength, prefix_length) : spaceNeeded(keyLength, prefix_length);
   if (!requestSpaceFor(space_needed))
     return false;  // no space, insert fails
-
+  else
+    return true;
+}
+// -------------------------------------------------------------------------------------
+bool BTreeNode::insert(u8* key, unsigned keyLength, ValueType value, u8* payload)
+{
+  if (!canInsert(key, keyLength, value, payload))
+    return false;
   s32 slotId = lowerBound<false>(key, keyLength);
   memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
   storeKeyValue(slotId, key, keyLength, value, payload);
@@ -127,6 +136,8 @@ void BTreeNode::compactify()
   assert(freeSpace() == should);
 }
 // -------------------------------------------------------------------------------------
+// right survives, this gets reclaimed
+// left(this) into right
 bool BTreeNode::merge(unsigned slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right)
 {
   if (is_leaf) {
@@ -189,6 +200,7 @@ void BTreeNode::storeKeyValue(u16 slotId, u8* key, unsigned keyLength, ValueType
     setLarge(slotId);
     getRestLenLarge(slotId) = keyLength;
     memcpy(getRestLarge(slotId), key, keyLength);
+    // store payload
     if (is_leaf) {  // AAA
       assert(payload != nullptr);
       memcpy(getPayloadLarge(slotId), payload, getPayloadLength(slotId));
@@ -196,12 +208,13 @@ void BTreeNode::storeKeyValue(u16 slotId, u8* key, unsigned keyLength, ValueType
   } else {  // normal string
     slot[slotId].rest_len = keyLength;
     memcpy(getRest(slotId), key, keyLength);
+    // store payload
     if (is_leaf) {  // AAA
       assert(payload != nullptr);
       memcpy(getPayload(slotId), payload, getPayloadLength(slotId));
     }
   }
-  // store payload
+  assert(ptr() + data_offset >= reinterpret_cast<u8*>(slot + count));
 }
 // -------------------------------------------------------------------------------------
 void BTreeNode::copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, unsigned count)
@@ -218,6 +231,7 @@ void BTreeNode::copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, unsi
       dst->data_offset -= space;
       dst->space_used += space;
       dst->slot[dstSlot + i].offset = dst->data_offset;
+      assert((dst->ptr() + dst->data_offset) >= reinterpret_cast<u8*>(dst->slot + dst->count));
       memcpy(reinterpret_cast<u8*>(dst) + dst->data_offset, ptr() + slot[srcSlot + i].offset, space);
     }
   } else {
@@ -225,7 +239,7 @@ void BTreeNode::copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, unsi
       copyKeyValue(srcSlot + i, dst, dstSlot + i);
   }
   dst->count += count;
-  assert((ptr() + dst->data_offset) >= reinterpret_cast<u8*>(slot + count));
+  assert((dst->ptr() + dst->data_offset) >= reinterpret_cast<u8*>(dst->slot + dst->count));
 }
 // -------------------------------------------------------------------------------------
 void BTreeNode::copyKeyValue(u16 srcSlot, BTreeNode* dst, u16 dstSlot)
@@ -333,10 +347,12 @@ bool BTreeNode::sanityCheck(u8* key, unsigned int keyLength)
   bool res = true;
   if (lower_fence.offset) {
     int cmp = cmpKeys(key, getLowerFenceKey(), keyLength, lower_fence.length);
+    assert(cmp > 0);
     res &= cmp > 0;
   }
   if (upper_fence.offset) {
     int cmp = cmpKeys(key, getUpperFenceKey(), keyLength, upper_fence.length);
+    assert(cmp <= 0);
     res &= cmp <= 0;
   }
   return res;
