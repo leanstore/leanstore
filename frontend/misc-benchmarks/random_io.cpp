@@ -14,6 +14,7 @@
 #include <iostream>
 // -------------------------------------------------------------------------------------
 DEFINE_bool(verify, false, "");
+DEFINE_bool(load_per_tuples, true, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -50,31 +51,53 @@ int main(int argc, char** argv)
   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&dummy_payload), sizeof(Payload));
   // -------------------------------------------------------------------------------------
   vector<thread> threads;
-  u64 largest_keys[FLAGS_worker_threads];
+  u64 max_key = 0;
   // -------------------------------------------------------------------------------------
-  for (unsigned i = 0; i < FLAGS_worker_threads; i++) {
-    threads.emplace_back(
-        [&](u64 t_i) {
-          u64 key = t_i;
-          while (db.getBufferManager().consumedPages() < target_pages) {
-            table.insert(key, dummy_payload);
-            key += FLAGS_worker_threads;
+  if (FLAGS_load_per_tuples) {
+    // Insert values
+    {
+      const u64 n = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
+      max_key = n;
+      cout << "-------------------------------------------------------------------------------------" << endl;
+      cout << "Inserting values" << endl;
+      {
+        tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
+          for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+            table.insert(t_i, dummy_payload);
           }
-          largest_keys[t_i] = key;
-        },
-        i);
+        });
+      }
+      end = chrono::high_resolution_clock::now();
+      // -------------------------------------------------------------------------------------
+    }
+
+  } else {
+    u64 largest_keys[FLAGS_worker_threads];
+    // -------------------------------------------------------------------------------------
+    for (unsigned i = 0; i < FLAGS_worker_threads; i++) {
+      threads.emplace_back(
+          [&](u64 t_i) {
+            u64 key = t_i;
+            while (db.getBufferManager().consumedPages() < target_pages) {
+              table.insert(key, dummy_payload);
+              key += FLAGS_worker_threads;
+            }
+            largest_keys[t_i] = key;
+          },
+          i);
+    }
+    for (auto& thread : threads) {
+      thread.join();
+    }
+    threads.clear();
+    max_key = *std::max_element(largest_keys, largest_keys + FLAGS_worker_threads);
+    cout << "max key = " << max_key << endl;
   }
-  for (auto& thread : threads) {
-    thread.join();
-  }
-  threads.clear();
-  u64 max_key = *std::max_element(largest_keys, largest_keys + FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
   u64 size_at_insert_point = db.getBufferManager().consumedPages();
   const u64 mib = size_at_insert_point * PAGE_SIZE / 1024 / 1024;
   cout << "Inserted volume: (pages, MiB) = (" << size_at_insert_point << ", " << mib << ")" << endl;
   cout << "-------------------------------------------------------------------------------------" << endl;
-  cout << "max key = " << max_key << endl;
   // -------------------------------------------------------------------------------------
   for (unsigned t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&]() {
@@ -86,6 +109,13 @@ int main(int argc, char** argv)
       }
     });
   }
+  threads.emplace_back([&]() {
+    while (true) {
+      const u64 mib = db.getBufferManager().consumedPages() * PAGE_SIZE / 1024 / 1024;
+      cout << "Inserted volume: ( MiB) = (" << mib << ")" << endl;
+      sleep(1);
+    }
+  });
   for (auto& thread : threads) {
     thread.join();
   }

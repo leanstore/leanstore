@@ -136,6 +136,16 @@ void BTreeNode::compactify()
   assert(freeSpace() == should);
 }
 // -------------------------------------------------------------------------------------
+bool BTreeNode::canMerge(ExclusivePageGuard<BTreeNode>& right)
+{
+  BTreeNode tmp(is_leaf);
+  tmp.setFences(getLowerFenceKey(), lower_fence.length, right->getUpperFenceKey(), right->upper_fence.length);
+  unsigned leftGrow = (prefix_length - tmp.prefix_length) * count;
+  unsigned rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
+  unsigned spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow;
+  return spaceUpperBound <= EFFECTIVE_PAGE_SIZE;
+}
+// -------------------------------------------------------------------------------------
 // right survives, this gets reclaimed
 // left(this) into right
 bool BTreeNode::merge(unsigned slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right)
@@ -148,8 +158,9 @@ bool BTreeNode::merge(unsigned slotId, ExclusivePageGuard<BTreeNode>& parent, Ex
     unsigned leftGrow = (prefix_length - tmp.prefix_length) * count;
     unsigned rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
     unsigned spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow;
-    if (spaceUpperBound > EFFECTIVE_PAGE_SIZE)
+    if (spaceUpperBound > EFFECTIVE_PAGE_SIZE) {
       return false;
+    }
     copyKeyValueRange(&tmp, 0, 0, count);
     right->copyKeyValueRange(&tmp, count, 0, right->count);
     parent->removeSlot(slotId);

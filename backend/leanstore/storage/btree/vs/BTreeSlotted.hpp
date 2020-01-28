@@ -63,7 +63,7 @@ struct BTreeNodeHeader {
 
   u16 count = 0; // count number of separators, excluding the upper swip
   bool is_leaf;
-  u16 space_used = 0;
+  u16 space_used = 0; // does not include the header
   u16 data_offset = static_cast<u16>(EFFECTIVE_PAGE_SIZE);
   u16 prefix_length = 0;
 
@@ -277,6 +277,7 @@ struct BTreeNode : public BTreeNodeHeader {
   void compactify();
   // -------------------------------------------------------------------------------------
   // merge right node into this node
+  bool canMerge(ExclusivePageGuard<BTreeNode>& right);
   bool merge(unsigned slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
   // store key/value pair at slotId
   void storeKeyValue(u16 slotId, u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);

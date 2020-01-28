@@ -1,7 +1,9 @@
 #pragma once
 #include <signal.h>
+
 #include <exception>
 #include <string>
+
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #define imply(lhs, rhs) (!(lhs) || (rhs))
@@ -35,11 +37,14 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
 // -------------------------------------------------------------------------------------
 #define UNREACHABLE() throw ex::UnReachable(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
+#ifdef DEBUG
+#define ensure(e) assert(e);
+#else
 #define ensure(e)                                                                                                                               \
-  assert(e);                                                            \
   (__builtin_expect(!(e), 0) ? throw ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + std::to_string(__LINE__) + \
                                                       " msg: " + std::string(#e))                                                               \
                              : (void)0)
+#endif
 // -------------------------------------------------------------------------------------
 #define TODO() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
