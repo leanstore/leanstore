@@ -36,5 +36,6 @@ DEFINE_bool(space_utilization, true, "");
 DEFINE_uint64(contention_update_tracker_pct, 1, "");
 DEFINE_uint64(restarts_threshold, 100, "");
 // -------------------------------------------------------------------------------------
-DEFINE_uint64(x, 5,"");
-DEFINE_uint64(y, 10,"");
+DEFINE_uint64(x, 5, "");
+DEFINE_uint64(y, 10, "");
+DEFINE_double(d, 0, "");

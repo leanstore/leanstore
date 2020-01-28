@@ -90,6 +90,10 @@ void LeanStore::debuggingThread()
   stat_entries.emplace_back("pc3", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_3_counter); });
   stat_entries.emplace_back("free_pct", [&](ostream& out) { out << (local_total_free * 100.0 / buffer_manager.dram_pool_size); });
   stat_entries.emplace_back("cool_pct", [&](ostream& out) { out << (local_total_cool * 100.0 / buffer_manager.dram_pool_size); });
+  stat_entries.emplace_back("cool_pct_should", [&](ostream& out) {
+    out << std::max<u64>(0,
+                         ((FLAGS_cool_pct * 1.0 * buffer_manager.dram_pool_size / 100.0) - local_total_free) * 100.0 / buffer_manager.dram_pool_size);
+  });
   stat_entries.emplace_back("evicted_mib", [&](ostream& out) {
     out << (sum(PPCounters::pp_counters, &PPCounters::evicted_pages) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
   });

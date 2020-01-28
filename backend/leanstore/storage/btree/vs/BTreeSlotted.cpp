@@ -2,6 +2,7 @@
 
 #include "leanstore/sync-primitives/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
+#include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -79,7 +80,7 @@ void BTreeNode::updateHint(unsigned slotId)
     assert(hint[i] == slot[dist * (i + 1)].sketch);
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::canInsert(u8* key, unsigned keyLength, ValueType value, u8* payload)
+bool BTreeNode::canInsert(u8* key, unsigned keyLength, ValueType value, u8*)
 {
   bool sanity_check_result = sanityCheck(key, keyLength);
   static_cast<void>(sanity_check_result);
@@ -136,14 +137,15 @@ void BTreeNode::compactify()
   assert(freeSpace() == should);
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::canMerge(ExclusivePageGuard<BTreeNode>& right)
+u32 BTreeNode::mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right)
 {
-  BTreeNode tmp(is_leaf);
+  assert(right->is_leaf);
+  BTreeNode tmp(true);
   tmp.setFences(getLowerFenceKey(), lower_fence.length, right->getUpperFenceKey(), right->upper_fence.length);
   unsigned leftGrow = (prefix_length - tmp.prefix_length) * count;
   unsigned rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
   unsigned spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow;
-  return spaceUpperBound <= EFFECTIVE_PAGE_SIZE;
+  return spaceUpperBound;
 }
 // -------------------------------------------------------------------------------------
 // right survives, this gets reclaimed

@@ -154,12 +154,9 @@ d=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/pp_jmu.csv')
 sqldf("select t,tx, free_pct from d")
 
 #Space Utilization
-df=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/latest/results_touches.csv')
-d=sqldf("select * from df ")
-tx <- ggplot(d, aes(t, tx, color=c_contention_management, group=c_contention_management)) + geom_line()
-tx <- tx + facet_grid (row=vars(c_zipf_factor, latest_window_ms), cols=vars(c_contention_update_tracker_pct, c_dram_gib))
-print(tx)
-sqldf("select  max(touches) from df")
+df=read.csv('/home/adnan/rome/dev/leanstore/release/frontend/fill.csv')
+sqldf("select t, sum(dt_researchy_2), sum(dt_researchy_1), 1.0 * sum(dt_researchy_2) / sum(dt_researchy_1) from df limit 10")
+
 
 aux =sqldf("select t, max(GHz) GHz, min(instr) instr,
  max(space_usage_gib) space_usage_gib,

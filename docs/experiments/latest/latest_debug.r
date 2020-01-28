@@ -6,10 +6,10 @@ library(scales)
 # Rome
 
 dev.set(0)
-df=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/latest/results.csv')
-d=sqldf("select * from df ")
+df=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/latest/overnight.csv')
+d=sqldf("select * from df where latest_read_ratio=0 and c_zipf_factor=0.80 and latest_window_ms=1000 and latest_window_offset_gib=0.1")
 tx <- ggplot(d, aes(t, tx, color=c_contention_management, group=c_contention_management)) + geom_line()
-tx <- tx + facet_grid (row=vars(c_zipf_factor, latest_read_ratio, c_target_gib), cols=vars(latest_window_gib,latest_window_offset_gib,latest_window_ms, c_space_utilization, c_dram_gib))
+tx <- tx + facet_grid (row=vars(c_zipf_factor, latest_read_ratio, c_dram_gib), cols=vars(latest_window_gib,latest_window_offset_gib,latest_window_ms,  c_target_gib))
 print(tx)
 sqldf("select  max(touches) from df")
 
@@ -23,7 +23,7 @@ c_contention_management,c_space_utilization,
 latest_window_ms,  c_backoff_strategy, c_dram_gib, c_zipf_factor, c_worker_threads,c_contention_update_tracker_pct from d  group by t, c_dram_gib, c_zipf_factor, latest_window_ms,c_worker_threads, c_backoff_strategy,c_contention_update_tracker_pct, c_contention_management, c_space_utilization")
 plot <- ggplot(aux, aes(t)) + geom_line(aes(y=splits), color="red") + geom_line(aes(y=merge_succ), colour="blue")  + geom_line(aes(y=merge_fail), colour="green")
 #plot <- ggplot(aux, aes(t)) + geom_line(aes(y=space_usage_gib), color="red")
-plot <- plot + facet_grid (row=vars(latest_window_ms, c_contention_management), cols=vars(c_contention_update_tracker_pct,c_dram_gib))
+plot <- plot + facet_grid (row=vars(latest_window_ms, c_contention_management), cols=vars(c_contention_update_tracker_pct,c_dram_gib, c_space_utilization))
 print(plot)
 
                                         #+ geom_line(aes(y=merge_fail), color="green", linetype="dotted")

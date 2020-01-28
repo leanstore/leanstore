@@ -277,7 +277,7 @@ struct BTreeNode : public BTreeNodeHeader {
   void compactify();
   // -------------------------------------------------------------------------------------
   // merge right node into this node
-  bool canMerge(ExclusivePageGuard<BTreeNode>& right);
+  u32 mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right);
   bool merge(unsigned slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
   // store key/value pair at slotId
   void storeKeyValue(u16 slotId, u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);

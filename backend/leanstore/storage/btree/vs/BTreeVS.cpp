@@ -415,15 +415,12 @@ bool BTree::tryMerge(BufferFrame& to_merge)
 // -------------------------------------------------------------------------------------
 bool BTree::kWayMerge(BufferFrame& to_merge)
 {
-  if (utils::RandomGenerator::getRandU64(0, 100) < FLAGS_y) {
-    return false;
-  }
   auto parent_handler = findParent(this, to_merge);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
   assert(parent_handler.swip.bf == &to_merge);
   bool can_we_merge = true;
-  can_we_merge &= p_guard.hasBf() && c_guard->is_leaf && (c_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::K_WAY_MERGE_THRESHOLD);
+  can_we_merge &= p_guard.hasBf() && c_guard->is_leaf && (c_guard->freeSpaceAfterCompaction() >= EFFECTIVE_PAGE_SIZE * FLAGS_d);
   // -------------------------------------------------------------------------------------
   if (!can_we_merge)
     return false;
@@ -435,38 +432,24 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
   pos = p_guard->lowerBound<false>(key, key_length);
   p_guard.recheck();
   assert(pos != -1);
-  can_we_merge &= (pos > 0) && (pos + 2) < p_guard->count;
+  can_we_merge &= (pos > 0) && (pos + 1) < p_guard->count;
   // -------------------------------------------------------------------------------------
+  if (!can_we_merge)
+    return false;
+  // -------------------------------------------------------------------------------------
+  can_we_merge &= p_guard->getValue(pos - 1).isSwizzled();
   if (!can_we_merge)
     return false;
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard<BTreeNode> l_guard = OptimisticPageGuard(p_guard, p_guard->getValue(pos - 1));
-  OptimisticPageGuard<BTreeNode> r_guard = OptimisticPageGuard(p_guard, p_guard->getValue(pos + 1));
-  OptimisticPageGuard<BTreeNode> rr_guard = OptimisticPageGuard(p_guard, p_guard->getValue(pos + 1 + 1));
-  can_we_merge &= (l_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::K_WAY_MERGE_THRESHOLD);
-  can_we_merge &= (r_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::K_WAY_MERGE_THRESHOLD);
-  can_we_merge &= (rr_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::K_WAY_MERGE_THRESHOLD);
   // -------------------------------------------------------------------------------------
   if (!can_we_merge)
     return false;
   // -------------------------------------------------------------------------------------
-  auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
-  auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-  auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
-  auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
-  auto rr_x_guard = ExclusivePageGuard(std::move(rr_guard));
-  // -------------------------------------------------------------------------------------
-  BTreeNode tmp(true);
   auto merge_left_into_right = [&](ExclusivePageGuard<BTreeNode>& parent, s32 left_pos, ExclusivePageGuard<BTreeNode>& from_left,
                                    ExclusivePageGuard<BTreeNode>& to_right) {
     // -------------------------------------------------------------------------------------
-    tmp.setFences(from_left->getLowerFenceKey(), from_left->lower_fence.length, to_right->getUpperFenceKey(), to_right->upper_fence.length);
-    unsigned left_grow = (from_left->prefix_length - tmp.prefix_length) * from_left->count;
-    unsigned right_grow = (to_right->prefix_length - tmp.prefix_length) * to_right->count;
-    unsigned space_upper_bound = from_left->space_used + to_right->space_used +
-                                 (reinterpret_cast<u8*>(from_left->slot + from_left->count + to_right->count) - from_left->ptr()) + left_grow +
-                                 right_grow;
-    // -------------------------------------------------------------------------------------
+    u32 space_upper_bound = from_left->mergeSpaceUpperBound(to_right);
     if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge
       bool succ = from_left->merge(left_pos, parent, to_right);
       ensure(succ);
@@ -487,7 +470,7 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
         break;
       }
     }
-    if (till_slot_id >= from_left->count)
+    if (till_slot_id >= from_left->count || till_slot_id < 0)
       return false;
     // -------------------------------------------------------------------------------------
     assert(from_left->count > till_slot_id);
@@ -499,22 +482,23 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
     from_left->copyFullKey(till_slot_id - 1, key, key_length);
     // -------------------------------------------------------------------------------------
     {
-      tmp.setFences(key, key_length, to_right->getUpperFenceKey(), to_right->upper_fence.length);
+      auto tmp = make_unique<BTreeNode>(true);
+      tmp->setFences(key, key_length, to_right->getUpperFenceKey(), to_right->upper_fence.length);
       // -------------------------------------------------------------------------------------
-      from_left->copyKeyValueRange(&tmp, 0, till_slot_id, copy_from_count);
-      to_right->copyKeyValueRange(&tmp, copy_from_count, 0, to_right->count);
-      tmp.makeHint();
-      memcpy(reinterpret_cast<u8*>(to_right.ptr()), &tmp, sizeof(BTreeNode));
+      from_left->copyKeyValueRange(tmp.get(), 0, till_slot_id, copy_from_count);
+      to_right->copyKeyValueRange(tmp.get(), copy_from_count, 0, to_right->count);
+      tmp->makeHint();
+      memcpy(reinterpret_cast<u8*>(to_right.ptr()), tmp.get(), sizeof(BTreeNode));
       // -------------------------------------------------------------------------------------
       // Nothing to do for the right node's separator
     }
     {
-      BTreeNode tmp(true);
-      tmp.setFences(from_left->getLowerFenceKey(), from_left->lower_fence.length, key, key_length);
+      auto tmp = make_unique<BTreeNode>(true);
+      tmp->setFences(from_left->getLowerFenceKey(), from_left->lower_fence.length, key, key_length);
       // -------------------------------------------------------------------------------------
-      from_left->copyKeyValueRange(&tmp, 0, 0, from_left->count - copy_from_count);
-      tmp.makeHint();
-      memcpy(reinterpret_cast<u8*>(from_left.ptr()), &tmp, sizeof(BTreeNode));
+      from_left->copyKeyValueRange(tmp.get(), 0, 0, from_left->count - copy_from_count);
+      tmp->makeHint();
+      memcpy(reinterpret_cast<u8*>(from_left.ptr()), tmp.get(), sizeof(BTreeNode));
       // -------------------------------------------------------------------------------------
       parent->removeSlot(left_pos);
       parent->insert(key, key_length, from_left.swip());
@@ -523,11 +507,12 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
     return true;
   };
   // -------------------------------------------------------------------------------------
-  if(utils::RandomGenerator::getRandU64(0, 100) < 1)
-    return merge_left_into_right(p_x_guard, pos - 1, l_x_guard, c_x_guard);
-  else
-    return false;
-}
+  auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
+  auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
+  auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+  // -------------------------------------------------------------------------------------
+  return merge_left_into_right(p_x_guard, pos - 1, l_x_guard, c_x_guard);
+}  // namespace vs
 // -------------------------------------------------------------------------------------
 BTree::~BTree() {}
 // -------------------------------------------------------------------------------------
@@ -547,7 +532,8 @@ void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
   auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
   if (bf.page.dt_id == btree.dtid) {
-    if (c_node.is_leaf && c_node.freeSpaceAfterCompaction() >= BTreeNodeHeader::K_WAY_MERGE_THRESHOLD) {
+    if (c_node.is_leaf && c_node.freeSpaceAfterCompaction() >= EFFECTIVE_PAGE_SIZE * FLAGS_d &&
+        utils::RandomGenerator::getRandU64(0, 100) < FLAGS_y) {
       btree.kWayMerge(bf);
     } else {
     }
