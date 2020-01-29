@@ -8,13 +8,13 @@ EXEC_NAME="contention"
 function benchmark() {
     CSV_PATH="$(pwd)/results.csv"
 
-    rm -f $CSV_PATH
+    #rm -f $CSV_PATH
     (cd $EXEC_DIR; make -j $EXEC_NAME)
 
     for FLAGS_worker_threads in 120; do # 30 60 90 120
     for FLAGS_cm_update_tracker_pct in 1; do # 1 10
-    for FLAGS_cm_threads_pro_page in 2 3 4; do
-    for FLAGS_cm_split in true false; do
+    for FLAGS_cm_threads_pro_page in 1; do
+    for FLAGS_cm_split in false true; do
         (
         $EXEC_DIR/$EXEC_NAME \
             -worker_threads=$FLAGS_worker_threads \

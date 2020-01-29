@@ -6,7 +6,7 @@ library(scales)
 # Rome
 
 dev.set(0)
-df=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/contention/results.csv')
+df=read.csv('/home/adnan/rome/dev/leanstore/docs/experiments/contention/results_pos_auto.csv')
 d=sqldf("select * from df")
 tx <- ggplot(d, aes(t, tx, color=c_cm_split, group=c_cm_split)) + geom_line()
 tx <- tx + facet_grid (row=vars(cm_threads_pro_page), cols=vars())
@@ -19,8 +19,9 @@ aux =sqldf("select t, max(GHz) GHz, min(instr) instr,
  sum(dt_researchy_1) merge_succ,
  sum(dt_researchy_2) merge_fail,
 c_cm_split,c_su_merge,cm_threads_pro_page,
-  c_backoff_strategy, c_dram_gib, c_zipf_factor, c_worker_threads,c_cm_update_tracker_pct from d  group by t, c_dram_gib, c_zipf_factor, c_worker_threads, c_backoff_strategy,c_cm_update_tracker_pct, c_cm_split, c_su_merge")
+  c_dram_gib,c_worker_threads,c_cm_update_tracker_pct from d  group by t, c_dram_gib, c_worker_threads, c_cm_update_tracker_pct, c_cm_split, c_su_merge, cm_threads_pro_page")
 plot <- ggplot(aux, aes(t)) + geom_line(aes(y=splits), color="red") + geom_line(aes(y=merge_succ), colour="blue")  + geom_line(aes(y=merge_fail), colour="green") #+ geom_line(aes(y=space_usage_gib * 1024), color="purple")
 #plot <- ggplot(aux, aes(t))
-plot <- plot + facet_grid (row=vars(), cols=vars(cm_threads_pro_page))
+plot <- plot + facet_grid (row=vars(cm_threads_pro_page), cols=vars())
 print(plot)
+sqldf("select cm_threads_pro_page, sum(dt_researchy_0) from d group by cm_threads_pro_page")
