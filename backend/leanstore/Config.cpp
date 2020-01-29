@@ -31,9 +31,11 @@ DEFINE_double(zipf_factor, 0.0, "");
 DEFINE_double(target_gib, 0.0, "size of dataset in gib (exact interpretation depends on the driver)");
 DEFINE_uint64(run_for_seconds, 10, "Keep the experiment running for x seconds");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(contention_management, true, "");
-DEFINE_bool(space_utilization, true, "");
-DEFINE_uint64(contention_update_tracker_pct, 1, "");
+DEFINE_bool(cm_split, true, "");
+DEFINE_bool(cm_merge, true, "");
+DEFINE_uint64(cm_update_tracker_pct, 1, "");
+// -------------------------------------------------------------------------------------
+DEFINE_bool(su_merge, false, "");
 DEFINE_uint64(restarts_threshold, 100, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(x, 5, "");

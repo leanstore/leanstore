@@ -39,7 +39,7 @@ struct BTree {
   void scan(u8* start_key, u16 key_length, function<bool(u8* payload, u16 payload_length, function<string()>&)>, function<void()>);
   // -------------------------------------------------------------------------------------
   void insert(u8* key, u16 key_length, u64 payloadLength, u8* payload);
-  void trySplit(BufferFrame& to_split);
+  void trySplit(BufferFrame& to_split, s32 pos = -1);
   // -------------------------------------------------------------------------------------
   void updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)>);
   void update(u8* key, u16 key_length, u64 payloadLength, u8* payload);

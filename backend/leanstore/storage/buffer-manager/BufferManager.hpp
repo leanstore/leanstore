@@ -65,7 +65,6 @@ class BufferManager
   // Misc
   Partition& randomPartition();
   BufferFrame& randomBufferFrame();
-  BufferFrame& randomBufferFrame(u64 partition_id);
   Partition& getPartition(PID);
   u64 getPartitionID(PID);
  public:

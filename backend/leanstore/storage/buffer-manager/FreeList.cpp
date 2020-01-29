@@ -1,5 +1,7 @@
 #include "FreeList.hpp"
+
 #include "Exceptions.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -21,7 +23,7 @@ void FreeList::push(BufferFrame& bf)
 struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<std::mutex>>& lock)
 {
   BufferFrame* c_header = head;
-  BufferFrame *free_bf = nullptr;
+  BufferFrame* free_bf = nullptr;
   if (c_header != nullptr) {
     BufferFrame* next = c_header->header.next_free_bf;
     if (head.compare_exchange_strong(c_header, next)) {
@@ -38,13 +40,13 @@ struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<std::mutex>>& lock)
     lock->unlock();
     jumpmu::jump();
   }
-  return *free_bf; // unreachable
+  return *free_bf;  // unreachable
 }
 // -------------------------------------------------------------------------------------
 struct BufferFrame& FreeList::pop()
 {
   BufferFrame* c_header = head;
-  BufferFrame *free_bf = nullptr;
+  BufferFrame* free_bf = nullptr;
   while (c_header != nullptr) {
     BufferFrame* next = c_header->header.next_free_bf;
     if (head.compare_exchange_strong(c_header, next)) {
@@ -55,15 +57,18 @@ struct BufferFrame& FreeList::pop()
       assert(free_bf->header.state == BufferFrame::State::FREE);
       return *free_bf;
     } else {
+      //WorkerCounters::myCounters().dt_researchy_1[0]++;
       if (c_header == nullptr) {
+        //WorkerCounters::myCounters().dt_researchy_2[0]++;
         jumpmu::jump();
       } else {
         c_header = head.load();
       }
     }
   }
+  //WorkerCounters::myCounters().dt_researchy_2[0]++;
   jumpmu::jump();
-  return *free_bf; // unreachable
+  return *free_bf;  // unreachable
 }
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager

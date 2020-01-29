@@ -7,7 +7,7 @@ EXEC_DIR=../../../release/frontend/
 function benchmark() {
     CSV_PATH="$(pwd)/../csv/ycsb.csv"
     # config and run
-    for FLAGS_contention_management in false true; do
+    for FLAGS_cm_split in false true; do
     for FLAGS_worker_threads in 60; do
     for FLAGS_target_gib in 100; do
     for FLAGS_dram_gib in 200; do
@@ -22,7 +22,7 @@ function benchmark() {
         -run_for_seconds=$FLAGS_run_for_seconds \
         -cool_pct=20 \
         -free_pct=1 \
-        -contention_management=$FLAGS_contention_management
+        -cm_split=$FLAGS_cm_split
     )
 
     done

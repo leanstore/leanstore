@@ -11,7 +11,7 @@ function benchmark() {
    (cd $EXEC_DIR; make -j ycsb)
 
     # config and run
-    for FLAGS_contention_management in false true; do
+    for FLAGS_cm_split in false true; do
     for FLAGS_worker_threads in 120; do
     for FLAGS_ycsb_read_ratio in 0 25 50; do
     for FLAGS_target_gib in 100; do
@@ -30,7 +30,7 @@ function benchmark() {
             -run_for_seconds=$FLAGS_run_for_seconds \
             -cool_pct=1 \
             -free_pct=1 \
-            -contention_management=$FLAGS_contention_management
+            -cm_split=$FLAGS_cm_split
     )
 
     done

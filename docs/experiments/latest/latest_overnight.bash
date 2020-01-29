@@ -17,8 +17,8 @@ function benchmark() {
     for FLAGS_latest_window_gib in 1 10; do
     for FLAGS_latest_window_offset_gib in 0.1 0.2 0.5; do
     for FLAGS_latest_window_ms in 1000 2000 5000 10000; do
-    for FLAGS_contention_update_tracker_pct in 1; do
-    for FLAGS_contention_management in true false; do
+    for FLAGS_cm_update_tracker_pct in 1; do
+    for FLAGS_cm_split in true false; do
         (
         $EXEC_DIR/latest \
             -worker_threads=$FLAGS_worker_threads \
@@ -36,9 +36,9 @@ function benchmark() {
         -latest_window_gib=$FLAGS_latest_window_gib \
         -latest_window_offset_gib=$FLAGS_latest_window_offset_gib \
         -latest_window_ms=$FLAGS_latest_window_ms \
-        -contention_management=$FLAGS_contention_management \
-        -space_utilization=$FLAGS_contention_management \
-        -contention_update_tracker_pct=$FLAGS_contention_update_tracker_pct \
+        -cm_split=$FLAGS_cm_split \
+        -su_merge=$FLAGS_cm_split \
+        -cm_update_tracker_pct=$FLAGS_cm_update_tracker_pct \
     )
 
     done
@@ -57,7 +57,7 @@ benchmark
 
 exit 0
 
-# + for FLAGS_contention_management in true false
-# + ../../../release/frontend//latest -worker_threads=120 -zipf_factor=0.99 -dram_gib=2 -target_gib=300 -csv_path=/home/alhomssi/dev/leanstore/docs/experiments/latest/results_overnight.csv -nocsv_truncate -ssd_path=/dev/md0 -run_for_seconds=120 -pp_threads=1 -cool_pct=10 -free_pct=1 -latest_read_ratio=25 -latest_window_gib=1 -latest_window_offset_gib=0.2 -latest_window_ms=10000 -contention_management=false -space_utilization=false -contention_update_tracker_pct=1
+# + for FLAGS_cm_split in true false
+# + ../../../release/frontend//latest -worker_threads=120 -zipf_factor=0.99 -dram_gib=2 -target_gib=300 -csv_path=/home/alhomssi/dev/leanstore/docs/experiments/latest/results_overnight.csv -nocsv_truncate -ssd_path=/dev/md0 -run_for_seconds=120 -pp_threads=1 -cool_pct=10 -free_pct=1 -latest_read_ratio=25 -latest_window_gib=1 -latest_window_offset_gib=0.2 -latest_window_ms=10000 -cm_split=false -su_merge=false -cm_update_tracker_pct=1
 # -------------------------------------------------------------------------------------
 # Going out of memory !

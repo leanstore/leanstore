@@ -20,8 +20,11 @@ DECLARE_bool(root);
 DECLARE_bool(print_debug);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
-DECLARE_bool(contention_management);
-DECLARE_bool(space_utilization);
+DECLARE_bool(cm_split);
+DECLARE_bool(cm_merge);
+DECLARE_uint64(cm_update_tracker_pct);
+// -------------------------------------------------------------------------------------
+DECLARE_bool(su_merge);
 // -------------------------------------------------------------------------------------
 DECLARE_string(zipf_path);
 DECLARE_double(zipf_factor);
@@ -29,7 +32,6 @@ DECLARE_double(target_gib);
 DECLARE_uint64(run_for_seconds);
 // -------------------------------------------------------------------------------------
 DECLARE_uint64(backoff_strategy);
-DECLARE_uint64(contention_update_tracker_pct);
 DECLARE_uint64(restarts_threshold);
 // -------------------------------------------------------------------------------------
 DECLARE_uint64(x);

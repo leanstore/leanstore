@@ -164,10 +164,10 @@ aux =sqldf("select t, max(GHz) GHz, min(instr) instr,
  sum(dt_researchy_0) splits,
  sum(dt_researchy_1) merge_succ,
  sum(dt_researchy_2) merge_fail,
-c_contention_management,
-latest_window_ms,  c_backoff_strategy, c_dram_gib, c_zipf_factor, c_worker_threads,c_contention_update_tracker_pct from d  group by t, c_dram_gib, c_zipf_factor, latest_window_ms,c_worker_threads, c_backoff_strategy,c_contention_update_tracker_pct, c_contention_management")
+c_cm_split,
+latest_window_ms,  c_backoff_strategy, c_dram_gib, c_zipf_factor, c_worker_threads,c_cm_update_tracker_pct from d  group by t, c_dram_gib, c_zipf_factor, latest_window_ms,c_worker_threads, c_backoff_strategy,c_cm_update_tracker_pct, c_cm_split")
 head(aux)
 plot <- ggplot(aux, aes(t)) + geom_line(aes(y=splits), color="red") + geom_line(aes(y=merge_succ), colour="blue")  + geom_line(aes(y=merge_fail), colour="green")
 #plot < -ggplot(aux, aes(t)) + geom_line(aes(y = space_usage_gib), color = "red")
-plot <- plot + facet_grid (row=vars(latest_window_ms, c_contention_management), cols=vars(c_contention_update_tracker_pct,c_dram_gib))
+plot <- plot + facet_grid (row=vars(latest_window_ms, c_cm_split), cols=vars(c_cm_update_tracker_pct,c_dram_gib))
 print(plot)

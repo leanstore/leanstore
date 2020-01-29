@@ -386,7 +386,7 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent,
                       unsigned sepLength)
 {
   // PRE: current, parent and nodeLeft are x locked
-  assert(sepSlot > 0);
+  //assert(sepSlot > 0); TODO: really ?
   assert(sepSlot < (EFFECTIVE_PAGE_SIZE / sizeof(ValueType)));
   // -------------------------------------------------------------------------------------
   nodeLeft->setFences(getLowerFenceKey(), lower_fence.length, sepKey, sepLength);

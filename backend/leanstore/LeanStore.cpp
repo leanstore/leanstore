@@ -125,10 +125,11 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
   config_entries.emplace_back("c_run_for_seconds", [&](ostream& out) { out << FLAGS_run_for_seconds; });
   config_entries.emplace_back("c_fs", [&](ostream& out) { out << FLAGS_fs; });
-  config_entries.emplace_back("c_contention_management", [&](ostream& out) { out << FLAGS_contention_management; });
-  config_entries.emplace_back("c_space_utilization", [&](ostream& out) { out << FLAGS_space_utilization; });
+  config_entries.emplace_back("c_cm_split", [&](ostream& out) { out << FLAGS_cm_split; });
+  config_entries.emplace_back("c_cm_merge", [&](ostream& out) { out << FLAGS_cm_merge; });
+  config_entries.emplace_back("c_su_merge", [&](ostream& out) { out << FLAGS_su_merge; });
   config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });
-  config_entries.emplace_back("c_contention_update_tracker_pct", [&](ostream& out) { out << FLAGS_contention_update_tracker_pct; });
+  config_entries.emplace_back("c_cm_update_tracker_pct", [&](ostream& out) { out << FLAGS_cm_update_tracker_pct; });
   config_entries.emplace_back("c_restarts_threshold", [&](ostream& out) { out << FLAGS_restarts_threshold; });
   // -------------------------------------------------------------------------------------
   dt_entries.emplace_back("dt_id", [&](ostream& out) { out << dt_id; });

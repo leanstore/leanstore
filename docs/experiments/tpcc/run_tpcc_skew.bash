@@ -7,7 +7,7 @@ EXEC_DIR=../../../release/frontend/
 function benchmark() {
     CSV_PATH="$(pwd)/../csv/tpcc/tpcc_skew.csv"
     # config and run
-    for FLAGS_contention_management in false true; do
+    for FLAGS_cm_split in false true; do
     for FLAGS_worker_threads in 100; do
     for FLAGS_dram_gib in 200; do
     for FLAGS_zipf_factor in 0.75 0.80 0.85 0.90 0.95 0.99; do
@@ -23,7 +23,7 @@ function benchmark() {
         -cool_pct=20 \
         -free_pct=1 \
         -notpcc_warehouse_affinity \
-        -contention_management=$FLAGS_contention_management
+        -cm_split=$FLAGS_cm_split
     )
 
     done

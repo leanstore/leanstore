@@ -148,7 +148,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
   }
 }
 // -------------------------------------------------------------------------------------
-void BTree::trySplit(BufferFrame& to_split)
+void BTree::trySplit(BufferFrame& to_split, s32 favored_split_pos)
 {
   auto parent_handler = findParent(this, to_split);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
@@ -156,7 +156,13 @@ void BTree::trySplit(BufferFrame& to_split)
   if (c_guard->count <= 2)
     return;
   // -------------------------------------------------------------------------------------
-  BTreeNode::SeparatorInfo sep_info = c_guard->findSep();
+  BTreeNode::SeparatorInfo sep_info;
+  if (favored_split_pos < 0 || favored_split_pos >= c_guard->count - 1) {
+    sep_info = c_guard->findSep();
+  } else {
+    // Split on a specified position
+    sep_info = BTreeNode::SeparatorInfo{c_guard->getFullKeyLength(favored_split_pos), static_cast<u32>(favored_split_pos), false};
+  }
   u8 sep_key[sep_info.length];
   if (!p_guard.hasBf()) {
     auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
@@ -218,8 +224,8 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
       // -------------------------------------------------------------------------------------
-      if (FLAGS_contention_management && local_restarts_counter > 0) {
-        if (utils::RandomGenerator::getRandU64(0, 100) < (FLAGS_contention_update_tracker_pct)) {
+      if (FLAGS_cm_split && local_restarts_counter > 0) {
+        if (utils::RandomGenerator::getRandU64(0, 100) < (FLAGS_cm_update_tracker_pct)) {
           s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
           c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
           // -------------------------------------------------------------------------------------
@@ -228,18 +234,17 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
           const u64 current_restarts_counter = c_x_guard.bf->header.contention_tracker.restarts_counter;
           const u64 current_access_counter = c_x_guard.bf->header.contention_tracker.access_counter;
           const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
-          if (utils::RandomGenerator::getRandU64(0, 100) < (FLAGS_contention_update_tracker_pct)) {
+          if (utils::RandomGenerator::getRandU64(0, 100) < (FLAGS_cm_update_tracker_pct)) {
             c_x_guard.bf->header.contention_tracker.restarts_counter = 0;
             c_x_guard.bf->header.contention_tracker.access_counter = 0;
             // -------------------------------------------------------------------------------------
             if (last_modified_pos != pos && normalized_restarts >= FLAGS_restarts_threshold && c_x_guard->count > 2) {
+              s32 split_pos = std::min<s32>(last_modified_pos, pos);
               c_guard = std::move(c_x_guard);
               c_guard.kill();
               jumpmuTry()
               {
-                // cout << c_x_guard->count << '\t' << c_x_guard.bf->header.contention_tracker.restarts_counter << endl;
-                // cout << *reinterpret_cast<u64*>(key) << " splitting" << endl;
-                trySplit(*c_guard.bf);
+                trySplit(*c_guard.bf, split_pos);
                 WorkerCounters::myCounters().dt_researchy_0[dtid]++;
               }
               jumpmuCatch() {}
@@ -526,34 +531,35 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // Called by buffer manager before eviction
 void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
-  if (!FLAGS_space_utilization) {
-    return;
-  }
   auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
-  if (bf.page.dt_id == btree.dtid) {
-    if (c_node.is_leaf && c_node.freeSpaceAfterCompaction() >= EFFECTIVE_PAGE_SIZE * FLAGS_d &&
-        utils::RandomGenerator::getRandU64(0, 100) < FLAGS_y) {
-      btree.kWayMerge(bf);
-    } else {
-    }
-  }
-  return;
-  // -------------------------------------------------------------------------------------
-  if (bf.page.dt_id == btree.dtid && c_node.freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-    jumpmuTry()
-    {
-      if (btree.tryMerge(bf)) {
-        WorkerCounters::myCounters().dt_researchy_1[btree.dtid]++;
-      } else {
-        // do nothing
-        jumpmu_return;
+  if (FLAGS_cm_merge) {
+    if (bf.page.dt_id == btree.dtid && c_node.freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+      jumpmuTry()
+      {
+        if (btree.tryMerge(bf)) {
+          WorkerCounters::myCounters().dt_researchy_1[btree.dtid]++;
+        } else {
+          // do nothing
+          jumpmu_return;
+        }
+      }
+      jumpmuCatch()
+      {
+        WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
+        jumpmu::jump();
       }
     }
-    jumpmuCatch()
-    {
-      WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
-      jumpmu::jump();
+    return;
+    // -------------------------------------------------------------------------------------
+  }
+  if (FLAGS_su_merge) {
+    if (bf.page.dt_id == btree.dtid) {
+      if (c_node.is_leaf && c_node.freeSpaceAfterCompaction() >= EFFECTIVE_PAGE_SIZE * FLAGS_d &&
+          utils::RandomGenerator::getRandU64(0, 100) < FLAGS_y) {
+        btree.kWayMerge(bf);
+      } else {
+      }
     }
   }
 }

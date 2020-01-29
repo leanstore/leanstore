@@ -17,7 +17,7 @@ function benchmark() {
     for FLAGS_latest_window_offset_gib in 0.1; do
     for FLAGS_latest_window_ms in 10000; do
     for FLAGS_dram_gib in 200 201; do
-    for FLAGS_contention_management in false true; do
+    for FLAGS_cm_split in false true; do
     for FLAGS_backoff_strategy in 0; do
         (
         $EXEC_DIR/latest \
@@ -35,7 +35,7 @@ function benchmark() {
             -latest_window_gib=$FLAGS_latest_window_gib \
             -latest_window_offset_gib=$FLAGS_latest_window_offset_gib \
             -latest_window_ms=$FLAGS_latest_window_ms \
-            -contention_management=$FLAGS_contention_management \
+            -cm_split=$FLAGS_cm_split \
             -backoff_strategy=$FLAGS_backoff_strategy
     )
 

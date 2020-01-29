@@ -12,7 +12,7 @@ function benchmark() {
     for FLAGS_worker_threads in 30 60 90 120; do
     for FLAGS_dram_gib in 200; do
     for FLAGS_tpcc_warehouse_count in 60 100 120; do #  60 100 120
-    for FLAGS_contention_management in false true; do
+    for FLAGS_cm_split in false true; do
     for FLAGS_zipf_factor in 0 0.5 0.8 0.99; do
         (
         $EXEC_DIR/tpcc \
@@ -28,8 +28,8 @@ function benchmark() {
             -partition_bits=6 \
             -free_pct=1 \
             -tpcc_warehouse_count=$FLAGS_tpcc_warehouse_count \
-            -contention_management=$FLAGS_contention_management \
-            -space_utilization=true \
+            -cm_split=$FLAGS_cm_split \
+            -su_merge=true \
             -zipf_factor=$FLAGS_zipf_factor
     )
 

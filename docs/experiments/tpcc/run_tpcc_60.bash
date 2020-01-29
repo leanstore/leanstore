@@ -12,7 +12,7 @@ function benchmark() {
     for FLAGS_worker_threads in 60; do
     for FLAGS_dram_gib in 200; do
     for FLAGS_tpcc_warehouse_count in 60 100 120; do #  60 100 120
-    for FLAGS_contention_management in false true; do
+    for FLAGS_cm_split in false true; do
         (
         $EXEC_DIR/tpcc \
             -worker_threads=$FLAGS_worker_threads \
@@ -26,7 +26,7 @@ function benchmark() {
             -pp_threads=1 \
             -free_pct=1 \
             -tpcc_warehouse_count=$FLAGS_tpcc_warehouse_count \
-            -contention_management=$FLAGS_contention_management
+            -cm_split=$FLAGS_cm_split
     )
 
     done
