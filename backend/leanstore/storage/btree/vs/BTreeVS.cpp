@@ -491,13 +491,11 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
     // Remove a key at a time from the merge and check if now it fits
     s32 till_slot_id = -1;
     for (s32 s_i = 0; s_i < from_left->count; s_i++) {
-      //
-      if (0 && from_left->slot[s_i].rest_len) {
+      if (from_left->slot[s_i].rest_len) {
         space_upper_bound -=
             sizeof(ValueType) + (from_left->isLarge(s_i) ? (from_left->getRestLenLarge(s_i) + sizeof(u16)) : from_left->getRestLen(s_i));
       }
       space_upper_bound -= from_left->getPayloadLength(s_i);
-      ensure(from_left->getPayloadLength(s_i) <= 128);
       if (space_upper_bound < EFFECTIVE_PAGE_SIZE * 1.0) {
         till_slot_id = s_i + 1;
         break;
