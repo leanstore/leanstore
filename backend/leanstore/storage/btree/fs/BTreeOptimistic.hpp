@@ -353,7 +353,7 @@ struct BTree {
       last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
       if (&last_accessed_swip->asBufferFrame() == &bf) {
         p_guard.recheck_done();
-        return {.swip = *last_accessed_swip, .guard = p_guard.bf_s_lock};
+        return {.swip = *last_accessed_swip, .parent_guard = p_guard.bf_s_lock};
       }
       OptimisticPageGuard c_guard(p_guard, root_inner_swip);
       while (c_guard->type == NodeType::BTreeInner) {
@@ -363,7 +363,7 @@ struct BTree {
         if (&last_accessed_swip->asBufferFrame() == &bf) {
           p_guard.recheck_done();
           c_guard.recheck_done();
-          return {.swip = *last_accessed_swip, .guard = c_guard.bf_s_lock, .parent = c_guard.bf};
+          return {.swip = *last_accessed_swip, .parent_guard = c_guard.bf_s_lock, .parent = c_guard.bf, .pos = pos};
         }
         // -------------------------------------------------------------------------------------
         p_guard = std::move(c_guard);

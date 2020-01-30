@@ -577,6 +577,8 @@ void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
   }
 }
 // -------------------------------------------------------------------------------------
+// Should not have to swizzle any page
+// Throws if the bf could not be found
 struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_find)
 {
   // Pre: bf is write locked TODO: but trySplit does not ex lock !
@@ -598,7 +600,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   // check if bf is the root node
   if (c_swip->bf == &to_find) {
     p_guard.kill();
-    return {.swip = c_swip->cast<BufferFrame>(), .guard = p_guard.bf_s_lock, .parent = nullptr};
+    return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = p_guard.bf_s_lock, .parent = nullptr};
   }
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
@@ -628,7 +630,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   if (!found) {
     jumpmu::jump();
   }
-  return {.swip = c_swip->cast<BufferFrame>(), .guard = c_guard.bf_s_lock, .parent = c_guard.bf, .pos = pos};
+  return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = c_guard.bf_s_lock, .parent = c_guard.bf, .pos = pos};
 }
 // -------------------------------------------------------------------------------------
 void BTree::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)

@@ -182,7 +182,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
           auto find_parent_end = chrono::high_resolution_clock::now();
           PPCounters::myCounters().find_parent_ms += (chrono::duration_cast<chrono::microseconds>(find_parent_end - find_parent_begin).count());
-          ExclusiveGuard p_x_guard(parent_handler.guard);
+          ExclusiveGuard p_x_guard(parent_handler.parent_guard);
           ExclusiveGuard r_x_guad(r_guard);
           Partition& partition = getPartition(pid);
           JMUW<std::lock_guard<std::mutex>> g_guard(partition.cio_mutex);

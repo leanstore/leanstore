@@ -104,7 +104,11 @@ int main(int argc, char** argv)
       Payload local_payload;
       while (true) {
         Key rand_k = utils::RandomGenerator::getRandU64(0, max_key);
-        table.lookup(rand_k, local_payload);
+        if (FLAGS_load_per_tuples) {
+          ensure(table.lookup(rand_k, local_payload));
+        } else {
+          table.lookup(rand_k, local_payload);
+        }
         WorkerCounters::myCounters().tx++;
       }
     });

@@ -15,14 +15,14 @@ namespace buffermanager
 // -------------------------------------------------------------------------------------
 struct ParentSwipHandler {
   Swip<BufferFrame>& swip;
-  OptimisticGuard guard;
+  OptimisticGuard parent_guard;
   BufferFrame* parent;
-  s32 pos = -2;
+  s32 pos = -2; // meaning it is the root bf in the dt
   // -------------------------------------------------------------------------------------
   template <typename T>
   OptimisticPageGuard<T> getParentReadPageGuard()
   {
-    return OptimisticPageGuard<T>::manuallyAssembleGuard(guard, parent);
+    return OptimisticPageGuard<T>::manuallyAssembleGuard(parent_guard, parent);
   }
 };
 // -------------------------------------------------------------------------------------
