@@ -32,6 +32,17 @@ bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> paylo
     jumpmuTry()
     {
       OptimisticPageGuard<BTreeNode> leaf = findLeafForRead(key, key_length);
+      // -------------------------------------------------------------------------------------
+      DEBUG_BLOCK()
+      {
+        bool sanity_check_result = leaf->sanityCheck(key, key_length);
+        leaf.recheck_done();
+        if (!sanity_check_result) {
+          cout << leaf->count << endl;
+        }
+        ensure(sanity_check_result);
+      }
+      // -------------------------------------------------------------------------------------
       s32 pos = leaf->lowerBound<true>(key, key_length);
       if (pos != -1) {
         u16 payload_length = leaf->getPayloadLength(pos);
@@ -441,28 +452,27 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
   s32 pos = parent_handler.pos;
+  // -------------------------------------------------------------------------------------
   assert(parent_handler.swip.bf == &to_merge);
   assert(pos != -1);
+  // -------------------------------------------------------------------------------------
   bool can_we_merge = true;
   can_we_merge &= p_guard.hasBf() && c_guard->is_leaf && (c_guard->freeSpaceAfterCompaction() >= EFFECTIVE_PAGE_SIZE * FLAGS_d);
-  // -------------------------------------------------------------------------------------
-  if (!can_we_merge)
-    return false;
-  // -------------------------------------------------------------------------------------
-  p_guard.recheck();
   can_we_merge &= (pos > 0) && (pos + 1) < p_guard->count;
-  // -------------------------------------------------------------------------------------
-  if (!can_we_merge)
+  if (!can_we_merge) {
+    p_guard.kill();
+    c_guard.kill();
     return false;
+  }
   // -------------------------------------------------------------------------------------
   can_we_merge &= p_guard->getValue(pos - 1).isSwizzled();
-  if (!can_we_merge)
+  if (!can_we_merge) {
+    p_guard.kill();
+    c_guard.kill();
     return false;
+  }
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard<BTreeNode> l_guard = OptimisticPageGuard(p_guard, p_guard->getValue(pos - 1));
-  // -------------------------------------------------------------------------------------
-  if (!can_we_merge)
-    return false;
   // -------------------------------------------------------------------------------------
   auto merge_left_into_right = [&](ExclusivePageGuard<BTreeNode>& parent, s32 left_pos, ExclusivePageGuard<BTreeNode>& from_left,
                                    ExclusivePageGuard<BTreeNode>& to_right) {
@@ -475,51 +485,64 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
       from_left.reclaim();
       return true;
     }
+    // return false;
     // -------------------------------------------------------------------------------------
     // Do a partial merge
     // Remove a key at a time from the merge and check if now it fits
     s32 till_slot_id = -1;
     for (s32 s_i = 0; s_i < from_left->count; s_i++) {
-      space_upper_bound -= sizeof(BTreeNode::Slot) + sizeof(ValueType) +
-                           (from_left->isLarge(s_i) ? (sizeof(u16) + from_left->getRestLenLarge(s_i)) : (from_left->getRestLen(s_i))) +
-                           from_left->getPayloadLength(s_i);
+      //
+      if (0 && from_left->slot[s_i].rest_len) {
+        space_upper_bound -=
+            sizeof(ValueType) + (from_left->isLarge(s_i) ? (from_left->getRestLenLarge(s_i) + sizeof(u16)) : from_left->getRestLen(s_i));
+      }
+      space_upper_bound -= from_left->getPayloadLength(s_i);
+      ensure(from_left->getPayloadLength(s_i) <= 128);
       if (space_upper_bound < EFFECTIVE_PAGE_SIZE * 1.0) {
         till_slot_id = s_i + 1;
         break;
       }
     }
-    if (till_slot_id >= from_left->count || till_slot_id < 0)
+    if (!(till_slot_id != -1 && till_slot_id < (from_left->count - 1)))
       return false;
+    ensure(till_slot_id > 0);
     // -------------------------------------------------------------------------------------
-    assert(from_left->count > till_slot_id);
-    assert(till_slot_id >= 0);
     u16 copy_from_count = from_left->count - till_slot_id;
     // -------------------------------------------------------------------------------------
-    u16 key_length = from_left->getFullKeyLength(till_slot_id - 1);
-    u8 key[key_length];
-    from_left->copyFullKey(till_slot_id - 1, key, key_length);
+    u16 new_left_uf_length = from_left->getFullKeyLength(till_slot_id - 1);
+    ensure(new_left_uf_length > 0);
+    u8 new_left_uf_key[new_left_uf_length];
+    from_left->copyFullKey(till_slot_id - 1, new_left_uf_key, new_left_uf_length);
+    // -------------------------------------------------------------------------------------
+    if (!parent->canInsert(new_left_uf_key, new_left_uf_length, 0))
+      return false;
+    // -------------------------------------------------------------------------------------
+    // cout << till_slot_id << '\t' << from_left->count << '\t' << to_right->count << endl;
     // -------------------------------------------------------------------------------------
     {
-      auto tmp = make_unique<BTreeNode>(true);
-      tmp->setFences(key, key_length, to_right->getUpperFenceKey(), to_right->upper_fence.length);
+      BTreeNode tmp(true);
+      tmp.setFences(new_left_uf_key, new_left_uf_length, to_right->getUpperFenceKey(), to_right->upper_fence.length);
       // -------------------------------------------------------------------------------------
-      from_left->copyKeyValueRange(tmp.get(), 0, till_slot_id, copy_from_count);
-      to_right->copyKeyValueRange(tmp.get(), copy_from_count, 0, to_right->count);
-      tmp->makeHint();
-      memcpy(reinterpret_cast<u8*>(to_right.ptr()), tmp.get(), sizeof(BTreeNode));
+      from_left->copyKeyValueRange(&tmp, 0, till_slot_id, copy_from_count);
+      to_right->copyKeyValueRange(&tmp, copy_from_count, 0, to_right->count);
+      memcpy(reinterpret_cast<u8*>(to_right.ptr()), &tmp, sizeof(BTreeNode));
+      to_right->makeHint();
       // -------------------------------------------------------------------------------------
       // Nothing to do for the right node's separator
+      assert(!to_right->sanityCheck(new_left_uf_key, new_left_uf_length));
     }
     {
-      auto tmp = make_unique<BTreeNode>(true);
-      tmp->setFences(from_left->getLowerFenceKey(), from_left->lower_fence.length, key, key_length);
+      BTreeNode tmp(true);
+      tmp.setFences(from_left->getLowerFenceKey(), from_left->lower_fence.length, new_left_uf_key, new_left_uf_length);
       // -------------------------------------------------------------------------------------
-      from_left->copyKeyValueRange(tmp.get(), 0, 0, from_left->count - copy_from_count);
-      tmp->makeHint();
-      memcpy(reinterpret_cast<u8*>(from_left.ptr()), tmp.get(), sizeof(BTreeNode));
+      from_left->copyKeyValueRange(&tmp, 0, 0, from_left->count - copy_from_count);
+      memcpy(reinterpret_cast<u8*>(from_left.ptr()), &tmp, sizeof(BTreeNode));
+      from_left->makeHint();
+      // -------------------------------------------------------------------------------------
+      assert(from_left->sanityCheck(new_left_uf_key, new_left_uf_length));
       // -------------------------------------------------------------------------------------
       parent->removeSlot(left_pos);
-      parent->insert(key, key_length, from_left.swip());
+      ensure(parent->insert(from_left->getUpperFenceKey(), from_left->upper_fence.length, from_left.swip()));
     }
     WorkerCounters::myCounters().dt_researchy_1[dtid]++;
     return true;
@@ -529,6 +552,7 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
   auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
   auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
   // -------------------------------------------------------------------------------------
+  ensure(pos > 0 && pos < p_x_guard->count);
   return merge_left_into_right(p_x_guard, pos - 1, l_x_guard, c_x_guard);
 }  // namespace vs
 // -------------------------------------------------------------------------------------

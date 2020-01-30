@@ -53,3 +53,8 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
     raise(SIGTRAP); \
   };
 // -------------------------------------------------------------------------------------
+#ifdef DEBUG
+#define DEBUG_BLOCK() if(true)
+#else
+#define DEBUG_BLOCK() if(false)
+#endif

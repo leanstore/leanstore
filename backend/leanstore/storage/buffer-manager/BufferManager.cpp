@@ -188,7 +188,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           JMUW<std::lock_guard<std::mutex>> g_guard(partition.cio_mutex);
           // -------------------------------------------------------------------------------------
           assert(r_buffer->header.state == BufferFrame::State::HOT);
-          assert(parent_handler.guard.local_version == (parent_handler.guard.latch_ptr->ref().load() & LATCH_VERSION_MASK));
+          assert(parent_handler.parent_guard.local_version == (parent_handler.parent_guard.latch_ptr->ref().load() & LATCH_VERSION_MASK));
           assert(parent_handler.swip.bf == r_buffer);
           // -------------------------------------------------------------------------------------
           if (partition.ht.has(r_buffer->header.pid)) {
@@ -205,7 +205,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           r_buffer->header.state = BufferFrame::State::COLD;
           r_buffer->header.isCooledBecauseOfReading = false;
           parent_handler.swip.unswizzle(r_buffer->header.pid);
-          // const u64 raw = parent_handler.swip.raw(); parent_handler.swip.asAtomic().store(raw);
           partition.cooling_bfs_counter++;
           // -------------------------------------------------------------------------------------
           PPCounters::myCounters().unswizzled_pages_counter++;
