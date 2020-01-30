@@ -40,4 +40,4 @@ DEFINE_uint64(restarts_threshold, 100, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(x, 5, "");
 DEFINE_uint64(y, 10, "");
-DEFINE_double(d, 0, "");
+DEFINE_double(d, 0.45, "");

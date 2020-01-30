@@ -17,6 +17,7 @@ struct ParentSwipHandler {
   Swip<BufferFrame>& swip;
   OptimisticGuard guard;
   BufferFrame* parent;
+  s32 pos = -2;
   // -------------------------------------------------------------------------------------
   template <typename T>
   OptimisticPageGuard<T> getParentReadPageGuard()

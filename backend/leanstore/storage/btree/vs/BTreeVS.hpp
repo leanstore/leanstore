@@ -45,7 +45,7 @@ struct BTree {
   void update(u8* key, u16 key_length, u64 payloadLength, u8* payload);
   // -------------------------------------------------------------------------------------
   bool remove(u8* key, u16 key_length);
-  bool tryMerge(BufferFrame& to_split);
+  bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
   // -------------------------------------------------------------------------------------
   bool kWayMerge(BufferFrame &);
   // -------------------------------------------------------------------------------------

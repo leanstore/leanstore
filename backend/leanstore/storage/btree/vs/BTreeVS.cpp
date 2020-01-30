@@ -343,24 +343,29 @@ bool BTree::remove(u8* key, u16 key_length)
   }
 }
 // -------------------------------------------------------------------------------------
-bool BTree::tryMerge(BufferFrame& to_merge)
+bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
 {
   auto parent_handler = findParent(this, to_merge);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
+  int pos = parent_handler.pos;
   if (!p_guard.hasBf() || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
     return false;
   }
-  assert(parent_handler.swip.bf == &to_merge);
   // -------------------------------------------------------------------------------------
-  u16 key_length = c_guard->upper_fence.length;
-  u8 key[key_length];
-  memcpy(key, c_guard->getUpperFenceKey(), c_guard->upper_fence.length);
-  int pos = p_guard->lowerBound<false>(key, key_length);
-  assert(pos != -1);
+  if (pos >= p_guard->count) {
+    // TODO: we do not merge the node if it is the upper swip of parent
+    return false;
+  }
+  // -------------------------------------------------------------------------------------
+  p_guard.recheck();
+  c_guard.recheck();
   // -------------------------------------------------------------------------------------
   auto merge_left = [&]() {
     Swip<BTreeNode>& l_swip = p_guard->getValue(pos - 1);
+    if (!swizzle_sibling && !l_swip.isSwizzled()) {
+      return false;
+    }
     auto l_guard = OptimisticPageGuard(p_guard, l_swip);
     if (l_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
       return false;
@@ -370,6 +375,9 @@ bool BTree::tryMerge(BufferFrame& to_merge)
     auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
     // -------------------------------------------------------------------------------------
     if (!l_x_guard->merge(pos - 1, p_x_guard, c_x_guard)) {
+      p_guard = std::move(p_x_guard);
+      c_guard = std::move(c_x_guard);
+      l_guard = std::move(l_x_guard);
       return false;
     }
     l_x_guard.reclaim();
@@ -380,6 +388,9 @@ bool BTree::tryMerge(BufferFrame& to_merge)
   };
   auto merge_right = [&]() {
     Swip<BTreeNode>& r_swip = p_guard->getValue(pos + 1);
+    if (!swizzle_sibling && !r_swip.isSwizzled()) {
+      return false;
+    }
     auto r_guard = OptimisticPageGuard(p_guard, r_swip);
     if (r_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
       return false;
@@ -388,33 +399,39 @@ bool BTree::tryMerge(BufferFrame& to_merge)
     auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
     auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
     // -------------------------------------------------------------------------------------
+    assert(&p_x_guard->getValue(pos).asBufferFrame() == c_x_guard.bf);
     if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
+      p_guard = std::move(p_x_guard);
+      c_guard = std::move(c_x_guard);
+      r_guard = std::move(r_x_guard);
       return false;
     }
     c_x_guard.reclaim();
     // -------------------------------------------------------------------------------------
     p_guard = std::move(p_x_guard);
+    r_guard = std::move(r_x_guard);
     return true;
   };
   // ATTENTION: don't use c_guard without making sure it was not reclaimed
   // -------------------------------------------------------------------------------------
   bool merged_successfully = false;
-  bool merged_right = false;
-  if (p_guard->count >= 2) {
-    if (pos + 1 < p_guard->count) {
-      if (merge_right()) {
-        merged_right = true;
-        merged_successfully = true;
-      }
-    }
-    if (!merged_right && pos > 0) {
+  if (p_guard->count > 2) {
+    if (pos > 0) {
       merged_successfully |= merge_left();
+    }
+    if (!merged_successfully && (pos + 1 < p_guard->count)) {
+      merged_successfully |= merge_right();
     }
   }
   // -------------------------------------------------------------------------------------
-  if (p_guard.hasBf() && p_guard->freeSpaceAfterCompaction() >= BTreeNode::underFullSize && root_swip.bf != p_guard.bf) {
-    tryMerge(*p_guard.bf);
+  jumpmuTry()
+  {
+    if (p_guard.hasBf() && p_guard->freeSpaceAfterCompaction() >= BTreeNode::underFullSize && root_swip.bf != p_guard.bf) {
+      tryMerge(*p_guard.bf, swizzle_sibling);
+    }
   }
+  jumpmuCatch() {}
+  // -------------------------------------------------------------------------------------
   return merged_successfully;
 }
 // -------------------------------------------------------------------------------------
@@ -423,20 +440,16 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
   auto parent_handler = findParent(this, to_merge);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
+  s32 pos = parent_handler.pos;
   assert(parent_handler.swip.bf == &to_merge);
+  assert(pos != -1);
   bool can_we_merge = true;
   can_we_merge &= p_guard.hasBf() && c_guard->is_leaf && (c_guard->freeSpaceAfterCompaction() >= EFFECTIVE_PAGE_SIZE * FLAGS_d);
   // -------------------------------------------------------------------------------------
   if (!can_we_merge)
     return false;
   // -------------------------------------------------------------------------------------
-  s32 pos;  // c_x_guard
-  u16 key_length = c_guard->upper_fence.length;
-  u8 key[key_length];
-  memcpy(key, c_guard->getUpperFenceKey(), c_guard->upper_fence.length);
-  pos = p_guard->lowerBound<false>(key, key_length);
   p_guard.recheck();
-  assert(pos != -1);
   can_we_merge &= (pos > 0) && (pos + 1) < p_guard->count;
   // -------------------------------------------------------------------------------------
   if (!can_we_merge)
@@ -537,7 +550,7 @@ void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
     if (bf.page.dt_id == btree.dtid && c_node.freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
       jumpmuTry()
       {
-        if (btree.tryMerge(bf)) {
+        if (btree.tryMerge(bf, false)) {
           WorkerCounters::myCounters().dt_researchy_1[btree.dtid]++;
         } else {
           // do nothing
@@ -569,6 +582,10 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   // Pre: bf is write locked TODO: but trySplit does not ex lock !
   auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
+  // -------------------------------------------------------------------------------------
+  if (btree.dtid != to_find.page.dt_id)
+    jumpmu::jump();
+  // -------------------------------------------------------------------------------------
   Swip<BTreeNode>* c_swip = &btree.root_swip;
   u16 level = 0;
   // -------------------------------------------------------------------------------------
@@ -584,11 +601,12 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
     return {.swip = c_swip->cast<BufferFrame>(), .guard = p_guard.bf_s_lock, .parent = nullptr};
   }
   // -------------------------------------------------------------------------------------
-  OptimisticPageGuard c_guard(p_guard, btree.root_swip);
-  s32 pos;
+  OptimisticPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
+  s32 pos = -1;
   auto search_condition = [&]() {
     if (infinity) {
       c_swip = &(c_guard->upper);
+      pos = c_guard->count;
     } else {
       pos = c_guard->lowerBound<false>(key, key_length);
       if (pos == c_guard->count) {
@@ -610,7 +628,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   if (!found) {
     jumpmu::jump();
   }
-  return {.swip = c_swip->cast<BufferFrame>(), .guard = c_guard.bf_s_lock, .parent = c_guard.bf};
+  return {.swip = c_swip->cast<BufferFrame>(), .guard = c_guard.bf_s_lock, .parent = c_guard.bf, .pos = pos};
 }
 // -------------------------------------------------------------------------------------
 void BTree::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)
