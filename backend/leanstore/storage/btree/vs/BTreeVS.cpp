@@ -513,7 +513,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
       }
     }
     if (!(till_slot_id != -1 && till_slot_id < (from_left->count - 1)))
-      return true;  // false
+      return false;  // false
     ensure(till_slot_id > 0);
     // -------------------------------------------------------------------------------------
     u16 copy_from_count = from_left->count - till_slot_id;
@@ -524,7 +524,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
     from_left->copyFullKey(till_slot_id - 1, new_left_uf_key, new_left_uf_length);
     // -------------------------------------------------------------------------------------
     if (!parent->canInsert(new_left_uf_key, new_left_uf_length, 0))
-      return true;  // false
+      return false;  // false
     // -------------------------------------------------------------------------------------
     // cout << till_slot_id << '\t' << from_left->count << '\t' << to_right->count << endl;
     // -------------------------------------------------------------------------------------
@@ -595,25 +595,11 @@ bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Optimisti
   }
   // -------------------------------------------------------------------------------------
   if (FLAGS_su_merge) {
-    jumpmuTry()
-    {
-      if (btree.kWayMerge(p_guard, c_guard, parent_handler)) {
-        p_guard.kill();
-        c_guard.kill();
-        jumpmu_return true;
-      } else {
-        p_guard.kill();
-        c_guard.kill();
-      }
-    }
-    jumpmuCatch()
-    {
-      p_guard.kill();
-      c_guard.kill();
-      return true;
-    }
+    bool merged = btree.kWayMerge(p_guard, c_guard, parent_handler);
+    p_guard.kill();
+    c_guard.kill();
+    return merged;
   }
-  // -------------------------------------------------------------------------------------
   return false;
 }
 // -------------------------------------------------------------------------------------
@@ -758,6 +744,6 @@ void BTree::printInfos(uint64_t totalSize)
        << " rootCnt:" << r_guard->count << " bytesFree:" << bytesFree() << endl;
 }
 // -------------------------------------------------------------------------------------
-}  // namespace vs
 }  // namespace btree
+}  // namespace leanstore
 }  // namespace leanstore
