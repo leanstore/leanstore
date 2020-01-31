@@ -256,9 +256,9 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
               jumpmuTry()
               {
                 trySplit(*c_guard.bf, split_pos);
-                WorkerCounters::myCounters().dt_researchy_0[dtid]++;
+                WorkerCounters::myCounters().dt_researchy[dtid][0]++;
               }
-              jumpmuCatch() {}
+              jumpmuCatch() { WorkerCounters::myCounters().dt_researchy[dtid][1]++; }
             }
           }
         }
@@ -446,18 +446,19 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
   return merged_successfully;
 }
 // -------------------------------------------------------------------------------------
-bool BTree::kWayMerge(BufferFrame& to_merge)
+// returns true if it has exclusively locked anything
+bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler& parent_handler)
 {
-  auto parent_handler = findParent(this, to_merge);
-  OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-  OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
-  s32 pos = parent_handler.pos;
+  if (utils::RandomGenerator::getRandU64(0, 100) >= FLAGS_y) {
+    return false;
+  }
   // -------------------------------------------------------------------------------------
-  assert(parent_handler.swip.bf == &to_merge);
+  s32 pos = parent_handler.pos;
   assert(pos != -1);
+  assert(parent_handler.swip.bf == c_guard.bf);
   // -------------------------------------------------------------------------------------
   bool can_we_merge = true;
-  can_we_merge &= p_guard.hasBf() && c_guard->is_leaf && (c_guard->freeSpaceAfterCompaction() >= EFFECTIVE_PAGE_SIZE * FLAGS_d);
+  can_we_merge &= p_guard.hasBf() && c_guard->is_leaf;
   can_we_merge &= (pos > 0) && (pos + 1) < p_guard->count;
   if (!can_we_merge) {
     p_guard.kill();
@@ -473,19 +474,29 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
   }
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard<BTreeNode> l_guard = OptimisticPageGuard(p_guard, p_guard->getValue(pos - 1));
+  can_we_merge &= (l_guard->freeSpaceAfterCompaction() + c_guard->freeSpaceAfterCompaction()) <= (FLAGS_d * EFFECTIVE_PAGE_SIZE);
+  if (!can_we_merge) {
+    p_guard.kill();
+    c_guard.kill();
+    l_guard.kill();
+    return false;
+  }
+  // -------------------------------------------------------------------------------------
+  auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
+  auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
+  auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
   // -------------------------------------------------------------------------------------
   auto merge_left_into_right = [&](ExclusivePageGuard<BTreeNode>& parent, s32 left_pos, ExclusivePageGuard<BTreeNode>& from_left,
                                    ExclusivePageGuard<BTreeNode>& to_right) {
     // -------------------------------------------------------------------------------------
     u32 space_upper_bound = from_left->mergeSpaceUpperBound(to_right);
-    if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge
+    if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge TODO: threshold
       bool succ = from_left->merge(left_pos, parent, to_right);
       ensure(succ);
-      WorkerCounters::myCounters().dt_researchy_2[dtid]++;
+      WorkerCounters::myCounters().dt_researchy[dtid][5]++;
       from_left.reclaim();
       return true;
     }
-    // return false;
     // -------------------------------------------------------------------------------------
     // Do a partial merge
     // Remove a key at a time from the merge and check if now it fits
@@ -502,7 +513,7 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
       }
     }
     if (!(till_slot_id != -1 && till_slot_id < (from_left->count - 1)))
-      return false;
+      return true;  // false
     ensure(till_slot_id > 0);
     // -------------------------------------------------------------------------------------
     u16 copy_from_count = from_left->count - till_slot_id;
@@ -513,7 +524,7 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
     from_left->copyFullKey(till_slot_id - 1, new_left_uf_key, new_left_uf_length);
     // -------------------------------------------------------------------------------------
     if (!parent->canInsert(new_left_uf_key, new_left_uf_length, 0))
-      return false;
+      return true;  // false
     // -------------------------------------------------------------------------------------
     // cout << till_slot_id << '\t' << from_left->count << '\t' << to_right->count << endl;
     // -------------------------------------------------------------------------------------
@@ -542,17 +553,12 @@ bool BTree::kWayMerge(BufferFrame& to_merge)
       parent->removeSlot(left_pos);
       ensure(parent->insert(from_left->getUpperFenceKey(), from_left->upper_fence.length, from_left.swip()));
     }
-    WorkerCounters::myCounters().dt_researchy_1[dtid]++;
+    WorkerCounters::myCounters().dt_researchy[dtid][6]++;
     return true;
   };
   // -------------------------------------------------------------------------------------
-  auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
-  auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
-  auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-  // -------------------------------------------------------------------------------------
-  ensure(pos > 0 && pos < p_x_guard->count);
   return merge_left_into_right(p_x_guard, pos - 1, l_x_guard, c_x_guard);
-}  // namespace vs
+}
 // -------------------------------------------------------------------------------------
 BTree::~BTree() {}
 // -------------------------------------------------------------------------------------
@@ -564,39 +570,51 @@ struct DTRegistry::DTMeta BTree::getMeta()
 }
 // -------------------------------------------------------------------------------------
 // Called by buffer manager before eviction
-void BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
+// Returns true if the buffer manager has to restart and pick another buffer frame for eviction
+// Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
+bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard& guard, ParentSwipHandler& parent_handler)
 {
-  auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
+  OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
+  OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(guard, &bf);
   if (FLAGS_cm_merge) {
-    if (bf.page.dt_id == btree.dtid && c_node.freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+    if (bf.page.dt_id == btree.dtid && c_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
       jumpmuTry()
       {
         if (btree.tryMerge(bf, false)) {
-          WorkerCounters::myCounters().dt_researchy_1[btree.dtid]++;
+          WorkerCounters::myCounters().dt_researchy[btree.dtid][2]++;
         } else {
-          // do nothing
-          jumpmu_return;
+          WorkerCounters::myCounters().dt_researchy[btree.dtid][3]++;
         }
       }
-      jumpmuCatch()
-      {
-        WorkerCounters::myCounters().dt_researchy_2[btree.dtid]++;
-        jumpmu::jump();
-      }
+      jumpmuCatch() { WorkerCounters::myCounters().dt_researchy[btree.dtid][4]++; }
+      p_guard.kill();
+      c_guard.kill();
+      return true;
     }
-    return;
-    // -------------------------------------------------------------------------------------
   }
+  // -------------------------------------------------------------------------------------
   if (FLAGS_su_merge) {
-    if (bf.page.dt_id == btree.dtid) {
-      if (c_node.is_leaf && c_node.freeSpaceAfterCompaction() >= EFFECTIVE_PAGE_SIZE * FLAGS_d &&
-          utils::RandomGenerator::getRandU64(0, 100) < FLAGS_y) {
-        btree.kWayMerge(bf);
+    jumpmuTry()
+    {
+      if (btree.kWayMerge(p_guard, c_guard, parent_handler)) {
+        p_guard.kill();
+        c_guard.kill();
+        jumpmu_return true;
       } else {
+        p_guard.kill();
+        c_guard.kill();
       }
     }
+    jumpmuCatch()
+    {
+      p_guard.kill();
+      c_guard.kill();
+      return true;
+    }
   }
+  // -------------------------------------------------------------------------------------
+  return false;
 }
 // -------------------------------------------------------------------------------------
 // Should not have to swizzle any page

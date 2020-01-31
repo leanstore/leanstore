@@ -119,9 +119,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
   // Init AIO Context
   AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_async_batch_size);
   // -------------------------------------------------------------------------------------
-  BufferFrame* r_buffer = &randomBufferFrame();
-  // -------------------------------------------------------------------------------------
-  auto phase_1_condition = [&](Partition& p) { return (p.dram_free_list.counter + p.cooling_bfs_counter) < p.cooling_bfs_limit; };
+  auto phase_1_condition = [&](Partition& p) { return (p.cooling_bfs_counter) < p.cooling_bfs_limit; };  // p.dram_free_list.counter +
   auto phase_2_3_condition = [&](Partition& p) { return (p.dram_free_list.counter < p.free_bfs_limit); };
   // -------------------------------------------------------------------------------------
   while (bg_threads_keep_running) {
@@ -130,100 +128,114 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
      */
     // phase_1:
     auto phase_1_begin = chrono::high_resolution_clock::now();
-    jumpmuTry()
-    {
-      while (phase_1_condition(partitions[p_begin])) {
-        PPCounters::myCounters().phase_1_counter++;
-        if (r_buffer->header.lock.isAnyLatched()) {
-          r_buffer = &randomBufferFrame();
-          continue;
-        }
-        OptimisticGuard r_guard(r_buffer->header.lock, false);
-        const u64 partition_i = getPartitionID(r_buffer->header.pid);
-        // -------------------------------------------------------------------------------------
-        // const bool is_cooling_candidate = (partition_i == p_i) && !(r_buffer->header.lock.isExclusivelyLatched()) &&
-        //                                   r_buffer->header.state == BufferFrame::State::HOT;  // && !rand_buffer->header.isWB
-        const bool is_cooling_candidate = ((partition_i) >= p_begin && (partition_i) < p_end) && !(r_buffer->header.lock.isExclusivelyLatched()) &&
-                                          r_buffer->header.state == BufferFrame::State::HOT;  // && !rand_buffer->header.isWB
-        if (!is_cooling_candidate) {
-          r_buffer = &randomBufferFrame();
-          continue;
-        }
-        r_guard.recheck();
-        // -------------------------------------------------------------------------------------
-        PPCounters::myCounters().touched_bfs_counter++;
-        dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);  // BETA:
-        r_guard.recheck();
-        // -------------------------------------------------------------------------------------
-        bool picked_a_child_instead = false;
-        auto iterate_children_begin = chrono::high_resolution_clock::now();
-        dt_registry.iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
-          if (swip.isSwizzled()) {
-            r_buffer = &swip.asBufferFrame();
-            r_guard.recheck();
-            picked_a_child_instead = true;
-            return false;
+    BufferFrame* volatile r_buffer = &randomBufferFrame();  // Attention: we may set the r_buffer to a child of a bf instead of random
+    while (true) {
+      jumpmuTry()
+      {
+        while (phase_1_condition(randomPartition())) {
+          PPCounters::myCounters().phase_1_counter++;
+          if (r_buffer->header.lock.isAnyLatched()) {
+            r_buffer = &randomBufferFrame();
+            continue;
+          }
+          OptimisticGuard r_guard(r_buffer->header.lock, false);
+          // -------------------------------------------------------------------------------------
+          const u64 partition_i = getPartitionID(r_buffer->header.pid);
+          static_cast<void>(partition_i);
+          const bool is_cooling_candidate =
+              (!r_buffer->header.isWB && !(r_buffer->header.lock.isExclusivelyLatched()) &&  // (partition_i) >= p_begin && (partition_i) < p_end &&
+               r_buffer->header.state == BufferFrame::State::HOT);                           // && !rand_buffer->header.isWB
+          if (!is_cooling_candidate) {
+            r_buffer = &randomBufferFrame();
+            continue;
           }
           r_guard.recheck();
-          return true;
-        });
-        auto iterate_children_end = chrono::high_resolution_clock::now();
-        PPCounters::myCounters().iterate_children_ms +=
-            (chrono::duration_cast<chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
-        if (picked_a_child_instead) {
-          continue;  // restart the inner loop
-        }
-        // -------------------------------------------------------------------------------------
-        // Suitable page founds, lets unswizzle
-        {
-          const PID pid = r_buffer->header.pid;
-
+          // -------------------------------------------------------------------------------------
+          PPCounters::myCounters().touched_bfs_counter++;
+          // -------------------------------------------------------------------------------------
+          bool picked_a_child_instead = false;
+          auto iterate_children_begin = chrono::high_resolution_clock::now();
+          dt_registry.iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
+            if (swip.isSwizzled()) {
+              r_buffer = &swip.asBufferFrame();
+              r_guard.recheck();
+              picked_a_child_instead = true;
+              return false;
+            }
+            r_guard.recheck();
+            return true;
+          });
+          auto iterate_children_end = chrono::high_resolution_clock::now();
+          PPCounters::myCounters().iterate_children_ms +=
+              (chrono::duration_cast<chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
+          if (picked_a_child_instead) {
+            continue;  // restart the inner loop
+          }
+          // -------------------------------------------------------------------------------------
           auto find_parent_begin = chrono::high_resolution_clock::now();
           ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
           auto find_parent_end = chrono::high_resolution_clock::now();
           PPCounters::myCounters().find_parent_ms += (chrono::duration_cast<chrono::microseconds>(find_parent_end - find_parent_begin).count());
-          ExclusiveGuard p_x_guard(parent_handler.parent_guard);
-          ExclusiveGuard r_x_guad(r_guard);
-          Partition& partition = getPartition(pid);
-          JMUW<std::lock_guard<std::mutex>> g_guard(partition.cio_mutex);
           // -------------------------------------------------------------------------------------
-          assert(r_buffer->header.state == BufferFrame::State::HOT);
-          assert(parent_handler.parent_guard.local_version == (parent_handler.parent_guard.latch_ptr->ref().load() & LATCH_VERSION_MASK));
-          assert(parent_handler.swip.bf == r_buffer);
-          // -------------------------------------------------------------------------------------
-          if (partition.ht.has(r_buffer->header.pid)) {
-            // This means that some thread is still in reading stage (holding
-            // cio_mutex)
+          r_guard.recheck();
+          if (dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer, r_guard, parent_handler)) {
             r_buffer = &randomBufferFrame();
             continue;
           }
-          CIOFrame& cio_frame = partition.ht.insert(pid);
-          assert((partition.ht.has(r_buffer->header.pid)));
-          cio_frame.state = CIOFrame::State::COOLING;
-          partition.cooling_queue.push_back(r_buffer);
-          cio_frame.fifo_itr = --partition.cooling_queue.end();
-          r_buffer->header.state = BufferFrame::State::COLD;
-          r_buffer->header.isCooledBecauseOfReading = false;
-          parent_handler.swip.unswizzle(r_buffer->header.pid);
-          partition.cooling_bfs_counter++;
           // -------------------------------------------------------------------------------------
-          PPCounters::myCounters().unswizzled_pages_counter++;
-          // -------------------------------------------------------------------------------------
-          if (!phase_1_condition(partition)) {
-            r_buffer = &randomBufferFrame();
-            break;
+          // Suitable page founds, lets unswizzle
+          {
+            const PID pid = r_buffer->header.pid;
+            Partition& partition = getPartition(pid);
+            // r_x_guard can only be acquired and release while the partition mutex is locked
+            {
+              ExclusiveGuard p_x_guard(parent_handler.parent_guard);
+              ExclusiveGuard r_x_guard(r_guard);
+              partition.cio_mutex.lock();
+              // -------------------------------------------------------------------------------------
+              assert(r_buffer->header.state == BufferFrame::State::HOT);
+              assert(parent_handler.parent_guard.local_version == (parent_handler.parent_guard.latch_ptr->ref().load() & LATCH_VERSION_MASK));
+              assert(parent_handler.swip.bf == r_buffer);
+              // -------------------------------------------------------------------------------------
+              if (partition.ht.has(r_buffer->header.pid)) {
+                // This means that some thread is still in reading stage (holding
+                // cio_mutex)
+                partition.cio_mutex.unlock();
+                r_buffer = &randomBufferFrame();
+                continue;
+              }
+              assert(!(partition.ht.has(r_buffer->header.pid)));
+              CIOFrame& cio_frame = partition.ht.insert(pid);
+              assert((partition.ht.has(r_buffer->header.pid)));
+              cio_frame.state = CIOFrame::State::COOLING;
+              partition.cooling_queue.push_back(reinterpret_cast<BufferFrame*>(r_buffer));
+              cio_frame.fifo_itr = --partition.cooling_queue.end();
+              r_buffer->header.state = BufferFrame::State::COLD;
+              r_buffer->header.isCooledBecauseOfReading = false;
+              parent_handler.swip.unswizzle(r_buffer->header.pid);
+              partition.cooling_bfs_counter++;
+            }
+            partition.cio_mutex.unlock();
+            // -------------------------------------------------------------------------------------
+            PPCounters::myCounters().unswizzled_pages_counter++;
+            // -------------------------------------------------------------------------------------
+            if (!phase_1_condition(partition)) {
+              r_buffer = &randomBufferFrame();
+              break;
+            }
           }
+          r_buffer = &randomBufferFrame();
+          // -------------------------------------------------------------------------------------
         }
-        r_buffer = &randomBufferFrame();
-        // -------------------------------------------------------------------------------------
+        jumpmu_break;
       }
+      jumpmuCatch() { r_buffer = &randomBufferFrame(); }
     }
-    jumpmuCatch() { r_buffer = &randomBufferFrame(); }
     auto phase_1_end = chrono::high_resolution_clock::now();
     PPCounters::myCounters().phase_1_ms += (chrono::duration_cast<chrono::microseconds>(phase_1_end - phase_1_begin).count());
     // -------------------------------------------------------------------------------------
     for (volatile u64 p_i = p_begin; p_i < p_end; p_i++) {
-      Partition &partition = partitions[p_i];
+      Partition& partition = partitions[p_i];
       // -------------------------------------------------------------------------------------
       // phase_2_3:
       if (phase_2_3_condition(partition)) {

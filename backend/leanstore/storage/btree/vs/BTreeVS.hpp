@@ -47,10 +47,10 @@ struct BTree {
   bool remove(u8* key, u16 key_length);
   bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
   // -------------------------------------------------------------------------------------
-  bool kWayMerge(BufferFrame &);
+  bool kWayMerge(OptimisticPageGuard<BTreeNode> &p_guard, OptimisticPageGuard<BTreeNode> &c_guard, ParentSwipHandler&);
   // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();
-  static void checkSpaceUtilization(void* btree_object, BufferFrame&);
+  static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);
   static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
   static void iterateChildrenSwips(void* /*btree_object*/, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback);
   // -------------------------------------------------------------------------------------

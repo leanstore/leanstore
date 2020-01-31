@@ -91,7 +91,7 @@ void LeanStore::debuggingThread()
   stat_entries.emplace_back("free_pct", [&](ostream& out) { out << (local_total_free * 100.0 / buffer_manager.dram_pool_size); });
   stat_entries.emplace_back("cool_pct", [&](ostream& out) { out << (local_total_cool * 100.0 / buffer_manager.dram_pool_size); });
   stat_entries.emplace_back("cool_pct_should", [&](ostream& out) {
-    out << std::max<u64>(0,
+    out << std::max<s64>(0,
                          ((FLAGS_cool_pct * 1.0 * buffer_manager.dram_pool_size / 100.0) - local_total_free) * 100.0 / buffer_manager.dram_pool_size);
   });
   stat_entries.emplace_back("evicted_mib", [&](ostream& out) {
@@ -142,12 +142,7 @@ void LeanStore::debuggingThread()
                           [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_structural_change, dt_id); });
   dt_entries.emplace_back("dt_restarts_read",
                           [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_read, dt_id); });
-  dt_entries.emplace_back("dt_researchy_0",
-                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_0, dt_id); });
-  dt_entries.emplace_back("dt_researchy_1",
-                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_1, dt_id); });
-  dt_entries.emplace_back("dt_researchy_2",
-                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy_2, dt_id); });
+  // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   // Print header
   if (csv.tellp() == 0) {
@@ -159,6 +154,10 @@ void LeanStore::debuggingThread()
       csv << "," << stat.name;
     }
     e->printCSVHeaders(csv);
+    for (u64 r_i = 0; r_i < WorkerCounters::researchy_counters; r_i++) {
+      csv << ","
+          << "dt_researchy_" << std::to_string(r_i);
+    }
     for (const auto& stat : dt_entries) {
       csv << "," << stat.name;
     }
@@ -202,6 +201,11 @@ void LeanStore::debuggingThread()
       csv << all_except_dt_entries.str();
       dt_id = dt.first;
       dt_name = std::get<2>(dt.second);
+      // -------------------------------------------------------------------------------------
+      for (u64 r_i = 0; r_i < WorkerCounters::researchy_counters; r_i++) {
+        csv << "," << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy, dt_id, r_i);
+      }
+      // -------------------------------------------------------------------------------------
       for (const auto& entry : dt_entries) {
         csv << ",";
         entry.callback(csv);

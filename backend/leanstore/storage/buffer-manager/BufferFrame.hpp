@@ -35,8 +35,10 @@ struct BufferFrame {
     PID pid = 9999;            // INIT:
     OptimisticLatch lock = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
-    BufferFrame* next_free_bf = nullptr;  // TODO
+    BufferFrame* next_free_bf = nullptr;
     ContentionTracker contention_tracker;
+    // -------------------------------------------------------------------------------------
+    u64 debug;
   };
   struct alignas(512) Page {
     u64 LSN = 0;
