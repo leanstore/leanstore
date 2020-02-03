@@ -14,6 +14,7 @@ extern __thread int checkpoint_stacks_counter[JUMPMU_STACK_SIZE];
 extern __thread void (*de_stack_arr[JUMPMU_STACK_SIZE])(void*);
 extern __thread void* de_stack_obj[JUMPMU_STACK_SIZE];
 extern __thread int de_stack_counter;
+  extern __thread bool in_jump;
 void jump();
 inline void clearLastDestructor()
 {

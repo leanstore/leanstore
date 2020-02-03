@@ -139,7 +139,8 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       // -------------------------------------------------------------------------------------
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       p_guard.recheck_done();
-      if (c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)), payload)) {
+      if (c_x_guard->canInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)))) {
+        c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)), payload);
         jumpmu_return;
       }
       // -------------------------------------------------------------------------------------
@@ -171,7 +172,7 @@ void BTree::trySplit(BufferFrame& to_split, s32 favored_split_pos)
   if (favored_split_pos < 0 || favored_split_pos >= c_guard->count - 1) {
     sep_info = c_guard->findSep();
   } else {
-    // Split on a specified position
+    // Split on a specified position, used by contention management
     sep_info = BTreeNode::SeparatorInfo{c_guard->getFullKeyLength(favored_split_pos), static_cast<u32>(favored_split_pos), false};
   }
   u8 sep_key[sep_info.length];
@@ -361,6 +362,8 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
   int pos = parent_handler.pos;
   if (!p_guard.hasBf() || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
+    p_guard.kill();
+    c_guard.kill();
     return false;
   }
   // -------------------------------------------------------------------------------------
@@ -379,6 +382,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
     }
     auto l_guard = OptimisticPageGuard(p_guard, l_swip);
     if (l_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
+      l_guard.kill();
       return false;
     }
     auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
@@ -404,6 +408,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
     }
     auto r_guard = OptimisticPageGuard(p_guard, r_swip);
     if (r_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
+      r_guard.kill();
       return false;
     }
     auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
@@ -474,7 +479,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
   }
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard<BTreeNode> l_guard = OptimisticPageGuard(p_guard, p_guard->getValue(pos - 1));
-  can_we_merge &= (l_guard->fillFactor() + c_guard->fillFactor()) <= (FLAGS_d * EFFECTIVE_PAGE_SIZE);
+  can_we_merge &= (l_guard->fillFactorAfterCompaction() + c_guard->fillFactorAfterCompaction()) <= (FLAGS_d);
   if (!can_we_merge) {
     p_guard.kill();
     c_guard.kill();
@@ -503,10 +508,9 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
     s32 till_slot_id = -1;
     for (s32 s_i = 0; s_i < from_left->count; s_i++) {
       if (from_left->slot[s_i].rest_len) {
-        space_upper_bound -=
-            sizeof(ValueType) + (from_left->isLarge(s_i) ? (from_left->getRestLenLarge(s_i) + sizeof(u16)) : from_left->getRestLen(s_i));
+        space_upper_bound -= (from_left->isLarge(s_i) ? (from_left->getRestLenLarge(s_i) + sizeof(u16)) : from_left->getRestLen(s_i));
       }
-      space_upper_bound -= from_left->getPayloadLength(s_i);
+      space_upper_bound -= sizeof(ValueType) + sizeof(BTreeNode::Slot) + from_left->getPayloadLength(s_i);
       if (space_upper_bound < EFFECTIVE_PAGE_SIZE * 1.0) {
         till_slot_id = s_i + 1;
         break;
@@ -600,6 +604,8 @@ bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Optimisti
     c_guard.kill();
     return merged;
   }
+  p_guard.kill();
+  c_guard.kill();
   return false;
 }
 // -------------------------------------------------------------------------------------

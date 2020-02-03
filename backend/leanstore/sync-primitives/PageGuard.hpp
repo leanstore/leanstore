@@ -47,7 +47,7 @@ class OptimisticPageGuard
   }
   // I: Downgrade exclusive
   OptimisticPageGuard(ExclusivePageGuard<T>&&) { ensure(false); }
-  OptimisticPageGuard& operator=(ExclusivePageGuard<T> &&other)
+  OptimisticPageGuard& operator=(ExclusivePageGuard<T>&& other)
   {
     assert(!other.moved);
     bf = other.bf;
@@ -62,7 +62,7 @@ class OptimisticPageGuard
   }
   // I: Downgrade shared
   OptimisticPageGuard(SharedPageGuard<T>&&) { ensure(false); }
-  OptimisticPageGuard& operator=(SharedPageGuard<T> &&other)
+  OptimisticPageGuard& operator=(SharedPageGuard<T>&& other)
   {
     bf = other.bf;
     bf_s_lock = other.bf_s_lock;
@@ -119,11 +119,12 @@ class OptimisticPageGuard
   // -------------------------------------------------------------------------------------
   ~OptimisticPageGuard() noexcept(false)
   {
-#ifdef DEBUG
-    if (!manually_checked && !moved && std::uncaught_exceptions() == 0) {
-      raise(SIGTRAP);
+    DEBUG_BLOCK()
+    {
+      if (!manually_checked && !moved && jumpmu::in_jump) {
+        raise(SIGTRAP);
+      }
     }
-#endif
   }
 };
 // -------------------------------------------------------------------------------------
@@ -184,8 +185,7 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
     OptimisticClass::moved = true;
   }
   // -------------------------------------------------------------------------------------
-  jumpmu_defineCustomDestructor(ExclusivePageGuard)
-  ~ExclusivePageGuard()
+  jumpmu_defineCustomDestructor(ExclusivePageGuard) ~ExclusivePageGuard()
   {
     jumpmu::clearLastDestructor();
     // -------------------------------------------------------------------------------------
@@ -207,8 +207,10 @@ template <typename T>
 class SharedPageGuard : public OptimisticPageGuard<T>
 {
   using OptimisticClass = OptimisticPageGuard<T>;
-public:
-  SharedPageGuard(OptimisticPageGuard<T>&& o_guard) {
+
+ public:
+  SharedPageGuard(OptimisticPageGuard<T>&& o_guard)
+  {
     OptimisticClass::bf = o_guard.bf;
     OptimisticClass::bf_s_lock = o_guard.bf_s_lock;
     // -------------------------------------------------------------------------------------
@@ -217,19 +219,15 @@ public:
     o_guard.moved = true;
     OptimisticClass::moved = false;
   }
-  ~SharedPageGuard() {
+  ~SharedPageGuard()
+  {
     if (!OptimisticClass::moved) {
       SharedGuard::unlatch(OptimisticClass::bf_s_lock);
     }
   }
   // -------------------------------------------------------------------------------------
-  void recheck() {
-    assert((OptimisticClass::bf_s_lock.latch_ptr->ref().load() & LATCH_EXCLUSIVE_BIT) == 0);
-  }
-  void recheck_done()
-  {
-    recheck();
-  }
+  void recheck() { assert((OptimisticClass::bf_s_lock.latch_ptr->ref().load() & LATCH_EXCLUSIVE_BIT) == 0); }
+  void recheck_done() { recheck(); }
   // -------------------------------------------------------------------------------------
 };
 // -------------------------------------------------------------------------------------

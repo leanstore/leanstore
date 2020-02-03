@@ -13,6 +13,7 @@ namespace btree
 namespace vs
 {
 // -------------------------------------------------------------------------------------
+// calculate space needed for keys in inner nodes.
 unsigned BTreeNode::spaceNeeded(unsigned keyLength, unsigned prefixLength)
 {
   assert(keyLength >= prefixLength);
@@ -80,7 +81,7 @@ void BTreeNode::updateHint(unsigned slotId)
     assert(hint[i] == slot[dist * (i + 1)].sketch);
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::canInsert(u8* key, unsigned keyLength, ValueType value, u8*)
+bool BTreeNode::canInsert(u8* key, unsigned keyLength, ValueType value)
 {
   bool sanity_check_result = sanityCheck(key, keyLength);
   static_cast<void>(sanity_check_result);
@@ -95,8 +96,7 @@ bool BTreeNode::canInsert(u8* key, unsigned keyLength, ValueType value, u8*)
 // -------------------------------------------------------------------------------------
 bool BTreeNode::insert(u8* key, unsigned keyLength, ValueType value, u8* payload)
 {
-  if (!canInsert(key, keyLength, value, payload))
-    return false;
+  assert(canInsert(key, keyLength, value));
   s32 slotId = lowerBound<false>(key, keyLength);
   memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
   storeKeyValue(slotId, key, keyLength, value, payload);
@@ -106,6 +106,7 @@ bool BTreeNode::insert(u8* key, unsigned keyLength, ValueType value, u8* payload
   return true;
 }
 // -------------------------------------------------------------------------------------
+// TODO: probably broken
 bool BTreeNode::update(u8* key, unsigned keyLength, u16 payload_length, u8* payload)
 {
   s32 slotId = lowerBound<true>(key, keyLength);
@@ -134,7 +135,7 @@ void BTreeNode::compactify()
   tmp.upper = upper;
   memcpy(reinterpret_cast<char*>(this), &tmp, sizeof(BTreeNode));
   makeHint();
-  assert(freeSpace() >= should);// TODO: why should ??
+  assert(freeSpace() == should);  // TODO: why should ??
 }
 // -------------------------------------------------------------------------------------
 u32 BTreeNode::mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right)
@@ -207,7 +208,11 @@ void BTreeNode::storeKeyValue(u16 slotId, u8* key, unsigned keyLength, ValueType
   data_offset -= space;
   space_used += space;
   slot[slotId].offset = data_offset;
-  getValue(slotId) = value;
+  if (is_leaf) {
+    getPayloadLength(slotId) = static_cast<u16>(value.raw());
+  } else {
+    getValue(slotId) = value;
+  }
   // Rest
   if (keyLength > largeLimit) {  // large string
     setLarge(slotId);
@@ -360,12 +365,12 @@ bool BTreeNode::sanityCheck(u8* key, unsigned int keyLength)
   bool res = true;
   if (lower_fence.offset) {
     int cmp = cmpKeys(key, getLowerFenceKey(), keyLength, lower_fence.length);
-    //assert(cmp > 0);
+    // assert(cmp > 0);
     res &= cmp > 0;
   }
   if (upper_fence.offset) {
     int cmp = cmpKeys(key, getUpperFenceKey(), keyLength, upper_fence.length);
-    //assert(cmp <= 0);
+    // assert(cmp <= 0);
     res &= cmp <= 0;
   }
   return res;
@@ -386,7 +391,7 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent,
                       unsigned sepLength)
 {
   // PRE: current, parent and nodeLeft are x locked
-  //assert(sepSlot > 0); TODO: really ?
+  // assert(sepSlot > 0); TODO: really ?
   assert(sepSlot < (EFFECTIVE_PAGE_SIZE / sizeof(ValueType)));
   // -------------------------------------------------------------------------------------
   nodeLeft->setFences(getLowerFenceKey(), lower_fence.length, sepKey, sepLength);
@@ -412,10 +417,10 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent,
 // -------------------------------------------------------------------------------------
 bool BTreeNode::removeSlot(u16 slotId)
 {
-  // TODO: check
-  if (slot[slotId].rest_len)
-    space_used -= sizeof(ValueType) + (isLarge(slotId) ? (getRestLenLarge(slotId) + sizeof(u16)) : getRestLen(slotId));
-  space_used -= (is_leaf) ? getPayloadLength(slotId) : 0;
+  if (slot[slotId].rest_len) {
+    space_used -= (isLarge(slotId) ? (getRestLenLarge(slotId) + sizeof(u16)) : getRestLen(slotId));
+  }
+  space_used -= sizeof(ValueType) + ((is_leaf) ? getPayloadLength(slotId) : 0);
   memmove(slot + slotId, slot + slotId + 1, sizeof(Slot) * (count - slotId - 1));
   count--;
   makeHint();

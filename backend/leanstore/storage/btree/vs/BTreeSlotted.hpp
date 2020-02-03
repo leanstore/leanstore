@@ -99,7 +99,7 @@ struct BTreeNode : public BTreeNodeHeader {
   unsigned freeSpace() { return data_offset - (reinterpret_cast<u8*>(slot + count) - ptr()); }
   unsigned freeSpaceAfterCompaction() { return EFFECTIVE_PAGE_SIZE - (reinterpret_cast<u8*>(slot + count) - ptr()) - space_used; }
   // -------------------------------------------------------------------------------------
-  double fillFactor(){return (1 - (freeSpaceAfterCompaction() * 1.0 / EFFECTIVE_PAGE_SIZE)); }
+  double fillFactorAfterCompaction() { return (1 - (freeSpaceAfterCompaction() * 1.0 / EFFECTIVE_PAGE_SIZE)); }
   // -------------------------------------------------------------------------------------
 
   bool hasEnoughSpaceFor(u32 space_needed) { return (space_needed <= freeSpace() || space_needed <= freeSpaceAfterCompaction()); }
@@ -159,7 +159,7 @@ struct BTreeNode : public BTreeNodeHeader {
   }
 
   // Accessors for both types of strings
-  inline u16 getPayloadLength(unsigned slotId) { return *reinterpret_cast<u16*>(ptr() + slot[slotId].offset); }
+  inline u16 &getPayloadLength(unsigned slotId) { return *reinterpret_cast<u16*>(ptr() + slot[slotId].offset); }
   inline ValueType& getValue(unsigned slotId) { return *reinterpret_cast<ValueType*>(ptr() + slot[slotId].offset); }
   inline unsigned getFullKeyLength(unsigned slotId)
   {
@@ -275,7 +275,7 @@ struct BTreeNode : public BTreeNodeHeader {
   void updateHint(unsigned slotId);
   // -------------------------------------------------------------------------------------
   bool insert(u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);
-  bool canInsert(u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);
+  bool canInsert(u8* key, unsigned keyLength, ValueType value);
   bool update(u8* key, unsigned keyLength, u16 payload_length, u8* payload);
   // -------------------------------------------------------------------------------------
   void compactify();
