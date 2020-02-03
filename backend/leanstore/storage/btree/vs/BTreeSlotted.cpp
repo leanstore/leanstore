@@ -97,12 +97,21 @@ bool BTreeNode::canInsert(u8* key, unsigned keyLength, ValueType value)
 bool BTreeNode::insert(u8* key, unsigned keyLength, ValueType value, u8* payload)
 {
   assert(canInsert(key, keyLength, value));
+  DEBUG_BLOCK(){
+    s32 exact_pos = lowerBound<true>(key, keyLength);
+    static_cast<void>(exact_pos);
+    assert(exact_pos == -1);  // assert for duplicates
+  }
   s32 slotId = lowerBound<false>(key, keyLength);
   memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
   storeKeyValue(slotId, key, keyLength, value, payload);
   count++;
   updateHint(slotId);
-  assert(lowerBound<true>(key, keyLength) == slotId);  // assert for duplicates
+  DEBUG_BLOCK(){
+    s32 exact_pos = lowerBound<true>(key, keyLength);
+    static_cast<void>(exact_pos);
+    assert(exact_pos == slotId);  // assert for duplicates
+  }
   return true;
 }
 // -------------------------------------------------------------------------------------

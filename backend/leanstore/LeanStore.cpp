@@ -154,7 +154,7 @@ void LeanStore::debuggingThread()
       csv << "," << stat.name;
     }
     e->printCSVHeaders(csv);
-    for (u64 r_i = 0; r_i < WorkerCounters::researchy_counters; r_i++) {
+    for (u64 r_i = 0; r_i < WorkerCounters::max_researchy_counter; r_i++) {
       csv << ","
           << "dt_researchy_" << std::to_string(r_i);
     }
@@ -202,7 +202,7 @@ void LeanStore::debuggingThread()
       dt_id = dt.first;
       dt_name = std::get<2>(dt.second);
       // -------------------------------------------------------------------------------------
-      for (u64 r_i = 0; r_i < WorkerCounters::researchy_counters; r_i++) {
+      for (u64 r_i = 0; r_i < WorkerCounters::max_researchy_counter; r_i++) {
         csv << "," << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy, dt_id, r_i);
       }
       // -------------------------------------------------------------------------------------

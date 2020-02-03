@@ -43,7 +43,6 @@ int main(int argc, char** argv)
   const u64 tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage
   const u64 tuples_in_a_page = EFFECTIVE_PAGE_SIZE * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));
   // -------------------------------------------------------------------------------------
-  u64 size_at_insert_point;
   PerfEvent e;
   // Insert values
   {
@@ -54,29 +53,35 @@ int main(int argc, char** argv)
         table.insert(t_i, payload);
       }
     }
-    size_at_insert_point = db.getBufferManager().consumedPages();
-    const u64 mib = size_at_insert_point * PAGE_SIZE / 1024 / 1024;
-    cout << "Inserted volume: (pages, MiB) = (" << size_at_insert_point << ", " << mib << ")" << endl;
-    cout << "-------------------------------------------------------------------------------------" << endl;
+    cout << "Inserted volume: (pages) = (" << db.getBufferManager().consumedPages() << ")" << endl;
   }
   // -------------------------------------------------------------------------------------
   u8 key_bytes[sizeof(Key)];
   BufferFrame* bf;
-  for (u64 j = 0; j < 2; j++)
-    for (u64 i = 0; i < FLAGS_x; i++) {
-      u64 k = tuples_in_a_page * (10 + i);
+  for (u64 j = 0; j < FLAGS_x; j++)
+    for (u64 i = 0; i < 1; i++) {
+      u64 k = (tuples_in_a_page * j) + (10 + i);
       vs_btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); });
-      auto c_node = reinterpret_cast<leanstore::btree::vs::BTreeNode*>(bf->page.dt);
-      cout << c_node->fillFactorAfterCompaction() << '\t' << c_node->count << endl;
       OptimisticGuard c_guard = OptimisticGuard(bf->header.lock);
       auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
+      auto c_node = reinterpret_cast<leanstore::btree::vs::BTreeNode*>(bf->page.dt);
+      u64 tuple_count = c_node->count;
       {
+        u64 full_before = WorkerCounters::myCounters().dt_researchy[0][5], partial_before = WorkerCounters::myCounters().dt_researchy[0][6];
         PerfEventBlock b(e, 1);
-        vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler);
+        if (!vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler)) {
+          b.print_in_destructor = false;
+        } else {
+          cout << tuple_count << '\t' << WorkerCounters::myCounters().dt_researchy[0][5] << '\t' << WorkerCounters::myCounters().dt_researchy[0][6]
+               << endl;
+        }
+        // u64 full_diff = WorkerCounters::myCounters().dt_researchy[0][5] - full_before,
+        //     partial_diff = WorkerCounters::myCounters().dt_researchy[0][6] - partial_before;
+        // if (full_diff == 2 && partial_diff == 2)
+        //   return 0;
       }
-      cout << c_node->fillFactorAfterCompaction() << '\t' << c_node->freeSpaceAfterCompaction() << '\t' << c_node->count << endl;
-      cout << WorkerCounters::myCounters().dt_researchy[0][5] << '\t' << WorkerCounters::myCounters().dt_researchy[0][6] << endl;
     }
+  cout << "Inserted volume: (pages) = (" << db.getBufferManager().consumedPages() << ")" << endl;
   // -------------------------------------------------------------------------------------
   return 0;
 }

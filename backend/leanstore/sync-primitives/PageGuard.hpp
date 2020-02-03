@@ -28,6 +28,12 @@ class OptimisticPageGuard
   BufferFrame* bf = nullptr;
   OptimisticGuard bf_s_lock;
   // -------------------------------------------------------------------------------------
+  OptimisticPageGuard(OptimisticPageGuard&& other)
+      : manually_checked(other.manually_checked), moved(other.moved), bf(other.bf), bf_s_lock(std::move(other.bf_s_lock))
+  {
+    other.moved = true;
+  }
+  // -------------------------------------------------------------------------------------
   static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf) { return OptimisticPageGuard(read_guard, bf); }
   // -------------------------------------------------------------------------------------
   // I: Root case
@@ -46,7 +52,6 @@ class OptimisticPageGuard
     p_guard.recheck();  // TODO: ??
   }
   // I: Downgrade exclusive
-  OptimisticPageGuard(ExclusivePageGuard<T>&&) { ensure(false); }
   OptimisticPageGuard& operator=(ExclusivePageGuard<T>&& other)
   {
     assert(!other.moved);

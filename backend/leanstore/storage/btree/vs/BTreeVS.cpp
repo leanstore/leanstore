@@ -454,53 +454,66 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
 // returns true if it has exclusively locked anything
 bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler& parent_handler)
 {
-  if (utils::RandomGenerator::getRandU64(0, 100) >= FLAGS_y) {
+  if (c_guard->fillFactorAfterCompaction() >= 0.9 || utils::RandomGenerator::getRandU64(0, 100) >= FLAGS_y) {
     return false;
   }
   // -------------------------------------------------------------------------------------
   s32 pos = parent_handler.pos;
   assert(pos != -1);
-  assert(parent_handler.swip.bf == c_guard.bf);
+  DEBUG_BLOCK()
+  {
+    bool check = parent_handler.swip.bf == c_guard.bf;
+    static_cast<void>(check);
+    p_guard.recheck();
+    assert(check);
+  }
   // -------------------------------------------------------------------------------------
   bool can_we_merge = true;
   can_we_merge &= p_guard.hasBf() && c_guard->is_leaf;
-  can_we_merge &= (pos > 0) && (pos + 1) < p_guard->count;
+  can_we_merge &= (pos >= 0 + 2) && (pos + 1 + 2) < p_guard->count;
+  if (!can_we_merge) {
+    p_guard.kill();
+    return false;
+  }
+  // -------------------------------------------------------------------------------------
+  for (s32 i = pos - 2; i <= pos + 2; i++)
+    can_we_merge &= p_guard->getValue(i).isSwizzled();
   if (!can_we_merge) {
     p_guard.kill();
     c_guard.kill();
     return false;
   }
   // -------------------------------------------------------------------------------------
-  can_we_merge &= p_guard->getValue(pos - 1).isSwizzled();
+  OptimisticPageGuard<BTreeNode> guards[5] = {{p_guard, p_guard->getValue(pos - 2)},
+                                              {p_guard, p_guard->getValue(pos - 1)},
+                                              std::move(c_guard),
+                                              {p_guard, p_guard->getValue(pos + 1)},
+                                              {p_guard, p_guard->getValue(pos + 2)}};
+  // -------------------------------------------------------------------------------------
+  double total_fill_factor = 0;
+  for (u8 i = 0; i < 5; i++)
+    total_fill_factor += guards[i]->fillFactorAfterCompaction();
+  can_we_merge &= total_fill_factor <= FLAGS_d;
   if (!can_we_merge) {
     p_guard.kill();
-    c_guard.kill();
+    for (u8 i = 0; i < 5; i++)
+      guards[i].kill();
     return false;
   }
   // -------------------------------------------------------------------------------------
-  OptimisticPageGuard<BTreeNode> l_guard = OptimisticPageGuard(p_guard, p_guard->getValue(pos - 1));
-  can_we_merge &= (l_guard->fillFactorAfterCompaction() + c_guard->fillFactorAfterCompaction()) <= (FLAGS_d);
-  if (!can_we_merge) {
-    p_guard.kill();
-    c_guard.kill();
-    l_guard.kill();
-    return false;
-  }
-  // -------------------------------------------------------------------------------------
-  auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
-  auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
-  auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+  ExclusivePageGuard<BTreeNode> p_x_guard = std::move(p_guard);
+  ExclusivePageGuard<BTreeNode> ex_guards[5] = {std::move(guards[0]), std::move(guards[1]), std::move(guards[2]), std::move(guards[3]),
+                                                std::move(guards[4])};
   // -------------------------------------------------------------------------------------
   auto merge_left_into_right = [&](ExclusivePageGuard<BTreeNode>& parent, s32 left_pos, ExclusivePageGuard<BTreeNode>& from_left,
                                    ExclusivePageGuard<BTreeNode>& to_right) {
-    // -------------------------------------------------------------------------------------
     u32 space_upper_bound = from_left->mergeSpaceUpperBound(to_right);
     if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge TODO: threshold
       bool succ = from_left->merge(left_pos, parent, to_right);
       ensure(succ);
       WorkerCounters::myCounters().dt_researchy[dtid][5]++;
       from_left.reclaim();
-      return true;
+      return 1;
     }
     // -------------------------------------------------------------------------------------
     // Do a partial merge
@@ -517,7 +530,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
       }
     }
     if (!(till_slot_id != -1 && till_slot_id < (from_left->count - 1)))
-      return false;  // false
+      return 0;  // false
     ensure(till_slot_id > 0);
     // -------------------------------------------------------------------------------------
     u16 copy_from_count = from_left->count - till_slot_id;
@@ -528,7 +541,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
     from_left->copyFullKey(till_slot_id - 1, new_left_uf_key, new_left_uf_length);
     // -------------------------------------------------------------------------------------
     if (!parent->canInsert(new_left_uf_key, new_left_uf_length, 0))
-      return false;  // false
+      return 0;  // false
     // -------------------------------------------------------------------------------------
     // cout << till_slot_id << '\t' << from_left->count << '\t' << to_right->count << endl;
     // -------------------------------------------------------------------------------------
@@ -558,10 +571,41 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
       ensure(parent->insert(from_left->getUpperFenceKey(), from_left->upper_fence.length, from_left.swip()));
     }
     WorkerCounters::myCounters().dt_researchy[dtid][6]++;
-    return true;
+    return 2;
   };
   // -------------------------------------------------------------------------------------
-  return merge_left_into_right(p_x_guard, pos - 1, l_x_guard, c_x_guard);
+  s32 positions[5] = {pos - 2, pos - 1, pos, pos + 1, pos + 2};
+  u8 merges_count = 0;
+  int ret;
+  s32 right_hand, left_hand, max_right = 4;
+  while (true) {
+    for (right_hand = max_right; right_hand > 0; right_hand--) {
+      if (positions[right_hand] == -1) {  //  || ex_guards[right_hand]->fillFactorAfterCompaction() >= 0.9
+        continue;
+      } else {
+        break;
+      }
+    }
+    if (right_hand == 0)
+      return true;
+    else {
+      for (left_hand = right_hand - 1; left_hand >= 0; left_hand--) {
+        if (positions[left_hand] == -1)
+          continue;
+        else
+          break;
+      }
+      if (left_hand < 0)
+        return true;
+      ret = merge_left_into_right(p_x_guard, positions[left_hand], ex_guards[left_hand], ex_guards[right_hand]);
+      if (ret == 1) {
+        positions[left_hand] = -1;
+      }
+      max_right--;
+      ensure(merges_count++ < 4);
+    }
+  }
+  return true;
 }
 // -------------------------------------------------------------------------------------
 BTree::~BTree() {}
@@ -631,7 +675,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   // -------------------------------------------------------------------------------------
   // check if bf is the root node
   if (c_swip->bf == &to_find) {
-    p_guard.kill();
+    p_guard.recheck_done();
     return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = p_guard.bf_s_lock, .parent = nullptr};
   }
   // -------------------------------------------------------------------------------------
