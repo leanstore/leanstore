@@ -7,6 +7,7 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <x86intrin.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -61,9 +62,9 @@ struct BTreeNodeHeader {
   FenceKey lower_fence = {0, 0};
   FenceKey upper_fence = {0, 0};
 
-  u16 count = 0; // count number of separators, excluding the upper swip
+  u16 count = 0;  // count number of separators, excluding the upper swip
   bool is_leaf;
-  u16 space_used = 0; // does not include the header
+  u16 space_used = 0;  // does not include the header
   u16 data_offset = static_cast<u16>(EFFECTIVE_PAGE_SIZE);
   u16 prefix_length = 0;
 
@@ -97,6 +98,9 @@ struct BTreeNode : public BTreeNodeHeader {
 
   unsigned freeSpace() { return data_offset - (reinterpret_cast<u8*>(slot + count) - ptr()); }
   unsigned freeSpaceAfterCompaction() { return EFFECTIVE_PAGE_SIZE - (reinterpret_cast<u8*>(slot + count) - ptr()) - space_used; }
+  // -------------------------------------------------------------------------------------
+  double fillFactor(){return (1 - (freeSpaceAfterCompaction() * 1.0 / EFFECTIVE_PAGE_SIZE)); }
+  // -------------------------------------------------------------------------------------
 
   bool hasEnoughSpaceFor(u32 space_needed) { return (space_needed <= freeSpace() || space_needed <= freeSpaceAfterCompaction()); }
   // ATTENTION: this method has side effects !
@@ -300,4 +304,4 @@ static_assert(sizeof(BTreeNode) == EFFECTIVE_PAGE_SIZE, "page size problem");
 // -------------------------------------------------------------------------------------
 }  // namespace vs
 }  // namespace btree
-}
+}  // namespace leanstore

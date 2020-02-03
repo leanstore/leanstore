@@ -390,6 +390,12 @@ u64 BufferManager::consumedPages()
   return ssd_used_pages_counter - ssd_freed_pages_counter;
 }
 // -------------------------------------------------------------------------------------
+BufferFrame& BufferManager::getContainingBufferFrame(const u8* ptr)
+{
+  u64 index = (ptr - reinterpret_cast<u8*>(bfs)) / (sizeof(BufferFrame));
+  return bfs[index];
+}
+// -------------------------------------------------------------------------------------
 // Buffer Frames Management
 // -------------------------------------------------------------------------------------
 Partition& BufferManager::randomPartition()

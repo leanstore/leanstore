@@ -474,7 +474,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
   }
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard<BTreeNode> l_guard = OptimisticPageGuard(p_guard, p_guard->getValue(pos - 1));
-  can_we_merge &= (l_guard->freeSpaceAfterCompaction() + c_guard->freeSpaceAfterCompaction()) <= (FLAGS_d * EFFECTIVE_PAGE_SIZE);
+  can_we_merge &= (l_guard->fillFactor() + c_guard->fillFactor()) <= (FLAGS_d * EFFECTIVE_PAGE_SIZE);
   if (!can_we_merge) {
     p_guard.kill();
     c_guard.kill();
@@ -744,6 +744,6 @@ void BTree::printInfos(uint64_t totalSize)
        << " rootCnt:" << r_guard->count << " bytesFree:" << bytesFree() << endl;
 }
 // -------------------------------------------------------------------------------------
+}  // namespace vs
 }  // namespace btree
-}  // namespace leanstore
 }  // namespace leanstore

@@ -10,6 +10,7 @@
 // -------------------------------------------------------------------------------------
 #include <libaio.h>
 #include <sys/mman.h>
+
 #include <cstring>
 #include <list>
 #include <mutex>
@@ -42,8 +43,8 @@ class BufferManager
   int ssd_fd;
   // -------------------------------------------------------------------------------------
   // Free  Pages
-  const u8 safety_pages = 10;  // we reserve these extra pages to prevent segfaults
-  u64 dram_pool_size;          // total number of dram buffer frames
+  const u8 safety_pages = 10;               // we reserve these extra pages to prevent segfaults
+  u64 dram_pool_size;                       // total number of dram buffer frames
   atomic<u64> ssd_used_pages_counter = 0;   // used as a hack for pid generation
   atomic<u64> ssd_freed_pages_counter = 0;  // used to track how many pages did we really allocate
   // -------------------------------------------------------------------------------------
@@ -52,6 +53,7 @@ class BufferManager
   u64 partitions_count;
   u64 partitions_mask;
   Partition* partitions;
+
  private:
   // -------------------------------------------------------------------------------------
   // Threads managements
@@ -67,6 +69,7 @@ class BufferManager
   BufferFrame& randomBufferFrame();
   Partition& getPartition(PID);
   u64 getPartitionID(PID);
+
  public:
   // -------------------------------------------------------------------------------------
   BufferManager();
@@ -99,6 +102,7 @@ class BufferManager
   void persist();
   // -------------------------------------------------------------------------------------
   u64 consumedPages();
+  BufferFrame& getContainingBufferFrame(const u8*);  // get the buffer frame containing the given ptr address
 };
 // -------------------------------------------------------------------------------------
 class BMC
