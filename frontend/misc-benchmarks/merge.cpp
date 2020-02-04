@@ -56,32 +56,62 @@ int main(int argc, char** argv)
     cout << "Inserted volume: (pages) = (" << db.getBufferManager().consumedPages() << ")" << endl;
   }
   // -------------------------------------------------------------------------------------
-  u8 key_bytes[sizeof(Key)];
-  BufferFrame* bf;
-  for (u64 j = 0; j < FLAGS_x; j++)
-    for (u64 i = 0; i < 1; i++) {
-      u64 k = (tuples_in_a_page * j) + (10 + i);
-      vs_btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); });
-      OptimisticGuard c_guard = OptimisticGuard(bf->header.lock);
-      auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
-      auto c_node = reinterpret_cast<leanstore::btree::vs::BTreeNode*>(bf->page.dt);
-      u64 tuple_count = c_node->count;
-      {
-        u64 full_before = WorkerCounters::myCounters().dt_researchy[0][5], partial_before = WorkerCounters::myCounters().dt_researchy[0][6];
-        PerfEventBlock b(e, 1);
-        if (!vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler)) {
-          b.print_in_destructor = false;
-        } else {
-          cout << tuple_count << '\t' << WorkerCounters::myCounters().dt_researchy[0][5] << '\t' << WorkerCounters::myCounters().dt_researchy[0][6]
-               << endl;
-        }
-        // u64 full_diff = WorkerCounters::myCounters().dt_researchy[0][5] - full_before,
-        //     partial_diff = WorkerCounters::myCounters().dt_researchy[0][6] - partial_before;
-        // if (full_diff == 2 && partial_diff == 2)
-        //   return 0;
-      }
+  auto print_fill_factors = [&](std::ofstream& csv, s32 flag) {
+    u64 t_i = 0;
+    vs_btree.iterateAllPages([&](leanstore::btree::vs::BTreeNode&) { return 0; },
+                             [&](leanstore::btree::vs::BTreeNode& leaf) {
+                               csv << t_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << endl;
+                               return 0;
+                             });
+  };
+  // -------------------------------------------------------------------------------------
+  auto compress_bf = [&](Key k) {
+    BufferFrame* bf;
+    u8 key_bytes[sizeof(Key)];
+    vs_btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); });
+    OptimisticGuard c_guard = OptimisticGuard(bf->header.lock);
+    auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
+    vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler);
+  };
+  // -------------------------------------------------------------------------------------
+  std::ofstream csv;
+  std::ofstream::openmode open_flags;
+  open_flags = ios::trunc;
+  csv.open("merge.csv", open_flags);
+  csv.seekp(0, ios::end);
+  csv << std::setprecision(2) << std::fixed;
+  csv << "i,ff,flag"<<endl;
+  // -------------------------------------------------------------------------------------
+  print_fill_factors(csv, 0);
+  // -------------------------------------------------------------------------------------
+  atomic<bool> keep_running = true;
+  atomic<u64> running_threads_counter = 0;
+  vector<thread> threads;
+  // -------------------------------------------------------------------------------------
+  threads.emplace_back([&]() {
+    running_threads_counter++;
+    while (keep_running) {
+      Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
+      compress_bf(k);
+      WorkerCounters::myCounters().tx++;
     }
-  cout << "Inserted volume: (pages) = (" << db.getBufferManager().consumedPages() << ")" << endl;
+    running_threads_counter--;
+  });
+  // -------------------------------------------------------------------------------------
+  {
+    // Shutdown threads
+    sleep(FLAGS_run_for_seconds);
+    keep_running = false;
+    // -------------------------------------------------------------------------------------
+    while (running_threads_counter) {
+      _mm_pause();
+    }
+    for (auto& thread : threads) {
+      thread.join();
+    }
+  }
+  // -------------------------------------------------------------------------------------
+  print_fill_factors(csv, 1);
   // -------------------------------------------------------------------------------------
   return 0;
 }

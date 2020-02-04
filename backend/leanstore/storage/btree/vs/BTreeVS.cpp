@@ -473,6 +473,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
   can_we_merge &= (pos >= 0 + 2) && (pos + 1 + 2) < p_guard->count;
   if (!can_we_merge) {
     p_guard.kill();
+    c_guard.kill();
     return false;
   }
   // -------------------------------------------------------------------------------------
@@ -499,6 +500,57 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
     for (u8 i = 0; i < 5; i++)
       guards[i].kill();
     return false;
+  }
+  // -------------------------------------------------------------------------------------
+  // Prevent fragmentation
+
+  if (pos > 7) {
+    if (p_guard->getValue(pos - 7).isSwizzled()) {
+      OptimisticPageGuard<BTreeNode> block_guard(p_guard, p_guard->getValue(pos - 7));
+      if (block_guard->fillFactorAfterCompaction() >= 0.65) {
+        // -------------------------------------------------------------------------------------
+        double total_fill_factor = 0;
+        for (s32 i = pos - 6; i <= pos - 2; i++) {
+          if (p_guard->getValue(i).isSwizzled()) {
+            OptimisticPageGuard<BTreeNode> previous_guard(p_guard, p_guard->getValue(i));
+            total_fill_factor += previous_guard->fillFactorAfterCompaction();
+          } else {
+            // TODO
+          }
+        }
+        // -------------------------------------------------------------------------------------
+        if (total_fill_factor <= FLAGS_d) {
+          WorkerCounters::myCounters().dt_researchy[dtid][9]++;
+          return false;
+        } else {
+          WorkerCounters::myCounters().dt_researchy[dtid][8]++;
+        }
+      }
+    }
+  }
+  if (pos + 8 < p_guard->count) {
+    if (p_guard->getValue(pos + 7).isSwizzled()) {
+      OptimisticPageGuard<BTreeNode> block_guard(p_guard, p_guard->getValue(pos + 7));
+      if (block_guard->fillFactorAfterCompaction() >= 0.65) {
+        // -------------------------------------------------------------------------------------
+        double total_fill_factor = 0;
+        for (s32 i = pos + 6; i <= pos + 2; i--) {
+          if (p_guard->getValue(i).isSwizzled()) {
+            OptimisticPageGuard<BTreeNode> previous_guard(p_guard, p_guard->getValue(i));
+            total_fill_factor += previous_guard->fillFactorAfterCompaction();
+          } else {
+            // TODO
+          }
+        }
+        // -------------------------------------------------------------------------------------
+        if (total_fill_factor <= FLAGS_d) {
+          WorkerCounters::myCounters().dt_researchy[dtid][9]++;
+          return false;
+        } else {
+          WorkerCounters::myCounters().dt_researchy[dtid][8]++;
+        }
+      }
+    }
   }
   // -------------------------------------------------------------------------------------
   ExclusivePageGuard<BTreeNode> p_x_guard = std::move(p_guard);

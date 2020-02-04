@@ -1,0 +1,9 @@
+id meaning
+0 cm_split_succ
+1 cm_split_fail
+2 cm_merge_succ
+3 cm_merge_fail_no_siblings
+4 cm_merge_fail_sync
+
+5 k_merge_full
+6 k_merge_partial
