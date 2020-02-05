@@ -594,8 +594,10 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
       max_right--;
       if (ret == 1) {
         fully_merged[left_hand - pos] = true;
+        WorkerCounters::myCounters().dt_researchy[dtid][9]++;
       } else {
         guards[left_hand - pos] = std::move(left_x_guard);
+        WorkerCounters::myCounters().dt_researchy[dtid][8]++;
       }
     }
     // -------------------------------------------------------------------------------------

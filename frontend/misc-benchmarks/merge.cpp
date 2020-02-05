@@ -19,7 +19,7 @@
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
 using Key = u64;
-using Payload = u64;
+using Payload = BytesPayload<100>;
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
@@ -32,7 +32,7 @@ int main(int argc, char** argv)
   // LeanStore DB
   LeanStore db;
   unique_ptr<BTreeInterface<Key, Payload>> adapter;
-  auto& vs_btree = db.registerVSBTree("contention");
+  auto& vs_btree = db.registerVSBTree("merge");
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
   // -------------------------------------------------------------------------------------
@@ -40,8 +40,7 @@ int main(int argc, char** argv)
   Payload payload;
   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
   // -------------------------------------------------------------------------------------
-  const u64 tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage
-  // const u64 tuples_in_a_page = EFFECTIVE_PAGE_SIZE * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));
+  const u64 tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
   // -------------------------------------------------------------------------------------
   PerfEvent e;
   // Insert values
@@ -53,6 +52,8 @@ int main(int argc, char** argv)
       }
     });
   }
+  cout << "Inner = " << vs_btree.countInner() << endl;
+  cout << "Pages = " << vs_btree.countPages() << endl;
   cout << "Inserted volume: (mib) = (" << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
   // -------------------------------------------------------------------------------------
   auto print_fill_factors = [&](std::ofstream& csv, s32 flag) {
@@ -119,10 +120,12 @@ int main(int argc, char** argv)
       ensure(result == payload);
     }
   });
-  cout << "Inserted volume: (mib) = (" << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
   // -------------------------------------------------------------------------------------
   print_fill_factors(csv, 1);
   // -------------------------------------------------------------------------------------
+  cout << "Inner = " << vs_btree.countInner() << endl;
+  cout << "Pages = " << vs_btree.countPages() << endl;
+  cout << "Inserted volume: (mib) = (" << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
   cout << merges_counter << endl;
   // -------------------------------------------------------------------------------------
   return 0;
