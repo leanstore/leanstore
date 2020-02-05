@@ -56,8 +56,6 @@ int main(int argc, char** argv)
     cout << "-------------------------------------------------------------------------------------" << endl;
   }
   // -------------------------------------------------------------------------------------
-  db.registerConfigEntry("cm_threads_pro_page", [&](ostream& out) { out << FLAGS_cm_threads_pro_page; });
-  // -------------------------------------------------------------------------------------
   cout << setprecision(4) << endl;
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;

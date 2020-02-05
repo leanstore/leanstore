@@ -41,7 +41,7 @@ int main(int argc, char** argv)
   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
   // -------------------------------------------------------------------------------------
   const u64 tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage
-  const u64 tuples_in_a_page = EFFECTIVE_PAGE_SIZE * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));
+  // const u64 tuples_in_a_page = EFFECTIVE_PAGE_SIZE * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));
   // -------------------------------------------------------------------------------------
   PerfEvent e;
   // Insert values
@@ -65,13 +65,14 @@ int main(int argc, char** argv)
                              });
   };
   // -------------------------------------------------------------------------------------
+  u64 merges_counter = 0;
   auto compress_bf = [&](Key k) {
     BufferFrame* bf;
     u8 key_bytes[sizeof(Key)];
     vs_btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); });
     OptimisticGuard c_guard = OptimisticGuard(bf->header.lock);
     auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
-    vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler);
+    merges_counter += vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler);
   };
   // -------------------------------------------------------------------------------------
   std::ofstream csv;
@@ -80,13 +81,14 @@ int main(int argc, char** argv)
   csv.open("merge.csv", open_flags);
   csv.seekp(0, ios::end);
   csv << std::setprecision(2) << std::fixed;
-  csv << "i,ff,flag"<<endl;
+  csv << "i,ff,flag" << endl;
   // -------------------------------------------------------------------------------------
   print_fill_factors(csv, 0);
   // -------------------------------------------------------------------------------------
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
+  db.startDebuggingThread();
   // -------------------------------------------------------------------------------------
   threads.emplace_back([&]() {
     running_threads_counter++;
@@ -112,6 +114,8 @@ int main(int argc, char** argv)
   }
   // -------------------------------------------------------------------------------------
   print_fill_factors(csv, 1);
+  // -------------------------------------------------------------------------------------
+  cout << merges_counter << endl;
   // -------------------------------------------------------------------------------------
   return 0;
 }
