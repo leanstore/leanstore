@@ -451,6 +451,81 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
   return merged_successfully;
 }
 // -------------------------------------------------------------------------------------
+s32 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
+                              s32 left_pos,
+                              ExclusivePageGuard<BTreeNode>& from_left,
+                              ExclusivePageGuard<BTreeNode>& to_right,
+                              bool full_merge_or_nothing)
+{
+  u32 space_upper_bound = from_left->mergeSpaceUpperBound(to_right);
+  if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge TODO: threshold
+    bool succ = from_left->merge(left_pos, parent, to_right);
+    ensure(succ);
+    WorkerCounters::myCounters().dt_researchy[dtid][5]++;
+    from_left.reclaim();
+    return 1;
+  }
+  if (full_merge_or_nothing)
+    return 0;
+  // -------------------------------------------------------------------------------------
+  // Do a partial merge
+  // Remove a key at a time from the merge and check if now it fits
+  s32 till_slot_id = -1;
+  for (s32 s_i = 0; s_i < from_left->count; s_i++) {
+    if (from_left->slot[s_i].rest_len) {
+      space_upper_bound -= (from_left->isLarge(s_i) ? (from_left->getRestLenLarge(s_i) + sizeof(u16)) : from_left->getRestLen(s_i));
+    }
+    space_upper_bound -= sizeof(ValueType) + sizeof(BTreeNode::Slot) + from_left->getPayloadLength(s_i);
+    if (space_upper_bound < EFFECTIVE_PAGE_SIZE * 1.0) {
+      till_slot_id = s_i + 1;
+      break;
+    }
+  }
+  if (!(till_slot_id != -1 && till_slot_id < (from_left->count - 1)))
+    return 0;  // false
+  ensure(till_slot_id > 0);
+  // -------------------------------------------------------------------------------------
+  u16 copy_from_count = from_left->count - till_slot_id;
+  // -------------------------------------------------------------------------------------
+  u16 new_left_uf_length = from_left->getFullKeyLength(till_slot_id - 1);
+  ensure(new_left_uf_length > 0);
+  u8 new_left_uf_key[new_left_uf_length];
+  from_left->copyFullKey(till_slot_id - 1, new_left_uf_key, new_left_uf_length);
+  // -------------------------------------------------------------------------------------
+  if (!parent->canInsert(new_left_uf_key, new_left_uf_length, 0))
+    return 0;  // false
+  // -------------------------------------------------------------------------------------
+  // cout << till_slot_id << '\t' << from_left->count << '\t' << to_right->count << endl;
+  // -------------------------------------------------------------------------------------
+  {
+    BTreeNode tmp(true);
+    tmp.setFences(new_left_uf_key, new_left_uf_length, to_right->getUpperFenceKey(), to_right->upper_fence.length);
+    // -------------------------------------------------------------------------------------
+    from_left->copyKeyValueRange(&tmp, 0, till_slot_id, copy_from_count);
+    to_right->copyKeyValueRange(&tmp, copy_from_count, 0, to_right->count);
+    memcpy(reinterpret_cast<u8*>(to_right.ptr()), &tmp, sizeof(BTreeNode));
+    to_right->makeHint();
+    // -------------------------------------------------------------------------------------
+    // Nothing to do for the right node's separator
+    assert(!to_right->sanityCheck(new_left_uf_key, new_left_uf_length));
+  }
+  {
+    BTreeNode tmp(true);
+    tmp.setFences(from_left->getLowerFenceKey(), from_left->lower_fence.length, new_left_uf_key, new_left_uf_length);
+    // -------------------------------------------------------------------------------------
+    from_left->copyKeyValueRange(&tmp, 0, 0, from_left->count - copy_from_count);
+    memcpy(reinterpret_cast<u8*>(from_left.ptr()), &tmp, sizeof(BTreeNode));
+    from_left->makeHint();
+    // -------------------------------------------------------------------------------------
+    assert(from_left->sanityCheck(new_left_uf_key, new_left_uf_length));
+    // -------------------------------------------------------------------------------------
+    parent->removeSlot(left_pos);
+    ensure(parent->insert(from_left->getUpperFenceKey(), from_left->upper_fence.length, from_left.swip()));
+  }
+  WorkerCounters::myCounters().dt_researchy[dtid][6]++;
+  return 2;
+}
+// -------------------------------------------------------------------------------------
 // returns true if it has exclusively locked anything
 bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler& parent_handler)
 {
@@ -458,408 +533,262 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
     return false;
   }
   // -------------------------------------------------------------------------------------
+  constexpr u8 MAX_MERGE_PAGES = 5;
   s32 pos = parent_handler.pos;
-  assert(pos != -1);
-  DEBUG_BLOCK()
-  {
-    bool check = parent_handler.swip.bf == c_guard.bf;
-    static_cast<void>(check);
-    p_guard.recheck();
-    assert(check);
-  }
+  u8 pages_count = 1;
+  s32 max_right;
+  OptimisticPageGuard<BTreeNode> guards[MAX_MERGE_PAGES];
+  bool fully_merged[MAX_MERGE_PAGES];
   // -------------------------------------------------------------------------------------
-  bool can_we_merge = true;
-  can_we_merge &= p_guard.hasBf() && c_guard->is_leaf;
-  can_we_merge &= (pos >= 0 + 2) && (pos + 1 + 2) < p_guard->count;
-  if (!can_we_merge) {
-    p_guard.kill();
-    c_guard.kill();
+  guards[0] = std::move(c_guard);
+  fully_merged[0] = false;
+  double total_fill_factor = guards[0]->fillFactorAfterCompaction();
+  // -------------------------------------------------------------------------------------
+  // Handle upper swip instead of avoiding p_guard->count -1 swip
+  if (!p_guard.hasBf() || !guards[0]->is_leaf)
     return false;
-  }
-  // -------------------------------------------------------------------------------------
-  for (s32 i = pos - 2; i <= pos + 2; i++)
-    can_we_merge &= p_guard->getValue(i).isSwizzled();
-  if (!can_we_merge) {
-    p_guard.kill();
-    c_guard.kill();
-    return false;
-  }
-  // -------------------------------------------------------------------------------------
-  OptimisticPageGuard<BTreeNode> guards[5] = {{p_guard, p_guard->getValue(pos - 2)},
-                                              {p_guard, p_guard->getValue(pos - 1)},
-                                              std::move(c_guard),
-                                              {p_guard, p_guard->getValue(pos + 1)},
-                                              {p_guard, p_guard->getValue(pos + 2)}};
-  // -------------------------------------------------------------------------------------
-  double total_fill_factor = 0;
-  for (u8 i = 0; i < 5; i++)
-    total_fill_factor += guards[i]->fillFactorAfterCompaction();
-  can_we_merge &= total_fill_factor <= FLAGS_d;
-  if (!can_we_merge) {
-    p_guard.kill();
-    for (u8 i = 0; i < 5; i++)
-      guards[i].kill();
-    return false;
-  }
-  // -------------------------------------------------------------------------------------
-  // Prevent fragmentation
-  if (FLAGS_x) {
-    if (pos > 7) {
-      if (p_guard->getValue(pos - 7).isSwizzled()) {
-        OptimisticPageGuard<BTreeNode> block_guard(p_guard, p_guard->getValue(pos - 7));
-        if (block_guard->fillFactorAfterCompaction() >= 0.70) {
-          // -------------------------------------------------------------------------------------
-          double total_fill_factor = 0;
-          for (s32 i = pos - 6; i <= pos - 2; i++) {
-            if (p_guard->getValue(i).isSwizzled()) {
-              OptimisticPageGuard<BTreeNode> previous_guard(p_guard, p_guard->getValue(i));
-              total_fill_factor += previous_guard->fillFactorAfterCompaction();
-            } else {
-              // TODO
-            }
-          }
-          // -------------------------------------------------------------------------------------
-          if (total_fill_factor <= FLAGS_d) {
-            WorkerCounters::myCounters().dt_researchy[dtid][9]++;
-            return false;
-          } else {
-            WorkerCounters::myCounters().dt_researchy[dtid][8]++;
-          }
-        }
-      }
-    }
-    if (pos + 8 < p_guard->count) {
-      if (p_guard->getValue(pos + 7).isSwizzled()) {
-        OptimisticPageGuard<BTreeNode> block_guard(p_guard, p_guard->getValue(pos + 7));
-        if (block_guard->fillFactorAfterCompaction() >= 0.7) {
-          // -------------------------------------------------------------------------------------
-          double total_fill_factor = 0;
-          for (s32 i = pos + 6; i <= pos + 2; i--) {
-            if (p_guard->getValue(i).isSwizzled()) {
-              OptimisticPageGuard<BTreeNode> previous_guard(p_guard, p_guard->getValue(i));
-              total_fill_factor += previous_guard->fillFactorAfterCompaction();
-            } else {
-              // TODO
-            }
-          }
-          // -------------------------------------------------------------------------------------
-          if (total_fill_factor <= FLAGS_d) {
-            WorkerCounters::myCounters().dt_researchy[dtid][9]++;
-            return false;
-          } else {
-            WorkerCounters::myCounters().dt_researchy[dtid][8]++;
-          }
-        }
-      }
+  for (max_right = pos + 1; (max_right - pos) < MAX_MERGE_PAGES && (max_right + 1) < p_guard->count; max_right++) {
+    if (!p_guard->getValue(max_right).isSwizzled())
+      return false;
+    // -------------------------------------------------------------------------------------
+    guards[max_right - pos] = OptimisticPageGuard<BTreeNode>(p_guard, p_guard->getValue(max_right));
+    fully_merged[max_right - pos] = false;
+    total_fill_factor += guards[max_right - pos]->fillFactorAfterCompaction();
+    pages_count++;
+    if ((pages_count - std::ceil(total_fill_factor + FLAGS_d)) >= 1) {
+      break;
     }
   }
-
+  if (((pages_count - std::ceil(total_fill_factor + FLAGS_d))) < 1) {
+    return false;
+  }
   // -------------------------------------------------------------------------------------
   ExclusivePageGuard<BTreeNode> p_x_guard = std::move(p_guard);
-  ExclusivePageGuard<BTreeNode> ex_guards[5] = {std::move(guards[0]), std::move(guards[1]), std::move(guards[2]), std::move(guards[3]),
-                                                std::move(guards[4])};
   // -------------------------------------------------------------------------------------
-  auto merge_left_into_right = [&](ExclusivePageGuard<BTreeNode>& parent, s32 left_pos, ExclusivePageGuard<BTreeNode>& from_left,
-                                   ExclusivePageGuard<BTreeNode>& to_right, bool full_merge_or_nothing) {
-    u32 space_upper_bound = from_left->mergeSpaceUpperBound(to_right);
-    if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge TODO: threshold
-      bool succ = from_left->merge(left_pos, parent, to_right);
-      ensure(succ);
-      WorkerCounters::myCounters().dt_researchy[dtid][5]++;
-      from_left.reclaim();
-      return 1;
-    }
-    if (full_merge_or_nothing)
-      return 0;
-    // -------------------------------------------------------------------------------------
-    // Do a partial merge
-    // Remove a key at a time from the merge and check if now it fits
-    s32 till_slot_id = -1;
-    for (s32 s_i = 0; s_i < from_left->count; s_i++) {
-      if (from_left->slot[s_i].rest_len) {
-        space_upper_bound -= (from_left->isLarge(s_i) ? (from_left->getRestLenLarge(s_i) + sizeof(u16)) : from_left->getRestLen(s_i));
-      }
-      space_upper_bound -= sizeof(ValueType) + sizeof(BTreeNode::Slot) + from_left->getPayloadLength(s_i);
-      if (space_upper_bound < EFFECTIVE_PAGE_SIZE * 1.0) {
-        till_slot_id = s_i + 1;
-        break;
-      }
-    }
-    if (!(till_slot_id != -1 && till_slot_id < (from_left->count - 1)))
-      return 0;  // false
-    ensure(till_slot_id > 0);
-    // -------------------------------------------------------------------------------------
-    u16 copy_from_count = from_left->count - till_slot_id;
-    // -------------------------------------------------------------------------------------
-    u16 new_left_uf_length = from_left->getFullKeyLength(till_slot_id - 1);
-    ensure(new_left_uf_length > 0);
-    u8 new_left_uf_key[new_left_uf_length];
-    from_left->copyFullKey(till_slot_id - 1, new_left_uf_key, new_left_uf_length);
-    // -------------------------------------------------------------------------------------
-    if (!parent->canInsert(new_left_uf_key, new_left_uf_length, 0))
-      return 0;  // false
-    // -------------------------------------------------------------------------------------
-    // cout << till_slot_id << '\t' << from_left->count << '\t' << to_right->count << endl;
-    // -------------------------------------------------------------------------------------
-    {
-      BTreeNode tmp(true);
-      tmp.setFences(new_left_uf_key, new_left_uf_length, to_right->getUpperFenceKey(), to_right->upper_fence.length);
-      // -------------------------------------------------------------------------------------
-      from_left->copyKeyValueRange(&tmp, 0, till_slot_id, copy_from_count);
-      to_right->copyKeyValueRange(&tmp, copy_from_count, 0, to_right->count);
-      memcpy(reinterpret_cast<u8*>(to_right.ptr()), &tmp, sizeof(BTreeNode));
-      to_right->makeHint();
-      // -------------------------------------------------------------------------------------
-      // Nothing to do for the right node's separator
-      assert(!to_right->sanityCheck(new_left_uf_key, new_left_uf_length));
-    }
-    {
-      BTreeNode tmp(true);
-      tmp.setFences(from_left->getLowerFenceKey(), from_left->lower_fence.length, new_left_uf_key, new_left_uf_length);
-      // -------------------------------------------------------------------------------------
-      from_left->copyKeyValueRange(&tmp, 0, 0, from_left->count - copy_from_count);
-      memcpy(reinterpret_cast<u8*>(from_left.ptr()), &tmp, sizeof(BTreeNode));
-      from_left->makeHint();
-      // -------------------------------------------------------------------------------------
-      assert(from_left->sanityCheck(new_left_uf_key, new_left_uf_length));
-      // -------------------------------------------------------------------------------------
-      parent->removeSlot(left_pos);
-      ensure(parent->insert(from_left->getUpperFenceKey(), from_left->upper_fence.length, from_left.swip()));
-    }
-    WorkerCounters::myCounters().dt_researchy[dtid][6]++;
-    return 2;
-  };
-  // -------------------------------------------------------------------------------------
-  s32 positions[5] = {pos - 2, pos - 1, pos, pos + 1, pos + 2};
-  u8 merges_count = 0, expected_pages_saving = 2, reached_pages_saving = 0;
-  int ret;
-  s32 right_hand, left_hand, max_right = 4;
+  s32 left_hand, right_hand, ret;
   while (true) {
-    for (right_hand = max_right; right_hand > 0; right_hand--) {
-      if (positions[right_hand] == -1) {  //  || ex_guards[right_hand]->fillFactorAfterCompaction() >= 0.9
+    for (right_hand = max_right; right_hand > pos; right_hand--) {
+      if (fully_merged[right_hand - pos]) {
         continue;
       } else {
         break;
       }
     }
-    if (right_hand == 0)
+    if (right_hand == pos)
       break;
-    else {
-      for (left_hand = right_hand - 1; left_hand >= 0; left_hand--) {
-        if (positions[left_hand] == -1)
-          continue;
-        else
-          break;
-      }
-      if (left_hand < 0)
+    // -------------------------------------------------------------------------------------
+    for (left_hand = right_hand - 1; left_hand >= pos; left_hand--) {
+      if (fully_merged[left_hand - pos])
+        continue;
+      else
         break;
-      ret = merge_left_into_right(p_x_guard, positions[left_hand], ex_guards[left_hand], ex_guards[right_hand], left_hand == 0);
+    }
+    if (left_hand < pos)
+      break;
+    // -------------------------------------------------------------------------------------
+    {
+      ExclusivePageGuard<BTreeNode> left_x_guard(std::move(guards[left_hand - pos]));
+      ExclusivePageGuard<BTreeNode> right_x_guard(std::move(guards[right_hand - pos]));
+      ret = mergeLeftIntoRight(p_x_guard, left_hand, left_x_guard, right_x_guard, left_hand == pos);
+      guards[right_hand - pos] = std::move(right_x_guard);
+      max_right--;
       if (ret == 1) {
-        positions[left_hand] = -1;
-        reached_pages_saving++;
-        if (reached_pages_saving == expected_pages_saving) {
-          break;
-        }
-        max_right--;
-        ensure(merges_count++ < 4);
-      }
-    }
-    if (reached_pages_saving != expected_pages_saving) {
-      WorkerCounters::myCounters().dt_researchy[dtid][9]++;
-
-    } else {
-      WorkerCounters::myCounters().dt_researchy[dtid][8]++;
-    }
-    return true;
-  }
-  // -------------------------------------------------------------------------------------
-  BTree::~BTree() {}
-  // -------------------------------------------------------------------------------------
-  struct DTRegistry::DTMeta BTree::getMeta()
-  {
-    DTRegistry::DTMeta btree_meta = {
-        .iterate_children = iterateChildrenSwips, .find_parent = findParent, .check_space_utilization = checkSpaceUtilization};
-    return btree_meta;
-  }
-  // -------------------------------------------------------------------------------------
-  // Called by buffer manager before eviction
-  // Returns true if the buffer manager has to restart and pick another buffer frame for eviction
-  // Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
-  bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard& guard, ParentSwipHandler& parent_handler)
-  {
-    auto& btree = *reinterpret_cast<BTree*>(btree_object);
-    OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-    OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(guard, &bf);
-    if (FLAGS_cm_merge) {
-      if (bf.page.dt_id == btree.dtid && c_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-        jumpmuTry()
-        {
-          if (btree.tryMerge(bf, false)) {
-            WorkerCounters::myCounters().dt_researchy[btree.dtid][2]++;
-          } else {
-            WorkerCounters::myCounters().dt_researchy[btree.dtid][3]++;
-          }
-        }
-        jumpmuCatch() { WorkerCounters::myCounters().dt_researchy[btree.dtid][4]++; }
-        p_guard.kill();
-        c_guard.kill();
-        return true;
+        fully_merged[left_hand - pos] = true;
+      } else {
+        guards[left_hand - pos] = std::move(left_x_guard);
       }
     }
     // -------------------------------------------------------------------------------------
-    if (FLAGS_su_merge) {
-      bool merged = btree.kWayMerge(p_guard, c_guard, parent_handler);
+  }
+  return true;
+}
+// -------------------------------------------------------------------------------------
+BTree::~BTree() {}
+// -------------------------------------------------------------------------------------
+struct DTRegistry::DTMeta BTree::getMeta()
+{
+  DTRegistry::DTMeta btree_meta = {
+      .iterate_children = iterateChildrenSwips, .find_parent = findParent, .check_space_utilization = checkSpaceUtilization};
+  return btree_meta;
+}
+// -------------------------------------------------------------------------------------
+// Called by buffer manager before eviction
+// Returns true if the buffer manager has to restart and pick another buffer frame for eviction
+// Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
+bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard& guard, ParentSwipHandler& parent_handler)
+{
+  auto& btree = *reinterpret_cast<BTree*>(btree_object);
+  OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
+  OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(guard, &bf);
+  if (FLAGS_cm_merge) {
+    if (bf.page.dt_id == btree.dtid && c_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+      jumpmuTry()
+      {
+        if (btree.tryMerge(bf, false)) {
+          WorkerCounters::myCounters().dt_researchy[btree.dtid][2]++;
+        } else {
+          WorkerCounters::myCounters().dt_researchy[btree.dtid][3]++;
+        }
+      }
+      jumpmuCatch() { WorkerCounters::myCounters().dt_researchy[btree.dtid][4]++; }
       p_guard.kill();
       c_guard.kill();
-      return merged;
+      return true;
     }
+  }
+  // -------------------------------------------------------------------------------------
+  if (FLAGS_su_merge) {
+    bool merged = btree.kWayMerge(p_guard, c_guard, parent_handler);
     p_guard.kill();
     c_guard.kill();
-    return false;
+    return merged;
+  }
+  p_guard.kill();
+  c_guard.kill();
+  return false;
+}
+// -------------------------------------------------------------------------------------
+// Should not have to swizzle any page
+// Throws if the bf could not be found
+struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_find)
+{
+  // Pre: bf is write locked TODO: but trySplit does not ex lock !
+  auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
+  auto& btree = *reinterpret_cast<BTree*>(btree_object);
+  // -------------------------------------------------------------------------------------
+  if (btree.dtid != to_find.page.dt_id)
+    jumpmu::jump();
+  // -------------------------------------------------------------------------------------
+  Swip<BTreeNode>* c_swip = &btree.root_swip;
+  u16 level = 0;
+  // -------------------------------------------------------------------------------------
+  auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(btree.root_lock);
+  // -------------------------------------------------------------------------------------
+  const bool infinity = c_node.upper_fence.offset == 0;
+  u16 key_length = c_node.upper_fence.length;
+  u8* key = c_node.getUpperFenceKey();
+  // -------------------------------------------------------------------------------------
+  // check if bf is the root node
+  if (c_swip->bf == &to_find) {
+    p_guard.recheck_done();
+    return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = p_guard.bf_s_lock, .parent = nullptr};
   }
   // -------------------------------------------------------------------------------------
-  // Should not have to swizzle any page
-  // Throws if the bf could not be found
-  struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_find)
-  {
-    // Pre: bf is write locked TODO: but trySplit does not ex lock !
-    auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
-    auto& btree = *reinterpret_cast<BTree*>(btree_object);
-    // -------------------------------------------------------------------------------------
-    if (btree.dtid != to_find.page.dt_id)
-      jumpmu::jump();
-    // -------------------------------------------------------------------------------------
-    Swip<BTreeNode>* c_swip = &btree.root_swip;
-    u16 level = 0;
-    // -------------------------------------------------------------------------------------
-    auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(btree.root_lock);
-    // -------------------------------------------------------------------------------------
-    const bool infinity = c_node.upper_fence.offset == 0;
-    u16 key_length = c_node.upper_fence.length;
-    u8* key = c_node.getUpperFenceKey();
-    // -------------------------------------------------------------------------------------
-    // check if bf is the root node
-    if (c_swip->bf == &to_find) {
-      p_guard.recheck_done();
-      return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = p_guard.bf_s_lock, .parent = nullptr};
-    }
-    // -------------------------------------------------------------------------------------
-    OptimisticPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
-    s32 pos = -1;
-    auto search_condition = [&]() {
-      if (infinity) {
+  OptimisticPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
+  s32 pos = -1;
+  auto search_condition = [&]() {
+    if (infinity) {
+      c_swip = &(c_guard->upper);
+      pos = c_guard->count;
+    } else {
+      pos = c_guard->lowerBound<false>(key, key_length);
+      if (pos == c_guard->count) {
         c_swip = &(c_guard->upper);
-        pos = c_guard->count;
       } else {
-        pos = c_guard->lowerBound<false>(key, key_length);
-        if (pos == c_guard->count) {
-          c_swip = &(c_guard->upper);
-        } else {
-          c_swip = &(c_guard->getValue(pos));
-        }
+        c_swip = &(c_guard->getValue(pos));
       }
-      return (c_swip->bf != &to_find);
-    };
-    while (!c_guard->is_leaf && search_condition()) {
-      p_guard = std::move(c_guard);
-      c_guard = OptimisticPageGuard(p_guard, c_swip->cast<BTreeNode>());
-      level++;
     }
-    p_guard.kill();
-    const bool found = c_swip->bf == &to_find;
-    c_guard.recheck_done();
-    if (!found) {
-      jumpmu::jump();
-    }
-    return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = c_guard.bf_s_lock, .parent = c_guard.bf, .pos = pos};
+    return (c_swip->bf != &to_find);
+  };
+  while (!c_guard->is_leaf && search_condition()) {
+    p_guard = std::move(c_guard);
+    c_guard = OptimisticPageGuard(p_guard, c_swip->cast<BTreeNode>());
+    level++;
   }
-  // -------------------------------------------------------------------------------------
-  void BTree::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)
-  {
-    // Pre: bf is read locked
-    auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
-    if (c_node.is_leaf) {
+  p_guard.kill();
+  const bool found = c_swip->bf == &to_find;
+  c_guard.recheck_done();
+  if (!found) {
+    jumpmu::jump();
+  }
+  return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = c_guard.bf_s_lock, .parent = c_guard.bf, .pos = pos};
+}
+// -------------------------------------------------------------------------------------
+void BTree::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)
+{
+  // Pre: bf is read locked
+  auto& c_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
+  if (c_node.is_leaf) {
+    return;
+  }
+  for (u16 i = 0; i < c_node.count; i++) {
+    if (!callback(c_node.getValue(i).cast<BufferFrame>())) {
       return;
     }
-    for (u16 i = 0; i < c_node.count; i++) {
-      if (!callback(c_node.getValue(i).cast<BufferFrame>())) {
-        return;
-      }
-    }
-    callback(c_node.upper.cast<BufferFrame>());
   }
-  // Helpers
-  // -------------------------------------------------------------------------------------
-  s64 BTree::iterateAllPagesRec(OptimisticPageGuard<BTreeNode> & node_guard, std::function<s64(BTreeNode&)> inner,
-                                std::function<s64(BTreeNode&)> leaf)
-  {
-    if (node_guard->is_leaf) {
-      return leaf(node_guard.ref());
-    }
-    s64 res = inner(node_guard.ref());
-    for (u16 i = 0; i < node_guard->count; i++) {
-      Swip<BTreeNode>& c_swip = node_guard->getValue(i);
-      auto c_guard = OptimisticPageGuard(node_guard, c_swip);
-      c_guard.recheck_done();
-      res += iterateAllPagesRec(c_guard, inner, leaf);
-    }
-    // -------------------------------------------------------------------------------------
-    Swip<BTreeNode>& c_swip = node_guard->upper;
+  callback(c_node.upper.cast<BufferFrame>());
+}
+// Helpers
+// -------------------------------------------------------------------------------------
+s64 BTree::iterateAllPagesRec(OptimisticPageGuard<BTreeNode>& node_guard, std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf)
+{
+  if (node_guard->is_leaf) {
+    return leaf(node_guard.ref());
+  }
+  s64 res = inner(node_guard.ref());
+  for (u16 i = 0; i < node_guard->count; i++) {
+    Swip<BTreeNode>& c_swip = node_guard->getValue(i);
     auto c_guard = OptimisticPageGuard(node_guard, c_swip);
     c_guard.recheck_done();
     res += iterateAllPagesRec(c_guard, inner, leaf);
-    // -------------------------------------------------------------------------------------
-    return res;
   }
   // -------------------------------------------------------------------------------------
-  s64 BTree::iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf)
-  {
-    while (true) {
-      jumpmuTry()
-      {
-        auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-        OptimisticPageGuard c_guard(p_guard, root_swip);
-        jumpmu_return iterateAllPagesRec(c_guard, inner, leaf);
-      }
-      jumpmuCatch() {}
+  Swip<BTreeNode>& c_swip = node_guard->upper;
+  auto c_guard = OptimisticPageGuard(node_guard, c_swip);
+  c_guard.recheck_done();
+  res += iterateAllPagesRec(c_guard, inner, leaf);
+  // -------------------------------------------------------------------------------------
+  return res;
+}
+// -------------------------------------------------------------------------------------
+s64 BTree::iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf)
+{
+  while (true) {
+    jumpmuTry()
+    {
+      auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
+      OptimisticPageGuard c_guard(p_guard, root_swip);
+      jumpmu_return iterateAllPagesRec(c_guard, inner, leaf);
     }
+    jumpmuCatch() {}
   }
-  // -------------------------------------------------------------------------------------
-  u32 BTree::countEntries()
-  {
-    return iterateAllPages([](BTreeNode&) { return 0; }, [](BTreeNode& node) { return node.count; });
-  }
-  // -------------------------------------------------------------------------------------
-  u32 BTree::countPages()
-  {
-    return iterateAllPages([](BTreeNode&) { return 1; }, [](BTreeNode&) { return 1; });
-  }
-  // -------------------------------------------------------------------------------------
-  u32 BTree::countInner()
-  {
-    return iterateAllPages([](BTreeNode&) { return 1; }, [](BTreeNode&) { return 0; });
-  }
-  // -------------------------------------------------------------------------------------
-  double BTree::averageSpaceUsage()
-  {
-    ensure(false);  // TODO
-  }
-  // -------------------------------------------------------------------------------------
-  u32 BTree::bytesFree()
-  {
-    return iterateAllPages([](BTreeNode& inner) { return inner.freeSpaceAfterCompaction(); },
-                           [](BTreeNode& leaf) { return leaf.freeSpaceAfterCompaction(); });
-  }
-  // -------------------------------------------------------------------------------------
-  void BTree::printInfos(uint64_t totalSize)
-  {
-    auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-    OptimisticPageGuard r_guard(p_guard, root_swip);
-    uint64_t cnt = countPages();
-    cout << "nodes:" << cnt << " innerNodes:" << countInner() << " space:" << (cnt * EFFECTIVE_PAGE_SIZE) / (float)totalSize << " height:" << height
-         << " rootCnt:" << r_guard->count << " bytesFree:" << bytesFree() << endl;
-  }
-  // -------------------------------------------------------------------------------------
-}  // namespace vs
+}
+// -------------------------------------------------------------------------------------
+u32 BTree::countEntries()
+{
+  return iterateAllPages([](BTreeNode&) { return 0; }, [](BTreeNode& node) { return node.count; });
+}
+// -------------------------------------------------------------------------------------
+u32 BTree::countPages()
+{
+  return iterateAllPages([](BTreeNode&) { return 1; }, [](BTreeNode&) { return 1; });
+}
+// -------------------------------------------------------------------------------------
+u32 BTree::countInner()
+{
+  return iterateAllPages([](BTreeNode&) { return 1; }, [](BTreeNode&) { return 0; });
+}
+// -------------------------------------------------------------------------------------
+double BTree::averageSpaceUsage()
+{
+  ensure(false);  // TODO
+}
+// -------------------------------------------------------------------------------------
+u32 BTree::bytesFree()
+{
+  return iterateAllPages([](BTreeNode& inner) { return inner.freeSpaceAfterCompaction(); },
+                         [](BTreeNode& leaf) { return leaf.freeSpaceAfterCompaction(); });
+}
+// -------------------------------------------------------------------------------------
+void BTree::printInfos(uint64_t totalSize)
+{
+  auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
+  OptimisticPageGuard r_guard(p_guard, root_swip);
+  uint64_t cnt = countPages();
+  cout << "nodes:" << cnt << " innerNodes:" << countInner() << " space:" << (cnt * EFFECTIVE_PAGE_SIZE) / (float)totalSize << " height:" << height
+       << " rootCnt:" << r_guard->count << " bytesFree:" << bytesFree() << endl;
+}
+// -------------------------------------------------------------------------------------
 }  // namespace vs
 }  // namespace btree
+}  // namespace leanstore

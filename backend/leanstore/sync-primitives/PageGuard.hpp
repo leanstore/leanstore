@@ -16,8 +16,7 @@ template <typename T>
 class OptimisticPageGuard
 {
  protected:
-  OptimisticPageGuard() : moved(true) {}
-  OptimisticPageGuard(OptimisticLatch& swip_version) { bf_s_lock = OptimisticGuard(swip_version); }
+  OptimisticPageGuard(OptimisticLatch& swip_version) : moved(false) { bf_s_lock = OptimisticGuard(swip_version); }
   OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : moved(false), bf(bf), bf_s_lock(read_guard) {}
   // -------------------------------------------------------------------------------------
   bool manually_checked = false;
@@ -27,6 +26,8 @@ class OptimisticPageGuard
   bool moved = false;
   BufferFrame* bf = nullptr;
   OptimisticGuard bf_s_lock;
+  // -------------------------------------------------------------------------------------
+  OptimisticPageGuard() : moved(true) {}  // use with caution
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard(OptimisticPageGuard&& other)
       : manually_checked(other.manually_checked), moved(other.moved), bf(other.bf), bf_s_lock(std::move(other.bf_s_lock))
@@ -153,6 +154,7 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
   }
   // -------------------------------------------------------------------------------------
  public:
+  // -------------------------------------------------------------------------------------
   // I: Upgrade
   ExclusivePageGuard(OptimisticClass&& o_guard)
   {
@@ -190,7 +192,9 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
     OptimisticClass::moved = true;
   }
   // -------------------------------------------------------------------------------------
-  jumpmu_defineCustomDestructor(ExclusivePageGuard) ~ExclusivePageGuard()
+  jumpmu_defineCustomDestructor(ExclusivePageGuard)
+      // -------------------------------------------------------------------------------------
+      ~ExclusivePageGuard()
   {
     jumpmu::clearLastDestructor();
     // -------------------------------------------------------------------------------------

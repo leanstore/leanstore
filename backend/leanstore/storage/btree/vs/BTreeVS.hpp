@@ -47,7 +47,12 @@ struct BTree {
   bool remove(u8* key, u16 key_length);
   bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
   // -------------------------------------------------------------------------------------
-  bool kWayMerge(OptimisticPageGuard<BTreeNode> &p_guard, OptimisticPageGuard<BTreeNode> &c_guard, ParentSwipHandler&);
+  s32 mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
+                         s32 left_pos,
+                         ExclusivePageGuard<BTreeNode>& from_left,
+                         ExclusivePageGuard<BTreeNode>& to_right,
+                         bool full_merge_or_nothing);
+  bool kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
   // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();
   static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);

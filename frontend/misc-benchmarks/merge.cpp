@@ -47,14 +47,13 @@ int main(int argc, char** argv)
   // Insert values
   {
     const u64 n = tuple_count;
-    {
-      PerfEventBlock b(e, n);
-      for (u64 t_i = 0; t_i < n; t_i++) {
+    tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
+      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
         table.insert(t_i, payload);
       }
-    }
-    cout << "Inserted volume: (pages) = (" << db.getBufferManager().consumedPages() << ")" << endl;
+    });
   }
+  cout << "Inserted volume: (mib) = (" << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
   // -------------------------------------------------------------------------------------
   auto print_fill_factors = [&](std::ofstream& csv, s32 flag) {
     u64 t_i = 0;
@@ -112,6 +111,15 @@ int main(int argc, char** argv)
       thread.join();
     }
   }
+  // -------------------------------------------------------------------------------------
+  tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+    for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+      Payload result;
+      ensure(table.lookup(t_i, result));
+      ensure(result == payload);
+    }
+  });
+  cout << "Inserted volume: (mib) = (" << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
   // -------------------------------------------------------------------------------------
   print_fill_factors(csv, 1);
   // -------------------------------------------------------------------------------------
