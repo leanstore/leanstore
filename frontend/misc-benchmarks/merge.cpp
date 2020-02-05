@@ -4,6 +4,7 @@
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/storage/btree/vs/BTreeSlotted.hpp"
+#include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
@@ -15,6 +16,7 @@
 // -------------------------------------------------------------------------------------
 #include <iostream>
 // -------------------------------------------------------------------------------------
+DEFINE_string(in, "", "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -36,25 +38,20 @@ int main(int argc, char** argv)
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
   // -------------------------------------------------------------------------------------
-  // -------------------------------------------------------------------------------------
-  Payload payload;
-  utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
-  // -------------------------------------------------------------------------------------
-  const u64 tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
-  // -------------------------------------------------------------------------------------
-  PerfEvent e;
-  // Insert values
-  {
-    const u64 n = tuple_count;
-    tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
-      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-        table.insert(t_i, payload);
-      }
-    });
-  }
-  cout << "Inner = " << vs_btree.countInner() << endl;
-  cout << "Pages = " << vs_btree.countPages() << endl;
-  cout << "Inserted volume: (mib) = (" << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
+  u64 merges_counter = 0;
+  auto compress_bf = [&](Key k) {
+    BufferFrame* bf;
+    u8 key_bytes[sizeof(Key)];
+    vs_btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); });
+    OptimisticGuard c_guard = OptimisticGuard(bf->header.lock);
+    auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
+    merges_counter += vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler);
+  };
+  auto print_stats = [&]() {
+    cout << "Inner = " << vs_btree.countInner() << endl;
+    cout << "Pages = " << vs_btree.countPages() << endl;
+    cout << "Inserted volume: (mib) = (" << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
+  };
   // -------------------------------------------------------------------------------------
   auto print_fill_factors = [&](std::ofstream& csv, s32 flag) {
     u64 t_i = 0;
@@ -65,15 +62,31 @@ int main(int argc, char** argv)
                              });
   };
   // -------------------------------------------------------------------------------------
-  u64 merges_counter = 0;
-  auto compress_bf = [&](Key k) {
-    BufferFrame* bf;
-    u8 key_bytes[sizeof(Key)];
-    vs_btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); });
-    OptimisticGuard c_guard = OptimisticGuard(bf->header.lock);
-    auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
-    merges_counter += vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler);
-  };
+  Payload payload;
+  utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
+  // -------------------------------------------------------------------------------------
+  u64 tuple_count;
+  if (FLAGS_in != "") {
+    utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
+    tuple_count = input_strings.size();
+    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+      u8 key_bytes[8];
+      u64 k;
+      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+        k = t_i;
+        fold(key_bytes, k);
+        vs_btree.insert(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8, key_bytes);
+      }
+    });
+  } else {
+    tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
+    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+        table.insert(t_i, payload);
+      }
+    });
+  }
+  print_stats();
   // -------------------------------------------------------------------------------------
   std::ofstream csv;
   std::ofstream::openmode open_flags;
@@ -123,9 +136,7 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   print_fill_factors(csv, 1);
   // -------------------------------------------------------------------------------------
-  cout << "Inner = " << vs_btree.countInner() << endl;
-  cout << "Pages = " << vs_btree.countPages() << endl;
-  cout << "Inserted volume: (mib) = (" << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
+  print_stats();
   cout << merges_counter << endl;
   // -------------------------------------------------------------------------------------
   return 0;

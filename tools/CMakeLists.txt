@@ -17,3 +17,7 @@ add_executable(caught_exceptions caught_exceptions.cpp fast-uncaught-exception/f
 add_executable(mutex_benchmark BenchmarkMutex.cpp)
 target_link_libraries(mutex_benchmark gbenchmark)
 target_include_directories(mutex_benchmark PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(txt_to_vector txt_to_vector.cpp)
+target_link_libraries(txt_to_vector leanstore)
+target_include_directories(txt_to_vector PRIVATE ${SHARED_INCLUDE_DIRECTORY})
