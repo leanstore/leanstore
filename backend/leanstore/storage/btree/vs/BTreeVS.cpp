@@ -461,7 +461,6 @@ s32 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
   if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge TODO: threshold
     bool succ = from_left->merge(left_pos, parent, to_right);
     ensure(succ);
-    WorkerCounters::myCounters().dt_researchy[dtid][5]++;
     from_left.reclaim();
     return 1;
   }
@@ -522,14 +521,13 @@ s32 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
     parent->removeSlot(left_pos);
     ensure(parent->insert(from_left->getUpperFenceKey(), from_left->upper_fence.length, from_left.swip()));
   }
-  WorkerCounters::myCounters().dt_researchy[dtid][6]++;
   return 2;
 }
 // -------------------------------------------------------------------------------------
 // returns true if it has exclusively locked anything
 bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler& parent_handler)
 {
-  if (c_guard->fillFactorAfterCompaction() >= 0.9 || utils::RandomGenerator::getRandU64(0, 100) >= FLAGS_y) {
+  if (c_guard->fillFactorAfterCompaction() >= 0.9) {  // || utils::RandomGenerator::getRandU64(0, 100) >= FLAGS_y
     return false;
   }
   // -------------------------------------------------------------------------------------
@@ -577,27 +575,22 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
     if (right_hand == pos)
       break;
     // -------------------------------------------------------------------------------------
-    for (left_hand = right_hand - 1; left_hand >= pos; left_hand--) {
-      if (fully_merged[left_hand - pos])
-        continue;
-      else
-        break;
-    }
-    if (left_hand < pos)
-      break;
+    left_hand = right_hand - 1;
     // -------------------------------------------------------------------------------------
     {
-      ExclusivePageGuard<BTreeNode> left_x_guard(std::move(guards[left_hand - pos]));
       ExclusivePageGuard<BTreeNode> right_x_guard(std::move(guards[right_hand - pos]));
+      ExclusivePageGuard<BTreeNode> left_x_guard(std::move(guards[left_hand - pos]));
+      max_right = left_hand;
       ret = mergeLeftIntoRight(p_x_guard, left_hand, left_x_guard, right_x_guard, left_hand == pos);
-      guards[right_hand - pos] = std::move(right_x_guard);
-      max_right--;
+      // we unlock only the left page, the right one should not be touched again
       if (ret == 1) {
+        // guards[right_hand - pos] = std::move(right_x_guard);
         fully_merged[left_hand - pos] = true;
-        WorkerCounters::myCounters().dt_researchy[dtid][9]++;
+        WorkerCounters::myCounters().dt_researchy[dtid][5]++;
       } else {
         guards[left_hand - pos] = std::move(left_x_guard);
-        WorkerCounters::myCounters().dt_researchy[dtid][8]++;
+        // guards[right_hand - pos] = std::move(right_x_guard);
+        WorkerCounters::myCounters().dt_researchy[dtid][6]++;
       }
     }
     // -------------------------------------------------------------------------------------

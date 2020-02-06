@@ -59,6 +59,9 @@ class OptimisticPageGuard
     bf = other.bf;
     bf_s_lock = other.bf_s_lock;
     // -------------------------------------------------------------------------------------
+    if (hasBf()) {
+      bf->page.LSN++;
+    }
     ExclusiveGuard::unlatch(bf_s_lock);
     // -------------------------------------------------------------------------------------
     moved = false;
