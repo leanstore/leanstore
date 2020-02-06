@@ -60,6 +60,7 @@ int main(int argc, char** argv)
       max_key = n;
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Inserting values" << endl;
+      begin = chrono::high_resolution_clock::now();
       {
         tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
           for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
@@ -68,6 +69,7 @@ int main(int argc, char** argv)
         });
       }
       end = chrono::high_resolution_clock::now();
+      cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
       // -------------------------------------------------------------------------------------
     }
 

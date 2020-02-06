@@ -37,6 +37,7 @@ int main(int argc, char** argv)
   auto& vs_btree = db.registerVSBTree("merge");
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
+  db.startDebuggingThread();
   // -------------------------------------------------------------------------------------
   u64 merges_counter = 0;
   auto compress_bf = [&](Key k) {
@@ -66,26 +67,21 @@ int main(int argc, char** argv)
   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
   // -------------------------------------------------------------------------------------
   u64 tuple_count;
-  if (FLAGS_in != "") {
-    utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
-    tuple_count = input_strings.size();
-    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
-      u8 key_bytes[8];
-      u64 k;
-      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-        k = t_i;
-        fold(key_bytes, k);
-        vs_btree.insert(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8, key_bytes);
-      }
-    });
-  } else {
-    tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
+  tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
+  // -------------------------------------------------------------------------------------
+  chrono::high_resolution_clock::time_point begin, end;
+  begin = chrono::high_resolution_clock::now();
+  // -------------------------------------------------------------------------------------
+  {
     tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
       for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
         table.insert(t_i, payload);
+        WorkerCounters::myCounters().tx++;
       }
     });
   }
+  end = chrono::high_resolution_clock::now();
+  cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
   print_stats();
   // -------------------------------------------------------------------------------------
   std::ofstream csv;
@@ -100,9 +96,8 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
-  vector<thread> threads;
-  db.startDebuggingThread();
   // -------------------------------------------------------------------------------------
+  vector<thread> threads;
   threads.emplace_back([&]() {
     running_threads_counter++;
     while (keep_running) {

@@ -40,3 +40,7 @@ target_include_directories(contention PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(merge misc-benchmarks/merge.cpp)
 target_link_libraries(merge leanstore Threads::Threads)
 target_include_directories(merge PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(urls misc-benchmarks/urls.cpp)
+target_link_libraries(urls leanstore Threads::Threads)
+target_include_directories(urls PRIVATE ${SHARED_INCLUDE_DIRECTORY})
