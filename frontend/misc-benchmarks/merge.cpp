@@ -17,6 +17,7 @@
 #include <iostream>
 // -------------------------------------------------------------------------------------
 DEFINE_string(in, "", "");
+DEFINE_bool(random_insert, false, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -72,7 +73,21 @@ int main(int argc, char** argv)
   chrono::high_resolution_clock::time_point begin, end;
   begin = chrono::high_resolution_clock::now();
   // -------------------------------------------------------------------------------------
-  {
+  if (FLAGS_random_insert) {
+    vector<u64> keys(tuple_count);
+    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+        keys[t_i] = t_i;
+      }
+    });
+    std::random_shuffle(keys.begin(), keys.end());
+    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+        table.insert(keys[t_i], payload);
+        WorkerCounters::myCounters().tx++;
+      }
+    });
+  } else {
     tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
       for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
         table.insert(t_i, payload);

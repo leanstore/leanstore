@@ -1,4 +1,4 @@
-#pragma once
+ #pragma once
 #include "Exceptions.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------

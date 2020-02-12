@@ -37,3 +37,5 @@ DECLARE_uint64(restarts_threshold);
 DECLARE_uint64(x);
 DECLARE_uint64(y);
 DECLARE_double(d);
+// -------------------------------------------------------------------------------------
+DECLARE_bool(bstar);

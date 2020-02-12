@@ -193,7 +193,7 @@ struct BTreeNode : public BTreeNodeHeader {
   static SketchType head(u8*& key, unsigned& keyLength);
   void makeHint();
   // -------------------------------------------------------------------------------------
-  bool sanityCheck(u8* key, unsigned keyLength);
+  s32 sanityCheck(u8* key, unsigned keyLength);
   // -------------------------------------------------------------------------------------
   template <bool equalityOnly = false>
   s32 lowerBound(u8* key, unsigned keyLength)
@@ -274,17 +274,23 @@ struct BTreeNode : public BTreeNodeHeader {
   // -------------------------------------------------------------------------------------
   void updateHint(unsigned slotId);
   // -------------------------------------------------------------------------------------
-  bool insert(u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);
-  bool canInsert(u8* key, unsigned keyLength, ValueType value);
+  void insert(u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);
+  u16 spaceNeeded(unsigned key_length, ValueType value);
+  bool canInsert(unsigned key_length, ValueType value);
+  bool prepareInsert(u8* key, unsigned keyLength, ValueType value);
+  // -------------------------------------------------------------------------------------
   bool update(u8* key, unsigned keyLength, u16 payload_length, u8* payload);
   // -------------------------------------------------------------------------------------
   void compactify();
   // -------------------------------------------------------------------------------------
   // merge right node into this node
   u32 mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right);
+  u32 spaceUsedBySlot(u16 slot_id);
+  // -------------------------------------------------------------------------------------
   bool merge(unsigned slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
   // store key/value pair at slotId
   void storeKeyValue(u16 slotId, u8* key, unsigned keyLength, ValueType value, u8* payload = nullptr);
+  // ATTENTION: dstSlot then srcSlot !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   void copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, unsigned count);
   void copyKeyValue(u16 srcSlot, BTreeNode* dst, u16 dstSlot);
   void insertFence(FenceKey& fk, u8* key, unsigned keyLength);

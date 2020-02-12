@@ -72,7 +72,6 @@ int main(int argc, char** argv)
       cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
       // -------------------------------------------------------------------------------------
     }
-
   } else {
     u64 largest_keys[FLAGS_worker_threads];
     // -------------------------------------------------------------------------------------
