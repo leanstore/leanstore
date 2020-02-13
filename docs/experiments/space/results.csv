@@ -1,0 +1,10 @@
+# dram = 50, target = 20
+type,insert_s,size_mib,random
+btree,5.55823,44039.4,0
+bstar,10.2156,23416.7,0
+
+btree,17.031,32060.3,1
+bstar,32.8259,25670.5,1
+
+bmerge,0,0,0
+bmerge,0,0,0

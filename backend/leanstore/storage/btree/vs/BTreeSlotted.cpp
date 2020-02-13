@@ -275,20 +275,32 @@ void BTreeNode::storeKeyValue(u16 slotId, u8* key, unsigned keyLength, ValueType
 // ATTENTION: dstSlot then srcSlot !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 void BTreeNode::copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, unsigned count)
 {
+  if (is_leaf && count == this->count - 1 && dst->count == 0) {
+    // raise(SIGTRAP);
+  }
   if (prefix_length == dst->prefix_length) {
     // Fast path
     memcpy(dst->slot + dstSlot, slot + srcSlot, sizeof(Slot) * count);
+    DEBUG_BLOCK()
+    {
+      u32 total_space_used = upper_fence.length + lower_fence.length;
+      for (unsigned i = 0; i < this->count; i++) {
+        total_space_used += sizeof(ValueType) + (isLarge(i) ? (getRestLenLarge(i) + sizeof(u16)) : getRestLen(i));
+        total_space_used += (is_leaf) ? getPayloadLength(i) : 0;
+      }
+      assert(total_space_used == this->space_used);
+    }
     for (unsigned i = 0; i < count; i++) {
-      unsigned space = sizeof(ValueType) + (isLarge(srcSlot + i) ? (getRestLenLarge(srcSlot + i) + sizeof(u16)) : getRestLen(srcSlot + i));
+      u32 kv_size = sizeof(ValueType) + (isLarge(srcSlot + i) ? (getRestLenLarge(srcSlot + i) + sizeof(u16)) : getRestLen(srcSlot + i));
       if (dst->is_leaf) {
         assert(is_leaf);
-        space += getPayloadLength(srcSlot + i);  // AAA: Payload size
+        kv_size += getPayloadLength(srcSlot + i);  // AAA: Payload size
       }
-      dst->data_offset -= space;
-      dst->space_used += space;
+      dst->data_offset -= kv_size;
+      dst->space_used += kv_size;
       dst->slot[dstSlot + i].offset = dst->data_offset;
-      assert((dst->ptr() + dst->data_offset) >= reinterpret_cast<u8*>(dst->slot + dst->count));
-      memcpy(reinterpret_cast<u8*>(dst) + dst->data_offset, ptr() + slot[srcSlot + i].offset, space);
+      assert((dst->ptr() + dst->data_offset) >= reinterpret_cast<u8*>(dst->slot + dstSlot + count));
+      memcpy(dst->ptr() + dst->data_offset, ptr() + slot[srcSlot + i].offset, kv_size);
     }
   } else {
     for (unsigned i = 0; i < count; i++)
@@ -403,12 +415,12 @@ s32 BTreeNode::sanityCheck(u8* key, unsigned int keyLength)
   if (lower_fence.offset) {
     int cmp = cmpKeys(key, getLowerFenceKey(), keyLength, lower_fence.length);
     if (!(cmp > 0))
-      return 1; // Key lower or equal LF
+      return 1;  // Key lower or equal LF
   }
   if (upper_fence.offset) {
     int cmp = cmpKeys(key, getUpperFenceKey(), keyLength, upper_fence.length);
     if (!(cmp <= 0))
-      return -1; // Key higher than UF
+      return -1;  // Key higher than UF
   }
   return 0;
 }

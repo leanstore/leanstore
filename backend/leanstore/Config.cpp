@@ -11,6 +11,7 @@ DEFINE_uint32(partition_bits, 6, "bits per partition");
 DEFINE_uint32(pp_threads, 4, "number of page provider threads");
 // -------------------------------------------------------------------------------------
 DEFINE_string(csv_path, "./log.csv", "");
+DEFINE_bool(csv_truncate, false, "");
 DEFINE_string(ssd_path, "./leanstore", "");
 DEFINE_uint32(async_batch_size, 256, "");
 DEFINE_bool(trunc, false, "Truncate file");

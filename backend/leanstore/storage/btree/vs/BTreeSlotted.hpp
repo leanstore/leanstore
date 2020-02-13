@@ -64,7 +64,7 @@ struct BTreeNodeHeader {
 
   u16 count = 0;  // count number of separators, excluding the upper swip
   bool is_leaf;
-  u16 space_used = 0;  // does not include the header
+  u16 space_used = 0;  // does not include the header, but includes fences !!!!!
   u16 data_offset = static_cast<u16>(EFFECTIVE_PAGE_SIZE);
   u16 prefix_length = 0;
 

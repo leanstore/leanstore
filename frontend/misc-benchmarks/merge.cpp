@@ -18,6 +18,8 @@
 // -------------------------------------------------------------------------------------
 DEFINE_string(in, "", "");
 DEFINE_bool(random_insert, false, "");
+DEFINE_bool(print_fill_factors, false, "");  // 1582587
+DEFINE_uint64(stop_at, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -30,15 +32,26 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   // Check if parameters make sense
   // -------------------------------------------------------------------------------------
-  tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
-  // -------------------------------------------------------------------------------------
   // LeanStore DB
   LeanStore db;
   unique_ptr<BTreeInterface<Key, Payload>> adapter;
   auto& vs_btree = db.registerVSBTree("merge");
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
-  db.startDebuggingThread();
+  // -------------------------------------------------------------------------------------
+  std::ofstream csv;
+  std::ofstream::openmode open_flags;
+  if (FLAGS_csv_truncate) {
+    open_flags = ios::trunc;
+  } else {
+    open_flags = ios::app;
+  }
+  csv.open("merge.csv", open_flags);
+  csv.seekp(0, ios::end);
+  csv << std::setprecision(2) << std::fixed;
+  if (FLAGS_csv_truncate) {
+    csv << "i,ff,flag,bstar,su_merge" << endl;
+  }
   // -------------------------------------------------------------------------------------
   u64 merges_counter = 0;
   auto compress_bf = [&](Key k) {
@@ -52,14 +65,16 @@ int main(int argc, char** argv)
   auto print_stats = [&]() {
     cout << "Inner = " << vs_btree.countInner() << endl;
     cout << "Pages = " << vs_btree.countPages() << endl;
-    cout << "Inserted volume: (mib) = (" << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
+    cout << "Inserted volume: (pages, mib) = (" << db.getBufferManager().consumedPages() << ","
+         << db.getBufferManager().consumedPages() * 1.0 * PAGE_SIZE / 1024 / 1024 << ")" << endl;
   };
   // -------------------------------------------------------------------------------------
   auto print_fill_factors = [&](std::ofstream& csv, s32 flag) {
     u64 t_i = 0;
     vs_btree.iterateAllPages([&](leanstore::btree::vs::BTreeNode&) { return 0; },
                              [&](leanstore::btree::vs::BTreeNode& leaf) {
-                               csv << t_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << endl;
+                               csv << t_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_bstar << "," << FLAGS_su_merge
+                                   << endl;
                                return 0;
                              });
   };
@@ -71,19 +86,23 @@ int main(int argc, char** argv)
   tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
   // -------------------------------------------------------------------------------------
   chrono::high_resolution_clock::time_point begin, end;
-  begin = chrono::high_resolution_clock::now();
   // -------------------------------------------------------------------------------------
+  db.startDebuggingThread();
+  tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
+  // -------------------------------------------------------------------------------------
+  begin = chrono::high_resolution_clock::now();
   if (FLAGS_random_insert) {
-    vector<u64> keys(tuple_count);
+    vector<u64> random_keys(tuple_count);
     tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
       for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-        keys[t_i] = t_i;
+        random_keys[t_i] = t_i;
       }
     });
-    std::random_shuffle(keys.begin(), keys.end());
+    std::random_shuffle(random_keys.begin(), random_keys.end());
+    sleep(1);
     tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
       for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-        table.insert(keys[t_i], payload);
+        table.insert(random_keys[t_i], payload);
         WorkerCounters::myCounters().tx++;
       }
     });
@@ -95,33 +114,30 @@ int main(int argc, char** argv)
       }
     });
   }
+  // -------------------------------------------------------------------------------------
   end = chrono::high_resolution_clock::now();
   cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
+  sleep(1);
   print_stats();
   // -------------------------------------------------------------------------------------
-  std::ofstream csv;
-  std::ofstream::openmode open_flags;
-  open_flags = ios::trunc;
-  csv.open("merge.csv", open_flags);
-  csv.seekp(0, ios::end);
-  csv << std::setprecision(2) << std::fixed;
-  csv << "i,ff,flag" << endl;
-  // -------------------------------------------------------------------------------------
-  print_fill_factors(csv, 0);
+  if (FLAGS_print_fill_factors)
+    print_fill_factors(csv, 0);
   // -------------------------------------------------------------------------------------
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   // -------------------------------------------------------------------------------------
   vector<thread> threads;
-  threads.emplace_back([&]() {
-    running_threads_counter++;
-    while (keep_running) {
-      Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
-      compress_bf(k);
-      WorkerCounters::myCounters().tx++;
-    }
-    running_threads_counter--;
-  });
+  sleep(1);
+  if (FLAGS_su_merge)
+    threads.emplace_back([&]() {
+      running_threads_counter++;
+      while (keep_running) {  // && (FLAGS_stop_at == 0 || db.getBufferManager().consumedPages() <= FLAGS_stop_at)
+        Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
+        compress_bf(k);
+        WorkerCounters::myCounters().tx++;
+      }
+      running_threads_counter--;
+    });
   // -------------------------------------------------------------------------------------
   {
     // Shutdown threads
@@ -136,6 +152,7 @@ int main(int argc, char** argv)
     }
   }
   // -------------------------------------------------------------------------------------
+  sleep(1);
   tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
     for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
       Payload result;
@@ -144,7 +161,8 @@ int main(int argc, char** argv)
     }
   });
   // -------------------------------------------------------------------------------------
-  print_fill_factors(csv, 1);
+  if (FLAGS_print_fill_factors)
+    print_fill_factors(csv, 1);
   // -------------------------------------------------------------------------------------
   print_stats();
   cout << merges_counter << endl;

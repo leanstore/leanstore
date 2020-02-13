@@ -186,7 +186,9 @@ bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPa
   s32 left_boundary = -1;  // exclusive
   for (s32 s_i = left->count - 1; s_i > 0; s_i--) {
     r_free_space -= left->spaceUsedBySlot(s_i);
-    if (r_free_space >= r_target_free_space) {
+    const u16 new_right_lf_key_length = left->getFullKeyLength(s_i);
+    if ((r_free_space - ((right->lower_fence.length < left->getFullKeyLength(s_i)) ? (new_right_lf_key_length - right->lower_fence.length) : 0)) >=
+        r_target_free_space) {
       left_boundary = s_i - 1;
     } else {
       break;
@@ -213,14 +215,14 @@ bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPa
   ExclusivePageGuard<BTreeNode> x_left = std::move(left);
   ExclusivePageGuard<BTreeNode> x_right = std::move(right);
   // -------------------------------------------------------------------------------------
-  u16 copy_from_count = left->count - (left_boundary + 1);
+  const u16 copy_from_count = left->count - (left_boundary + 1);
   // -------------------------------------------------------------------------------------
   {
     tmp = BTreeNode(true);
     // Right node
     tmp.setFences(new_left_uf_key, new_left_uf_length, x_right->getUpperFenceKey(), x_right->upper_fence.length);
     // -------------------------------------------------------------------------------------
-    left->copyKeyValueRange(&tmp, 0, left_boundary + 1, copy_from_count);  //
+    x_left->copyKeyValueRange(&tmp, 0, left_boundary + 1, copy_from_count);
     x_right->copyKeyValueRange(&tmp, copy_from_count, 0, x_right->count);
     memcpy(reinterpret_cast<u8*>(x_right.ptr()), &tmp, sizeof(BTreeNode));
     x_right->makeHint();
@@ -232,12 +234,97 @@ bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPa
     tmp.setFences(x_left->getLowerFenceKey(), x_left->lower_fence.length, new_left_uf_key, new_left_uf_length);
     // -------------------------------------------------------------------------------------
     x_left->copyKeyValueRange(&tmp, 0, 0, x_left->count - copy_from_count);
+    ensure(x_left->freeSpaceAfterCompaction() <= tmp.freeSpaceAfterCompaction());
     memcpy(reinterpret_cast<u8*>(left.ptr()), &tmp, sizeof(BTreeNode));
     x_left->makeHint();
     // -------------------------------------------------------------------------------------
   }
   {
     x_parent->removeSlot(l_pos);
+    ensure(x_parent->prepareInsert(x_left->getUpperFenceKey(), x_left->upper_fence.length, left.swip()));
+    x_parent->insert(x_left->getUpperFenceKey(), x_left->upper_fence.length, left.swip());
+  }
+  // -------------------------------------------------------------------------------------
+  return true;
+}
+// -------------------------------------------------------------------------------------
+bool BTree::tryBalanceLeft(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& right, s32 c_pos)
+{
+  if (!parent.hasBf() || c_pos - 1 < 0) {
+    return false;
+  }
+  OptimisticPageGuard<BTreeNode> left = OptimisticPageGuard(parent, parent->getValue(c_pos - 1));
+  // -------------------------------------------------------------------------------------
+  // Rebalance: move key/value from end of left to the beginning of right
+  const u32 total_free_space = left->freeSpaceAfterCompaction() + right->freeSpaceAfterCompaction();
+  const u32 l_target_free_space = total_free_space / 2;
+  BTreeNode tmp(true);
+  tmp.setFences(left->getLowerFenceKey(), left->lower_fence.length, right->getUpperFenceKey(), right->upper_fence.length);
+  ensure(tmp.prefix_length <= left->prefix_length);
+  const u32 worst_case_amplification_per_key = left->prefix_length - tmp.prefix_length;
+  // -------------------------------------------------------------------------------------
+  s64 l_free_space = left->freeSpaceAfterCompaction();
+  l_free_space -= (worst_case_amplification_per_key * left->count);
+  if (l_free_space <= 0)
+    return false;
+  s32 right_boundary = -1;  // exclusive
+  for (s32 s_i = 0; s_i < right->count - 1; s_i++) {
+    l_free_space -= right->spaceUsedBySlot(s_i);
+    const u16 new_left_uf_key_length = left->getFullKeyLength(s_i);
+    if (l_free_space - ((new_left_uf_key_length > left->upper_fence.length) ? (new_left_uf_key_length - left->upper_fence.length) : 0) >=
+        l_target_free_space) {
+      right_boundary = s_i + 1;
+    } else {
+      break;
+    }
+  }
+  // -------------------------------------------------------------------------------------
+  if (right_boundary == -1) {
+    return false;
+  }
+  // -------------------------------------------------------------------------------------
+  u16 new_left_uf_length = right->getFullKeyLength(right_boundary - 1);
+  ensure(new_left_uf_length > 0);
+  u8 new_left_uf_key[new_left_uf_length];
+  right->copyFullKey(right_boundary - 1, new_left_uf_key, new_left_uf_length);
+  // -------------------------------------------------------------------------------------
+  const u16 old_left_sep_space = parent->spaceUsedBySlot(c_pos - 1);
+  const u16 new_left_sep_space = parent->spaceNeeded(new_left_uf_length, left.swip());
+  if (new_left_sep_space > old_left_sep_space) {
+    if (!parent->hasEnoughSpaceFor(new_left_sep_space - old_left_sep_space))
+      return false;
+  }
+  // -------------------------------------------------------------------------------------
+  ExclusivePageGuard<BTreeNode> x_parent = std::move(parent);
+  ExclusivePageGuard<BTreeNode> x_left = std::move(left);
+  ExclusivePageGuard<BTreeNode> x_right = std::move(right);
+  // -------------------------------------------------------------------------------------
+  const u16 copy_from_count = right_boundary;
+  // -------------------------------------------------------------------------------------
+  {
+    tmp = BTreeNode(true);
+    tmp.setFences(x_left->getLowerFenceKey(), x_left->lower_fence.length, new_left_uf_key, new_left_uf_length);
+    // -------------------------------------------------------------------------------------
+    x_left->copyKeyValueRange(&tmp, 0, 0, x_left->count);
+    right->copyKeyValueRange(&tmp, x_left->count, 0, copy_from_count);  //
+    memcpy(reinterpret_cast<u8*>(left.ptr()), &tmp, sizeof(BTreeNode));
+    x_left->makeHint();
+    // -------------------------------------------------------------------------------------
+  }
+  {
+    tmp = BTreeNode(true);
+    // Right node
+    tmp.setFences(new_left_uf_key, new_left_uf_length, x_right->getUpperFenceKey(), x_right->upper_fence.length);
+    // -------------------------------------------------------------------------------------
+    right->copyKeyValueRange(&tmp, 0, right_boundary, right->count - right_boundary);  //
+    ensure(right->freeSpaceAfterCompaction() <= tmp.freeSpaceAfterCompaction());
+    memcpy(reinterpret_cast<u8*>(x_right.ptr()), &tmp, sizeof(BTreeNode));
+    x_right->makeHint();
+    // -------------------------------------------------------------------------------------
+    // Nothing to do for the right node's separator
+  }
+  {
+    x_parent->removeSlot(c_pos - 1);
     ensure(x_parent->prepareInsert(x_left->getUpperFenceKey(), x_left->upper_fence.length, left.swip()));
     x_parent->insert(x_left->getUpperFenceKey(), x_left->upper_fence.length, left.swip());
   }
@@ -348,8 +435,16 @@ void BTree::tryBStar(BufferFrame& bf)
   // -------------------------------------------------------------------------------------
   if (tryBalanceRight(parent, center, parent_handler.pos))
     return;
+  if (tryBalanceLeft(parent, center, parent_handler.pos))
+    return;
   if (trySplitRight(parent, center, parent_handler.pos))
     return;
+  if (parent_handler.pos - 1 >= 0) {
+    // to reuse trySplitRight
+    center = OptimisticPageGuard(parent, parent->getValue(parent_handler.pos - 1));
+    if (trySplitRight(parent, center, parent_handler.pos - 1))
+      return;
+  }
   // -------------------------------------------------------------------------------------
   parent.kill();
   center.kill();
@@ -648,12 +743,14 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
   return merged_successfully;
 }
 // -------------------------------------------------------------------------------------
+// ret: 0 did nothing, 1 full, 2 partial
 s32 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
                               s32 left_pos,
                               ExclusivePageGuard<BTreeNode>& from_left,
                               ExclusivePageGuard<BTreeNode>& to_right,
                               bool full_merge_or_nothing)
 {
+  // TODO: corner cases: new upper fence is larger than the older one.
   u32 space_upper_bound = from_left->mergeSpaceUpperBound(to_right);
   if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge TODO: threshold
     bool succ = from_left->merge(left_pos, parent, to_right);
@@ -751,11 +848,11 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
     fully_merged[max_right - pos] = false;
     total_fill_factor += guards[max_right - pos]->fillFactorAfterCompaction();
     pages_count++;
-    if ((pages_count - std::ceil(total_fill_factor + FLAGS_d)) >= 1) {
+    if ((pages_count - std::ceil(total_fill_factor)) >= (1)) {
       break;
     }
   }
-  if (((pages_count - std::ceil(total_fill_factor + FLAGS_d))) < 1) {
+  if (((pages_count - std::ceil(total_fill_factor))) < (1)) {
     return false;
   }
   // -------------------------------------------------------------------------------------
@@ -782,13 +879,15 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
       ret = mergeLeftIntoRight(p_x_guard, left_hand, left_x_guard, right_x_guard, left_hand == pos);
       // we unlock only the left page, the right one should not be touched again
       if (ret == 1) {
-        // guards[right_hand - pos] = std::move(right_x_guard);
         fully_merged[left_hand - pos] = true;
         WorkerCounters::myCounters().dt_researchy[dtid][5]++;
-      } else {
+      } else if (ret == 2) {
         guards[left_hand - pos] = std::move(left_x_guard);
-        // guards[right_hand - pos] = std::move(right_x_guard);
         WorkerCounters::myCounters().dt_researchy[dtid][6]++;
+      } else if (ret == 0) {
+        break;
+      } else {
+        ensure(false);
       }
     }
     // -------------------------------------------------------------------------------------

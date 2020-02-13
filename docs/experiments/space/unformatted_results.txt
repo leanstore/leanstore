@@ -1,0 +1,23 @@
+SU Merges:
+Random:
+3491 cycles insert
+426 to merge
+--> 3917
+31.3 -> 23.9
+
+Sequential:
+
+1112
+661
+--> 1773
+42.7471 -> 24.4357
+
+B*
+Random:
+6847 cycles
+25.0723
+
+Sequential:
+
+2272.486
+22.754 GiB
