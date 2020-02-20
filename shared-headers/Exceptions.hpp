@@ -41,7 +41,7 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
 #define ensure(e) assert(e);
 #else
 #define ensure(e)                                                                                                                               \
-  (__builtin_expect(!(e), 0) ? throw ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + std::to_string(__LINE__) + \
+  (__builtin_expect(!(e), 0) ? throw leanstore::ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + std::to_string(__LINE__) + \
                                                       " msg: " + std::string(#e))                                                               \
                              : (void)0)
 #endif
