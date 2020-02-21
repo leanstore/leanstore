@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <cassert>
 #include <iostream>
-#include "/opt/PerfEvent.hpp"
+#include <PerfEvent.hpp>"
 
 using namespace std;
 void callback(char* payload, uint8_t command)
