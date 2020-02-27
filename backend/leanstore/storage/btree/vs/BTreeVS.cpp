@@ -549,9 +549,9 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
               jumpmuTry()
               {
                 trySplit(*c_guard.bf, split_pos);
-                WorkerCounters::myCounters().dt_researchy[dtid][0]++;
+                WorkerCounters::myCounters().cm_split_succ_counter[dtid]++;
               }
-              jumpmuCatch() { WorkerCounters::myCounters().dt_researchy[dtid][1]++; }
+              jumpmuCatch() { WorkerCounters::myCounters().cm_split_fail_counter[dtid]++; }
             }
           }
         }
@@ -880,10 +880,10 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
       // we unlock only the left page, the right one should not be touched again
       if (ret == 1) {
         fully_merged[left_hand - pos] = true;
-        WorkerCounters::myCounters().dt_researchy[dtid][5]++;
+        WorkerCounters::myCounters().su_merge_full_counter[dtid]++;
       } else if (ret == 2) {
         guards[left_hand - pos] = std::move(left_x_guard);
-        WorkerCounters::myCounters().dt_researchy[dtid][6]++;
+        WorkerCounters::myCounters().su_merge_partial_counter[dtid]++;
       } else if (ret == 0) {
         break;
       } else {
@@ -912,22 +912,6 @@ bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Optimisti
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(guard, &bf);
-  if (FLAGS_cm_merge) {
-    if (bf.page.dt_id == btree.dtid && c_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-      jumpmuTry()
-      {
-        if (btree.tryMerge(bf, false)) {
-          WorkerCounters::myCounters().dt_researchy[btree.dtid][2]++;
-        } else {
-          WorkerCounters::myCounters().dt_researchy[btree.dtid][3]++;
-        }
-      }
-      jumpmuCatch() { WorkerCounters::myCounters().dt_researchy[btree.dtid][4]++; }
-      p_guard.kill();
-      c_guard.kill();
-      return true;
-    }
-  }
   // -------------------------------------------------------------------------------------
   if (FLAGS_su_merge) {
     bool merged = btree.kWayMerge(p_guard, c_guard, parent_handler);

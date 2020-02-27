@@ -8,7 +8,7 @@ DEFINE_double(dram_gib, 1, "");  // 1 GiB
 DEFINE_uint32(cool_pct, 10, "Start cooling pages when <= x% are free");
 DEFINE_uint32(free_pct, 1, "pct");
 DEFINE_uint32(partition_bits, 6, "bits per partition");
-DEFINE_uint32(pp_threads, 4, "number of page provider threads");
+DEFINE_uint32(pp_threads, 1, "number of page provider threads");
 // -------------------------------------------------------------------------------------
 DEFINE_string(csv_path, "./log.csv", "");
 DEFINE_bool(csv_truncate, false, "");
@@ -33,7 +33,6 @@ DEFINE_double(target_gib, 0.0, "size of dataset in gib (exact interpretation dep
 DEFINE_uint64(run_for_seconds, 10, "Keep the experiment running for x seconds");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(cm_split, false, "");
-DEFINE_bool(cm_merge, false, "");
 DEFINE_uint64(cm_update_tracker_pct, 1, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(su_merge, false, "");

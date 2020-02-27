@@ -36,6 +36,7 @@ int main(int argc, char** argv)
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
   // -------------------------------------------------------------------------------------
+  db.registerConfigEntry("cm_threads_pro_page", [&](ostream& out) {out << FLAGS_cm_threads_pro_page;});
   // -------------------------------------------------------------------------------------
   Payload payload;
   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));

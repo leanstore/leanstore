@@ -22,7 +22,6 @@ DECLARE_bool(print_debug);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(cm_split);
-DECLARE_bool(cm_merge);
 DECLARE_uint64(cm_update_tracker_pct);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(su_merge);

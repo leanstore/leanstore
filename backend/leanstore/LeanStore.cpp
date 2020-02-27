@@ -76,6 +76,7 @@ void LeanStore::debuggingThread()
     const double gib = buffer_manager.consumedPages() * 1.0 * PAGE_SIZE / 1024.0 / 1024.0 / 1024.0;
     out << gib;
   });
+  stat_entries.emplace_back("consumed_pages", [&](ostream& out) { out << buffer_manager.consumedPages(); });
   stat_entries.emplace_back("p1_pct", [&](ostream& out) { out << (local_phase_1_ms * 100.0 / total); });
   stat_entries.emplace_back("p2_pct", [&](ostream& out) { out << (local_phase_2_ms * 100.0 / total); });
   stat_entries.emplace_back("p3_pct", [&](ostream& out) { out << (local_phase_3_ms * 100.0 / total); });
@@ -125,7 +126,6 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_run_for_seconds", [&](ostream& out) { out << FLAGS_run_for_seconds; });
   config_entries.emplace_back("c_fs", [&](ostream& out) { out << FLAGS_fs; });
   config_entries.emplace_back("c_cm_split", [&](ostream& out) { out << FLAGS_cm_split; });
-  config_entries.emplace_back("c_cm_merge", [&](ostream& out) { out << FLAGS_cm_merge; });
   config_entries.emplace_back("c_su_merge", [&](ostream& out) { out << FLAGS_su_merge; });
   config_entries.emplace_back("c_bstar", [&](ostream& out) { out << FLAGS_bstar; });
   config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });
@@ -142,6 +142,18 @@ void LeanStore::debuggingThread()
                           [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_structural_change, dt_id); });
   dt_entries.emplace_back("dt_restarts_read",
                           [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_read, dt_id); });
+  dt_entries.emplace_back("cm_split_succ_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_split_succ_counter, dt_id); });
+  dt_entries.emplace_back("cm_split_fail_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_split_fail_counter, dt_id); });
+  dt_entries.emplace_back("cm_merge_succ_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_merge_succ_counter, dt_id); });
+  dt_entries.emplace_back("cm_merge_fail_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_merge_fail_counter, dt_id); });
+  dt_entries.emplace_back("su_merge_partial_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::su_merge_partial_counter, dt_id); });
+  dt_entries.emplace_back("su_merge_full_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::su_merge_full_counter, dt_id); });
   // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   // Print header
