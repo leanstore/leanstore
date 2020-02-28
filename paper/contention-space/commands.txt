@@ -1,0 +1,4 @@
+rome:
+~haas/meanio/extern/spdk/scripts/setup.sh
+~haas/meanio/extern/spdk/scripts/setup.sh reset
+mdadm --create /dev/md0 --auto md --level=0 --raid-devices=4 /blk/ss0 /blk/ss1 /blk/ss2 /blk/ss3
