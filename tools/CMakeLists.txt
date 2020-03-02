@@ -13,6 +13,7 @@ target_include_directories(io_benchmark PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
 
 add_executable(caught_exceptions caught_exceptions.cpp fast-uncaught-exception/fast-uncaught-exception.cpp)
+target_include_directories(caught_exceptions PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
 add_executable(mutex_benchmark BenchmarkMutex.cpp)
 target_link_libraries(mutex_benchmark gbenchmark)
