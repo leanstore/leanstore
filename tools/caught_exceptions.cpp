@@ -1,7 +1,7 @@
 #include <atomic>
 #include <exception>
 #include <iostream>
-#include "/opt/PerfEvent.hpp"
+#include "PerfEvent.hpp"
 #include "fast-uncaught-exception/fast-uncaught-exception.hpp"
 
 using namespace std;
