@@ -78,6 +78,27 @@ int main(int argc, char** argv)
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
+  // -------------------------------------------------------------------------------------
+  for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++)
+    threads.emplace_back([&]() {
+      running_threads_counter++;
+      while (keep_running) {
+        Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
+        table.lookup(k, payload);
+      }
+      running_threads_counter--;
+    });
+  sleep(FLAGS_warmup_for_seconds);
+  keep_running = false;
+  while (running_threads_counter) {
+    _mm_pause();
+  }
+  for (auto& thread : threads) {
+    thread.join();
+  }
+  threads.clear();
+  keep_running = true;
+  // -------------------------------------------------------------------------------------
   db.startDebuggingThread();
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&]() {

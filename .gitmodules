@@ -1,0 +1,3 @@
+[submodule "paper/contention-space/tex"]
+	path = paper/contention-space/tex
+	url = git@github.com:adnan-alhomssi/adaptive-btree.git

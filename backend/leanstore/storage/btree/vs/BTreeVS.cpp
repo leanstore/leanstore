@@ -800,7 +800,7 @@ s32 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
     to_right->makeHint();
     // -------------------------------------------------------------------------------------
     // Nothing to do for the right node's separator
-    assert(!to_right->sanityCheck(new_left_uf_key, new_left_uf_length));
+    assert(to_right->sanityCheck(new_left_uf_key, new_left_uf_length) == 1);
   }
   {
     BTreeNode tmp(true);
@@ -810,7 +810,7 @@ s32 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
     memcpy(reinterpret_cast<u8*>(from_left.ptr()), &tmp, sizeof(BTreeNode));
     from_left->makeHint();
     // -------------------------------------------------------------------------------------
-    assert(from_left->sanityCheck(new_left_uf_key, new_left_uf_length));
+    assert(from_left->sanityCheck(new_left_uf_key, new_left_uf_length) == 0);
     // -------------------------------------------------------------------------------------
     parent->removeSlot(left_pos);
     ensure(parent->prepareInsert(from_left->getUpperFenceKey(), from_left->upper_fence.length, from_left.swip()));

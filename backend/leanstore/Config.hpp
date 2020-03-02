@@ -30,6 +30,7 @@ DECLARE_string(zipf_path);
 DECLARE_double(zipf_factor);
 DECLARE_double(target_gib);
 DECLARE_uint64(run_for_seconds);
+DECLARE_uint64(warmup_for_seconds);
 // -------------------------------------------------------------------------------------
 DECLARE_uint64(backoff_strategy);
 DECLARE_uint64(restarts_threshold);

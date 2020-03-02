@@ -31,6 +31,7 @@ DEFINE_string(zipf_path, "/bulk/zipf", "");
 DEFINE_double(zipf_factor, 0.0, "");
 DEFINE_double(target_gib, 0.0, "size of dataset in gib (exact interpretation depends on the driver)");
 DEFINE_uint64(run_for_seconds, 10, "Keep the experiment running for x seconds");
+DEFINE_uint64(warmup_for_seconds, 10, "Warmup for x seconds");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(cm_split, false, "");
 DEFINE_uint64(cm_update_tracker_pct, 1, "");
