@@ -1,6 +1,8 @@
 #pragma once
 #include "Units.hpp"
+#include "leanstore/Config.hpp"
 #include "leanstore/utils/JumpMU.hpp"
+#include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <emmintrin.h>
@@ -29,6 +31,22 @@ constexpr static u64 LATCH_EXCLUSIVE_BIT = (1 << 8);
 constexpr static u64 LATCH_STATE_MASK = ((1 << 8) - 1);  // 0xFF
 constexpr static u64 LATCH_VERSION_MASK = ~LATCH_STATE_MASK;
 constexpr static u64 LATCH_EXCLUSIVE_STATE_MASK = ((1 << 9) - 1);
+// -------------------------------------------------------------------------------------
+/*
+  for (u64 i = utils::RandomGenerator::getRandU64(0, mask); i; --i) { \
+    _mm_pause();                                                      \
+  }                                                                   \
+  mask = mask < MAX_BACKOFF ? mask << 1 : MAX_BACKOFF;
+
+ */
+#define MAX_BACKOFF FLAGS_x  // FLAGS_x
+#define BACKOFF_STRATEGIES()                                            \
+  if (FLAGS_x) {                                                        \
+    for (u64 i = utils::RandomGenerator::getRandU64(0, mask); i; --i) { \
+      _mm_pause();                                                      \
+    }                                                                   \
+    mask = mask < MAX_BACKOFF ? mask << 1 : MAX_BACKOFF;                \
+  }
 // -------------------------------------------------------------------------------------
 class OptimisticGuard;
 class SharedGuard;  // TODO

@@ -27,7 +27,6 @@ void BTree::init(DTID dtid)
 bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
   volatile u32 mask = 1;
-  u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     jumpmuTry()
     {
@@ -67,8 +66,8 @@ void BTree::scan(u8* start_key,
                  std::function<bool(u8* payload, u16 payload_length, std::function<string()>&)> callback,
                  function<void()> undo)
 {
+  volatile bool is_heap_freed = true;  // because at first we reuse the start_key
   volatile u32 mask = 1;
-  u32 const max = 512;  // MAX_BACKOFF
   u8* volatile next_key = start_key;
   volatile u16 next_key_length = key_length;
   while (true) {
@@ -82,19 +81,25 @@ void BTree::scan(u8* start_key,
           u16 payload_length = leaf->getPayloadLength(cur);
           u8* payload = leaf->isLarge(cur) ? leaf->getPayloadLarge(cur) : leaf->getPayload(cur);
           std::function<string()> key_extract_fn = [&]() {
+            ensure(false);
             u16 key_length = leaf->getFullKeyLength(cur);
             string key(key_length, '0');
             leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()), key_length);
             return key;
           };
           if (!callback(payload, payload_length, key_extract_fn)) {
+            if (!is_heap_freed) {
+              delete[] next_key;
+              is_heap_freed = true;
+            }
             jumpmu_return;
           }
           cur++;
         }
         // -------------------------------------------------------------------------------------
-        if (next_key != start_key) {
+        if (!is_heap_freed) {
           delete[] next_key;
+          is_heap_freed = true;
         }
         if (leaf->isUpperFenceInfinity()) {
           jumpmu_return;
@@ -102,6 +107,7 @@ void BTree::scan(u8* start_key,
         // -------------------------------------------------------------------------------------
         next_key_length = leaf->upper_fence.length + 1;
         next_key = new u8[next_key_length];
+        is_heap_freed = false;
         memcpy(next_key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
         next_key[next_key_length - 1] = 0;
         // -------------------------------------------------------------------------------------
@@ -111,11 +117,10 @@ void BTree::scan(u8* start_key,
     }
     jumpmuCatch()
     {
+      if (!is_heap_freed)
+        delete[] next_key;
       undo();
-      for (u32 i = mask; i; --i) {
-        _mm_pause();
-      }
-      mask = mask < max ? mask << 1 : max;
+      BACKOFF_STRATEGIES()
       WorkerCounters::myCounters().dt_restarts_read[dtid]++;
     }
   }
@@ -124,7 +129,6 @@ void BTree::scan(u8* start_key,
 void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
 {
   volatile u32 mask = 1;
-  u32 const max = 512;  // MAX_BACKOFF
   volatile u32 local_restarts_counter = 0;
   while (true) {
     jumpmuTry()
@@ -516,12 +520,11 @@ void BTree::trySplit(BufferFrame& to_split, s32 favored_split_pos)
 void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback)
 {
   volatile u32 mask = 1;
-  u32 const max = 512;  // MAX_BACKOFF
   volatile u32 local_restarts_counter = 0;
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead<1>(key, key_length);
+      OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead<10>(key, key_length);
       s32 pos = c_guard->lowerBound<true>(key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       assert(pos != -1);
@@ -571,7 +574,6 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
 void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
 {
   volatile u32 mask = 1;
-  u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     jumpmuTry()
     {
@@ -598,10 +600,7 @@ void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
     }
     jumpmuCatch()
     {
-      for (u32 i = mask; i; --i) {
-        _mm_pause();
-      }
-      mask = mask < max ? mask << 1 : max;
+      BACKOFF_STRATEGIES()
       WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
     }
   }
@@ -616,7 +615,6 @@ bool BTree::remove(u8* key, u16 key_length)
    * if there was not, and after deletion we got an empty
    * */
   volatile u32 mask = 1;
-  u32 const max = 512;  // MAX_BACKOFF
   while (true) {
     jumpmuTry()
     {
@@ -638,10 +636,7 @@ bool BTree::remove(u8* key, u16 key_length)
     }
     jumpmuCatch()
     {
-      for (u32 i = mask; i; --i) {
-        _mm_pause();
-      }
-      mask = mask < max ? mask << 1 : max;
+      BACKOFF_STRATEGIES()
       WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
     }
   }

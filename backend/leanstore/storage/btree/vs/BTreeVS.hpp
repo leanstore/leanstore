@@ -10,12 +10,6 @@
 // -------------------------------------------------------------------------------------
 using namespace leanstore::buffermanager;
 // -------------------------------------------------------------------------------------
-#define BACKOFF_STRATEGIES()   \
-  for (u32 i = mask; i; --i) { \
-    _mm_pause();               \
-  }                            \
-  mask = mask < max ? mask << 1 : max;
-// -------------------------------------------------------------------------------------
 namespace leanstore
 {
 namespace btree
@@ -72,7 +66,6 @@ struct BTree {
   OptimisticPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length)
   {
     u32 volatile mask = 1;
-    u32 const max = 512;  // MAX_BACKOFF
     while (true) {
       jumpmuTry()
       {
@@ -97,7 +90,7 @@ struct BTree {
           WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;
         } else if (op_type == 2) {
           WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
-        }
+        } else {}
       }
     }
   }

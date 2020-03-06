@@ -9,14 +9,10 @@ namespace buffermanager
 // -------------------------------------------------------------------------------------
 void OptimisticGuard::spinTillLatching()
 {
-  u32 mask = 1;
-  u32 const max = 64;                                           // MAX_BACKOFF
+  volatile u32 mask = 1;
   while ((local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {  // spin
                                                                 // bf_s_lock
-    for (u32 i = mask; i; --i) {
-      _mm_pause();
-    }
-    mask = mask < max ? mask << 1 : max;
+    BACKOFF_STRATEGIES()
     local_version = latch_ptr->ref().load();
   }
 }

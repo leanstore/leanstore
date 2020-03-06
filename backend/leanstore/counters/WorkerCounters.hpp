@@ -21,6 +21,7 @@ struct WorkerCounters {
   atomic<u64> allocate_operations_counter = 0;
   atomic<u64> restarts_counter = 0;
   atomic<u64> tx = 0;
+  atomic<s32> tmp = 0;
   // -------------------------------------------------------------------------------------
   // Space and contention management
   atomic<u64> cm_split_succ_counter[max_dt_id] = {0};

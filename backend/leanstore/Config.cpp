@@ -39,7 +39,7 @@ DEFINE_uint64(cm_update_tracker_pct, 1, "");
 DEFINE_bool(su_merge, false, "");
 DEFINE_uint64(restarts_threshold, 100, "");
 // -------------------------------------------------------------------------------------
-DEFINE_uint64(x, 5, "");
+DEFINE_uint64(x, 512, "");
 DEFINE_uint64(y, 100, "");
 DEFINE_double(d, 0.0, "");
 // -------------------------------------------------------------------------------------
