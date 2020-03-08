@@ -6,6 +6,7 @@
 DECLARE_double(dram_gib);  // 1 GiB
 DECLARE_string(ssd_path);
 DECLARE_uint32(worker_threads);
+DECLARE_bool(pin_threads);
 DECLARE_string(csv_path);
 DECLARE_bool(csv_truncate);
 DECLARE_string(free_pages_list_path);

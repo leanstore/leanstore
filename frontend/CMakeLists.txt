@@ -45,3 +45,7 @@ target_include_directories(merge PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(urls misc-benchmarks/urls.cpp)
 target_link_libraries(urls leanstore Threads::Threads)
 target_include_directories(urls PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(debug misc-benchmarks/debug.cpp)
+target_link_libraries(debug leanstore Threads::Threads)
+target_include_directories(debug PRIVATE ${SHARED_INCLUDE_DIRECTORY})

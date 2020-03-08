@@ -20,6 +20,7 @@ function benchmark() {
     for FLAGS_latest_window_ms in 1000; do
     for FLAGS_cm_update_tracker_pct in 1; do
     for FLAGS_cm_split in true false; do
+    for FLAGS_su_merge in true false; do
         (
         $EXEC_DIR/latest \
             -worker_threads=$FLAGS_worker_threads \
@@ -29,7 +30,7 @@ function benchmark() {
         -csv_path=$CSV_PATH \
         -nocsv_truncate \
         -ssd_path="${SSD_PATH}" \
-        -run_for_seconds=120 \
+        -run_for_seconds=30 \
         -pp_threads=1 \
         -cool_pct=10 \
         -free_pct=1 \
@@ -38,7 +39,7 @@ function benchmark() {
         -latest_window_offset_gib=$FLAGS_latest_window_offset_gib \
         -latest_window_ms=$FLAGS_latest_window_ms \
         -cm_split=$FLAGS_cm_split \
-        -su_merge=$FLAGS_cm_split \
+        -su_merge=$FLAGS_su_merge \
         -cm_update_tracker_pct=$FLAGS_cm_update_tracker_pct \
     )
 

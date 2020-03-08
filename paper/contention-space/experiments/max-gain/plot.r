@@ -6,11 +6,15 @@ library(scales)
 # Rome
 
 dev.set(0)
-df=read.csv('./tata.csv')
+df=read.csv('./results_pos_max.csv')
 d=sqldf("select * from df")
-tx <- ggplot(d, aes(t, tx, color=c_cm_split, group=c_cm_split)) + geom_line()
-tx <- tx + facet_grid (row=vars(cm_threads_pro_page), cols=vars())
+tx <- ggplot(d, aes(t, tx, color=factor(c_cm_split), group=c_cm_split)) + geom_line()
+tx <- tx + facet_grid (row=vars(cm_threads_pro_page), cols=vars()) + theme_bw() + expand_limits(y=0)
 print(tx)
+
+CairoPDF("./max_gain.pdf", bg="transparent")
+print(tx)
+dev.off()
 
 aux =sqldf("select t, max(GHz) GHz, min(instr) instr, consumed_pages,
  max(space_usage_gib) space_usage_gib,

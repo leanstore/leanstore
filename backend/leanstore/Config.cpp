@@ -21,6 +21,7 @@ DEFINE_bool(print_debug, true, "");
 DEFINE_uint32(print_debug_interval_s, 1, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(worker_threads, 20, "");
+DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(root, false, "does this process have root rights ?");
 DEFINE_bool(fs, false, "use fix\ed size btree");

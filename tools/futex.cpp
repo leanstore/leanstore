@@ -14,6 +14,9 @@
 #include <thread>
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(worker_threads, 20, "");
+DEFINE_uint64(sleep_us, 1, "");
+DEFINE_uint64(groups_count, 1, "");
+DEFINE_bool(futex, false, "");
 // -------------------------------------------------------------------------------------
 /*
 struct mutex {
@@ -70,6 +73,7 @@ bool futex_wait(s32* addr, s32 expected)
     return true;
   } else if (futex_rc == -1) {
     assert(errno == EAGAIN);
+    return false;
   } else {
     throw;
   }
@@ -96,20 +100,94 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   ensure(FLAGS_worker_threads > 0);
   atomic<u64> latches[FLAGS_worker_threads] = {0};
-  printf("%p\n", WAITING_FLAG);
-  printf("%p\n", SHARED_FLAG);
-  printf("%p\n", EXCLUSIVE_FLAG);
-  printf("%p\n", SHARED_COUNTER_MASK);
-  printf("%p\n", VERSION_MASK);
+  // printf("%p\n", WAITING_FLAG);
+  // printf("%p\n", SHARED_FLAG);
+  // printf("%p\n", EXCLUSIVE_FLAG);
+  // printf("%p\n", SHARED_COUNTER_MASK);
+  // printf("%p\n", VERSION_MASK);
   // -------------------------------------------------------------------------------------
   vector<thread> threads;
+  {
+    const u64 group_size = FLAGS_worker_threads / FLAGS_groups_count;
+    atomic<s32> locks[FLAGS_groups_count] = {0};
+    atomic<u64> counter = 0;
+    atomic<u64> sleep_counter = 0;
+    for (u64 g_i = 0; g_i < FLAGS_groups_count; g_i++) {
+      for (u64 t_i = 0; t_i < group_size; t_i++)
+        threads.emplace_back(
+            [&](int g_i) {
+              auto& lock = locks[g_i];
+              while (true) {
+                s32 e = lock.load();
+                while (e & 1) {
+                  if (FLAGS_futex && futex_wait(reinterpret_cast<s32*>(&lock), e)) {
+                    sleep_counter++;
+                  }
+                  e = lock.load();
+                }
+                s32 c = e | 1;
+                if (lock.compare_exchange_strong(e, c)) {
+                  u64 waste_cycles = 0;
+                  for (u64 i = 0; i < 1e3; i++)
+                    waste_cycles += i + 1;
+                  asm volatile("" : : "g"(waste_cycles) : "memory");
+
+                  // usleep(FLAGS_sleep_us);
+                  counter++;
+                  lock--;
+                  if (FLAGS_futex)
+                    futex_wake(reinterpret_cast<s32*>(&lock));
+                }
+              }
+            },
+            g_i);
+    }
+    threads.emplace_back([&]() {
+      while (true) {
+        cout << counter.exchange(0) / 1.0e6 << "\t" << sleep_counter.exchange(0) / 1.0e6 << endl;
+        sleep(1);
+      }
+    });
+    for (auto& thread : threads) {
+      thread.join();
+    }
+  }
+  // -------------------------------------------------------------------------------------
+  int futex = 0;
+  atomic<u64> counter = 0;
+  atomic<bool> is_sleep = false;
+  threads.emplace_back([&]() {
+    while (true) {
+      is_sleep = true;
+      futex_wait(&futex, 0);
+      is_sleep = false;
+      counter++;
+    }
+  });
+  threads.emplace_back([&]() {
+    while (true) {
+      if (is_sleep)
+        futex_wake(&futex);
+    }
+  });
+  threads.emplace_back([&]() {
+    while (true) {
+      cout << counter.exchange(0) << endl;
+      sleep(1);
+    }
+  });
+  for (auto& thread : threads) {
+    thread.join();
+  }
+  return 0;
   // -------------------------------------------------------------------------------------
   for (u32 i = 0; i < FLAGS_worker_threads; i++) {
     threads.emplace_back(
         [&](int t_i) {
           futex_wait(reinterpret_cast<s32*>(latches + t_i), 0);
           cout << "awake " << t_i << endl;
-          while(true){}
+          while (true) {
+          }
         },
         i);
   }

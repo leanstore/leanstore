@@ -2,13 +2,14 @@
 #include "leanstore/BTreeAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
-#include "leanstore/utils/Files.hpp"
-#include "leanstore/utils/RandomGenerator.hpp"
-#include "leanstore/utils/Parallelize.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
+#include "leanstore/utils/Files.hpp"
+#include "leanstore/utils/Parallelize.hpp"
+#include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>
+
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
 #include <iostream>
@@ -60,18 +61,23 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   cout << "max key = " << max_key << endl;
   // -------------------------------------------------------------------------------------
-  union {
-    u64 x;
-    u8 key_start[8];
-  };
-  x = 0ul;
   u64 counter = 0;
-  vs_btree.scan(key_start, sizeof(x),
-                [&](u8* payload, u16, std::function<string()>&) {
-                  ensure(memcmp(payload, reinterpret_cast<u8*>(&dummy_payload), sizeof(Payload)) == 0);
-                  counter++;
-                  return true;
-                }, [](){});
+  while (true) {
+    union {
+      u64 x;
+      u8 key_start[8];
+    };
+    x = 0ul;
+    counter = 0;
+    vs_btree.scan(
+        key_start, sizeof(x),
+        [&](u8* payload, u16, std::function<string()>&) {
+          ensure(memcmp(payload, reinterpret_cast<u8*>(&dummy_payload), sizeof(Payload)) == 0);
+          counter++;
+          return true;
+        },
+        []() {});
+  }
   cout << counter << endl;
   // -------------------------------------------------------------------------------------
   return 0;

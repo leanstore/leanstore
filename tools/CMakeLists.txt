@@ -26,3 +26,7 @@ target_include_directories(txt_to_vector PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(futex futex.cpp)
 target_link_libraries(futex Threads::Threads tbb gflags)
 target_include_directories(futex PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(tx tx.cpp)
+target_link_libraries(tx leanstore Threads::Threads tbb gflags)
+target_include_directories(tx PRIVATE ${SHARED_INCLUDE_DIRECTORY})

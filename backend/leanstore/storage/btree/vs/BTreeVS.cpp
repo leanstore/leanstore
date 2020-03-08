@@ -519,14 +519,39 @@ void BTree::trySplit(BufferFrame& to_split, s32 favored_split_pos)
 // -------------------------------------------------------------------------------------
 void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback)
 {
+  // -------------------------------------------------------------------------------------
+  {
+    u32 volatile mask = 1;
+    auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
+    while (true) {
+      jumpmuTry()
+      {
+        OptimisticPageGuard c_guard(p_guard, root_swip);
+        // ExclusiveGuard::latch(c_guard.bf_s_lock);
+        // ExclusiveGuard::unlatch(c_guard.bf_s_lock);
+        // auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+        // s32 pos = c_x_guard->lowerBound<true>(key, key_length);
+        // ensure(pos != -1);
+        jumpmu_return;
+      }
+      jumpmuCatch()
+      {
+        BACKOFF_STRATEGIES()
+        // -------------------------------------------------------------------------------------
+      }
+    }
+  }
+  ensure(false);
+  // -------------------------------------------------------------------------------------
   volatile u32 mask = 1;
   volatile u32 local_restarts_counter = 0;
   while (true) {
     jumpmuTry()
     {
+      // -------------------------------------------------------------------------------------
       OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead<10>(key, key_length);
-      s32 pos = c_guard->lowerBound<true>(key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+      s32 pos = c_x_guard->lowerBound<true>(key, key_length);
       assert(pos != -1);
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
