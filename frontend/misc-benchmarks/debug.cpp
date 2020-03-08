@@ -132,14 +132,13 @@ int main(int argc, char** argv)
           if (FLAGS_pin_threads)
             pinme(FLAGS_pp_threads + t_i);
           while (keep_running) {
-            int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);
             if (FLAGS_only_warehouse) {
-              // warehouse_table.update(t_i, payload);
-              u8 key_bytes[sizeof(Key)];
-              warehouse_vs_btree.updateSameSize(key_bytes, fold(key_bytes, t_i),
-                                                [&](u8* payload_target, u16 payload_length) {  });
+              warehouse_table.update(t_i, payload);
+              // u8 key_bytes[sizeof(Key)];
+              // warehouse_vs_btree.updateSameSize(key_bytes, fold(key_bytes, t_i), [&](u8* payload_target, u16 payload_length) {});
               goto end;
             } else {
+              int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);
               if (rnd < 430) {
                 warehouse_table.update(t_i, payload);
                 goto end;

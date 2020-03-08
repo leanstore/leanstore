@@ -112,6 +112,9 @@ int main(int argc, char** argv)
     atomic<s32> locks[FLAGS_groups_count] = {0};
     atomic<u64> counter = 0;
     atomic<u64> sleep_counter = 0;
+    std::array<u8, 128> payload = {0};
+    std::array<u8, 128> dump = {1};
+
     for (u64 g_i = 0; g_i < FLAGS_groups_count; g_i++) {
       for (u64 t_i = 0; t_i < group_size; t_i++)
         threads.emplace_back(
@@ -127,12 +130,7 @@ int main(int argc, char** argv)
                 }
                 s32 c = e | 1;
                 if (lock.compare_exchange_strong(e, c)) {
-                  u64 waste_cycles = 0;
-                  for (u64 i = 0; i < 1e3; i++)
-                    waste_cycles += i + 1;
-                  asm volatile("" : : "g"(waste_cycles) : "memory");
-
-                  // usleep(FLAGS_sleep_us);
+                  std::memcpy(dump.data(), payload.data(), 128);
                   counter++;
                   lock--;
                   if (FLAGS_futex)
@@ -152,6 +150,9 @@ int main(int argc, char** argv)
       thread.join();
     }
   }
+  return 0;
+  // -------------------------------------------------------------------------------------
+  // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   int futex = 0;
   atomic<u64> counter = 0;

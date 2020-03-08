@@ -1,5 +1,6 @@
 
 #include "Exceptions.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/sync-primitives/OptimisticLock.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
@@ -24,8 +25,16 @@ DEFINE_bool(affinity, false, "");
 DEFINE_bool(split, false, "");
 DEFINE_bool(pin, false, "");
 DEFINE_uint64(waste, 1e2, "");
+DEFINE_uint64(work, 1e2, "");
 // -------------------------------------------------------------------------------------
 void tx() {}
+// -------------------------------------------------------------------------------------
+/*
+  EPYC Rome
+  L1: 4 cycles
+  L2: 13 cycles
+  LLC: 34
+ */
 // -------------------------------------------------------------------------------------
 using namespace std;
 using leanstore::utils::RandomGenerator;
@@ -74,7 +83,17 @@ int main(int argc, char** argv)
   csv << std::setprecision(2) << std::fixed;
   {
     BF bfs[100 * FLAGS_worker_threads];
-    atomic<u64> tx_counter = 0;
+    atomic<u64> tx_counter[FLAGS_worker_threads] = {0};
+    std::array<u8, 128> payload = {0};
+    std::array<u8, 128> dump = {1};
+    // memcpy 128 bytes: 9 cycles, 12 instructions
+
+    if (0) {
+      PerfEvent e;
+      PerfEventBlock b(e, 1e6);
+      for (u64 i = 0; i < 1e6; i++)
+        std::memcpy(dump.data(), payload.data(), 128);
+    }
     auto ex_lock = [&](BF& bf) {
       atomic<u64> waste_cycles = 0;
       OptimisticGuard guard(bf.latch);
@@ -82,8 +101,14 @@ int main(int argc, char** argv)
         waste_cycles += i + 1;
       DO_NOT_OPTIMIZE(waste_cycles);
       ExclusiveGuard x_guard(guard);
-      if (FLAGS_sleep_us)
-        usleep(FLAGS_sleep_us);
+      DO_NOT_OPTIMIZE(payload.data());
+      DO_NOT_OPTIMIZE(dump.data());
+      std::memcpy(dump.data(), payload.data(), 128);
+      // for (u64 i = 0; i < 128; i++)
+      //    dump[i] = payload[i];
+      // waste_cycles += dump[0];
+      DO_NOT_OPTIMIZE(payload.data());
+      DO_NOT_OPTIMIZE(dump.data());
     };
 #define EASY +((FLAGS_affinity) ? t_i : RandomGenerator::getRandU64(0, FLAGS_worker_threads))
 #define HARD +((FLAGS_split) ? t_i : 0)
@@ -121,9 +146,9 @@ int main(int argc, char** argv)
               {
                 ex_lock(bfs[0]);
                 //                tx(t_i);
-                tx_counter++;
+                tx_counter[t_i]++;
               }
-              jumpmuCatch() { }
+              jumpmuCatch() {}
             }
           },
           t_i);
@@ -131,9 +156,12 @@ int main(int argc, char** argv)
     sleep(1);
     threads.emplace_back([&]() {
       u64 t = 0;
+      u64 tx_sum = 0;
+      for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++)
+        tx_sum += tx_counter[t_i].exchange(0);
       while (true) {
-        cout << t << "," << tx_counter.exchange(0) / 1.0e6 << "\n";
-        csv << t << "," << tx_counter.exchange(0) / 1.0e6 << "\n";
+        cout << t << "," << tx_sum / 1.0e6 << "\n";
+        csv << t << "," << tx_sum / 1.0e6 << "\n";
         t++;
         sleep(1);
       }
