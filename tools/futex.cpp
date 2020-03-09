@@ -107,6 +107,7 @@ int main(int argc, char** argv)
   // printf("%p\n", VERSION_MASK);
   // -------------------------------------------------------------------------------------
   vector<thread> threads;
+  atomic<u64> tx_counter[FLAGS_worker_threads] = {0};
   {
     const u64 group_size = FLAGS_worker_threads / FLAGS_groups_count;
     atomic<s32> locks[FLAGS_groups_count] = {0};
@@ -116,9 +117,9 @@ int main(int argc, char** argv)
     std::array<u8, 128> dump = {1};
 
     for (u64 g_i = 0; g_i < FLAGS_groups_count; g_i++) {
-      for (u64 t_i = 0; t_i < group_size; t_i++)
+      for (u64 t_i = g_i * group_size; t_i < (g_i + 1) * group_size; t_i++)
         threads.emplace_back(
-            [&](int g_i) {
+            [&](int g_i, int t_i) {
               auto& lock = locks[g_i];
               while (true) {
                 s32 e = lock.load();
@@ -131,18 +132,21 @@ int main(int argc, char** argv)
                 s32 c = e | 1;
                 if (lock.compare_exchange_strong(e, c)) {
                   std::memcpy(dump.data(), payload.data(), 128);
-                  counter++;
+                  tx_counter[t_i]++;
                   lock--;
                   if (FLAGS_futex)
                     futex_wake(reinterpret_cast<s32*>(&lock));
                 }
               }
             },
-            g_i);
+            g_i, t_i);
     }
     threads.emplace_back([&]() {
       while (true) {
-        cout << counter.exchange(0) / 1.0e6 << "\t" << sleep_counter.exchange(0) / 1.0e6 << endl;
+        u64 tx_sum = 0;
+        for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++)
+          tx_sum += tx_counter[t_i].exchange(0);
+        cout << tx_sum / 1.0e6 << "\t" << sleep_counter.exchange(0) / 1.0e6 << endl;
         sleep(1);
       }
     });

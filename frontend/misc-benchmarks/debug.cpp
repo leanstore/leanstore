@@ -18,8 +18,8 @@
 #include <iostream>
 // -------------------------------------------------------------------------------------
 DEFINE_bool(only_warehouse, false, "");
-DEFINE_uint64(sleep_us, 1, "");
-DEFINE_uint64(waste, 1e2, "");
+DEFINE_uint64(matrix_mul, 0, "");
+DEFINE_uint64(pread_pct, 0, "");
 // -------------------------------------------------------------------------------------
 template <typename T>
 inline void DO_NOT_OPTIMIZE(T const& value)
@@ -66,6 +66,7 @@ int main(int argc, char** argv)
   // LeanStore DB
   LeanStore db;
   db.registerConfigEntry("only_warehouse", [&](ostream& out) { out << FLAGS_only_warehouse; });
+  db.registerConfigEntry("pread_pct", [&](ostream& out) { out << FLAGS_pread_pct; });
   // -------------------------------------------------------------------------------------
   unique_ptr<BTreeInterface<Key, Payload>> warehouse_adapter;
   auto& warehouse_vs_btree = db.registerVSBTree("warehouse");
@@ -122,52 +123,104 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
-  // -------------------------------------------------------------------------------------
   vector<thread> threads;
-  BF bfs[100 * FLAGS_worker_threads];
-  for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-    threads.emplace_back(
-        [&](u64 t_i) {
-          running_threads_counter++;
-          if (FLAGS_pin_threads)
-            pinme(FLAGS_pp_threads + t_i);
-          while (keep_running) {
-            if (FLAGS_only_warehouse) {
-              warehouse_table.update(t_i, payload);
-              // u8 key_bytes[sizeof(Key)];
-              // warehouse_vs_btree.updateSameSize(key_bytes, fold(key_bytes, t_i), [&](u8* payload_target, u16 payload_length) {});
-              goto end;
-            } else {
-              int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);
-              if (rnd < 430) {
-                warehouse_table.update(t_i, payload);
-                goto end;
-              }
-              rnd -= 430;
-              if (rnd < 40) {
-                order_status_table.update(t_i * distance, payload);
-                goto end;
-              }
-              rnd -= 40;
-              if (rnd < 40) {
-                delivery_table.update(t_i * distance, payload);
-                goto end;
-              }
-              rnd -= 40;
-              if (rnd < 40) {
-                stock_table.update(t_i * distance, payload);
-                goto end;
-              }
-              rnd -= 40;
-              new_order_table.update(t_i * distance, payload);
+  // -------------------------------------------------------------------------------------
+  if (FLAGS_matrix_mul) {
+    threads.emplace_back([&]() {
+      running_threads_counter++;
+      const int matrix_size = FLAGS_matrix_mul;
+      float **A, **B, **C;
+
+      A = new float*[matrix_size];
+      B = new float*[matrix_size];
+      C = new float*[matrix_size];
+
+      for (int i = 0; i < matrix_size; i++) {
+        A[i] = new float[matrix_size];
+        B[i] = new float[matrix_size];
+        C[i] = new float[matrix_size];
+      }
+
+      for (int i = 0; i < matrix_size; i++) {
+        for (int j = 0; j < matrix_size; j++) {
+          A[i][j] = rand();
+          B[i][j] = rand();
+        }
+      }
+      while (keep_running) {
+        for (int i = 0; i < matrix_size; i++) {
+          for (int j = 0; j < matrix_size; j++) {
+            C[i][j] = 0;
+            for (int k = 0; k < matrix_size; k++) {
+              C[i][j] += A[i][k] * B[k][j];
             }
-          end:
             WorkerCounters::myCounters().tx++;
           }
-          running_threads_counter--;
-        },
-        t_i);
+        }
+      }
+      for (int i = 0; i < matrix_size; i++) {
+        delete A[i];
+        delete B[i];
+        delete C[i];
+      }
+
+      delete A;
+      delete B;
+      delete C;
+      running_threads_counter--;
+    });
   }
+  // -------------------------------------------------------------------------------------
+  leanstore::buffermanager::BufferFrame dump;
+  if (FLAGS_worker_threads != 999)
+    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+      threads.emplace_back(
+          [&](u64 t_i) {
+            running_threads_counter++;
+            if (FLAGS_pin_threads)
+              pinme(FLAGS_pp_threads + t_i);
+            while (keep_running) {
+              if (FLAGS_pread_pct) {
+                u64 rnd = leanstore::utils::RandomGenerator::getRandU64(0, 1000);
+                if (rnd < FLAGS_pread_pct) {
+                  db.getBufferManager().readPageSync(0, dump.page);
+                  goto end;
+                }
+              }
+              if (FLAGS_only_warehouse) {
+                warehouse_table.update(t_i, payload);
+                goto end;
+              } else {
+                int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);
+                if (rnd < 430) {
+                  warehouse_table.update(t_i, payload);
+                  goto end;
+                }
+                rnd -= 430;
+                if (rnd < 40) {
+                  order_status_table.update(t_i * distance, payload);
+                  goto end;
+                }
+                rnd -= 40;
+                if (rnd < 40) {
+                  delivery_table.update(t_i * distance, payload);
+                  goto end;
+                }
+                rnd -= 40;
+                if (rnd < 40) {
+                  stock_table.update(t_i * distance, payload);
+                  goto end;
+                }
+                rnd -= 40;
+                new_order_table.update(t_i * distance, payload);
+              }
+            end:
+              WorkerCounters::myCounters().tx;
+            }
+            running_threads_counter--;
+          },
+          t_i);
+    }
   // -------------------------------------------------------------------------------------
   {
     // Shutdown threads

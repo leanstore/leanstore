@@ -20,6 +20,7 @@ DECLARE_bool(trunc);
 DECLARE_bool(fs);
 DECLARE_bool(root);
 DECLARE_bool(print_debug);
+DECLARE_bool(print_tx_console);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(cm_split);

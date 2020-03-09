@@ -66,10 +66,10 @@ void BTree::scan(u8* start_key,
                  std::function<bool(u8* payload, u16 payload_length, std::function<string()>&)> callback,
                  function<void()> undo)
 {
-  volatile bool is_heap_freed = true;  // because at first we reuse the start_key
   volatile u32 mask = 1;
   u8* volatile next_key = start_key;
   volatile u16 next_key_length = key_length;
+  volatile bool is_heap_freed = true;  // because at first we reuse the start_key
   while (true) {
     jumpmuTry()
     {
@@ -117,8 +117,11 @@ void BTree::scan(u8* start_key,
     }
     jumpmuCatch()
     {
-      if (!is_heap_freed)
-        delete[] next_key;
+      {
+        next_key = start_key;
+        next_key_length = key_length;
+        is_heap_freed = true;  // because at first we reuse the start_key
+      }
       undo();
       BACKOFF_STRATEGIES()
       WorkerCounters::myCounters().dt_restarts_read[dtid]++;
@@ -519,29 +522,29 @@ void BTree::trySplit(BufferFrame& to_split, s32 favored_split_pos)
 // -------------------------------------------------------------------------------------
 void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback)
 {
-  // -------------------------------------------------------------------------------------
-  {
-    u32 volatile mask = 1;
-    auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-    while (true) {
-      jumpmuTry()
-      {
-        OptimisticPageGuard c_guard(p_guard, root_swip);
-        // ExclusiveGuard::latch(c_guard.bf_s_lock);
-        // ExclusiveGuard::unlatch(c_guard.bf_s_lock);
-        // auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-        // s32 pos = c_x_guard->lowerBound<true>(key, key_length);
-        // ensure(pos != -1);
-        jumpmu_return;
-      }
-      jumpmuCatch()
-      {
-        BACKOFF_STRATEGIES()
-        // -------------------------------------------------------------------------------------
-      }
-    }
-  }
-  ensure(false);
+  // // -------------------------------------------------------------------------------------
+  // {
+  //   u32 volatile mask = 1;
+  //   auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
+  //   while (true) {
+  //     jumpmuTry()
+  //     {
+  //       OptimisticPageGuard c_guard(p_guard, root_swip);
+  //       ExclusiveGuard::latch(c_guard.bf_s_lock);
+  //       ExclusiveGuard::unlatch(c_guard.bf_s_lock);
+  //       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+  //       s32 pos = c_x_guard->lowerBound<true>(key, key_length);
+  //       ensure(pos != -1);
+  //       jumpmu_return;
+  //     }
+  //     jumpmuCatch()
+  //     {
+  //       BACKOFF_STRATEGIES()
+  //       // -------------------------------------------------------------------------------------
+  //     }
+  //   }
+  // }
+  // ensure(false);
   // -------------------------------------------------------------------------------------
   volatile u32 mask = 1;
   volatile u32 local_restarts_counter = 0;
