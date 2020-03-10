@@ -215,7 +215,7 @@ int main(int argc, char** argv)
                 new_order_table.update(t_i * distance, payload);
               }
             end:
-              WorkerCounters::myCounters().tx;
+              WorkerCounters::myCounters().tx++;
             }
             running_threads_counter--;
           },

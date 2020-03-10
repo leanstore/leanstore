@@ -49,3 +49,11 @@ target_include_directories(urls PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(debug misc-benchmarks/debug.cpp)
 target_link_libraries(debug leanstore Threads::Threads)
 target_include_directories(debug PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(seq misc-benchmarks/seq.cpp)
+target_link_libraries(seq leanstore Threads::Threads)
+target_include_directories(seq PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(cx16 misc-benchmarks/cx16.cpp)
+target_link_libraries(cx16 leanstore Threads::Threads)
+target_include_directories(cx16 PRIVATE ${SHARED_INCLUDE_DIRECTORY})

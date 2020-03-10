@@ -5,18 +5,24 @@
 
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
+#include <emmintrin.h>
 #include <fcntl.h>
 #include <linux/futex.h>
 #include <unistd.h>
 
 #include <atomic>
+#include <fstream>
 #include <iostream>
+#include <mutex>
 #include <thread>
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(worker_threads, 20, "");
-DEFINE_uint64(sleep_us, 1, "");
 DEFINE_uint64(groups_count, 1, "");
+DEFINE_uint64(samples_count, (1 << 10), "");
 DEFINE_bool(futex, false, "");
+DEFINE_bool(mutex, false, "");
+DEFINE_bool(cmpxchg, false, "");
+DEFINE_bool(seq, false, "");
 // -------------------------------------------------------------------------------------
 /*
 struct mutex {
@@ -107,40 +113,126 @@ int main(int argc, char** argv)
   // printf("%p\n", VERSION_MASK);
   // -------------------------------------------------------------------------------------
   vector<thread> threads;
-  atomic<u64> tx_counter[FLAGS_worker_threads] = {0};
+  atomic<bool> keep_running = true;
+  alignas(64) atomic<u64> tx_counter[FLAGS_worker_threads] = {0};
   {
     const u64 group_size = FLAGS_worker_threads / FLAGS_groups_count;
+    // -------------------------------------------------------------------------------------
     atomic<s32> locks[FLAGS_groups_count] = {0};
+    std::mutex mlocks[FLAGS_groups_count];
+    // -------------------------------------------------------------------------------------
     atomic<u64> counter = 0;
     atomic<u64> sleep_counter = 0;
     std::array<u8, 128> payload = {0};
     std::array<u8, 128> dump = {1};
-
-    for (u64 g_i = 0; g_i < FLAGS_groups_count; g_i++) {
-      for (u64 t_i = g_i * group_size; t_i < (g_i + 1) * group_size; t_i++)
+    // -------------------------------------------------------------------------------------
+    if (FLAGS_seq) {
+      struct BF {
+        mutex lock;
+        atomic<u64> version = 0;
+        u64 seq_id = 0;
+      };
+      BF bf;
+      const u64 max_size = FLAGS_samples_count;
+      s32* sequence = new s32[max_size];
+      for (s32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
         threads.emplace_back(
-            [&](int g_i, int t_i) {
-              auto& lock = locks[g_i];
-              while (true) {
-                s32 e = lock.load();
-                while (e & 1) {
-                  if (FLAGS_futex && futex_wait(reinterpret_cast<s32*>(&lock), e)) {
-                    sleep_counter++;
-                  }
-                  e = lock.load();
-                }
-                s32 c = e | 1;
-                if (lock.compare_exchange_strong(e, c)) {
-                  std::memcpy(dump.data(), payload.data(), 128);
+            [&](int t_i) {
+              while (keep_running) {
+                if (FLAGS_mutex) {
+                  bf.lock.lock();
+                  sequence[bf.seq_id] = t_i;
+                  bf.seq_id = (bf.seq_id + 1) % max_size;
                   tx_counter[t_i]++;
-                  lock--;
-                  if (FLAGS_futex)
-                    futex_wake(reinterpret_cast<s32*>(&lock));
+                  bf.lock.unlock();
+                } else {
+                  u64 e = bf.version.load();
+                  while (e & 1) {
+                    _mm_pause();
+                    e = bf.version.load();
+                  }
+                  u64 c = e | 1;
+                  if (bf.version.compare_exchange_strong(e, c)) {
+                    sequence[bf.seq_id] = t_i;
+                    bf.seq_id = (bf.seq_id + 1) % max_size;
+                    tx_counter[t_i]++;
+                    bf.version--;
+                  }
                 }
               }
             },
-            g_i, t_i);
+            t_i);
+      }
+      sleep(4);
+      keep_running = false;
+      cout << "shutting down" << endl;
+      for (auto& thread : threads) {
+        thread.join();
+      }
+      threads.clear();
+      cout << "threads down" << endl;
+      std::ofstream csv;
+      csv.open("seq.csv", ios::trunc);
+      csv << std::setprecision(2) << std::fixed << "i,t" << endl;
+      for (u64 i = 0; i < max_size; i++) {
+        csv << "i," << sequence[i] << endl;
+      }
+      return 0;
+    } else {
+      for (u64 g_i = 0; g_i < FLAGS_groups_count; g_i++) {
+        for (u64 t_i = g_i * group_size; t_i < (g_i + 1) * group_size; t_i++)
+          threads.emplace_back(
+              [&](int g_i, int t_i) {
+                auto& lock = locks[g_i];
+                auto& mlock = mlocks[g_i];
+                while (true) {
+                  if (FLAGS_mutex) {
+                    mlock.lock();
+                    std::memcpy(dump.data(), payload.data(), 128);
+                    tx_counter[t_i]++;
+                    mlock.unlock();
+                  } else if (FLAGS_cmpxchg) {
+                    s32 e = 0;
+                    while (!lock.compare_exchange_strong(e, 1)) {
+                      e = 0;
+                    }
+                    std::memcpy(dump.data(), payload.data(), 128);
+                    tx_counter[t_i]++;
+                    lock--;
+                  } else if (FLAGS_futex) {
+                    s32 e = lock.load();
+                    while (e & 1) {
+                      if (FLAGS_futex && futex_wait(reinterpret_cast<s32*>(&lock), e)) {
+                        sleep_counter++;
+                      }
+                      e = lock.load();
+                    }
+                    s32 c = e | 1;
+                    if (lock.compare_exchange_strong(e, c)) {
+                      std::memcpy(dump.data(), payload.data(), 128);
+                      tx_counter[t_i]++;
+                      lock--;
+                      futex_wake(reinterpret_cast<s32*>(&lock));
+                    }
+                  } else {
+                    s32 e = lock.load();
+                    while (e & 1) {
+                      _mm_pause();
+                      e = lock.load();
+                    }
+                    s32 c = e | 1;
+                    if (lock.compare_exchange_strong(e, c)) {
+                      std::memcpy(dump.data(), payload.data(), 128);
+                      tx_counter[t_i]++;
+                      lock--;
+                    }
+                  }
+                }
+              },
+              g_i, t_i);
+      }
     }
+    // -------------------------------------------------------------------------------------
     threads.emplace_back([&]() {
       while (true) {
         u64 tx_sum = 0;
@@ -153,55 +245,6 @@ int main(int argc, char** argv)
     for (auto& thread : threads) {
       thread.join();
     }
-  }
-  return 0;
-  // -------------------------------------------------------------------------------------
-  // -------------------------------------------------------------------------------------
-  // -------------------------------------------------------------------------------------
-  int futex = 0;
-  atomic<u64> counter = 0;
-  atomic<bool> is_sleep = false;
-  threads.emplace_back([&]() {
-    while (true) {
-      is_sleep = true;
-      futex_wait(&futex, 0);
-      is_sleep = false;
-      counter++;
-    }
-  });
-  threads.emplace_back([&]() {
-    while (true) {
-      if (is_sleep)
-        futex_wake(&futex);
-    }
-  });
-  threads.emplace_back([&]() {
-    while (true) {
-      cout << counter.exchange(0) << endl;
-      sleep(1);
-    }
-  });
-  for (auto& thread : threads) {
-    thread.join();
-  }
-  return 0;
-  // -------------------------------------------------------------------------------------
-  for (u32 i = 0; i < FLAGS_worker_threads; i++) {
-    threads.emplace_back(
-        [&](int t_i) {
-          futex_wait(reinterpret_cast<s32*>(latches + t_i), 0);
-          cout << "awake " << t_i << endl;
-          while (true) {
-          }
-        },
-        i);
-  }
-  sleep(5);
-  for (u32 i = 0; i < FLAGS_worker_threads; i++) {
-    futex_wake(reinterpret_cast<s32*>(latches + i));
-  }
-  for (auto& thread : threads) {
-    thread.join();
   }
   return 0;
 }

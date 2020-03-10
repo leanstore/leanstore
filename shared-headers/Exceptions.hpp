@@ -58,3 +58,13 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
 #else
 #define DEBUG_BLOCK() if(false)
 #endif
+// -------------------------------------------------------------------------------------
+template <typename T>
+inline void DO_NOT_OPTIMIZE(T const& value)
+{
+#if defined(__clang__)
+  asm volatile("" : : "g"(value) : "memory");
+#else
+  asm volatile("" : : "i,r,m"(value) : "memory");
+#endif
+}
