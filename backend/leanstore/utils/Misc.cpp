@@ -1,4 +1,6 @@
+#include "leanstore/Config.hpp"
 #include "Misc.hpp"
+#include <atomic>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -16,5 +18,27 @@ double calculateMTPS(std::chrono::high_resolution_clock::time_point begin, std::
   return (tps / 1000000.0);
 }
 // -------------------------------------------------------------------------------------
-}  // namespace utils
+void pinThisThread()
+{
+  static atomic<u64> a_t_i = 0;
+  u64 t_i = a_t_i++;
+  u64 pin_id;
+  if (FLAGS_smt) {
+    u64 cpu = t_i / 8;
+    u64 l_cpu = t_i % 8;
+    bool is_upper = l_cpu > 3;
+    pin_id = (is_upper) ? (64 + (cpu * 4) + (l_cpu % 4)) : ((cpu * 4) + (l_cpu % 4));
+  } else {
+    pin_id = t_i;
+  }
+  // -------------------------------------------------------------------------------------
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(pin_id, &cpuset);
+  pthread_t current_thread = pthread_self();
+  if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
+    throw;
 }
+// -------------------------------------------------------------------------------------
+}  // namespace utils
+}  // namespace leanstore

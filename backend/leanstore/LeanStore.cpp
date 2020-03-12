@@ -117,6 +117,7 @@ void LeanStore::debuggingThread()
   // Constants for identifying the run [c for constants]
   config_entries.emplace_back("c_worker_threads", [&](ostream& out) { out << FLAGS_worker_threads; });
   config_entries.emplace_back("c_pin_threads", [&](ostream& out) { out << FLAGS_pin_threads; });
+  config_entries.emplace_back("c_smt", [&](ostream& out) { out << FLAGS_smt; });
   config_entries.emplace_back("c_free_pct", [&](ostream& out) { out << FLAGS_free_pct; });
   config_entries.emplace_back("c_cool_pct", [&](ostream& out) { out << FLAGS_cool_pct; });
   config_entries.emplace_back("c_pp_threads", [&](ostream& out) { out << FLAGS_pp_threads; });

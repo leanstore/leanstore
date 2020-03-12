@@ -61,7 +61,7 @@ int main(int argc, char** argv)
   std::array<u8, 128> payload = {0};
   std::array<u8, 128> dump = {1};
   // -------------------------------------------------------------------------------------
-  using AtomicType = u64;
+  using AtomicType = u128;
   struct alignas(64) BF {
     atomic<AtomicType> version = 0;
   };
@@ -75,10 +75,11 @@ int main(int argc, char** argv)
               _mm_pause();
               e = bf.version.load();
             }
-            AtomicType c = e | 1;
+            AtomicType c = e + 1;
             if (bf.version.compare_exchange_strong(e, c)) {
+              std::memcpy(dump.data(), payload.data(), 128);
               tx_counter[t_i]++;
-              bf.version = 0;
+              bf.version = c + 1;
             }
           }
         },
