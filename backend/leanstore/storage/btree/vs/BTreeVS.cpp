@@ -522,30 +522,6 @@ void BTree::trySplit(BufferFrame& to_split, s32 favored_split_pos)
 // -------------------------------------------------------------------------------------
 void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback)
 {
-  // // -------------------------------------------------------------------------------------
-  // {
-  //   u32 volatile mask = 1;
-  //   auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-  //   while (true) {
-  //     jumpmuTry()
-  //     {
-  //       OptimisticPageGuard c_guard(p_guard, root_swip);
-  //       ExclusiveGuard::latch(c_guard.bf_s_lock);
-  //       ExclusiveGuard::unlatch(c_guard.bf_s_lock);
-  //       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-  //       s32 pos = c_x_guard->lowerBound<true>(key, key_length);
-  //       ensure(pos != -1);
-  //       jumpmu_return;
-  //     }
-  //     jumpmuCatch()
-  //     {
-  //       BACKOFF_STRATEGIES()
-  //       // -------------------------------------------------------------------------------------
-  //     }
-  //   }
-  // }
-  // ensure(false);
-  // -------------------------------------------------------------------------------------
   volatile u32 mask = 1;
   volatile u32 local_restarts_counter = 0;
   while (true) {
@@ -598,40 +574,10 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
   }
 }
 // -------------------------------------------------------------------------------------
-// TODO: not used and not well tested
-void BTree::update(u8* key, u16 key_length, u64 payloadLength, u8* payload)
+// TODO:
+void BTree::update(u8*, u16, u64, u8*)
 {
-  volatile u32 mask = 1;
-  while (true) {
-    jumpmuTry()
-    {
-      auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-      OptimisticPageGuard c_guard(p_guard, root_swip);
-      while (!c_guard->is_leaf) {
-        Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
-        p_guard = std::move(c_guard);
-        c_guard = OptimisticPageGuard(p_guard, c_swip);
-      }
-      auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-      p_guard.kill();
-      if (c_x_guard->update(key, key_length, payloadLength, payload)) {
-        jumpmu_return;
-      }
-      // no more space, need to split
-      // -------------------------------------------------------------------------------------
-      // Release lock
-      c_guard = std::move(c_x_guard);
-      c_guard.kill();
-      // -------------------------------------------------------------------------------------
-      trySplit(*c_x_guard.bf);
-      jumpmu_continue;
-    }
-    jumpmuCatch()
-    {
-      BACKOFF_STRATEGIES()
-      WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
-    }
-  }
+  ensure(false);
 }
 // -------------------------------------------------------------------------------------
 bool BTree::remove(u8* key, u16 key_length)

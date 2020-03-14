@@ -132,24 +132,10 @@ void BTreeNode::insert(u8* key, unsigned keyLength, ValueType value, u8* payload
 }
 // -------------------------------------------------------------------------------------
 // TODO: probably broken
-bool BTreeNode::update(u8* key, unsigned keyLength, u16 payload_length, u8* payload)
+bool BTreeNode::update(u8*, unsigned, u16, u8*)
 {
   ensure(false);
   return false;
-  // s32 slotId = lowerBound<true>(key, keyLength);
-  // if (slotId == -1) {
-  //   // this happens after we remove the slot and not be able to insert directly
-  //   // without a split
-  //   return insert(key, keyLength, ValueType(reinterpret_cast<BufferFrame*>(payload_length)), payload);
-  // }
-  // s32 space_needed = payload_length - getPayloadLength(slotId);
-  // if (space_needed == 0) {
-  //   memcpy(isLarge(slotId) ? getPayloadLarge(slotId) : getPayload(slotId), payload, payload_length);
-  //   return true;
-  // } else {
-  //   removeSlot(slotId);
-  //   return insert(key, keyLength, ValueType(reinterpret_cast<BufferFrame*>(payload_length)), payload);
-  // }
 }
 // -------------------------------------------------------------------------------------
 void BTreeNode::compactify()
@@ -275,7 +261,7 @@ void BTreeNode::storeKeyValue(u16 slotId, u8* key, unsigned keyLength, ValueType
 // ATTENTION: dstSlot then srcSlot !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 void BTreeNode::copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, unsigned count)
 {
-  if (is_leaf && count == this->count - 1 && dst->count == 0) {
+  if (is_leaf && count == u16(this->count - 1) && dst->count == 0) {
     // raise(SIGTRAP);
   }
   if (prefix_length == dst->prefix_length) {
