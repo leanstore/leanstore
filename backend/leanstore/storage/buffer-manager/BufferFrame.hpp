@@ -34,6 +34,7 @@ struct BufferFrame {
     bool isCooledBecauseOfReading = false;
     PID pid = 9999;            // INIT:
     OptimisticLatch lock = 0;  // INIT: // ATTENTION: NEVER DECREMENT
+    std::mutex mutex;
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;
     ContentionTracker contention_tracker;

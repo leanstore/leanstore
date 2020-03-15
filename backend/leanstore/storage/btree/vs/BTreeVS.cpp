@@ -880,7 +880,7 @@ bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Optimisti
 {
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-  OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(guard, &bf);
+  OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(std::move(guard), &bf);
   // -------------------------------------------------------------------------------------
   if (FLAGS_su_merge) {
     bool merged = btree.kWayMerge(p_guard, c_guard, parent_handler);
@@ -916,7 +916,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   // check if bf is the root node
   if (c_swip->bf == &to_find) {
     p_guard.recheck_done();
-    return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = p_guard.bf_s_lock, .parent = nullptr};
+    return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.bf_s_lock), .parent = nullptr};
   }
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
@@ -946,7 +946,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   if (!found) {
     jumpmu::jump();
   }
-  return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = c_guard.bf_s_lock, .parent = c_guard.bf, .pos = pos};
+  return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.bf_s_lock), .parent = c_guard.bf, .pos = pos};
 }
 // -------------------------------------------------------------------------------------
 void BTree::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)

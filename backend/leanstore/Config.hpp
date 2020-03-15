@@ -38,6 +38,9 @@ DECLARE_uint64(warmup_for_seconds);
 DECLARE_uint64(backoff_strategy);
 DECLARE_uint64(restarts_threshold);
 // -------------------------------------------------------------------------------------
+DECLARE_uint64(backoff);
+DECLARE_bool(mutex);
+// -------------------------------------------------------------------------------------
 DECLARE_uint64(x);
 DECLARE_uint64(y);
 DECLARE_double(d);

@@ -43,8 +43,8 @@ int main(int argc, char** argv)
   std::array<u8, 128> dump = {1};
   // -------------------------------------------------------------------------------------
   struct alignas(64) BF {
-    mutex lock;
     buffermanager::OptimisticLatch version;
+    std::mutex lock;
     u64 seq_id = 0;
     // -------------------------------------------------------------------------------------
     atomic<u64> turn = 0;

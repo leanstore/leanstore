@@ -28,7 +28,7 @@ inline void clearLastDestructor()
 // -------------------------------------------------------------------------------------
 // clang-format off
 #define jumpmu_registerDestructor()                       \
-  assert(jumpmu::de_stack_counter < JUMPMU_STACK_SIZE);assert(jumpmu::checkpoint_counter < JUMPMU_STACK_SIZE);jumpmu::de_stack_arr[jumpmu::de_stack_counter] = &des;jumpmu::de_stack_obj[jumpmu::de_stack_counter] = this;jumpmu::de_stack_counter++;
+  assert(jumpmu::de_stack_counter < JUMPMU_STACK_SIZE);assert(jumpmu::checkpoint_counter < JUMPMU_STACK_SIZE);jumpmu::de_stack_arr[jumpmu::de_stack_counter] = &des;assert(jumpmu::de_stack_arr[jumpmu::de_stack_counter]!=nullptr);jumpmu::de_stack_obj[jumpmu::de_stack_counter] = this;jumpmu::de_stack_counter++;
 
 #define jumpmu_defineCustomDestructor(NAME) static void des(void* t) { reinterpret_cast<NAME*>(t)->~NAME(); }
 

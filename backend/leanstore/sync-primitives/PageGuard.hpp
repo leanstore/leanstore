@@ -17,7 +17,7 @@ class OptimisticPageGuard
 {
  protected:
   OptimisticPageGuard(OptimisticLatch& swip_version) : moved(false) { bf_s_lock = OptimisticGuard(swip_version); }
-  OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : moved(false), bf(bf), bf_s_lock(read_guard) {}
+  OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : moved(false), bf(bf), bf_s_lock(std::move(read_guard)) {}
   // -------------------------------------------------------------------------------------
   bool manually_checked = false;
   // -------------------------------------------------------------------------------------
@@ -35,7 +35,7 @@ class OptimisticPageGuard
     other.moved = true;
   }
   // -------------------------------------------------------------------------------------
-  static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf) { return OptimisticPageGuard(read_guard, bf); }
+  static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf) { return OptimisticPageGuard(std::move(read_guard), bf); }
   // -------------------------------------------------------------------------------------
   // I: Root case
   static OptimisticPageGuard makeRootGuard(OptimisticLatch& swip_version) { return OptimisticPageGuard(swip_version); }
@@ -57,7 +57,7 @@ class OptimisticPageGuard
   {
     assert(!other.moved);
     bf = other.bf;
-    bf_s_lock = other.bf_s_lock;
+    bf_s_lock = std::move(other.bf_s_lock);
     // -------------------------------------------------------------------------------------
     if (hasBf()) {
       bf->page.LSN++;
@@ -74,7 +74,7 @@ class OptimisticPageGuard
   OptimisticPageGuard& operator=(SharedPageGuard<T>&& other)
   {
     bf = other.bf;
-    bf_s_lock = other.bf_s_lock;
+    bf_s_lock = std::move(other.bf_s_lock);
     // -------------------------------------------------------------------------------------
     SharedGuard::unlatch(bf_s_lock);
     // -------------------------------------------------------------------------------------
@@ -87,7 +87,7 @@ class OptimisticPageGuard
   constexpr OptimisticPageGuard& operator=(OptimisticPageGuard&& other)
   {
     bf = other.bf;
-    bf_s_lock = other.bf_s_lock;
+    bf_s_lock = std::move(other.bf_s_lock);
     moved = false;
     manually_checked = false;
     // -------------------------------------------------------------------------------------
@@ -163,7 +163,7 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
   {
     o_guard.recheck();
     OptimisticClass::bf = o_guard.bf;
-    OptimisticClass::bf_s_lock = o_guard.bf_s_lock;
+    OptimisticClass::bf_s_lock = std::move(o_guard.bf_s_lock);
     // -------------------------------------------------------------------------------------
     ExclusiveGuard::latch(OptimisticClass::bf_s_lock);
     // -------------------------------------------------------------------------------------
@@ -224,7 +224,7 @@ class SharedPageGuard : public OptimisticPageGuard<T>
   SharedPageGuard(OptimisticPageGuard<T>&& o_guard)
   {
     OptimisticClass::bf = o_guard.bf;
-    OptimisticClass::bf_s_lock = o_guard.bf_s_lock;
+    OptimisticClass::bf_s_lock = std::move(o_guard.bf_s_lock);
     // -------------------------------------------------------------------------------------
     SharedGuard::latch(OptimisticClass::bf_s_lock);
     // -------------------------------------------------------------------------------------

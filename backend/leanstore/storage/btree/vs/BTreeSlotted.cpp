@@ -132,7 +132,7 @@ void BTreeNode::insert(u8* key, unsigned keyLength, ValueType value, u8* payload
 }
 // -------------------------------------------------------------------------------------
 // TODO: probably broken
-bool BTreeNode::update(u8*, unsigned, u16, u8*)
+bool BTreeNode::update(u8*, unsigned, u16, u8* payload)
 {
   ensure(false);
   return false;

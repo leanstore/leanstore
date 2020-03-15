@@ -22,7 +22,7 @@ struct ParentSwipHandler {
   template <typename T>
   OptimisticPageGuard<T> getParentReadPageGuard()
   {
-    return OptimisticPageGuard<T>::manuallyAssembleGuard(parent_guard, parent);
+    return OptimisticPageGuard<T>::manuallyAssembleGuard(std::move(parent_guard), parent);
   }
 };
 // -------------------------------------------------------------------------------------
