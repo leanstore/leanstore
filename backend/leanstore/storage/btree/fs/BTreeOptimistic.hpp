@@ -323,7 +323,7 @@ struct BTree {
     }
   }
   // -------------------------------------------------------------------------------------
-  static bool checkSpaceUtilization(void*, BufferFrame&, OptimisticGuard&, ParentSwipHandler&) {
+  static bool checkSpaceUtilization(void*, BufferFrame&, OptimisticGuard, ParentSwipHandler) {
     ensure(false); // todo
   }
   // -------------------------------------------------------------------------------------

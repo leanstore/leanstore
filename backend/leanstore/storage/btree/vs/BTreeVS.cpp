@@ -407,7 +407,10 @@ bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPage
     BTreeNode tmp(true);
     tmp.setFences(left->getLowerFenceKey(), left->lower_fence.length, lf_key, lf_length);
     left->copyKeyValueRange(&tmp, 0, 0, new_left_count);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memcpy(left.ptr(), &tmp, sizeof(BTreeNode));
+#pragma GCC diagnostic pop
     left->makeHint();
     ensure(left->count == new_left_count);
   }
@@ -416,7 +419,10 @@ bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPage
     BTreeNode tmp(true);
     tmp.setFences(uf_key, uf_length, right->getUpperFenceKey(), right->upper_fence.length);
     right->copyKeyValueRange(&tmp, 0, uf_pos + 1, new_right_count);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memcpy(right.ptr(), &tmp, sizeof(BTreeNode));
+#pragma GCC diagnostic pop
     right->makeHint();
     ensure(right->count == new_right_count);
   }
@@ -430,7 +436,8 @@ bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPage
     parent->insert(left->getUpperFenceKey(), left->upper_fence.length, left.swip());
   }
   // -------------------------------------------------------------------------------------
-  ensure(debugging_total_elements == left->count + middle->count + right->count);
+  static_cast<void>(debugging_total_elements);
+  assert(debugging_total_elements == (left->count + middle->count + right->count));
   return true;
 }
 // -------------------------------------------------------------------------------------
@@ -691,7 +698,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
   };
   // ATTENTION: don't use c_guard without making sure it was not reclaimed
   // -------------------------------------------------------------------------------------
-  bool merged_successfully = false;
+  volatile bool merged_successfully = false;
   if (p_guard->count > 2) {
     if (pos > 0) {
       merged_successfully |= merge_left();
@@ -876,7 +883,7 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // Called by buffer manager before eviction
 // Returns true if the buffer manager has to restart and pick another buffer frame for eviction
 // Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
-bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard& guard, ParentSwipHandler& parent_handler)
+bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard guard, ParentSwipHandler parent_handler)
 {
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
@@ -916,7 +923,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   // check if bf is the root node
   if (c_swip->bf == &to_find) {
     p_guard.recheck_done();
-    return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.bf_s_lock), .parent = nullptr};
+    return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.bf_s_lock), .parent_bf = nullptr};
   }
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
@@ -946,7 +953,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   if (!found) {
     jumpmu::jump();
   }
-  return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.bf_s_lock), .parent = c_guard.bf, .pos = pos};
+  return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.bf_s_lock), .parent_bf = c_guard.bf, .pos = pos};
 }
 // -------------------------------------------------------------------------------------
 void BTree::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)

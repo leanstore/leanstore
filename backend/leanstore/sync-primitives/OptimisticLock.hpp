@@ -43,7 +43,7 @@ constexpr static u64 LATCH_EXCLUSIVE_STATE_MASK = ((1 << 9) - 1);
   }
 // -------------------------------------------------------------------------------------
 class OptimisticGuard;
-class SharedGuard;  // TODO
+class SharedGuard;
 class ExclusiveGuard;
 template <typename T>
 class OptimisticPageGuard;
@@ -83,22 +83,20 @@ class OptimisticGuard
   friend class ExclusivePageGuard;
 
  private:
-  OptimisticGuard(OptimisticLatch* latch_ptr, u64 local_version) : latch_ptr(latch_ptr), local_version(local_version)
-  {
-  }
+  OptimisticGuard(OptimisticLatch* latch_ptr, u64 local_version) : latch_ptr(latch_ptr), local_version(local_version) {}
 
  public:
   OptimisticLatch* latch_ptr = nullptr;
   u64 local_version;  // without the state
   bool mutex_locked = false;
   // -------------------------------------------------------------------------------------
-  OptimisticGuard()
-  {
-  }
-  OptimisticGuard(OptimisticGuard& other) = delete;
+  OptimisticGuard() = delete;
+  // copy constructor
+  OptimisticGuard(OptimisticGuard& other) : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked(other.mutex_locked) {}
+  // move constructor
   OptimisticGuard(OptimisticGuard&& other) : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked(other.mutex_locked)
   {
-    other.latch_ptr = nullptr;
+    other.latch_ptr = reinterpret_cast<OptimisticLatch*>(0x99);
     other.local_version = 0;
     other.mutex_locked = false;
   }
@@ -111,15 +109,7 @@ class OptimisticGuard
     return *this;
   }
   // -------------------------------------------------------------------------------------
-  ~OptimisticGuard()
-  {
-    if (mutex_locked) {
-      auto mutex = reinterpret_cast<std::mutex*>(latch_ptr->ptr() + 1);
-      // ensure(!(local_version & LATCH_VERSION_MASK));
-      mutex->unlock();
-    }
-  }
-  // -------------------------------------------------------------------------------------
+  // Keep spinning constructor
   OptimisticGuard(OptimisticLatch& lock) : latch_ptr(&lock)
   {
     // Ignore the state field
@@ -143,6 +133,15 @@ class OptimisticGuard
       }
     }
     assert((local_version & LATCH_EXCLUSIVE_BIT) != LATCH_EXCLUSIVE_BIT);
+  }
+  // -------------------------------------------------------------------------------------
+  ~OptimisticGuard()
+  {
+    if (mutex_locked) {
+      assert(!(local_version & LATCH_VERSION_MASK));
+      auto mutex = reinterpret_cast<std::mutex*>(latch_ptr->ptr() + 1);
+      mutex->unlock();
+    }
   }
   // -------------------------------------------------------------------------------------
   inline void recheck()

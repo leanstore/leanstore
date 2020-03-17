@@ -55,7 +55,7 @@ struct BTree {
   void tryBStar(BufferFrame&);
   // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();
-  static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);
+  static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard, ParentSwipHandler);
   static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
   static void iterateChildrenSwips(void* /*btree_object*/, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback);
   // -------------------------------------------------------------------------------------

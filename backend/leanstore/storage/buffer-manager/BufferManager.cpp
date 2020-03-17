@@ -174,6 +174,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           // -------------------------------------------------------------------------------------
           auto find_parent_begin = chrono::high_resolution_clock::now();
           ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
+          assert(parent_handler.parent_guard.latch_ptr!= reinterpret_cast<OptimisticLatch*>(0x99));
           auto find_parent_end = chrono::high_resolution_clock::now();
           PPCounters::myCounters().find_parent_ms += (chrono::duration_cast<chrono::microseconds>(find_parent_end - find_parent_begin).count());
           // -------------------------------------------------------------------------------------

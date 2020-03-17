@@ -7,6 +7,19 @@ namespace leanstore
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
+#define PAGE_GUARD_HEADER    \
+  BufferFrame* bf = nullptr; \
+  OptimisticGuard bf_s_lock; \
+  bool moved = false;
+
+#define PAGE_GUARD_UTILS                                        \
+  void kill() { moved = true; }                                 \
+  T& ref() { return *reinterpret_cast<T*>(bf->page.dt); }       \
+  T* ptr() { return reinterpret_cast<T*>(bf->page.dt); }        \
+  Swip<T> swip() { return Swip<T>(bf); }                        \
+  T* operator->() { return reinterpret_cast<T*>(bf->page.dt); } \
+  bool hasBf() const { return bf != nullptr; }
+
 // Objects of this class must be thread local !
 template <typename T>
 class ExclusivePageGuard;
@@ -16,26 +29,19 @@ template <typename T>
 class OptimisticPageGuard
 {
  protected:
-  OptimisticPageGuard(OptimisticLatch& swip_version) : moved(false)
-  {
-    bf_s_lock = OptimisticGuard(swip_version);
-  }
-  OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : moved(false), bf(bf), bf_s_lock(std::move(read_guard))
-  {
-  }
+  OptimisticPageGuard(OptimisticLatch& swip_version) : bf_s_lock(OptimisticGuard(swip_version)), moved(false) {}
+  OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : bf(bf), bf_s_lock(std::move(read_guard)), moved(false) {}
   // -------------------------------------------------------------------------------------
-  bool manually_checked = false;
   // -------------------------------------------------------------------------------------
  public:
   // -------------------------------------------------------------------------------------
-  bool moved = false;
-  BufferFrame* bf = nullptr;
-  OptimisticGuard bf_s_lock;
+  PAGE_GUARD_HEADER
+  bool manually_checked = false;
   // -------------------------------------------------------------------------------------
-  OptimisticPageGuard() : moved(true) {}  // use with caution
+  OptimisticPageGuard() : bf(nullptr), bf_s_lock(nullptr, 0), moved(true) {}  // use with caution
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard(OptimisticPageGuard&& other)
-      : manually_checked(other.manually_checked), moved(other.moved), bf(other.bf), bf_s_lock(std::move(other.bf_s_lock))
+      : bf(other.bf), bf_s_lock(std::move(other.bf_s_lock)), moved(other.moved), manually_checked(other.manually_checked)
   {
     other.moved = true;
   }
@@ -50,14 +56,10 @@ class OptimisticPageGuard
   // -------------------------------------------------------------------------------------
   // I: Lock coupling
   OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip)
+      : bf(&BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip.template cast<BufferFrame>())), bf_s_lock(OptimisticGuard(bf->header.lock))
   {
     assert(!(p_guard.bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
-    if (p_guard.moved == true) {
-      assert(false);
-    }
-    auto& bf_swip = swip.template cast<BufferFrame>();
-    bf = &BMC::global_bf->resolveSwip(p_guard.bf_s_lock, bf_swip);
-    bf_s_lock = OptimisticGuard(bf->header.lock);
+    assert(!p_guard.moved);
     p_guard.recheck();  // TODO: ??
   }
   // I: Downgrade exclusive
@@ -111,11 +113,8 @@ class OptimisticPageGuard
   // -------------------------------------------------------------------------------------
   // Copy constructor
   OptimisticPageGuard(OptimisticPageGuard& other)
+      : bf(other.bf), bf_s_lock(other.bf_s_lock), moved(other.moved), manually_checked(other.manually_checked)
   {
-    bf = other.bf;
-    bf_s_lock = other.bf_s_lock;
-    moved = other.moved;
-    manually_checked = other.manually_checked;
   }
   // -------------------------------------------------------------------------------------
   void recheck() { bf_s_lock.recheck(); }
@@ -126,15 +125,9 @@ class OptimisticPageGuard
   }
   // -------------------------------------------------------------------------------------
   // Guard not needed anymore
-  void kill() { moved = true; }
-  T& ref() { return *reinterpret_cast<T*>(bf->page.dt); }
-  T* ptr() { return reinterpret_cast<T*>(bf->page.dt); }
-  Swip<T> swip() { return Swip<T>(bf); }
-  T* operator->() { return reinterpret_cast<T*>(bf->page.dt); }
-  // Is the bufferframe loaded
-  bool hasBf() const { return bf != nullptr; }
-      // -------------------------------------------------------------------------------------
-      ~OptimisticPageGuard() noexcept(false)
+  PAGE_GUARD_UTILS
+  // -------------------------------------------------------------------------------------
+  ~OptimisticPageGuard() noexcept(false)
   {
     DEBUG_BLOCK()
     {
@@ -146,20 +139,18 @@ class OptimisticPageGuard
 };
 // -------------------------------------------------------------------------------------
 template <typename T>
-class ExclusivePageGuard : public OptimisticPageGuard<T>
+class ExclusivePageGuard
 {
-  using OptimisticClass = OptimisticPageGuard<T>;
-
+ public:
+  PAGE_GUARD_HEADER
  protected:
   bool keep_alive = true;  // for the case when more than one page is allocated
                            // (2nd might fail and waste the first)
   // Called by the buffer manager when allocating a new page
-  ExclusivePageGuard(BufferFrame& bf, bool keep_alive) : keep_alive(keep_alive)
+  ExclusivePageGuard(BufferFrame& bf, bool keep_alive)
+      : bf(&bf), bf_s_lock(&bf.header.lock, bf.header.lock->load()), moved(false), keep_alive(keep_alive)
   {
-    OptimisticClass::bf = &bf;
-    OptimisticClass::bf_s_lock = OptimisticGuard(&bf.header.lock, bf.header.lock->load());
-    OptimisticClass::moved = false;
-    assert((OptimisticClass::bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
+    assert((bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
     // -------------------------------------------------------------------------------------
     jumpmu_registerDestructor();
   }
@@ -167,16 +158,10 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
  public:
   // -------------------------------------------------------------------------------------
   // I: Upgrade
-  ExclusivePageGuard(OptimisticClass&& o_guard)
+  ExclusivePageGuard(OptimisticPageGuard<T>&& o_guard) : bf(o_guard.bf), bf_s_lock(std::move(o_guard.bf_s_lock)), moved(false)
   {
-    o_guard.recheck();
-    OptimisticClass::bf = o_guard.bf;
-    OptimisticClass::bf_s_lock = std::move(o_guard.bf_s_lock);
-    // -------------------------------------------------------------------------------------
-    ExclusiveGuard::latch(OptimisticClass::bf_s_lock);
-    // -------------------------------------------------------------------------------------
+    ExclusiveGuard::latch(bf_s_lock);
     o_guard.moved = true;
-    OptimisticClass::moved = false;
     // -------------------------------------------------------------------------------------
     jumpmu_registerDestructor();
   }
@@ -192,15 +177,15 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
   template <typename... Args>
   void init(Args&&... args)
   {
-    new (OptimisticClass::bf->page.dt) T(std::forward<Args>(args)...);
+    new (bf->page.dt) T(std::forward<Args>(args)...);
   }
   // -------------------------------------------------------------------------------------
   void keepAlive() { keep_alive = true; }
   // -------------------------------------------------------------------------------------
   void reclaim()
   {
-    BMC::global_bf->reclaimPage(*OptimisticClass::bf);
-    OptimisticClass::moved = true;
+    BMC::global_bf->reclaimPage(*bf);
+    moved = true;
   }
   // -------------------------------------------------------------------------------------
   jumpmu_defineCustomDestructor(ExclusivePageGuard)
@@ -209,46 +194,42 @@ class ExclusivePageGuard : public OptimisticPageGuard<T>
   {
     jumpmu::clearLastDestructor();
     // -------------------------------------------------------------------------------------
-    if (!OptimisticClass::moved) {
+    if (!moved) {
       if (!keep_alive) {
         reclaim();
       } else {
-        if (OptimisticClass::hasBf()) {
-          OptimisticClass::bf->page.LSN++;  // TODO: LSN
+        if (hasBf()) {
+          bf->page.LSN++;  // TODO: LSN
         }
-        ExclusiveGuard::unlatch(OptimisticClass::bf_s_lock);
-        OptimisticClass::moved = true;
+        ExclusiveGuard::unlatch(bf_s_lock);
+        moved = true;
       }
     }
   }
+  // -------------------------------------------------------------------------------------
+  PAGE_GUARD_UTILS
 };
 // -------------------------------------------------------------------------------------
 template <typename T>
-class SharedPageGuard : public OptimisticPageGuard<T>
+class SharedPageGuard
 {
-  using OptimisticClass = OptimisticPageGuard<T>;
-
  public:
-  SharedPageGuard(OptimisticPageGuard<T>&& o_guard)
+  PAGE_GUARD_HEADER
+  // -------------------------------------------------------------------------------------
+  SharedPageGuard(OptimisticPageGuard<T>&& o_guard) : bf(o_guard.bf), bf_s_lock(std::move(o_guard.bf_s_lock)), moved(false)
   {
-    OptimisticClass::bf = o_guard.bf;
-    OptimisticClass::bf_s_lock = std::move(o_guard.bf_s_lock);
-    // -------------------------------------------------------------------------------------
-    SharedGuard::latch(OptimisticClass::bf_s_lock);
+    SharedGuard::latch(bf_s_lock);
     // -------------------------------------------------------------------------------------
     o_guard.moved = true;
-    OptimisticClass::moved = false;
   }
   ~SharedPageGuard()
   {
-    if (!OptimisticClass::moved) {
-      SharedGuard::unlatch(OptimisticClass::bf_s_lock);
+    if (!moved) {
+      SharedGuard::unlatch(bf_s_lock);
     }
   }
   // -------------------------------------------------------------------------------------
-  void recheck() { assert((OptimisticClass::bf_s_lock.latch_ptr->ref().load() & LATCH_EXCLUSIVE_BIT) == 0); }
-  void recheck_done() { recheck(); }
-  // -------------------------------------------------------------------------------------
+  PAGE_GUARD_UTILS
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager
