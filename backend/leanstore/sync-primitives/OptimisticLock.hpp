@@ -85,7 +85,6 @@ class OptimisticGuard
  private:
   OptimisticGuard(OptimisticLatch* latch_ptr, u64 local_version) : latch_ptr(latch_ptr), local_version(local_version)
   {
-    jumpmu_registerDestructor();
   }
 
  public:
@@ -93,11 +92,8 @@ class OptimisticGuard
   u64 local_version;  // without the state
   bool mutex_locked = false;
   // -------------------------------------------------------------------------------------
-  jumpmu_defineCustomDestructor(OptimisticGuard)
-      // -------------------------------------------------------------------------------------
   OptimisticGuard()
   {
-    jumpmu_registerDestructor();
   }
   OptimisticGuard(OptimisticGuard& other) = delete;
   OptimisticGuard(OptimisticGuard&& other) : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked(other.mutex_locked)
@@ -105,7 +101,6 @@ class OptimisticGuard
     other.latch_ptr = nullptr;
     other.local_version = 0;
     other.mutex_locked = false;
-    jumpmu_registerDestructor();
   }
   OptimisticGuard& operator=(OptimisticGuard& other) = delete;
   OptimisticGuard& operator=(OptimisticGuard&& other)
@@ -123,7 +118,6 @@ class OptimisticGuard
       // ensure(!(local_version & LATCH_VERSION_MASK));
       mutex->unlock();
     }
-    jumpmu::clearLastDestructor();
   }
   // -------------------------------------------------------------------------------------
   OptimisticGuard(OptimisticLatch& lock) : latch_ptr(&lock)
@@ -133,7 +127,6 @@ class OptimisticGuard
     if ((local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
       slowPath();
     }
-    jumpmu_registerDestructor();
     assert((local_version & LATCH_EXCLUSIVE_BIT) != LATCH_EXCLUSIVE_BIT);
   }
   // -------------------------------------------------------------------------------------
@@ -149,7 +142,6 @@ class OptimisticGuard
         jumpmu::jump();
       }
     }
-    jumpmu_registerDestructor();
     assert((local_version & LATCH_EXCLUSIVE_BIT) != LATCH_EXCLUSIVE_BIT);
   }
   // -------------------------------------------------------------------------------------

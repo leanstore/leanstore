@@ -1,4 +1,4 @@
- #pragma once
+#pragma once
 #include "Exceptions.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
@@ -16,8 +16,13 @@ template <typename T>
 class OptimisticPageGuard
 {
  protected:
-  OptimisticPageGuard(OptimisticLatch& swip_version) : moved(false) { bf_s_lock = OptimisticGuard(swip_version); }
-  OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : moved(false), bf(bf), bf_s_lock(std::move(read_guard)) {}
+  OptimisticPageGuard(OptimisticLatch& swip_version) : moved(false)
+  {
+    bf_s_lock = OptimisticGuard(swip_version);
+  }
+  OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : moved(false), bf(bf), bf_s_lock(std::move(read_guard))
+  {
+  }
   // -------------------------------------------------------------------------------------
   bool manually_checked = false;
   // -------------------------------------------------------------------------------------
@@ -35,7 +40,10 @@ class OptimisticPageGuard
     other.moved = true;
   }
   // -------------------------------------------------------------------------------------
-  static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf) { return OptimisticPageGuard(std::move(read_guard), bf); }
+  static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf)
+  {
+    return OptimisticPageGuard(std::move(read_guard), bf);
+  }
   // -------------------------------------------------------------------------------------
   // I: Root case
   static OptimisticPageGuard makeRootGuard(OptimisticLatch& swip_version) { return OptimisticPageGuard(swip_version); }
@@ -70,7 +78,7 @@ class OptimisticPageGuard
     return *this;
   }
   // I: Downgrade shared
-  OptimisticPageGuard(SharedPageGuard<T>&&) { ensure(false); }
+  OptimisticPageGuard(SharedPageGuard<T>&&) = delete;
   OptimisticPageGuard& operator=(SharedPageGuard<T>&& other)
   {
     bf = other.bf;
@@ -125,8 +133,8 @@ class OptimisticPageGuard
   T* operator->() { return reinterpret_cast<T*>(bf->page.dt); }
   // Is the bufferframe loaded
   bool hasBf() const { return bf != nullptr; }
-  // -------------------------------------------------------------------------------------
-  ~OptimisticPageGuard() noexcept(false)
+      // -------------------------------------------------------------------------------------
+      ~OptimisticPageGuard() noexcept(false)
   {
     DEBUG_BLOCK()
     {
