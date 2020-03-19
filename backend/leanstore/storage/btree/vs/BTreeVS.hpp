@@ -22,6 +22,7 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   atomic<u16> height = 1;  // debugging
   OptimisticLatch root_lock = 0;
+  std::mutex root_mutex;
   Swip<BTreeNode> root_swip;
   // -------------------------------------------------------------------------------------
   BTree();
@@ -30,7 +31,7 @@ struct BTree {
   // No side effects allowed!
   bool lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
   // -------------------------------------------------------------------------------------
-  void scan(u8* start_key, u16 key_length, function<bool(u8* payload, u16 payload_length, function<string()>&)>, function<void()>);
+  void rangeScan(u8* start_key, u16 key_length, function<bool(u8* payload, u16 payload_length, function<string()>&)>, function<void()>);
   // -------------------------------------------------------------------------------------
   void insert(u8* key, u16 key_length, u64 payloadLength, u8* payload);
   void trySplit(BufferFrame& to_split, s32 pos = -1);
@@ -67,14 +68,25 @@ struct BTree {
   {
     u32 volatile mask = 1;
     while (true) {
+      u16 volatile traverse_height = 1;
       jumpmuTry()
       {
         auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-        OptimisticPageGuard c_guard(p_guard, root_swip);
+        OptimisticPageGuard<BTreeNode> c_guard;
+        if (FLAGS_mutex && op_type == 10 && traverse_height == height) {
+          c_guard = OptimisticPageGuard(p_guard, root_swip, true);
+        } else {
+          c_guard = OptimisticPageGuard(p_guard, root_swip);
+        }
         while (!c_guard->is_leaf) {
+          traverse_height++;
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
-          c_guard = OptimisticPageGuard(p_guard, c_swip);
+          if (FLAGS_mutex && op_type == 10 && traverse_height == height) {
+            c_guard = OptimisticPageGuard(p_guard, c_swip, true);
+          } else {
+            c_guard = OptimisticPageGuard(p_guard, c_swip);
+          }
         }
         p_guard.kill();
         c_guard.recheck_done();
@@ -90,7 +102,8 @@ struct BTree {
           WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;
         } else if (op_type == 2) {
           WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
-        } else {}
+        } else {
+        }
       }
     }
   }

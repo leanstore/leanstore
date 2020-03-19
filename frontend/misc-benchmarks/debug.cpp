@@ -21,16 +21,6 @@ DEFINE_bool(only_warehouse, false, "");
 DEFINE_uint64(matrix_mul, 0, "");
 DEFINE_uint64(pread_pct, 0, "");
 // -------------------------------------------------------------------------------------
-template <typename T>
-inline void DO_NOT_OPTIMIZE(T const& value)
-{
-#if defined(__clang__)
-  asm volatile("" : : "g"(value) : "memory");
-#else
-  asm volatile("" : : "i,r,m"(value) : "memory");
-#endif
-}
-// -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
 using Key = u64;
@@ -108,13 +98,14 @@ int main(int argc, char** argv)
   const u64 fill_threads = 256;
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++)
     warehouse_table.insert(t_i, payload);
-  for (u64 t_i = 0; t_i < distance * fill_threads; t_i++) {
-    order_table.insert(t_i, payload);
-    order_status_table.insert(t_i, payload);
-    delivery_table.insert(t_i, payload);
-    stock_table.insert(t_i, payload);
-    new_order_table.insert(t_i, payload);
-  }
+  if (!FLAGS_only_warehouse)
+    for (u64 t_i = 0; t_i < distance * fill_threads; t_i++) {
+      order_table.insert(t_i, payload);
+      order_status_table.insert(t_i, payload);
+      delivery_table.insert(t_i, payload);
+      stock_table.insert(t_i, payload);
+      new_order_table.insert(t_i, payload);
+    }
   // -------------------------------------------------------------------------------------
   cout << "Inserts done, warehouse pages = " << warehouse_vs_btree.countPages() << endl;
   // -------------------------------------------------------------------------------------
@@ -177,6 +168,7 @@ int main(int argc, char** argv)
       threads.emplace_back(
           [&](u64 t_i) {
             running_threads_counter++;
+            pthread_setname_np(pthread_self(), "worker");
             if (FLAGS_pin_threads)
               pinme(FLAGS_pp_threads + t_i);
             while (keep_running) {

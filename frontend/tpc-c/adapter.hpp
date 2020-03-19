@@ -75,7 +75,7 @@ struct LeanStoreAdapter {
   void scan(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
   {
     string key_str = getStringKey(key);
-    btree->scan(
+    btree->rangeScan(
         reinterpret_cast<u8*>(key_str.data()), u16(key_str.length()),
         [&](u8* payload, u16 payload_length, std::function<string()>&) {
           static_cast<void>(payload_length);

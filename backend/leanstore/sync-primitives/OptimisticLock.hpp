@@ -86,26 +86,32 @@ class OptimisticGuard
   OptimisticGuard(OptimisticLatch* latch_ptr, u64 local_version) : latch_ptr(latch_ptr), local_version(local_version) {}
 
  public:
+  enum class IF_LOCKED { JUMP, SET_NULL, CAN_NOT_BE };
+  // -------------------------------------------------------------------------------------
   OptimisticLatch* latch_ptr = nullptr;
-  u64 local_version;  // without the state
-  bool mutex_locked = false;
+  u64 local_version;                  // without the state
+  bool mutex_locked_upfront = false;  // set to true only when OptimisticPageGuard has acquired the mutex
   // -------------------------------------------------------------------------------------
   OptimisticGuard() = delete;
   // copy constructor
-  OptimisticGuard(OptimisticGuard& other) : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked(other.mutex_locked) {}
+  OptimisticGuard(OptimisticGuard& other)
+      : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked_upfront(other.mutex_locked_upfront)
+  {
+  }
   // move constructor
-  OptimisticGuard(OptimisticGuard&& other) : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked(other.mutex_locked)
+  OptimisticGuard(OptimisticGuard&& other)
+      : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked_upfront(other.mutex_locked_upfront)
   {
     other.latch_ptr = reinterpret_cast<OptimisticLatch*>(0x99);
     other.local_version = 0;
-    other.mutex_locked = false;
+    other.mutex_locked_upfront = false;
   }
   OptimisticGuard& operator=(OptimisticGuard& other) = delete;
   OptimisticGuard& operator=(OptimisticGuard&& other)
   {
     latch_ptr = other.latch_ptr;
     local_version = other.local_version;
-    mutex_locked = other.mutex_locked;
+    mutex_locked_upfront = other.mutex_locked_upfront;
     return *this;
   }
   // -------------------------------------------------------------------------------------
@@ -120,39 +126,33 @@ class OptimisticGuard
     assert((local_version & LATCH_EXCLUSIVE_BIT) != LATCH_EXCLUSIVE_BIT);
   }
   // -------------------------------------------------------------------------------------
-  OptimisticGuard(OptimisticLatch& lock, bool spin_if_latched) : latch_ptr(&lock)
+  OptimisticGuard(OptimisticLatch& lock, IF_LOCKED option) : latch_ptr(&lock)
   {
-    assert(!spin_if_latched);
     // Ignore the state field
     local_version = latch_ptr->raw.load() & LATCH_VERSION_MASK;
     if ((local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
-      if (spin_if_latched) {
-        slowPath();
-      } else {
+      if (option == IF_LOCKED::JUMP) {
         jumpmu::jump();
+      } else if (option == IF_LOCKED::SET_NULL) {
+        local_version = 0;
+        latch_ptr = nullptr;
+      } else if (option == IF_LOCKED::CAN_NOT_BE) {
+        ensure(false);
       }
     }
     assert((local_version & LATCH_EXCLUSIVE_BIT) != LATCH_EXCLUSIVE_BIT);
   }
   // -------------------------------------------------------------------------------------
-  ~OptimisticGuard()
-  {
-    if (mutex_locked) {
-      assert(!(local_version & LATCH_VERSION_MASK));
-      auto mutex = reinterpret_cast<std::mutex*>(latch_ptr->ptr() + 1);
-      mutex->unlock();
-    }
-  }
-  // -------------------------------------------------------------------------------------
   inline void recheck()
   {
     if (local_version != (latch_ptr->ref().load() & LATCH_VERSION_MASK)) {
-      assert(!mutex_locked);
+      assert(!mutex_locked_upfront);
       jumpmu::jump();
     }
   }
   // -------------------------------------------------------------------------------------
   void slowPath();
+  void mutex();
   // -------------------------------------------------------------------------------------
 };
 // -------------------------------------------------------------------------------------
@@ -166,20 +166,23 @@ class ExclusiveGuard
     assert(ref_guard.latch_ptr != nullptr);
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_STATE_MASK) == 0);
     if (FLAGS_mutex) {
-      if (ref_guard.mutex_locked) {
+      if (ref_guard.mutex_locked_upfront) {
+        assert(ref_guard.local_version == ref_guard.latch_ptr->ref().load());
         ref_guard.local_version = (LATCH_EXCLUSIVE_BIT + ref_guard.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT));
       } else {
         auto mutex = reinterpret_cast<std::mutex*>(ref_guard.latch_ptr->ptr() + 1);
         if (!mutex->try_lock()) {
           jumpmu::jump();
         }
-        ref_guard.mutex_locked = true;
+        // mutex->lock();
         const u64 new_version = (ref_guard.local_version + LATCH_EXCLUSIVE_BIT);
         u64 expected = ref_guard.local_version;  // assuming state == 0
         if (!ref_guard.latch_ptr->ref().compare_exchange_strong(expected, new_version)) {
+          mutex->unlock();
           jumpmu::jump();
         }
         ref_guard.local_version = new_version;
+        assert((ref_guard.local_version & LATCH_EXCLUSIVE_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
       }
     } else {
       const u64 new_version = ref_guard.local_version + LATCH_EXCLUSIVE_BIT;
@@ -198,7 +201,13 @@ class ExclusiveGuard
     assert(ref_guard.latch_ptr != nullptr);
     assert(ref_guard.local_version == ref_guard.latch_ptr->ref().load());
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
-    ref_guard.local_version = LATCH_EXCLUSIVE_BIT + ref_guard.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
+    {
+      ref_guard.local_version = LATCH_EXCLUSIVE_BIT + ref_guard.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
+      if (FLAGS_mutex && !ref_guard.mutex_locked_upfront) {
+        auto mutex = reinterpret_cast<std::mutex*>(ref_guard.latch_ptr->ptr() + 1);
+        mutex->unlock();
+      }
+    }
     assert((ref_guard.local_version & LATCH_STATE_MASK) == 0);
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_BIT) == 0);
   }

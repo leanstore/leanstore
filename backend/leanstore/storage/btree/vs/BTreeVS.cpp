@@ -61,10 +61,10 @@ bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> paylo
   }
 }
 // -------------------------------------------------------------------------------------
-void BTree::scan(u8* start_key,
-                 u16 key_length,
-                 std::function<bool(u8* payload, u16 payload_length, std::function<string()>&)> callback,
-                 function<void()> undo)
+void BTree::rangeScan(u8* start_key,
+                      u16 key_length,
+                      std::function<bool(u8* payload, u16 payload_length, std::function<string()>&)> callback,
+                      function<void()> undo)
 {
   volatile u32 mask = 1;
   u8* volatile next_key = start_key;
@@ -75,7 +75,7 @@ void BTree::scan(u8* start_key,
     {
       OptimisticPageGuard<BTreeNode> o_leaf = findLeafForRead(next_key, next_key_length);
       while (true) {
-        auto leaf = SharedPageGuard<BTreeNode>(std::move(o_leaf));
+        auto leaf = ExclusivePageGuard<BTreeNode>(std::move(o_leaf));
         s32 cur = leaf->lowerBound<false>(start_key, key_length);
         while (cur < leaf->count) {
           u16 payload_length = leaf->getPayloadLength(cur);
@@ -569,6 +569,8 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
             }
           }
         }
+      } else {
+        c_guard = std::move(c_x_guard);
       }
       jumpmu_return;
     }

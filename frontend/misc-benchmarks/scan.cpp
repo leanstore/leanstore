@@ -69,7 +69,7 @@ int main(int argc, char** argv)
     };
     x = 0ul;
     counter = 0;
-    vs_btree.scan(
+    vs_btree.rangeScan(
         key_start, sizeof(x),
         [&](u8* payload, u16, std::function<string()>&) {
           ensure(memcmp(payload, reinterpret_cast<u8*>(&dummy_payload), sizeof(Payload)) == 0);

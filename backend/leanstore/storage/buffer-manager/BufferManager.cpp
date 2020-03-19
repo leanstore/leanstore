@@ -138,7 +138,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             r_buffer = &randomBufferFrame();
             continue;
           }
-          OptimisticGuard r_guard(r_buffer->header.lock, false);
+          OptimisticGuard r_guard(r_buffer->header.lock, OptimisticGuard::IF_LOCKED::JUMP);
           // -------------------------------------------------------------------------------------
           const u64 partition_i = getPartitionID(r_buffer->header.pid);
           static_cast<void>(partition_i);
@@ -174,7 +174,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           // -------------------------------------------------------------------------------------
           auto find_parent_begin = chrono::high_resolution_clock::now();
           ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
-          assert(parent_handler.parent_guard.latch_ptr!= reinterpret_cast<OptimisticLatch*>(0x99));
+          assert(parent_handler.parent_guard.latch_ptr != reinterpret_cast<OptimisticLatch*>(0x99));
           auto find_parent_end = chrono::high_resolution_clock::now();
           PPCounters::myCounters().find_parent_ms += (chrono::duration_cast<chrono::microseconds>(find_parent_end - find_parent_begin).count());
           // -------------------------------------------------------------------------------------
@@ -422,6 +422,8 @@ BufferFrame& BufferManager::allocatePage()
   // -------------------------------------------------------------------------------------
   // Initialize Buffer Frame
   free_bf.header.lock.assertNotExclusivelyLatched();
+  if (FLAGS_mutex)
+    free_bf.header.mutex.lock();
   free_bf.header.lock->fetch_add(LATCH_EXCLUSIVE_BIT);  // Write lock
   free_bf.header.pid = free_pid;
   free_bf.header.state = BufferFrame::State::HOT;
@@ -446,11 +448,15 @@ void BufferManager::reclaimBufferFrame(BufferFrame& bf)
   if (bf.header.isWB) {
     // DO NOTHING ! we have a garbage collector ;-)
     bf.header.lock->fetch_add(LATCH_EXCLUSIVE_BIT);
+    if (FLAGS_mutex)
+      bf.header.mutex.unlock();
     cout << "garbage collector, yeah" << endl;
   } else {
     Partition& partition = getPartition(bf.header.pid);
     bf.reset();
     bf.header.lock->fetch_add(LATCH_EXCLUSIVE_BIT);
+    if (FLAGS_mutex)
+      bf.header.mutex.unlock();
     partition.dram_free_list.push(bf);
   }
 }

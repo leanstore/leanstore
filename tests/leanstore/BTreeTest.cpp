@@ -73,7 +73,7 @@ TEST(BTree, VS)
     string result(max_payloads_length, '0');
     string key("0");
     u64 counter = 0;
-    btree.scan(
+    btree.rangeScan(
         reinterpret_cast<u8*>(key.data()), 1,
         [&](u8*, u16, std::function<string()>& getKey) {
           counter++;

@@ -24,11 +24,61 @@ DEFINE_string(type, "default", "");
 DEFINE_bool(seq, false, "");
 DEFINE_bool(ticket_shared_cl, false, "");
 // -------------------------------------------------------------------------------------
+
+struct A {
+  A() {}
+  jumpmu_defineCustomDestructor(A) ~A()
+  {
+    cout << "~A()" << endl;
+    jumpmu::clearLastDestructor();
+  }
+};
+struct B {
+  A a;
+  B() { jumpmu_registerDestructor(); }
+  jumpmu_defineCustomDestructor(B) ~B()
+  {
+    cout << "~B()" << endl;
+    jumpmu::clearLastDestructor();
+  }
+};
+int x()
+{
+  return 20;
+}
+struct C {
+  int a = 0, b;
+
+  C() : b(a + 1), a(x()) { cout << b << endl; }
+};
+struct Test {
+  int x;
+  Test(int y) : x(y){
+    cout << "constructor " << x << endl;
+  }
+  Test& operator=(Test& other) {
+    cout << " = (copy) left = " << x << " - " << other.x << endl;
+    return *this;
+  }
+  Test& operator=(Test&& other) {
+    cout << " = (move) left = " << x << " - " << other.x << endl;
+    return *this;
+  }
+  ~Test() {
+    cout << "des " << x << endl;
+  }
+};
+// -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
 using namespace leanstore::buffermanager;
 int main(int argc, char** argv)
 {
+  Test t1(1);
+  t1 = Test(2);
+  Test x(5);
+  return 0;
+  // -------------------------------------------------------------------------------------
   gflags::SetUsageMessage("");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   // -------------------------------------------------------------------------------------
