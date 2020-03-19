@@ -129,7 +129,11 @@ class OptimisticGuard
   OptimisticGuard(OptimisticLatch& lock, IF_LOCKED option) : latch_ptr(&lock)
   {
     // Ignore the state field
-    local_version = latch_ptr->raw.load() & LATCH_VERSION_MASK;
+    for (u32 attempt = 0; attempt < 40; attempt++) {
+      local_version = latch_ptr->raw.load() & LATCH_VERSION_MASK;
+      if (((local_version & LATCH_EXCLUSIVE_BIT) == 0))
+        return;
+    }
     if ((local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
       if (option == IF_LOCKED::JUMP) {
         jumpmu::jump();

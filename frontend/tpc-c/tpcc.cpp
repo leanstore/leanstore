@@ -18,7 +18,6 @@
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
-DEFINE_bool(tpcc_pin, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -87,7 +86,6 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   db.registerConfigEntry("tpcc_warehouse_count", [&](ostream& out) { out << FLAGS_tpcc_warehouse_count; });
   db.registerConfigEntry("tpcc_warehouse_affinity", [&](ostream& out) { out << FLAGS_tpcc_warehouse_affinity; });
-  db.registerConfigEntry("tpcc_pin", [&](ostream& out) { out << FLAGS_tpcc_pin; });
   // -------------------------------------------------------------------------------------
   tbb::task_scheduler_init task_scheduler(thread::hardware_concurrency());
   load();
@@ -118,7 +116,7 @@ int main(int argc, char** argv)
       threads.emplace_back(
           [&](u64 w_begin, u64 w_end) {
             running_threads_counter++;
-            if (FLAGS_tpcc_pin)
+            if (FLAGS_pin_threads)
               pinme(FLAGS_pp_threads + t_i);
             while (keep_running) {
               tx(urand(w_begin, w_end));
@@ -132,7 +130,7 @@ int main(int argc, char** argv)
     for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       threads.emplace_back([&]() {
         running_threads_counter++;
-        if (FLAGS_tpcc_pin)
+        if (FLAGS_pin_threads)
           pinme(FLAGS_pp_threads + t_i);
         while (keep_running) {
           Integer w_id;

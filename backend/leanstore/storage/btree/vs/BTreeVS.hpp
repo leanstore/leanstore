@@ -63,7 +63,7 @@ struct BTree {
   ~BTree();
   // -------------------------------------------------------------------------------------
   // Helpers
-  template <int op_type = 0>  // 0 read, 1 update same size, 2 structural change // TODO better code
+  template <int op_type = 0>  // 0 point lookup, 1 update same size, 2 structural change, 10 updatesamesize, 11 scan // TODO better code
   OptimisticPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length)
   {
     u32 volatile mask = 1;
@@ -73,7 +73,8 @@ struct BTree {
       {
         auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
         OptimisticPageGuard<BTreeNode> c_guard;
-        if (FLAGS_mutex && op_type == 10 && traverse_height == height) {
+        if (FLAGS_mutex && ((!FLAGS_cm_split && op_type == 10) || (FLAGS_read_mutex && op_type == 0)) &&
+            traverse_height == height) {  //  || op_type == 0
           c_guard = OptimisticPageGuard(p_guard, root_swip, true);
         } else {
           c_guard = OptimisticPageGuard(p_guard, root_swip);
@@ -82,7 +83,8 @@ struct BTree {
           traverse_height++;
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
-          if (FLAGS_mutex && op_type == 10 && traverse_height == height) {
+          if (FLAGS_mutex && ((!FLAGS_cm_split && op_type == 10) || (FLAGS_read_mutex && op_type == 0)) &&
+              traverse_height == height) {  //  || op_type == 0
             c_guard = OptimisticPageGuard(p_guard, c_swip, true);
           } else {
             c_guard = OptimisticPageGuard(p_guard, c_swip);
@@ -96,7 +98,7 @@ struct BTree {
       {
         BACKOFF_STRATEGIES()
         // -------------------------------------------------------------------------------------
-        if (op_type == 0) {
+        if (op_type == 0 || op_type == 11) {
           WorkerCounters::myCounters().dt_restarts_read[dtid]++;
         } else if (op_type == 1) {
           WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;

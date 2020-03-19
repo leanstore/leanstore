@@ -40,6 +40,7 @@ DECLARE_uint64(restarts_threshold);
 // -------------------------------------------------------------------------------------
 DECLARE_uint64(backoff);
 DECLARE_bool(mutex);
+DECLARE_bool(read_mutex);
 // -------------------------------------------------------------------------------------
 DECLARE_uint64(x);
 DECLARE_uint64(y);

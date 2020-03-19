@@ -30,7 +30,7 @@ bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> paylo
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> leaf = findLeafForRead(key, key_length);
+      OptimisticPageGuard<BTreeNode> leaf = findLeafForRead<0>(key, key_length);
       // -------------------------------------------------------------------------------------
       DEBUG_BLOCK()
       {
@@ -73,7 +73,7 @@ void BTree::rangeScan(u8* start_key,
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> o_leaf = findLeafForRead(next_key, next_key_length);
+      OptimisticPageGuard<BTreeNode> o_leaf = findLeafForRead<11>(next_key, next_key_length);
       while (true) {
         auto leaf = ExclusivePageGuard<BTreeNode>(std::move(o_leaf));
         s32 cur = leaf->lowerBound<false>(start_key, key_length);
@@ -112,7 +112,7 @@ void BTree::rangeScan(u8* start_key,
         next_key[next_key_length - 1] = 0;
         // -------------------------------------------------------------------------------------
         o_leaf = std::move(leaf);
-        o_leaf = findLeafForRead(next_key, next_key_length);
+        o_leaf = findLeafForRead<11>(next_key, next_key_length);
       }
     }
     jumpmuCatch()
