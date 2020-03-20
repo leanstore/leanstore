@@ -64,18 +64,27 @@ struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
 
   bool lookup(Key k, Payload& v) override
   {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
     u8 key_bytes[sizeof(Key)];
     return btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16 payload_length) { memcpy(&v, payload, payload_length); });
+#pragma GCC diagnostic pop
   }
   void insert(Key k, Payload& v) override
   {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
     u8 key_bytes[sizeof(Key)];
     btree.insert(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8*>(&v));
+#pragma GCC diagnostic pop
   }
   void update(Key k, Payload& v) override
   {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
     u8 key_bytes[sizeof(Key)];
     btree.updateSameSize(key_bytes, fold(key_bytes, k), [&](u8* payload, u16 payload_length) { memcpy(payload, &v, payload_length); });
+#pragma GCC diagnostic pop
   }
 };
 // -------------------------------------------------------------------------------------

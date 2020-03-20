@@ -30,7 +30,8 @@ bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> paylo
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> leaf = findLeafForRead<0>(key, key_length);
+      OptimisticPageGuard<BTreeNode> leaf;
+      findLeafForRead<0>(leaf, key, key_length);
       // -------------------------------------------------------------------------------------
       DEBUG_BLOCK()
       {
@@ -73,7 +74,8 @@ void BTree::rangeScan(u8* start_key,
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> o_leaf = findLeafForRead<11>(next_key, next_key_length);
+      OptimisticPageGuard<BTreeNode> o_leaf;
+      findLeafForRead<11>(o_leaf, next_key, next_key_length);
       while (true) {
         auto leaf = ExclusivePageGuard<BTreeNode>(std::move(o_leaf));
         s32 cur = leaf->lowerBound<false>(start_key, key_length);
@@ -112,7 +114,7 @@ void BTree::rangeScan(u8* start_key,
         next_key[next_key_length - 1] = 0;
         // -------------------------------------------------------------------------------------
         o_leaf = std::move(leaf);
-        o_leaf = findLeafForRead<11>(next_key, next_key_length);
+        findLeafForRead<11>(o_leaf, next_key, next_key_length);
       }
     }
     jumpmuCatch()
@@ -535,7 +537,8 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
     jumpmuTry()
     {
       // -------------------------------------------------------------------------------------
-      OptimisticPageGuard<BTreeNode> c_guard = findLeafForRead<10>(key, key_length);
+      OptimisticPageGuard<BTreeNode> c_guard;
+      findLeafForRead<10>(c_guard, key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       s32 pos = c_x_guard->lowerBound<true>(key, key_length);
       assert(pos != -1);
@@ -601,7 +604,8 @@ bool BTree::remove(u8* key, u16 key_length)
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard c_guard = findLeafForRead<2>(key, key_length);
+      OptimisticPageGuard<BTreeNode> c_guard;
+      findLeafForRead<2>(c_guard, key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (!c_x_guard->remove(key, key_length)) {
         jumpmu_return false;

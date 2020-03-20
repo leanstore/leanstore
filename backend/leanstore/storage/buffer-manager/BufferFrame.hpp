@@ -33,8 +33,7 @@ struct BufferFrame {
     atomic<bool> isWB = false;
     bool isCooledBecauseOfReading = false;
     PID pid = 9999;            // INIT:
-    OptimisticLatch lock = 0;  // INIT: // ATTENTION: NEVER DECREMENT
-    std::mutex mutex;
+    OptimisticLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;
     ContentionTracker contention_tracker;
@@ -63,7 +62,7 @@ struct BufferFrame {
   void reset()
   {
     assert(!header.isWB);
-    header.lock.assertExclusivelyLatched();
+    header.latch.assertExclusivelyLatched();
     header.lastWrittenLSN = 0;
     header.state = State::FREE;  // INIT:
     header.isWB = false;
@@ -73,7 +72,7 @@ struct BufferFrame {
     header.contention_tracker.reset();
   }
   // -------------------------------------------------------------------------------------
-  BufferFrame() { header.lock->store(0ul); }
+  BufferFrame() { header.latch->store(0ul); }
 };
 // -------------------------------------------------------------------------------------
 static constexpr u64 EFFECTIVE_PAGE_SIZE = sizeof(BufferFrame::Page::dt);

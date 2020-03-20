@@ -14,17 +14,20 @@ endif ()
 # ---------------------------------------------------------------------------
 # Library
 # ---------------------------------------------------------------------------
-
 add_library(leanstore STATIC ${LEANSTORE_CC})
 target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic) #tbb
 #if (CMAKE_BUILD_TYPE MATCHES Debug)
 #    target_compile_options(leanstore PUBLIC -fsanitize=address)
 #    target_link_libraries(leanstore asan)
 #endif ()
-
+# ---------------------------------------------------------------------------
+OPTION(LEANSTORE_MUTEX "Compile leanstore with mutex" ON)
+IF(LEANSTORE_MUTEX)
+    target_compile_definitions(leanstore PUBLIC MACRO_FLAG_MUTEX=1)
+ENDIF(LEANSTORE_MUTEX)
+# ---------------------------------------------------------------------------
 target_include_directories(leanstore PUBLIC ${SHARED_INCLUDE_DIRECTORY})
-
 target_include_directories(leanstore PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+# ---------------------------------------------------------------------------
 set(LEANSTORE_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR})
-
 set_property(TARGET leanstore APPEND PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${LEANSTORE_INCLUDE_DIR})

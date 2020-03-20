@@ -134,7 +134,7 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_cm_update_tracker_pct", [&](ostream& out) { out << FLAGS_cm_update_tracker_pct; });
   config_entries.emplace_back("c_restarts_threshold", [&](ostream& out) { out << FLAGS_restarts_threshold; });
   config_entries.emplace_back("c_backoff", [&](ostream& out) { out << FLAGS_backoff; });
-  config_entries.emplace_back("c_mutex", [&](ostream& out) { out << FLAGS_mutex; });
+  config_entries.emplace_back("c_mutex", [&](ostream& out) { out << MACRO_FLAG_MUTEX; });
   // -------------------------------------------------------------------------------------
   dt_entries.emplace_back("dt_id", [&](ostream& out) { out << dt_id; });
   dt_entries.emplace_back("dt_name", [&](ostream& out) { out << dt_name; });

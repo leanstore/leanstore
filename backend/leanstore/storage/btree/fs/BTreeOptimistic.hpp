@@ -75,8 +75,11 @@ struct BTreeLeaf : public BTreeLeafBase {
         payloads[pos] = p;
         return;
       }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
       memmove(keys + pos + 1, keys + pos, sizeof(Key) * (count - pos));
       memmove(payloads + pos + 1, payloads + pos, sizeof(Payload) * (count - pos));
+#pragma GCC diagnostic pop
       keys[pos] = k;
       payloads[pos] = p;
     } else {
@@ -90,8 +93,11 @@ struct BTreeLeaf : public BTreeLeafBase {
   {
     new_leaf.count = count - (count / 2);
     count = count - new_leaf.count;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memcpy(new_leaf.keys, keys + count, sizeof(Key) * new_leaf.count);
     memcpy(new_leaf.payloads, payloads + count, sizeof(Payload) * new_leaf.count);
+#pragma GCC diagnostic pop
     sep = keys[count - 1];
   }
 };
@@ -141,15 +147,21 @@ struct BTreeInner : public BTreeInnerBase {
     new_inner.count = count - (count / 2);
     count = count - new_inner.count - 1;
     sep = keys[count];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memcpy(new_inner.keys, keys + count + 1, sizeof(Key) * (new_inner.count + 1));
     memcpy(new_inner.children, children + count + 1, sizeof(Swip<BTreeInner<Key>>) * (new_inner.count + 1));
+#pragma GCC diagnostic pop
   }
 
   void insert(Key k, Swip<BTreeInner<Key>> child)
   {
     unsigned pos = lowerBound(k);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memmove(keys + pos + 1, keys + pos, sizeof(Key) * (count - pos + 1));
     memmove(children + pos + 1, children + pos, sizeof(Swip<BTreeInner<Key>>) * (count - pos + 1));
+#pragma GCC diagnostic pop
     keys[pos] = k;
     children[pos] = child;
     std::swap(children[pos], children[pos + 1]);
@@ -323,8 +335,9 @@ struct BTree {
     }
   }
   // -------------------------------------------------------------------------------------
-  static bool checkSpaceUtilization(void*, BufferFrame&, OptimisticGuard, ParentSwipHandler) {
-    ensure(false); // todo
+  static bool checkSpaceUtilization(void*, BufferFrame&, OptimisticGuard, ParentSwipHandler)
+  {
+    ensure(false);  // todo
   }
   // -------------------------------------------------------------------------------------
   static ParentSwipHandler findParent(void* btree_object, BufferFrame& bf)
@@ -353,17 +366,17 @@ struct BTree {
       last_accessed_swip = &btree.root_swip.template cast<BufferFrame>();
       if (&last_accessed_swip->asBufferFrame() == &bf) {
         p_guard.recheck_done();
-        return {.swip = *last_accessed_swip, .parent_guard = p_guard.bf_s_lock};
+        return {.swip = *last_accessed_swip, .parent_guard = p_guard.bf_s_lock, .parent_bf = nullptr};
       }
       OptimisticPageGuard c_guard(p_guard, root_inner_swip);
       while (c_guard->type == NodeType::BTreeInner) {
-        int64_t pos = c_guard->lowerBound(k);
+        s32 pos = c_guard->lowerBound(k);
         Swip<BTreeInner<Key>>& c_swip = c_guard->children[pos];
         last_accessed_swip = &c_swip.template cast<BufferFrame>();
         if (&last_accessed_swip->asBufferFrame() == &bf) {
           p_guard.recheck_done();
           c_guard.recheck_done();
-          return {.swip = *last_accessed_swip, .parent_guard = c_guard.bf_s_lock, .parent = c_guard.bf, .pos = pos};
+          return {.swip = *last_accessed_swip, .parent_guard = c_guard.bf_s_lock, .parent_bf = c_guard.bf, .pos = pos};
         }
         // -------------------------------------------------------------------------------------
         p_guard = std::move(c_guard);

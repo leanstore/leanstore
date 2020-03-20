@@ -44,17 +44,14 @@ class OptimisticPageGuard
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard() : bf(nullptr), bf_s_lock(nullptr, 0), moved(true) { jumpmu_registerDestructor(); }  // use with caution
   // -------------------------------------------------------------------------------------
+  // Copy constructor
+  OptimisticPageGuard(OptimisticPageGuard& other) = delete;
   // Move constructor
   OptimisticPageGuard(OptimisticPageGuard&& other)
       : bf(other.bf), bf_s_lock(std::move(other.bf_s_lock)), moved(other.moved), manually_checked(other.manually_checked)
   {
+    assert(!other.moved);
     other.moved = true;
-    jumpmu_registerDestructor();
-  }
-  // Copy constructor
-  OptimisticPageGuard(OptimisticPageGuard& other)
-      : bf(other.bf), bf_s_lock(other.bf_s_lock), moved(other.moved), manually_checked(other.manually_checked)
-  {
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
@@ -68,7 +65,7 @@ class OptimisticPageGuard
   // -------------------------------------------------------------------------------------
   // I: Lock coupling
   OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip)
-      : bf(&BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip.template cast<BufferFrame>())), bf_s_lock(OptimisticGuard(bf->header.lock))
+      : bf(&BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip.template cast<BufferFrame>())), bf_s_lock(OptimisticGuard(bf->header.latch))
   {
     assert(!(p_guard.bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
     assert(!p_guard.moved);
@@ -78,14 +75,13 @@ class OptimisticPageGuard
   // I: Lock coupling with mutex [SHOULD BE USED ONLY FOR LEAVES] WIP
   OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip, bool)
       : bf(&BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip.template cast<BufferFrame>())),
-        bf_s_lock(OptimisticGuard(bf->header.lock, OptimisticGuard::IF_LOCKED::SET_NULL))
+        bf_s_lock(OptimisticGuard(bf->header.latch, OptimisticGuard::IF_LOCKED::SET_NULL))
   {
     assert(!(p_guard.bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
     assert(!p_guard.moved);
     if (bf_s_lock.latch_ptr == nullptr) {
-      auto mutex = reinterpret_cast<std::mutex*>(&bf->header.lock + 1);
-      mutex->lock();
-      bf_s_lock = OptimisticGuard(bf->header.lock, OptimisticGuard::IF_LOCKED::CAN_NOT_BE);
+      bf->header.latch.mutex.lock();
+      bf_s_lock = OptimisticGuard(bf->header.latch, OptimisticGuard::IF_LOCKED::CAN_NOT_BE);
       bf_s_lock.mutex_locked_upfront = true;
       assert(!(bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
     }
@@ -130,9 +126,8 @@ class OptimisticPageGuard
     if (!moved && bf_s_lock.mutex_locked_upfront) {
       raise(SIGTRAP);
       assert(!(bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
-      auto mutex = reinterpret_cast<std::mutex*>(bf_s_lock.latch_ptr->ptr() + 1);
       bf_s_lock.mutex_locked_upfront = false;
-      mutex->unlock();
+      bf_s_lock.latch_ptr->mutex.unlock();
     }
     // -------------------------------------------------------------------------------------
     bf = other.bf;
@@ -162,11 +157,12 @@ class OptimisticPageGuard
   // -------------------------------------------------------------------------------------
   jumpmu_defineCustomDestructor(OptimisticPageGuard) ~OptimisticPageGuard()
   {
-    if (FLAGS_mutex && !moved && bf_s_lock.mutex_locked_upfront) {
+    ensure(!bf_s_lock.mutex_locked_upfront);
+    if (MACRO_FLAG_MUTEX && !moved && bf_s_lock.mutex_locked_upfront) {
+      raise(SIGTRAP);
       assert(!(bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
-      auto mutex = reinterpret_cast<std::mutex*>(bf_s_lock.latch_ptr->ptr() + 1);
       bf_s_lock.mutex_locked_upfront = false;
-      mutex->unlock();
+      bf_s_lock.latch_ptr->mutex.unlock();
     }
     jumpmu::clearLastDestructor();
 
@@ -191,7 +187,7 @@ class ExclusivePageGuard
                            // (2nd might fail and waste the first)
   // Called by the buffer manager when allocating a new page
   ExclusivePageGuard(BufferFrame& bf, bool keep_alive)
-      : bf(&bf), bf_s_lock(&bf.header.lock, bf.header.lock->load()), moved(false), keep_alive(keep_alive)
+      : bf(&bf), bf_s_lock(&bf.header.latch, bf.header.latch->load()), moved(false), keep_alive(keep_alive)
   {
     assert((bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
     // -------------------------------------------------------------------------------------

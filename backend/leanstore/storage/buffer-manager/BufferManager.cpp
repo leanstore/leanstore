@@ -6,7 +6,6 @@
 #include "leanstore/Config.hpp"
 #include "leanstore/counters/PPCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
-#include "leanstore/storage/btree/fs/BTreeOptimistic.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/Parallelize.hpp"
@@ -19,13 +18,14 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <unistd.h>
-
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <set>
 // -------------------------------------------------------------------------------------
 // Local GFlags
 // -------------------------------------------------------------------------------------
+using std::thread;
 namespace leanstore
 {
 namespace buffermanager
@@ -127,23 +127,23 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
      * Phase 1: unswizzle pages (put in the cooling stage)
      */
     // phase_1:
-    auto phase_1_begin = chrono::high_resolution_clock::now();
+    auto phase_1_begin = std::chrono::high_resolution_clock::now();
     BufferFrame* volatile r_buffer = &randomBufferFrame();  // Attention: we may set the r_buffer to a child of a bf instead of random
     while (true) {
       jumpmuTry()
       {
         while (phase_1_condition(randomPartition())) {
           PPCounters::myCounters().phase_1_counter++;
-          if (r_buffer->header.lock.isAnyLatched()) {
+          if (r_buffer->header.latch.isAnyLatched()) {
             r_buffer = &randomBufferFrame();
             continue;
           }
-          OptimisticGuard r_guard(r_buffer->header.lock, OptimisticGuard::IF_LOCKED::JUMP);
+          OptimisticGuard r_guard(r_buffer->header.latch, OptimisticGuard::IF_LOCKED::JUMP);
           // -------------------------------------------------------------------------------------
           const u64 partition_i = getPartitionID(r_buffer->header.pid);
           static_cast<void>(partition_i);
           const bool is_cooling_candidate =
-              (!r_buffer->header.isWB && !(r_buffer->header.lock.isExclusivelyLatched()) &&  // (partition_i) >= p_begin && (partition_i) < p_end &&
+              (!r_buffer->header.isWB && !(r_buffer->header.latch.isExclusivelyLatched()) &&  // (partition_i) >= p_begin && (partition_i) < p_end &&
                r_buffer->header.state == BufferFrame::State::HOT);                           // && !rand_buffer->header.isWB
           if (!is_cooling_candidate) {
             r_buffer = &randomBufferFrame();
@@ -154,7 +154,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           PPCounters::myCounters().touched_bfs_counter++;
           // -------------------------------------------------------------------------------------
           bool picked_a_child_instead = false;
-          auto iterate_children_begin = chrono::high_resolution_clock::now();
+          auto iterate_children_begin = std::chrono::high_resolution_clock::now();
           dt_registry.iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
             if (swip.isSwizzled()) {
               r_buffer = &swip.asBufferFrame();
@@ -165,18 +165,18 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             r_guard.recheck();
             return true;
           });
-          auto iterate_children_end = chrono::high_resolution_clock::now();
+          auto iterate_children_end = std::chrono::high_resolution_clock::now();
           PPCounters::myCounters().iterate_children_ms +=
-              (chrono::duration_cast<chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
+              (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
           if (picked_a_child_instead) {
             continue;  // restart the inner loop
           }
           // -------------------------------------------------------------------------------------
-          auto find_parent_begin = chrono::high_resolution_clock::now();
+          auto find_parent_begin = std::chrono::high_resolution_clock::now();
           ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
           assert(parent_handler.parent_guard.latch_ptr != reinterpret_cast<OptimisticLatch*>(0x99));
-          auto find_parent_end = chrono::high_resolution_clock::now();
-          PPCounters::myCounters().find_parent_ms += (chrono::duration_cast<chrono::microseconds>(find_parent_end - find_parent_begin).count());
+          auto find_parent_end = std::chrono::high_resolution_clock::now();
+          PPCounters::myCounters().find_parent_ms += (std::chrono::duration_cast<std::chrono::microseconds>(find_parent_end - find_parent_begin).count());
           // -------------------------------------------------------------------------------------
           r_guard.recheck();
           if (dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer, r_guard, parent_handler)) {
@@ -232,8 +232,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
       }
       jumpmuCatch() { r_buffer = &randomBufferFrame(); }
     }
-    auto phase_1_end = chrono::high_resolution_clock::now();
-    PPCounters::myCounters().phase_1_ms += (chrono::duration_cast<chrono::microseconds>(phase_1_end - phase_1_begin).count());
+    auto phase_1_end = std::chrono::high_resolution_clock::now();
+    PPCounters::myCounters().phase_1_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_1_end - phase_1_begin).count());
     // -------------------------------------------------------------------------------------
     for (volatile u64 p_i = p_begin; p_i < p_end; p_i++) {
       Partition& partition = partitions[p_i];
@@ -248,7 +248,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          * iterate over the end of FIFO queue,
          */
         // phase_2:
-        auto phase_2_begin = chrono::high_resolution_clock::now();
+        auto phase_2_begin = std::chrono::high_resolution_clock::now();
         if (pages_to_iterate_partition) {
           PPCounters::myCounters().phase_2_counter++;
           volatile u64 pages_left_to_iterate_partition = pages_to_iterate_partition;
@@ -269,7 +269,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
               } else {
                 jumpmuTry()
                 {
-                  ExclusiveGuardTry w_x_guard(bf.header.lock);
+                  ExclusiveGuardTry w_x_guard(bf.header.latch);
                   // Reclaim buffer frame
                   HashTable::Handler frame_handler = partition.ht.lookup(pid);
                   assert(frame_handler);
@@ -291,23 +291,23 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             bf_itr = next_bf_tr;
           }
         };
-        auto phase_2_end = chrono::high_resolution_clock::now();
+        auto phase_2_end = std::chrono::high_resolution_clock::now();
         /*
          * Phase 3:
          */
         // phase_3:
-        auto phase_3_begin = chrono::high_resolution_clock::now();
+        auto phase_3_begin = std::chrono::high_resolution_clock::now();
         if (pages_to_iterate_partition) {
           PPCounters::myCounters().phase_3_counter++;
-          auto submit_begin = chrono::high_resolution_clock::now();
+          auto submit_begin = std::chrono::high_resolution_clock::now();
           async_write_buffer.submit();
-          auto submit_end = chrono::high_resolution_clock::now();
+          auto submit_end = std::chrono::high_resolution_clock::now();
           // -------------------------------------------------------------------------------------
-          auto poll_begin = chrono::high_resolution_clock::now();
+          auto poll_begin = std::chrono::high_resolution_clock::now();
           const u32 polled_events = async_write_buffer.pollEventsSync();
-          auto poll_end = chrono::high_resolution_clock::now();
+          auto poll_end = std::chrono::high_resolution_clock::now();
           // -------------------------------------------------------------------------------------
-          auto async_wb_begin = chrono::high_resolution_clock::now();
+          auto async_wb_begin = std::chrono::high_resolution_clock::now();
           async_write_buffer.getWrittenBfs(
               [&](BufferFrame& written_bf, u64 written_lsn) {
                 assert(written_bf.header.lastWrittenLSN.load() < written_lsn);
@@ -317,7 +317,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                 PPCounters::myCounters().flushed_pages_counter++;
               },
               polled_events);
-          auto async_wb_end = chrono::high_resolution_clock::now();
+          auto async_wb_end = std::chrono::high_resolution_clock::now();
           // -------------------------------------------------------------------------------------
           volatile u64 pages_left_to_iterate_partition = polled_events;
           JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
@@ -331,7 +331,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             if (!bf.isDirty() && !bf.header.isCooledBecauseOfReading) {
               jumpmuTry()
               {
-                ExclusiveGuardTry w_x_guard(bf.header.lock);
+                ExclusiveGuardTry w_x_guard(bf.header.latch);
                 // Reclaim buffer frame
                 HashTable::Handler frame_handler = partition.ht.lookup(pid);
                 assert(frame_handler);
@@ -353,14 +353,14 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             bf_itr = next_bf_tr;
           }
           // -------------------------------------------------------------------------------------
-          PPCounters::myCounters().poll_ms += (chrono::duration_cast<chrono::microseconds>(poll_end - poll_begin).count());
-          PPCounters::myCounters().async_wb_ms += (chrono::duration_cast<chrono::microseconds>(async_wb_end - async_wb_begin).count());
-          PPCounters::myCounters().submit_ms += (chrono::duration_cast<chrono::microseconds>(submit_end - submit_begin).count());
+          PPCounters::myCounters().poll_ms += (std::chrono::duration_cast<std::chrono::microseconds>(poll_end - poll_begin).count());
+          PPCounters::myCounters().async_wb_ms += (std::chrono::duration_cast<std::chrono::microseconds>(async_wb_end - async_wb_begin).count());
+          PPCounters::myCounters().submit_ms += (std::chrono::duration_cast<std::chrono::microseconds>(submit_end - submit_begin).count());
         };
-        auto phase_3_end = chrono::high_resolution_clock::now();
+        auto phase_3_end = std::chrono::high_resolution_clock::now();
         // -------------------------------------------------------------------------------------
-        PPCounters::myCounters().phase_2_ms += (chrono::duration_cast<chrono::microseconds>(phase_2_end - phase_2_begin).count());
-        PPCounters::myCounters().phase_3_ms += (chrono::duration_cast<chrono::microseconds>(phase_3_end - phase_3_begin).count());
+        PPCounters::myCounters().phase_2_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_2_end - phase_2_begin).count());
+        PPCounters::myCounters().phase_3_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_3_end - phase_3_begin).count());
       }
     }  // end of partitions for
     PPCounters::myCounters().pp_thread_rounds++;
@@ -421,10 +421,10 @@ BufferFrame& BufferManager::allocatePage()
   assert(free_bf.header.state == BufferFrame::State::FREE);
   // -------------------------------------------------------------------------------------
   // Initialize Buffer Frame
-  free_bf.header.lock.assertNotExclusivelyLatched();
-  if (FLAGS_mutex)
-    free_bf.header.mutex.lock();
-  free_bf.header.lock->fetch_add(LATCH_EXCLUSIVE_BIT);  // Write lock
+  free_bf.header.latch.assertNotExclusivelyLatched();
+  if (MACRO_FLAG_MUTEX)
+    free_bf.header.latch.mutex.lock();
+  free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);  // Write lock
   free_bf.header.pid = free_pid;
   free_bf.header.state = BufferFrame::State::HOT;
   free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
@@ -434,7 +434,7 @@ BufferFrame& BufferManager::allocatePage()
     cout << "Going out of memory !" << endl;
     cout << "-------------------------------------------------------------------------------------" << endl;
   }
-  free_bf.header.lock.assertExclusivelyLatched();
+  free_bf.header.latch.assertExclusivelyLatched();
   // -------------------------------------------------------------------------------------
   WorkerCounters::myCounters().allocate_operations_counter++;
   // -------------------------------------------------------------------------------------
@@ -447,16 +447,16 @@ void BufferManager::reclaimBufferFrame(BufferFrame& bf)
 {
   if (bf.header.isWB) {
     // DO NOTHING ! we have a garbage collector ;-)
-    bf.header.lock->fetch_add(LATCH_EXCLUSIVE_BIT);
-    if (FLAGS_mutex)
-      bf.header.mutex.unlock();
+    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
+    if (MACRO_FLAG_MUTEX)
+      bf.header.latch.mutex.unlock();
     cout << "garbage collector, yeah" << endl;
   } else {
     Partition& partition = getPartition(bf.header.pid);
     bf.reset();
-    bf.header.lock->fetch_add(LATCH_EXCLUSIVE_BIT);
-    if (FLAGS_mutex)
-      bf.header.mutex.unlock();
+    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
+    if (MACRO_FLAG_MUTEX)
+      bf.header.latch.mutex.unlock();
     partition.dram_free_list.push(bf);
   }
 }
@@ -495,7 +495,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
     BufferFrame& bf = partition.dram_free_list.tryPop(g_guard);
     CIOFrame& cio_frame = partition.ht.insert(pid);
     assert(bf.header.state == BufferFrame::State::FREE);
-    bf.header.lock.assertNotExclusivelyLatched();
+    bf.header.latch.assertNotExclusivelyLatched();
     // -------------------------------------------------------------------------------------
     cio_frame.state = CIOFrame::State::READING;
     cio_frame.readers_counter = 1;
@@ -577,7 +577,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
     {
       // We have to exclusively lock the bf because the page provider thread will
       // try to evict them when its IO is done
-      OptimisticGuard bf_guard(bf->header.lock);
+      OptimisticGuard bf_guard(bf->header.latch);
       ExclusiveGuard swip_x_guard(swip_guard);
       ExclusiveGuard bf_x_guard(bf_guard);
       // -------------------------------------------------------------------------------------

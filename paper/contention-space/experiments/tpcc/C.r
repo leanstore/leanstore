@@ -9,6 +9,9 @@ library(scales)
 
 dev.set(0)
 df=read.csv('./C_long_threads2.csv')
+sqldf("select distinct c_dram_gib, c_run_for_seconds from df")
+
+df=read.csv('./C_mutex.csv')
 d= sqldf("
 select *, 1 as symbol from df where c_su_merge=0 and c_cm_split=0
 UNION select *, 2 as symbol from df where c_su_merge=0 and c_cm_split=1

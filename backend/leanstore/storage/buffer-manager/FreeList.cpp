@@ -13,7 +13,7 @@ namespace buffermanager
 void FreeList::push(BufferFrame& bf)
 {
   assert(bf.header.state == BufferFrame::State::FREE);
-  assert((bf.header.lock->load() & LATCH_EXCLUSIVE_BIT) == 0);
+  assert((bf.header.latch->load() & LATCH_EXCLUSIVE_BIT) == 0);
   bf.header.next_free_bf = head.load();
   while (!head.compare_exchange_strong(bf.header.next_free_bf, &bf))
     ;
@@ -30,7 +30,7 @@ struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<std::mutex>>& lock)
       free_bf = c_header;
       free_bf->header.next_free_bf = nullptr;
       counter--;
-      assert((free_bf->header.lock->load() & LATCH_EXCLUSIVE_BIT) == 0);
+      assert((free_bf->header.latch->load() & LATCH_EXCLUSIVE_BIT) == 0);
       assert(free_bf->header.state == BufferFrame::State::FREE);
     } else {
       lock->unlock();
@@ -53,7 +53,7 @@ struct BufferFrame& FreeList::pop()
       free_bf = c_header;
       free_bf->header.next_free_bf = nullptr;
       counter--;
-      assert((free_bf->header.lock->load() & LATCH_EXCLUSIVE_BIT) == 0);
+      assert((free_bf->header.latch->load() & LATCH_EXCLUSIVE_BIT) == 0);
       assert(free_bf->header.state == BufferFrame::State::FREE);
       return *free_bf;
     } else {

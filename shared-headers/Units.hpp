@@ -8,8 +8,6 @@
 #include <memory>
 #include <string>
 // -------------------------------------------------------------------------------------
-#define NULL_CODE_MARGIN 1
-// -------------------------------------------------------------------------------------
 using std::atomic;
 using std::cerr;
 using std::cout;
@@ -35,12 +33,9 @@ using SIZE = size_t;
 using PID = u64;
 using DTID = u64;  // Datastructure ID
 // -------------------------------------------------------------------------------------
-enum class ColumnType {
-  // TODO
-};
 using TINYINT = s8;
 using SMALLINT = s16;
-using INTEGER = s32;  // we use FOR always at the beginning so negative integers will be handled out
+using INTEGER = s32;
 using UINTEGER = u32;
 using DOUBLE = double;
 using STRING = string;
@@ -53,3 +48,8 @@ using BytesArray = std::unique_ptr<u8[]>;
 template <int s>
 struct getTheSizeOf;
 // -------------------------------------------------------------------------------------
+// Macro defined
+#ifndef MACRO_FLAG_MUTEX
+#define MACRO_FLAG_MUTEX FLAGS_mutex
+#warning "Using gflags to use mutex at runtime"
+#endif
