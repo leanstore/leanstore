@@ -49,7 +49,7 @@ template <typename T>
 class OptimisticPageGuard;
 // -------------------------------------------------------------------------------------
 using OptimisticLatchVersionType = atomic<u64>;
-struct OptimisticLatch {
+struct alignas(64) OptimisticLatch {
   OptimisticLatchVersionType version;
   std::mutex mutex;
   // -------------------------------------------------------------------------------------
@@ -174,10 +174,10 @@ class ExclusiveGuard
         assert(ref_guard.local_version == ref_guard.latch_ptr->ref().load());
         ref_guard.local_version = (LATCH_EXCLUSIVE_BIT + ref_guard.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT));
       } else {
-        // if (!ref_guard.latch_ptr->mutex.try_lock()) {
-        //   jumpmu::jump();
-        // }
-        ref_guard.latch_ptr->mutex.lock();
+        if (!ref_guard.latch_ptr->mutex.try_lock()) {
+          jumpmu::jump();
+        }
+        //ref_guard.latch_ptr->mutex.lock();
         const u64 new_version = (ref_guard.local_version + LATCH_EXCLUSIVE_BIT);
         u64 expected = ref_guard.local_version;  // assuming state == 0
         if (!ref_guard.latch_ptr->ref().compare_exchange_strong(expected, new_version)) {
@@ -230,28 +230,6 @@ class ExclusiveGuard
     ExclusiveGuard::unlatch(ref_guard);
     jumpmu::clearLastDestructor();
   }
-};
-// -------------------------------------------------------------------------------------
-class ExclusiveGuardTry
-{
- private:
-  OptimisticLatch* latch_ptr = nullptr;
-
- public:
-  ExclusiveGuardTry(OptimisticLatch& lock) : latch_ptr(&lock)
-  {
-    u64 current_compound = latch_ptr->ref().load();
-    if ((current_compound & LATCH_EXCLUSIVE_STATE_MASK) > 0) {
-      jumpmu::jump();
-    }
-    const u64 new_version = current_compound + LATCH_EXCLUSIVE_BIT;
-    u64 new_compound = new_version;
-    if (!latch_ptr->ref().compare_exchange_strong(current_compound, new_compound)) {
-      jumpmu::jump();
-    }
-    assert((latch_ptr->ref().load() & LATCH_EXCLUSIVE_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
-  }
-  void unlock() { latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT); }
 };
 // -------------------------------------------------------------------------------------
 class SharedGuard

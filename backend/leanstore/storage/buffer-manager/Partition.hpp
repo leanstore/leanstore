@@ -22,8 +22,9 @@ struct CIOFrame {
   std::list<BufferFrame*>::iterator fifo_itr;
   State state = State::UNDEFINED;
   // -------------------------------------------------------------------------------------
-  // Everything in CIOFrame is protected by global bf_s_lock except the
-  // following counter
+  // Everything in CIOFrame is protected by partition lock
+  // except the following counter which is decremented outside to determine
+  // whether it is time to remove it
   atomic<s64> readers_counter = 0;
 };
 // -------------------------------------------------------------------------------------

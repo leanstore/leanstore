@@ -116,6 +116,7 @@ int main(int argc, char** argv)
       threads.emplace_back(
           [&](u64 w_begin, u64 w_end) {
             running_threads_counter++;
+            pthread_setname_np(pthread_self(), "worker");
             if (FLAGS_pin_threads)
               pinme(FLAGS_pp_threads + t_i);
             while (keep_running) {
@@ -130,6 +131,7 @@ int main(int argc, char** argv)
     for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       threads.emplace_back([&]() {
         running_threads_counter++;
+        pthread_setname_np(pthread_self(), "worker");
         if (FLAGS_pin_threads)
           pinme(FLAGS_pp_threads + t_i);
         while (keep_running) {

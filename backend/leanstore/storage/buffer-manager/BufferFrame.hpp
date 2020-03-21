@@ -21,7 +21,8 @@ struct BufferFrame {
       u32 restarts_counter = 0;
       u32 access_counter = 0;
       s32 last_modified_pos = -1;
-      void reset() {
+      void reset()
+      {
         restarts_counter = 0;
         access_counter = 0;
         last_modified_pos = -1;
@@ -32,7 +33,7 @@ struct BufferFrame {
     atomic<State> state = State::FREE;  // INIT:
     atomic<bool> isWB = false;
     bool isCooledBecauseOfReading = false;
-    PID pid = 9999;            // INIT:
+    PID pid = 9999;             // INIT:
     OptimisticLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;
