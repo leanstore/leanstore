@@ -570,13 +570,12 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
     {
       // We have to exclusively lock the bf because the page provider thread will
       // try to evict them when its IO is done
-      OptimisticGuard bf_guard(bf->header.latch);
+      OptimisticGuard bf_guard(bf->header.latch, OptimisticGuard::IF_LOCKED::CAN_NOT_BE);
       ExclusiveGuard swip_x_guard(swip_guard);
       ExclusiveGuard bf_x_guard(bf_guard);
       // -------------------------------------------------------------------------------------
       assert(bf->header.pid == pid);
       swip_value.swizzle(bf);
-      // swip_value.asAtomic().store(u64(bf));
       assert(swip_value.isSwizzled());
       partition.cooling_queue.erase(cio_frame.fifo_itr);
       partition.cooling_bfs_counter--;

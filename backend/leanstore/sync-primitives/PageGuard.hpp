@@ -155,11 +155,11 @@ class OptimisticPageGuard
   // Guard not needed anymore
   PAGE_GUARD_UTILS
   // -------------------------------------------------------------------------------------
-  jumpmu_defineCustomDestructor(OptimisticPageGuard) ~OptimisticPageGuard()
+  jumpmu_defineCustomDestructor(OptimisticPageGuard)
+  // -------------------------------------------------------------------------------------
+  ~OptimisticPageGuard()
   {
-    ensure(!bf_s_lock.mutex_locked_upfront);
     if (MACRO_FLAG_MUTEX && !moved && bf_s_lock.mutex_locked_upfront) {
-      raise(SIGTRAP);
       assert(!(bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
       bf_s_lock.mutex_locked_upfront = false;
       bf_s_lock.latch_ptr->mutex.unlock();

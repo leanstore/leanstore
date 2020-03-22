@@ -74,7 +74,7 @@ struct BTree {
       {
         auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
         OptimisticPageGuard<BTreeNode> c_guard;
-        if (MACRO_FLAG_MUTEX && 0 && ((!FLAGS_cm_split && op_type == 10)) && traverse_height == height) {  //  || op_type == 0
+        if (MACRO_FLAG_MUTEX && ((!FLAGS_cm_split && op_type == 10)) && traverse_height == height) {  //  || op_type == 0
           c_guard = OptimisticPageGuard(p_guard, root_swip, true);
         } else {
           c_guard = OptimisticPageGuard(p_guard, root_swip);
@@ -83,7 +83,7 @@ struct BTree {
           traverse_height++;
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
-          if (MACRO_FLAG_MUTEX && 0 && ((!FLAGS_cm_split && op_type == 10)) && traverse_height == height) {  //  || op_type == 0
+          if (MACRO_FLAG_MUTEX && ((!FLAGS_cm_split && op_type == 10)) && traverse_height == height) {  //  || op_type == 0
             c_guard = OptimisticPageGuard(p_guard, c_swip, true);
           } else {
             c_guard = OptimisticPageGuard(p_guard, c_swip);
