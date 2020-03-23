@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #include <atomic>
-#include <mutex>
+#include <shared_mutex>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -51,7 +51,7 @@ class OptimisticPageGuard;
 using OptimisticLatchVersionType = atomic<u64>;
 struct alignas(64) OptimisticLatch {
   OptimisticLatchVersionType version;
-  std::mutex mutex;
+  std::shared_mutex mutex;
   // -------------------------------------------------------------------------------------
   template <typename... Args>
   OptimisticLatch(Args&&... args) : version(std::forward<Args>(args)...)
@@ -72,6 +72,7 @@ struct alignas(64) OptimisticLatch {
   bool isSharedLatched() { return (version & LATCH_STATE_MASK) > 0; }
   bool isAnyLatched() { return (version & LATCH_EXCLUSIVE_STATE_MASK) > 0; }
 };
+static_assert(sizeof(OptimisticLatch) == 64, "");
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 class OptimisticGuard
@@ -228,6 +229,7 @@ class ExclusiveGuard
   }
 };
 // -------------------------------------------------------------------------------------
+// Plan: lock the mutex in shared mode, then try to release the shit
 class SharedGuard
 {
  private:
@@ -235,38 +237,44 @@ class SharedGuard
 
  public:
   // -------------------------------------------------------------------------------------
-  static inline void latch(OptimisticGuard& basis_guard)
+  static inline void latch(OptimisticGuard& ref_guard)
   {
     /*
       it is fine if the state changed in-between therefore we have to keep trying as long
       as the version stayed the same
      */
-  try_accquire_shared_guard:
-    u64 current_state = basis_guard.latch_ptr->ref().load() & LATCH_STATE_MASK;
-    u64 expected_old_compound = basis_guard.local_version | current_state;
+    ensure(false);
+    ref_guard.latch_ptr->mutex.lock_shared();
+  try_accquire_shared_guard : {
+    u64 current_state = ref_guard.latch_ptr->ref().load() & LATCH_STATE_MASK;
+    u64 expected_old_compound = ref_guard.local_version | current_state;
     u64 new_state = current_state + ((current_state == 0) ? 2 : 1);
-    u64 new_compound = basis_guard.local_version | new_state;
-    if (!basis_guard.latch_ptr->ref().compare_exchange_strong(expected_old_compound, new_compound)) {
-      if ((expected_old_compound & LATCH_VERSION_MASK) != basis_guard.local_version) {
+    u64 new_compound = ref_guard.local_version | new_state;
+    if (!ref_guard.latch_ptr->ref().compare_exchange_strong(expected_old_compound, new_compound)) {
+      if ((expected_old_compound & LATCH_VERSION_MASK) != ref_guard.local_version) {
         jumpmu::jump();
       } else {
         goto try_accquire_shared_guard;
       }
     }
   }
-  static inline void unlatch(OptimisticGuard& basis_guard)
+  }
+  static inline void unlatch(OptimisticGuard& ref_guard)
   {
-  try_release_shared_guard:
-    u64 current_compound = basis_guard.latch_ptr->ref().load();
+    ensure(false);
+  try_release_shared_guard : {
+    u64 current_compound = ref_guard.latch_ptr->ref().load();
     u64 new_compound = current_compound;
     if ((current_compound & LATCH_STATE_MASK) == 2) {
       new_compound -= 2;
     } else {
       new_compound -= 1;
     }
-    if (!basis_guard.latch_ptr->ref().compare_exchange_strong(current_compound, new_compound)) {
+    if (!ref_guard.latch_ptr->ref().compare_exchange_strong(current_compound, new_compound)) {
       goto try_release_shared_guard;
     }
+    ref_guard.latch_ptr->mutex.unlock_shared();
+  }
   }
   // -------------------------------------------------------------------------------------
   SharedGuard(OptimisticGuard& basis_guard) : ref_guard(basis_guard) { SharedGuard::latch(ref_guard); }

@@ -74,10 +74,9 @@ void BTree::rangeScan(u8* start_key,
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> o_leaf;
-      findLeafForRead<11>(o_leaf, next_key, next_key_length);
+      OptimisticPageGuard<BTreeNode> leaf;
+      findLeafForRead<11>(leaf, next_key, next_key_length);
       while (true) {
-        auto leaf = ExclusivePageGuard<BTreeNode>(std::move(o_leaf));
         s32 cur = leaf->lowerBound<false>(start_key, key_length);
         while (cur < leaf->count) {
           u16 payload_length = leaf->getPayloadLength(cur);
@@ -90,6 +89,7 @@ void BTree::rangeScan(u8* start_key,
             return key;
           };
           if (!callback(payload, payload_length, key_extract_fn)) {
+            leaf.recheck_done();
             if (!is_heap_freed) {
               delete[] next_key;
               is_heap_freed = true;
@@ -113,8 +113,8 @@ void BTree::rangeScan(u8* start_key,
         memcpy(next_key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
         next_key[next_key_length - 1] = 0;
         // -------------------------------------------------------------------------------------
-        o_leaf = std::move(leaf);
-        findLeafForRead<11>(o_leaf, next_key, next_key_length);
+        leaf.recheck_done();
+        findLeafForRead<11>(leaf, next_key, next_key_length);
       }
     }
     jumpmuCatch()

@@ -270,6 +270,7 @@ class ExclusivePageGuard
   PAGE_GUARD_UTILS
 };
 // -------------------------------------------------------------------------------------
+// Plan: take the mutex in shared mode
 template <typename T>
 class SharedPageGuard
 {

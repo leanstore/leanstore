@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <shared_mutex>
 #include <thread>
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(worker_threads, 20, "");
@@ -101,6 +102,8 @@ void exclusive_lock(atomic<u64>* latch)
 using namespace std;
 int main(int argc, char** argv)
 {
+  std::shared_mutex at;
+  cout << sizeof(at) << endl;
   // -------------------------------------------------------------------------------------
   gflags::SetUsageMessage("");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
