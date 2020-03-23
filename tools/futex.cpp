@@ -101,6 +101,7 @@ void exclusive_lock(atomic<u64>* latch)
 using namespace std;
 int main(int argc, char** argv)
 {
+  // -------------------------------------------------------------------------------------
   gflags::SetUsageMessage("");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   // -------------------------------------------------------------------------------------

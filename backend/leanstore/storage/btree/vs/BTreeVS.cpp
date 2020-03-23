@@ -138,15 +138,9 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
   while (true) {
     jumpmuTry()
     {
-      auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-      OptimisticPageGuard c_guard(p_guard, root_swip);
-      while (!c_guard->is_leaf) {
-        Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
-        p_guard = std::move(c_guard);
-        c_guard = OptimisticPageGuard(p_guard, c_swip);
-      }
+      OptimisticPageGuard<BTreeNode> c_guard;
+      findLeafForRead<2>(c_guard, key, key_length);
       // -------------------------------------------------------------------------------------
-      p_guard.kill();
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (c_x_guard->prepareInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)))) {
         c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)), payload);
@@ -154,9 +148,6 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       }
       // -------------------------------------------------------------------------------------
       // Release lock
-      if (c_x_guard.bf_s_lock.mutex_locked_upfront) {
-        //raise(SIGTRAP);
-      }
       c_guard = std::move(c_x_guard);
       c_guard.kill();
       // -------------------------------------------------------------------------------------

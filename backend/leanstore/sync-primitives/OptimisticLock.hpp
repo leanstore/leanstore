@@ -51,7 +51,7 @@ class OptimisticPageGuard;
 using OptimisticLatchVersionType = atomic<u64>;
 struct alignas(64) OptimisticLatch {
   OptimisticLatchVersionType version;
-  std::recursive_mutex mutex;
+  std::mutex mutex;
   // -------------------------------------------------------------------------------------
   template <typename... Args>
   OptimisticLatch(Args&&... args) : version(std::forward<Args>(args)...)
@@ -182,10 +182,10 @@ class ExclusiveGuard
           ensure(false);
         }
       } else {
-        // if (!ref_guard.latch_ptr->mutex.try_lock()) {
-        //   jumpmu::jump();
-        //}
-        ref_guard.latch_ptr->mutex.lock();
+        if (!ref_guard.latch_ptr->mutex.try_lock()) {
+          jumpmu::jump();
+        }
+        // ref_guard.latch_ptr->mutex.lock(); can be helpful for debugging
         if (!ref_guard.latch_ptr->ref().compare_exchange_strong(expected, new_version)) {
           ref_guard.latch_ptr->mutex.unlock();
           jumpmu::jump();
