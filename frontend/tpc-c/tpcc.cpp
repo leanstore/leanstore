@@ -87,7 +87,8 @@ int main(int argc, char** argv)
   db.registerConfigEntry("tpcc_warehouse_count", [&](ostream& out) { out << FLAGS_tpcc_warehouse_count; });
   db.registerConfigEntry("tpcc_warehouse_affinity", [&](ostream& out) { out << FLAGS_tpcc_warehouse_affinity; });
   // -------------------------------------------------------------------------------------
-  tbb::task_scheduler_init task_scheduler(thread::hardware_concurrency());
+  tbb::task_scheduler_init task_scheduler(FLAGS_worker_threads);
+  //tbb::task_scheduler_init task_scheduler(thread::hardware_concurrency());
   load();
   task_scheduler.terminate();
   task_scheduler.initialize(FLAGS_worker_threads);

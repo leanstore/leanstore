@@ -139,7 +139,7 @@ int main(int argc, char** argv)
         threads.emplace_back(
             [&](int t_i) {
               while (keep_running) {
-                if (MACRO_FLAG_MUTEX) {
+                if (FLAGS_mutex) {
                   bf.lock.lock();
                   sequence[bf.seq_id] = t_i;
                   bf.seq_id = (bf.seq_id + 1) % max_size;
@@ -186,7 +186,7 @@ int main(int argc, char** argv)
                 auto& lock = locks[g_i];
                 auto& mlock = mlocks[g_i];
                 while (true) {
-                  if (MACRO_FLAG_MUTEX) {
+                  if (FLAGS_mutex) {
                     mlock.lock();
                     std::memcpy(dump.data(), payload.data(), 128);
                     tx_counter[t_i]++;

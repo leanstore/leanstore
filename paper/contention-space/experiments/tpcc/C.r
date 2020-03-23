@@ -11,7 +11,8 @@ dev.set(0)
 df=read.csv('./C_long_threads2.csv')
 sqldf("select distinct c_dram_gib, c_run_for_seconds from df")
 
-df=read.csv('./C_mutex.csv')
+df=read.csv('./C_mutex_overnight.csv')
+d=sqldf("select * from d where t <=507")
 d= sqldf("
 select *, 1 as symbol from df where c_su_merge=0 and c_cm_split=0
 UNION select *, 2 as symbol from df where c_su_merge=0 and c_cm_split=1
@@ -31,10 +32,12 @@ tx <- ggplot(acc, aes(txacc, tx, color=factor(symbol), group=factor(symbol))) +
     labs(x='Processed M Transactions [txn]', y = 'TPC-C throughput [txns/sec]') +
     geom_smooth() +
     theme_bw() +
-                                        facet_grid(row=vars(c_worker_threads))#geom_point(data=outofmemory, aes(x=t,y=tx, colour=factor(symbol)), shape =4, size= 10)
+   facet_grid(row=vars(c_worker_threads))#geom_point(data=outofmemory, aes(x=t,y=tx, colour=factor(symbol)), shape =4, size= 10)
 print(tx)
 
+
 head(d)
+
 tx <- ggplot(d, aes(t, tx, color=factor(symbol), group=interaction(c_su_merge,c_cm_split))) +  geom_point(aes(shape=factor(symbol), size=1), alpha=0.05) + scale_size_identity(name=NULL)+ scale_shape_discrete(name=NULL, breaks=c(1,2,3,4), labels=c("base", "+split -merge","-split +merge","+split +merge")) + scale_color_discrete(name =NULL, labels=c("base", "+split -merge","-split +merge","+split +merge"), breaks=c(1,2,3,4)) + labs(x='time [sec]', y = 'TPC-C throughput [txns/sec]')  + geom_smooth() + theme_bw()
 print(tx)
 

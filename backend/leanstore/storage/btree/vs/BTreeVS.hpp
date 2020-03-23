@@ -22,7 +22,6 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   atomic<u16> height = 1;  // debugging
   OptimisticLatch root_lock = 0;
-  std::mutex root_mutex;
   Swip<BTreeNode> root_swip;
   // -------------------------------------------------------------------------------------
   BTree();
@@ -64,8 +63,7 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   // Helpers
   template <int op_type = 0>  // 0 point lookup, 1 update same size, 2 structural change, 10 updatesamesize, 11 scan // TODO better code
-  void findLeafForRead(OptimisticPageGuard<BTreeNode> &target_guard,u8* key, u16 key_length)
-  //OptimisticPageGuard<BTreeNode> findLeafForRead(u8* key, u16 key_length)
+  void findLeafForRead(OptimisticPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
   {
     u32 volatile mask = 1;
     while (true) {
@@ -74,7 +72,7 @@ struct BTree {
       {
         auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
         OptimisticPageGuard<BTreeNode> c_guard;
-        if (MACRO_FLAG_MUTEX && ((!FLAGS_cm_split && op_type == 10)) && traverse_height == height) {  //  || op_type == 0
+        if ((!FLAGS_cm_split && op_type == 10) && traverse_height == height) {  //  || op_type == 0
           c_guard = OptimisticPageGuard(p_guard, root_swip, true);
         } else {
           c_guard = OptimisticPageGuard(p_guard, root_swip);
@@ -83,7 +81,7 @@ struct BTree {
           traverse_height++;
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
-          if (MACRO_FLAG_MUTEX && ((!FLAGS_cm_split && op_type == 10)) && traverse_height == height) {  //  || op_type == 0
+          if ((!FLAGS_cm_split && op_type == 10) && traverse_height == height) {  //  || op_type == 0
             c_guard = OptimisticPageGuard(p_guard, c_swip, true);
           } else {
             c_guard = OptimisticPageGuard(p_guard, c_swip);

@@ -146,14 +146,17 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
         c_guard = OptimisticPageGuard(p_guard, c_swip);
       }
       // -------------------------------------------------------------------------------------
+      p_guard.kill();
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-      p_guard.recheck_done();
       if (c_x_guard->prepareInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)))) {
         c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)), payload);
         jumpmu_return;
       }
       // -------------------------------------------------------------------------------------
       // Release lock
+      if (c_x_guard.bf_s_lock.mutex_locked_upfront) {
+        //raise(SIGTRAP);
+      }
       c_guard = std::move(c_x_guard);
       c_guard.kill();
       // -------------------------------------------------------------------------------------

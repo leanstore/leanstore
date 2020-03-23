@@ -13,7 +13,6 @@ namespace buffermanager
   bool moved = false;
 
 #define PAGE_GUARD_UTILS                                        \
-  void kill() { moved = true; }                                 \
   T& ref() { return *reinterpret_cast<T*>(bf->page.dt); }       \
   T* ptr() { return reinterpret_cast<T*>(bf->page.dt); }        \
   Swip<T> swip() { return Swip<T>(bf); }                        \
@@ -21,6 +20,10 @@ namespace buffermanager
   bool hasBf() const { return bf != nullptr; }
 
 // Objects of this class must be thread local !
+// OptimisticPageGuard can hold the mutex. There are 3 locations where it can release it:
+// 1- Destructor if not moved
+// 2- Assign operator
+// 3- kill()
 template <typename T>
 class ExclusivePageGuard;
 template <typename T>
@@ -32,6 +35,7 @@ class OptimisticPageGuard
   OptimisticPageGuard(OptimisticLatch& swip_version) : bf_s_lock(OptimisticGuard(swip_version)), moved(false) { jumpmu_registerDestructor(); }
   OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : bf(bf), bf_s_lock(std::move(read_guard)), moved(false)
   {
+    assert((bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == 0);
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
@@ -70,7 +74,7 @@ class OptimisticPageGuard
     assert(!(p_guard.bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
     assert(!p_guard.moved);
     jumpmu_registerDestructor();
-    p_guard.recheck();  // TODO: ??
+    p_guard.recheck();
   }
   // I: Lock coupling with mutex [SHOULD BE USED ONLY FOR LEAVES] WIP
   OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip, bool)
@@ -83,15 +87,16 @@ class OptimisticPageGuard
       bf->header.latch.mutex.lock();
       bf_s_lock = OptimisticGuard(bf->header.latch, OptimisticGuard::IF_LOCKED::CAN_NOT_BE);
       bf_s_lock.mutex_locked_upfront = true;
-      assert(!(bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
     }
     jumpmu_registerDestructor();
-    p_guard.recheck();  // TODO: ??
+    p_guard.recheck();
   }
   // I: Downgrade exclusive
   OptimisticPageGuard& operator=(ExclusivePageGuard<T>&& other)
   {
     assert(!other.moved);
+    assert(moved);
+    // -------------------------------------------------------------------------------------
     bf = other.bf;
     bf_s_lock = std::move(other.bf_s_lock);
     // -------------------------------------------------------------------------------------
@@ -103,6 +108,7 @@ class OptimisticPageGuard
     moved = false;
     other.moved = true;
     assert((bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == 0);
+    // -------------------------------------------------------------------------------------
     return *this;
   }
   // I: Downgrade shared
@@ -124,7 +130,6 @@ class OptimisticPageGuard
   constexpr OptimisticPageGuard& operator=(OptimisticPageGuard&& other)
   {
     if (!moved && bf_s_lock.mutex_locked_upfront) {
-      raise(SIGTRAP);
       assert(!(bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
       bf_s_lock.mutex_locked_upfront = false;
       bf_s_lock.latch_ptr->mutex.unlock();
@@ -145,6 +150,15 @@ class OptimisticPageGuard
     return *reinterpret_cast<OptimisticPageGuard<T2>*>(this);
   }
   // -------------------------------------------------------------------------------------
+  void kill()
+  {
+    assert(!moved);
+    moved = true;
+    if (bf_s_lock.mutex_locked_upfront) {
+      bf_s_lock.mutex_locked_upfront = false;
+      bf_s_lock.latch_ptr->mutex.unlock();
+    }
+  }
   void recheck() { bf_s_lock.recheck(); }
   void recheck_done()
   {
@@ -156,11 +170,11 @@ class OptimisticPageGuard
   PAGE_GUARD_UTILS
   // -------------------------------------------------------------------------------------
   jumpmu_defineCustomDestructor(OptimisticPageGuard)
-  // -------------------------------------------------------------------------------------
-  ~OptimisticPageGuard()
+      // -------------------------------------------------------------------------------------
+      ~OptimisticPageGuard()
   {
-    if (MACRO_FLAG_MUTEX && !moved && bf_s_lock.mutex_locked_upfront) {
-      assert(!(bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
+    if (!moved && bf_s_lock.mutex_locked_upfront) {
+      // raise(SIGTRAP);
       bf_s_lock.mutex_locked_upfront = false;
       bf_s_lock.latch_ptr->mutex.unlock();
     }
@@ -238,7 +252,15 @@ class ExclusivePageGuard
         if (hasBf()) {
           bf->page.LSN++;
         }
-        ExclusiveGuard::unlatch(bf_s_lock);
+        // Note: at this point, the OptimisticPageGuard is moved
+        if (bf_s_lock.mutex_locked_upfront) {
+          bf_s_lock.latch_ptr->assertExclusivelyLatched();
+          bf_s_lock.local_version = LATCH_EXCLUSIVE_BIT + bf_s_lock.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
+          bf_s_lock.mutex_locked_upfront = false;
+          bf_s_lock.latch_ptr->mutex.unlock();
+        } else {
+          ExclusiveGuard::unlatch(bf_s_lock);
+        }
       }
     }
     // -------------------------------------------------------------------------------------

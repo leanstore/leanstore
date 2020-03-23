@@ -48,8 +48,3 @@ using BytesArray = std::unique_ptr<u8[]>;
 template <int s>
 struct getTheSizeOf;
 // -------------------------------------------------------------------------------------
-// Macro defined
-#ifndef MACRO_FLAG_MUTEX
-#define MACRO_FLAG_MUTEX FLAGS_mutex
-#warning "Using gflags to use mutex at runtime"
-#endif

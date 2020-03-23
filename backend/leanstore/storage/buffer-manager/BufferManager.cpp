@@ -247,8 +247,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             // We manually lock the buffer frame, because reclaimBufferFrame is generic and called also by worker threads,
             // which have exclusive lock on it
             assert((bf.header.latch.version.load() & LATCH_EXCLUSIVE_BIT) == 0);
-            if (MACRO_FLAG_MUTEX)
-              bf.header.latch.mutex.lock();
+            bf.header.latch.mutex.lock();
             bf.header.latch.version.fetch_add(LATCH_EXCLUSIVE_BIT);
           }
           // Reclaim buffer frame
@@ -415,8 +414,7 @@ BufferFrame& BufferManager::allocatePage()
   // -------------------------------------------------------------------------------------
   // Initialize Buffer Frame
   free_bf.header.latch.assertNotExclusivelyLatched();
-  if (MACRO_FLAG_MUTEX)
-    free_bf.header.latch.mutex.lock();
+  free_bf.header.latch.mutex.lock();
   free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);  // Write lock
   free_bf.header.pid = free_pid;
   free_bf.header.state = BufferFrame::State::HOT;
@@ -441,15 +439,13 @@ void BufferManager::reclaimBufferFrame(BufferFrame& bf)
   if (bf.header.isWB) {
     // DO NOTHING ! we have a garbage collector ;-)
     bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
-    if (MACRO_FLAG_MUTEX)
-      bf.header.latch.mutex.unlock();
+    bf.header.latch.mutex.unlock();
     cout << "garbage collector, yeah" << endl;
   } else {
     Partition& partition = getPartition(bf.header.pid);
     bf.reset();
     bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
-    if (MACRO_FLAG_MUTEX)
-      bf.header.latch.mutex.unlock();
+    bf.header.latch.mutex.unlock();
     partition.dram_free_list.push(bf);
   }
 }

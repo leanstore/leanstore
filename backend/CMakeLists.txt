@@ -21,13 +21,6 @@ target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic) #tbb
 #    target_link_libraries(leanstore asan)
 #endif ()
 # ---------------------------------------------------------------------------
-OPTION(LEANSTORE_MUTEX "Compile leanstore with mutex" ON)
-IF(LEANSTORE_MUTEX)
-  target_compile_definitions(leanstore PUBLIC MACRO_FLAG_MUTEX=1)
-ELSE()
-  target_compile_definitions(leanstore PUBLIC MACRO_FLAG_MUTEX=0)
-ENDIF(LEANSTORE_MUTEX)
-# ---------------------------------------------------------------------------
 target_include_directories(leanstore PUBLIC ${SHARED_INCLUDE_DIRECTORY})
 target_include_directories(leanstore PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 # ---------------------------------------------------------------------------

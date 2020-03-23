@@ -6,10 +6,11 @@ library(scales)
 # TPC-C A: 100 warehouse, in-memory, variable threads, with/-out split&merge
 
 dev.set(0)
-df=read.csv('./A_rome_pin.csv')
+#df=read.csv('./A_rome_pin.csv')
+df=read.csv('./A_mutex.csv')
 sqldf("select distinct c_worker_threads from df")
 df$c_mutex <- ordered(df$c_mutex,levels=c(0,1), labels=c("Spin", "Mutex"))
-d=sqldf("select tpcc_pin,c_worker_threads,c_mutex,c_cm_split,max(tx) tx from df group by c_worker_threads, c_cm_split,tpcc_pin,c_mutex")
+d=sqldf("select c_pin_threads,c_worker_threads,c_cm_split,max(tx) tx from df group by c_worker_threads, c_cm_split,c_pin_threads")
 
 tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(c_cm_split), group=factor(c_cm_split))) +
     geom_point() +
@@ -19,7 +20,7 @@ tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(c_cm_split),
     geom_line() +
     expand_limits(y=0) +
     theme_bw() +
-    facet_grid(row=vars(tpcc_pin),col=vars(c_mutex))
+    facet_grid(row=vars(),col=vars())
 print(tx)
 
 CairoPDF("./tpcc_A.pdf", bg="transparent", height=3)
