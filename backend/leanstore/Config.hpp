@@ -46,3 +46,4 @@ DECLARE_uint64(y);
 DECLARE_double(d);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(bstar);
+DECLARE_bool(bulk_insert);

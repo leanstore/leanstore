@@ -1,7 +1,7 @@
 #include "adapter.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
-#include "leanstore/utils/ScrambledZipfGenerator.hpp"
+#include "leanstore/utils/ZipfGenerator.hpp"
 #include "schema.hpp"
 #include "types.hpp"
 // -------------------------------------------------------------------------------------
@@ -100,7 +100,7 @@ int main(int argc, char** argv)
   atomic<u64> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
-  auto random = std::make_unique<leanstore::utils::ScrambledZipfGenerator>(1, FLAGS_tpcc_warehouse_count + 1, FLAGS_zipf_factor);
+  auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
   db.startDebuggingThread();
   if (FLAGS_tpcc_warehouse_affinity) {
     if (FLAGS_tpcc_warehouse_count < FLAGS_worker_threads) {

@@ -18,7 +18,7 @@ DEFINE_uint64(latest_read_ratio, 0, "");
 DEFINE_double(latest_window_offset_gib, 0.1, "");
 DEFINE_uint64(latest_window_ms, 1000, "");
 DEFINE_double(latest_window_gib, 1, "");
-DEFINE_bool(force_random, false, "");
+DEFINE_bool(force_parallel, false, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -50,14 +50,13 @@ int main(int argc, char** argv)
   Payload payload;
   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
   // -------------------------------------------------------------------------------------
-  const u64 tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage
+  const u64 tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
   const u64 window_tuple_count =
       FLAGS_latest_window_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage
   // -------------------------------------------------------------------------------------
-  u64 size_at_insert_point;
   const u64 n = tuple_count;
   // Insert values
-  if (!FLAGS_force_random) {
+  if (!FLAGS_force_parallel) {
     for (u64 t_i = 0; t_i < n; t_i++) {
       table.insert(t_i, payload);
     }
@@ -68,9 +67,9 @@ int main(int argc, char** argv)
       }
     });
   }
-  size_at_insert_point = db.getBufferManager().consumedPages();
-  const u64 mib = size_at_insert_point * PAGE_SIZE / 1024 / 1024;
-  cout << "Inserted volume: (pages, MiB) = (" << size_at_insert_point << ", " << mib << ")" << endl;
+  const u64 pages_at_insertion = db.getBufferManager().consumedPages();
+  const u64 mib = pages_at_insertion * PAGE_SIZE / 1024 / 1024;
+  cout << "Inserted volume: (pages, MiB) = (" << pages_at_insertion << ", " << mib << ")" << endl;
   cout << "-------------------------------------------------------------------------------------" << endl;
   // -------------------------------------------------------------------------------------
   atomic<u64> window_offset = window_tuple_count;
@@ -101,6 +100,7 @@ int main(int argc, char** argv)
   threads.clear();
   keep_running = true;
   // -------------------------------------------------------------------------------------
+  const u64 size_after_warmup = db.getBufferManager().consumedPages();
   db.startDebuggingThread();
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&]() {
@@ -151,7 +151,7 @@ int main(int argc, char** argv)
     // }
   }
   // -------------------------------------------------------------------------------------
-  const s64 amplification_pages = db.getBufferManager().consumedPages() - size_at_insert_point;
+  const s64 amplification_pages = db.getBufferManager().consumedPages() - size_after_warmup;
   cout << amplification_pages << endl;
   // -------------------------------------------------------------------------------------
   return 0;

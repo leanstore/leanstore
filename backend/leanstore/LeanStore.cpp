@@ -130,6 +130,7 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_cm_split", [&](ostream& out) { out << FLAGS_cm_split; });
   config_entries.emplace_back("c_su_merge", [&](ostream& out) { out << FLAGS_su_merge; });
   config_entries.emplace_back("c_bstar", [&](ostream& out) { out << FLAGS_bstar; });
+  config_entries.emplace_back("c_bulk_insert", [&](ostream& out) { out << FLAGS_bulk_insert; });
   config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });
   config_entries.emplace_back("c_cm_update_tracker_pct", [&](ostream& out) { out << FLAGS_cm_update_tracker_pct; });
   config_entries.emplace_back("c_restarts_threshold", [&](ostream& out) { out << FLAGS_restarts_threshold; });

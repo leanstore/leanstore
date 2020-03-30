@@ -150,9 +150,10 @@ class OptimisticPageGuard
     return *reinterpret_cast<OptimisticPageGuard<T2>*>(this);
   }
   // -------------------------------------------------------------------------------------
+  bool hasFacedContention() { return bf_s_lock.mutex_locked_upfront; }
   void kill()
   {
-    assert(!moved);
+    assert(!moved || !bf_s_lock.mutex_locked_upfront);
     moved = true;
     if (bf_s_lock.mutex_locked_upfront) {
       bf_s_lock.mutex_locked_upfront = false;

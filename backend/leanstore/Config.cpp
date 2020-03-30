@@ -50,3 +50,4 @@ DEFINE_uint64(y, 100, "");
 DEFINE_double(d, 0.0, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(bstar, false, "");
+DEFINE_bool(bulk_insert, false, "");

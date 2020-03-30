@@ -472,7 +472,12 @@ void BTree::trySplit(BufferFrame& to_split, s32 favored_split_pos)
   // -------------------------------------------------------------------------------------
   BTreeNode::SeparatorInfo sep_info;
   if (favored_split_pos < 0 || favored_split_pos >= c_guard->count - 1) {
-    sep_info = c_guard->findSep();
+    if (FLAGS_bulk_insert) {
+      favored_split_pos = c_guard->count - 2;
+      sep_info = BTreeNode::SeparatorInfo{c_guard->getFullKeyLength(favored_split_pos), static_cast<u32>(favored_split_pos), false};
+    } else {
+      sep_info = c_guard->findSep();
+    }
   } else {
     // Split on a specified position, used by contention management
     sep_info = BTreeNode::SeparatorInfo{c_guard->getFullKeyLength(favored_split_pos), static_cast<u32>(favored_split_pos), false};
