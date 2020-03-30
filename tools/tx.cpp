@@ -61,15 +61,6 @@ void pinme()
   if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
     throw;
 }
-template <typename T>
-inline void DO_NOT_OPTIMIZE(T const& value)
-{
-#if defined(__clang__)
-  asm volatile("" : : "g"(value) : "memory");
-#else
-  asm volatile("" : : "i,r,m"(value) : "memory");
-#endif
-}
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {

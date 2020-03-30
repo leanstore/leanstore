@@ -14,10 +14,11 @@
 // -------------------------------------------------------------------------------------
 #include <iostream>
 // -------------------------------------------------------------------------------------
-DEFINE_uint64(latest_read_ratio, 100, "");
+DEFINE_uint64(latest_read_ratio, 0, "");
 DEFINE_double(latest_window_offset_gib, 0.1, "");
 DEFINE_uint64(latest_window_ms, 1000, "");
 DEFINE_double(latest_window_gib, 1, "");
+DEFINE_bool(force_random, false, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -54,22 +55,23 @@ int main(int argc, char** argv)
       FLAGS_latest_window_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage
   // -------------------------------------------------------------------------------------
   u64 size_at_insert_point;
+  const u64 n = tuple_count;
   // Insert values
-  {
-    const u64 n = tuple_count;
+  if (!FLAGS_force_random) {
     for (u64 t_i = 0; t_i < n; t_i++) {
       table.insert(t_i, payload);
     }
-    // tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
-    //   for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-    //     table.insert(t_i, payload);
-    //   }
-    // });
-    size_at_insert_point = db.getBufferManager().consumedPages();
-    const u64 mib = size_at_insert_point * PAGE_SIZE / 1024 / 1024;
-    cout << "Inserted volume: (pages, MiB) = (" << size_at_insert_point << ", " << mib << ")" << endl;
-    cout << "-------------------------------------------------------------------------------------" << endl;
+  } else {
+    tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
+      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+        table.insert(t_i, payload);
+      }
+    });
   }
+  size_at_insert_point = db.getBufferManager().consumedPages();
+  const u64 mib = size_at_insert_point * PAGE_SIZE / 1024 / 1024;
+  cout << "Inserted volume: (pages, MiB) = (" << size_at_insert_point << ", " << mib << ")" << endl;
+  cout << "-------------------------------------------------------------------------------------" << endl;
   // -------------------------------------------------------------------------------------
   atomic<u64> window_offset = window_tuple_count;
   auto zipf_random = std::make_unique<utils::ZipfGenerator>(window_tuple_count, FLAGS_zipf_factor);
