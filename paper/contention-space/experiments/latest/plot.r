@@ -8,42 +8,49 @@ library(grid)
 # Rome
 
 dev.set(0)
-#df=read.csv('./results.csv')
+df=read.csv('./results.csv')
 #df=read.csv('./results_mutex.csv')
-df=read.csv('./tmp.csv')
-d=sqldf("select * from df where c_worker_threads in (10,30,60) ")
+#df=read.csv('./tmp.csv')
+d=sqldf("select * from df ")
 
 tx <- ggplot(d, aes(t, tx, color=factor(c_cm_split), group=factor(c_cm_split))) +
+    geom_point() +
     geom_line() +
     theme_bw() +
     expand_limits(y=0) +
     scale_color_discrete(name =NULL, labels=c("base", "+ Contention Split"), breaks=c(0,1)) +
+    theme(legend.position = 'top')+
     labs(x='Time (seconds)', y = 'Updates/second')
-print(tx)
-
-merges =sqldf("
-select t,  sum(cm_split_succ_counter) counter, 'split' as type  from d where c_cm_split = true group by t  having counter > 0
-UNION
-select t,  sum(su_merge_full_counter) counter, 'merge' as type  from d where c_cm_split = true group by t having counter > 0
+tx
+ops =sqldf("
+select t,  sum(cm_split_succ_counter) splits, sum(su_merge_full_counter) merges, 'blue' as color from d where c_cm_split = true group by t
 ")
-ops <- ggplot(merges, aes(t, counter, color=factor(type))) +
-    geom_point() +
-    scale_color_discrete(name =NULL, labels=c("+ Contention Splits", "+ Eviction Merges"), breaks=c('split','merge')) +
+so <- ggplot(ops, aes(t, splits)) +
+    geom_point(color='blue') +
+    geom_line(color='blue') +
     expand_limits(y=0) +
     theme_bw() +
-    labs(x='Time (seconds)', y = 'Operations/second')
-print(ops)
-
+    labs(x='Time (seconds)', y = 'Contention Splits/second')
+so
+mo <- ggplot(ops, aes(t, merges)) +
+    geom_point(color='blue') +
+    geom_line(color='blue') +
+    expand_limits(y=0) +
+    theme_bw() +
+    labs(x='Time (seconds)', y = 'Eviction Merges/second')
+mo
 g2 <- ggplotGrob(tx)
-g3 <- ggplotGrob(ops)
-g <- rbind(g2, g3, size = "first")
-g$widths <- unit.pmax(g2$widths, g3$widths)
+g3 <- ggplotGrob(so)
+g4 <- ggplotGrob(mo)
+g <- rbind(g2, g3,g4,  size = "first")
+g$widths <- unit.pmax(g2$widths, g3$widths, g4$widths)
 grid.newpage()
 grid.draw(g)
+ggsave(file="latest.pdf", g)
 
 
 CairoPDF("./latest.pdf", bg="transparent")
-print(tx)
+print(tata)
 dev.off()
 
 
