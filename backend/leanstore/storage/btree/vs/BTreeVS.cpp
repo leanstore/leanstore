@@ -531,13 +531,13 @@ void BTree::trySplit(BufferFrame& to_split, s32 favored_split_pos)
 void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback)
 {
   volatile u32 mask = 1;
-  volatile u32 local_restarts_counter = 0;
   while (true) {
     jumpmuTry()
     {
       // -------------------------------------------------------------------------------------
       OptimisticPageGuard<BTreeNode> c_guard;
       findLeafForRead<10>(c_guard, key, key_length);
+      u32 local_restarts_counter = c_guard.hasFacedContention(); // current implementation uses the mutex
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       s32 pos = c_x_guard->lowerBound<true>(key, key_length);
       assert(pos != -1);
@@ -579,7 +579,6 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
     jumpmuCatch()
     {
       BACKOFF_STRATEGIES()
-      local_restarts_counter++;
       WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;
     }
   }

@@ -67,25 +67,15 @@ struct BTree {
   {
     u32 volatile mask = 1;
     while (true) {
-      u16 volatile traverse_height = 1;
       jumpmuTry()
       {
         auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
         OptimisticPageGuard<BTreeNode> c_guard;
-        if (!(FLAGS_cm_split && op_type == 10 && traverse_height == height)) {  //  || op_type == 0
-          c_guard = OptimisticPageGuard(p_guard, root_swip, true);
-        } else {
-          c_guard = OptimisticPageGuard(p_guard, root_swip);
-        }
+        c_guard = OptimisticPageGuard(p_guard, root_swip, true);
         while (!c_guard->is_leaf) {
-          traverse_height++;
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
-          if (!(FLAGS_cm_split && op_type == 10 && traverse_height == height)) {  //  || op_type == 0
-            c_guard = OptimisticPageGuard(p_guard, c_swip, true);
-          } else {
-            c_guard = OptimisticPageGuard(p_guard, c_swip);
-          }
+          c_guard = OptimisticPageGuard(p_guard, c_swip, true);
         }
         p_guard.kill();
         target_guard = std::move(c_guard);
