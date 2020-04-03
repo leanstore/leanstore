@@ -8,20 +8,22 @@ library(grid)
 # Rome
 
 dev.set(0)
-df=read.csv('./results.csv')
+df=read.csv('./results_5.csv')
 #df=read.csv('./results_mutex.csv')
 #df=read.csv('./tmp.csv')
-d=sqldf("select * from df ")
+d=sqldf("select * from df where c_zipf_factor=0.9 and t <= 60")
 
 tx <- ggplot(d, aes(t, tx, color=factor(c_cm_split), group=factor(c_cm_split))) +
     geom_point() +
     geom_line() +
     theme_bw() +
     expand_limits(y=0) +
-    scale_color_discrete(name =NULL, labels=c("base", "+ Contention Split"), breaks=c(0,1)) +
-    theme(legend.position = 'top')+
+    scale_color_discrete(name =NULL, labels=c("Base", "+ Contention Split"), breaks=c(0,1)) +
+    theme(legend.position = 'top') +
+#    facet_grid(rows=vars(c_zipf_factor))+
     labs(x='Time (seconds)', y = 'Updates/second')
 tx
+
 ops =sqldf("
 select t,  sum(cm_split_succ_counter) splits, sum(su_merge_full_counter) merges, 'blue' as color from d where c_cm_split = true group by t
 ")

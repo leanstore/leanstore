@@ -73,6 +73,8 @@ int main(int argc, char** argv)
   cout << "-------------------------------------------------------------------------------------" << endl;
   // -------------------------------------------------------------------------------------
   atomic<u64> window_offset = window_tuple_count;
+  const u64 step_size =
+      FLAGS_latest_window_offset_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage;
   auto zipf_random = std::make_unique<utils::ZipfGenerator>(window_tuple_count, FLAGS_zipf_factor);
   // -------------------------------------------------------------------------------------
   cout << setprecision(4) << endl;
@@ -83,8 +85,9 @@ int main(int argc, char** argv)
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++)
     threads.emplace_back([&]() {
       running_threads_counter++;
+      const u64 max = window_offset + (FLAGS_run_for_seconds * step_size);
       while (keep_running) {
-        Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
+        Key k = utils::RandomGenerator::getRandU64(0, max);
         table.lookup(k, payload);
       }
       running_threads_counter--;
@@ -118,8 +121,6 @@ int main(int argc, char** argv)
       running_threads_counter--;
     });
   }
-  const u64 step_size =
-      FLAGS_latest_window_offset_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage;
   cout << tuple_count << "\t:\t" << window_tuple_count << "\t:\t" << step_size << endl;
   ensure(step_size < window_tuple_count);
   if (FLAGS_run_for_seconds > (FLAGS_latest_window_ms / 1000))
