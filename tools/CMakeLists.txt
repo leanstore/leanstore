@@ -30,3 +30,7 @@ target_include_directories(futex PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(tx tx.cpp)
 target_link_libraries(tx leanstore Threads::Threads tbb gflags)
 target_include_directories(tx PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(tcp tcp.cpp)
+target_link_libraries(tcp Threads::Threads gflags)
+target_include_directories(tcp PRIVATE ${SHARED_INCLUDE_DIRECTORY})

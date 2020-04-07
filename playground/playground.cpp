@@ -1,9 +1,14 @@
 #include <fcntl.h>
 #include <tbb/tbb.h>
 #include <unistd.h>
+
+#include <PerfEvent.hpp>"
+#include <atomic>
 #include <cassert>
 #include <iostream>
-#include <PerfEvent.hpp>"
+#include <thread>
+
+#include "Units.hpp"
 
 using namespace std;
 void callback(char* payload, uint8_t command)
@@ -63,20 +68,30 @@ struct Tata {
   }
   ~Tata() { cout << "decontructor" << endl; }
 };
+struct BFT {
+  int counter;
+} test_object;
+
 int main(int argc, char** argv)
 {
-  PerfEvent e;
-  tbb::task_scheduler_init taskScheduler(20);
-  int fd = open("/dev/nvme2n1p1", O_RDWR | O_DIRECT | O_CREAT, 0666);
-  {
-    PerfEventBlock b(e, 1024 * 10);
-    tbb::parallel_for(tbb::blocked_range<uint64_t>(0, 1024 * 10), [&](const tbb::blocked_range<uint64_t>& range) {
-      vector<uint64_t> buffer(1024);
-      for (uint64_t i = range.begin(); i < range.end(); i++) {
-        pread(fd, buffer.data(), 1024, i);
-        cout << buffer[10] << endl;
+  cout << test_object.counter << endl;
+  std::vector<std::thread> threads;
+  std::atomic<u64> counter = 0;
+  for (u32 i = 0; i < atoi(getenv("N")); i++) {
+    threads.emplace_back([&]() {
+      while (true) {
+        counter++;
       }
     });
+  }
+  threads.emplace_back([&]() {
+    while (true) {
+      cout << counter.exchange(0) << endl;
+      sleep(1);
+    }
+  });
+  for (auto& thread : threads) {
+    thread.join();
   }
   return 0;
 }
