@@ -11,7 +11,6 @@ add_executable(io_benchmark io_benchmark.cpp)
 target_link_libraries(io_benchmark leanstore)
 target_include_directories(io_benchmark PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
-
 add_executable(caught_exceptions caught_exceptions.cpp fast-uncaught-exception/fast-uncaught-exception.cpp)
 target_include_directories(caught_exceptions PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
@@ -30,3 +29,11 @@ target_include_directories(tx PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(tcp tcp.cpp)
 target_link_libraries(tcp Threads::Threads gflags)
 target_include_directories(tcp PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(contention_effects micro-benchmarks/contention_effects.cpp)
+target_link_libraries(contention_effects leanstore Threads::Threads gflags)
+target_include_directories(contention_effects PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(signal micro-benchmarks/signal.cpp)
+target_link_libraries(signal leanstore Threads::Threads gflags)
+target_include_directories(signal PRIVATE ${SHARED_INCLUDE_DIRECTORY})

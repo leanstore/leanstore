@@ -537,7 +537,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       // -------------------------------------------------------------------------------------
       OptimisticPageGuard<BTreeNode> c_guard;
       findLeafForRead<10>(c_guard, key, key_length);
-      u32 local_restarts_counter = c_guard.hasFacedContention(); // current implementation uses the mutex
+      u32 local_restarts_counter = c_guard.hasFacedContention();  // current implementation uses the mutex
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       s32 pos = c_x_guard->lowerBound<true>(key, key_length);
       assert(pos != -1);
@@ -545,20 +545,20 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
       // -------------------------------------------------------------------------------------
       if (FLAGS_cm_split && local_restarts_counter > 0) {
-        if (utils::RandomGenerator::getRandU64(0, 100) < (FLAGS_cm_update_tracker_pct)) {
-          s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
+        const u64 random_number = utils::RandomGenerator::getRandU64();
+        if ((random_number & ((1ul << FLAGS_cm_update_on) - 1)) == 0) {
+          s64 last_modified_pos = last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
           c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
-          // -------------------------------------------------------------------------------------
           c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
           c_x_guard.bf->header.contention_tracker.access_counter++;
-          const u64 current_restarts_counter = c_x_guard.bf->header.contention_tracker.restarts_counter;
-          const u64 current_access_counter = c_x_guard.bf->header.contention_tracker.access_counter;
-          const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
-          if (utils::RandomGenerator::getRandU64(0, 100) < (FLAGS_cm_update_tracker_pct)) {
+          if ((random_number & ((1ul << FLAGS_cm_period) - 1)) == 0) {
+            const u64 current_restarts_counter = c_x_guard.bf->header.contention_tracker.restarts_counter;
+            const u64 current_access_counter = c_x_guard.bf->header.contention_tracker.access_counter;
+            const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
             c_x_guard.bf->header.contention_tracker.restarts_counter = 0;
             c_x_guard.bf->header.contention_tracker.access_counter = 0;
             // -------------------------------------------------------------------------------------
-            if (last_modified_pos != pos && normalized_restarts >= FLAGS_restarts_threshold && c_x_guard->count > 2) {
+            if (last_modified_pos != pos && normalized_restarts >= FLAGS_cm_slowpath_threshold && c_x_guard->count > 2) {
               s32 split_pos = std::min<s32>(last_modified_pos, pos);
               c_guard = std::move(c_x_guard);
               c_guard.kill();

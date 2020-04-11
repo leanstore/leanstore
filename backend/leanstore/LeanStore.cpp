@@ -118,24 +118,28 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_worker_threads", [&](ostream& out) { out << FLAGS_worker_threads; });
   config_entries.emplace_back("c_pin_threads", [&](ostream& out) { out << FLAGS_pin_threads; });
   config_entries.emplace_back("c_smt", [&](ostream& out) { out << FLAGS_smt; });
+  // -------------------------------------------------------------------------------------
   config_entries.emplace_back("c_free_pct", [&](ostream& out) { out << FLAGS_free_pct; });
   config_entries.emplace_back("c_cool_pct", [&](ostream& out) { out << FLAGS_cool_pct; });
   config_entries.emplace_back("c_pp_threads", [&](ostream& out) { out << FLAGS_pp_threads; });
   config_entries.emplace_back("c_partition_bits", [&](ostream& out) { out << FLAGS_partition_bits; });
   config_entries.emplace_back("c_dram_gib", [&](ostream& out) { out << FLAGS_dram_gib; });
   config_entries.emplace_back("c_target_gib", [&](ostream& out) { out << FLAGS_target_gib; });
-  config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
   config_entries.emplace_back("c_run_for_seconds", [&](ostream& out) { out << FLAGS_run_for_seconds; });
   config_entries.emplace_back("c_fs", [&](ostream& out) { out << FLAGS_fs; });
-  config_entries.emplace_back("c_cm_split", [&](ostream& out) { out << FLAGS_cm_split; });
-  config_entries.emplace_back("c_su_merge", [&](ostream& out) { out << FLAGS_su_merge; });
   config_entries.emplace_back("c_bstar", [&](ostream& out) { out << FLAGS_bstar; });
   config_entries.emplace_back("c_bulk_insert", [&](ostream& out) { out << FLAGS_bulk_insert; });
   config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });
-  config_entries.emplace_back("c_cm_update_tracker_pct", [&](ostream& out) { out << FLAGS_cm_update_tracker_pct; });
-  config_entries.emplace_back("c_restarts_threshold", [&](ostream& out) { out << FLAGS_restarts_threshold; });
+  // -------------------------------------------------------------------------------------
+  config_entries.emplace_back("c_cm_split", [&](ostream& out) { out << FLAGS_cm_split; });
+  config_entries.emplace_back("c_cm_update_on", [&](ostream& out) { out << FLAGS_cm_update_on; });
+  config_entries.emplace_back("c_cm_period", [&](ostream& out) { out << FLAGS_cm_period; });
+  config_entries.emplace_back("c_cm_slowpath_threshold", [&](ostream& out) { out << FLAGS_cm_slowpath_threshold; });
+  // -------------------------------------------------------------------------------------
+  config_entries.emplace_back("c_su_merge", [&](ostream& out) { out << FLAGS_su_merge; });
+  // -------------------------------------------------------------------------------------
+  config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
   config_entries.emplace_back("c_backoff", [&](ostream& out) { out << FLAGS_backoff; });
-  config_entries.emplace_back("c_mutex", [&](ostream& out) { out << 1; });
   // -------------------------------------------------------------------------------------
   dt_entries.emplace_back("dt_id", [&](ostream& out) { out << dt_id; });
   dt_entries.emplace_back("dt_name", [&](ostream& out) { out << dt_name; });

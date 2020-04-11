@@ -23,14 +23,15 @@ outofmemory = sqldf("select a.txacc, o.* from (select symbol,c_su_merge,c_cm_spl
 
 #tx <- ggplot(acc, aes(txacc, tx, color=factor(symbol), group=interaction(c_su_merge,c_cm_split))) +
 tx <- ggplot(acc, aes(txacc, tx, color=factor(symbol), group=factor(symbol))) +
-    geom_point(aes(shape=factor(symbol)), size=1, alpha=0.5) +
+    geom_point(aes(shape=factor(symbol)), size=0.5, alpha=0.5) +
     geom_point(data=outofmemory, aes(x=txacc,y=tx, color=factor(symbol), group=factor(symbol)), shape = 4, size=5) +
     scale_size_identity(name=NULL) +
     scale_shape_discrete(name=NULL, breaks=c(1,2,3,4), labels=c("base", "+CS -EM","-CS +EM","+CS +EM")) +
     scale_color_discrete(name =NULL, labels=c("base", "+CS -EM","-CS +EM","+CS +EM"), breaks=c(1,2,3,4)) +
     labs(x='Processed M Transactions [txn]', y = 'TPC-C throughput [txns/sec]') +
-    geom_smooth() +
+    geom_smooth(size=0.5) +
     theme_bw() +
+    theme(legend.position = 'top') +
    facet_grid(row=vars(c_worker_threads))#geom_point(data=outofmemory, aes(x=t,y=tx, colour=factor(symbol)), shape =4, size= 10)
 print(tx)
 

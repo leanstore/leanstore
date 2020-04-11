@@ -23,11 +23,12 @@ tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(c_cm_split),
     facet_grid(row=vars(),col=vars())
 print(tx)
 
-CairoPDF("./tpcc_A.pdf", bg="transparent", height=3)
+CairoPDF("./tpcc_A_intel.pdf", bg="transparent", height=3)
 print(tx)
 dev.off()
 
-
+speedup = sqldf("select s.c_worker_threads,s.tx * 1.0 /b.tx from d s, d b where s.c_cm_split= 1 and b.c_cm_split=0 and b.c_worker_threads=s.c_worker_threads group by s.c_worker_threads")
+speedup
 
 df=read.csv('./A_skx.csv')
 d=sqldf("select c_worker_threads,c_cm_split,max(tx) tx from df group by c_worker_threads, c_cm_split")

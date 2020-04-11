@@ -618,9 +618,7 @@ void paymentById(Integer w_id, Integer d_id, Integer c_w_id, Integer c_d_id, Int
     w_zip = rec.w_zip;
     w_ytd = rec.w_ytd;
   });
-  chrono::high_resolution_clock::time_point begin = chrono::high_resolution_clock::now();
   warehouse.update1({w_id}, [&](warehouse_t& rec) { rec.w_ytd += h_amount; });
-  WorkerCounters::myCounters().dt_researchy[0][5] += chrono::duration_cast<chrono::microseconds>(chrono::high_resolution_clock::now() - begin).count();
   Varchar<10> d_name;
   Varchar<20> d_street_1;
   Varchar<20> d_street_2;
@@ -708,9 +706,7 @@ void paymentByName(Integer w_id,
     w_ytd = rec.w_ytd;
   });
 
-  chrono::high_resolution_clock::time_point begin = chrono::high_resolution_clock::now();
   warehouse.update1({w_id}, [&](warehouse_t& rec) { rec.w_ytd += h_amount; });
-  WorkerCounters::myCounters().dt_researchy[0][5] += chrono::duration_cast<chrono::microseconds>(chrono::high_resolution_clock::now() - begin).count();
   Varchar<10> d_name;
   Varchar<20> d_street_1;
   Varchar<20> d_street_2;
