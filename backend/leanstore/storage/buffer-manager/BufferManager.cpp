@@ -438,13 +438,13 @@ void BufferManager::reclaimBufferFrame(BufferFrame& bf)
 {
   if (bf.header.isWB) {
     // DO NOTHING ! we have a garbage collector ;-)
-    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
+    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
     bf.header.latch.mutex.unlock();
     cout << "garbage collector, yeah" << endl;
   } else {
     Partition& partition = getPartition(bf.header.pid);
     bf.reset();
-    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
+    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
     bf.header.latch.mutex.unlock();
     partition.dram_free_list.push(bf);
   }

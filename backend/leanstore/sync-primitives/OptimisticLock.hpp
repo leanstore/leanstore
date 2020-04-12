@@ -203,7 +203,7 @@ class ExclusiveGuard
     assert(ref_guard.local_version == ref_guard.latch_ptr->ref().load());
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
     {
-      ref_guard.local_version = LATCH_EXCLUSIVE_BIT + ref_guard.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
+      ref_guard.local_version = LATCH_EXCLUSIVE_BIT + ref_guard.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
       if (!ref_guard.mutex_locked_upfront) {
         ref_guard.latch_ptr->assertNotExclusivelyLatched();
         ref_guard.latch_ptr->mutex.unlock();

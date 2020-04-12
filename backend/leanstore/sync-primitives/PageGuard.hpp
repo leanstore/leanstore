@@ -256,7 +256,7 @@ class ExclusivePageGuard
         // Note: at this point, the OptimisticPageGuard is moved
         if (bf_s_lock.mutex_locked_upfront) {
           bf_s_lock.latch_ptr->assertExclusivelyLatched();
-          bf_s_lock.local_version = LATCH_EXCLUSIVE_BIT + bf_s_lock.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT);
+          bf_s_lock.local_version = LATCH_EXCLUSIVE_BIT + bf_s_lock.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
           bf_s_lock.mutex_locked_upfront = false;
           bf_s_lock.latch_ptr->mutex.unlock();
         } else {
