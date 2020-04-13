@@ -237,7 +237,7 @@ void LeanStore::debuggingThread()
     e->startCounters();
     // -------------------------------------------------------------------------------------
     if (FLAGS_print_tx_console) {
-      cout << "tx = " << local_tx << endl;
+      cout << time << "," << local_tx << endl;
     }
     // -------------------------------------------------------------------------------------
     sleep(FLAGS_print_debug_interval_s);

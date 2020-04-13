@@ -44,7 +44,7 @@ struct LeanStoreAdapter {
       fn(typed_payload);
     });
     if (!found) {
-      throw;
+      ensure(false);
     }
   }
 
@@ -96,9 +96,7 @@ struct LeanStoreAdapter {
       Record& typed_payload = *const_cast<Record*>(reinterpret_cast<const Record*>(payload));
       local_f = (typed_payload).*f;
     });
-    if (!found) {
-      throw;
-    }
+    ensure(found);
     return local_f;
   }
 
@@ -125,7 +123,7 @@ struct StdMap {
   {
     auto it = map.find(getStringKey(key));
     if (it == map.end())
-      throw;
+      ensure(false);
     fn((*it).second);
   }
 
@@ -153,7 +151,7 @@ struct StdMap {
   {
     auto it = map.find(getStringKey(key));
     if (it == map.end())
-      throw;
+      ensure(false);
     return ((*it).second).*f;
   }
 

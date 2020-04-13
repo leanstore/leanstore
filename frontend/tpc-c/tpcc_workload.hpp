@@ -209,6 +209,7 @@ void loadCustomer(Integer w_id, Integer d_id)
                      0,
                      randomastring<500>(300, 500)});
     customerwdl.insert({w_id, d_id, c_last, c_first, i + 1});
+    order_wdc.insert({w_id, d_id, i + 1, 0});
     Integer t_id = (Integer)WorkerCounters::myCounters().t_id;
     Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
     history.insert({t_id, h_id, i + 1, d_id, w_id, d_id, w_id, now, 10.00, randomastring<24>(12, 24)});
@@ -228,7 +229,7 @@ void loadOrders(Integer w_id, Integer d_id)
     Numeric o_ol_cnt = rnd(10) + 5;
 
     order.insert({w_id, d_id, o_id, o_c_id, now, o_carrier_id, o_ol_cnt, 1});
-    order_wdc.insert({w_id, d_id, o_c_id, o_id});
+    order_wdc.update1({w_id, d_id, o_c_id}, [&](order_wdc_t& rec) { rec.latest_o_id = std::max(rec.latest_o_id, o_id); });
 
     for (Integer ol_number = 1; ol_number <= o_ol_cnt; ol_number++) {
       Timestamp ol_delivery_d = 0;
@@ -287,7 +288,7 @@ void newOrder(Integer w_id,
   Numeric cnt = lineNumbers.size();
   Integer carrier_id = 0; /*null*/
   order.insert({w_id, d_id, o_id, c_id, timestamp, carrier_id, cnt, all_local});
-  order_wdc.insert({w_id, d_id, c_id, o_id});
+  order_wdc.update1({w_id, d_id, c_id}, [&](order_wdc_t& rec) { rec.latest_o_id = std::max(o_id, rec.latest_o_id); });
   neworder.insert({w_id, d_id, o_id});
 
   for (unsigned i = 0; i < lineNumbers.size(); i++) {
@@ -385,7 +386,7 @@ void newOrderRnd(Integer w_id)
 
 void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
 {
-  for (Integer d_id = 1; d_id < 10; d_id++) {
+  for (Integer d_id = 1; d_id <= 10; d_id++) {
     Integer o_id = minInteger;
     neworder.scan(
         {w_id, d_id, minInteger},
@@ -411,7 +412,6 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
     order.lookup1({w_id, d_id, o_id}, [&](const order_t& rec) {
       ol_cnt = rec.o_ol_cnt;
       c_id = rec.o_c_id;
-      return false;
     });
     order.update1({w_id, d_id, o_id}, [&](order_t& rec) { rec.o_carrier_id = carrier_id; });
 
@@ -492,20 +492,8 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
     c_last = rec.c_last;
     c_balance = rec.c_balance;
   });
-  Integer o_id = minInteger;
-  order_wdc.scan(
-      {w_id, d_id, c_id, minInteger},
-      [&](const order_wdc_t& rec) {
-        if ((rec.o_w_id == w_id) && (rec.o_d_id == d_id) && (rec.o_c_id == c_id)) {
-          o_id = rec.o_id;
-          return true;
-        }
-        return false;
-      },
-      [&]() { o_id = minInteger; });
-  if (o_id == minInteger)
-    return;  // is this correct?
-
+  Integer o_id;
+  order_wdc.lookup1({w_id, d_id, c_id}, [&](const order_wdc_t& rec) { o_id = rec.latest_o_id; });
   Timestamp o_entry_d;
   Integer o_carrier_id;
 
@@ -562,19 +550,8 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
     index -= 1;
   Integer c_id = ids[index];
 
-  Integer o_id = minInteger;
-  order_wdc.scan(
-      {w_id, d_id, c_id, minInteger},
-      [&](const order_wdc_t& rec) {
-        if (rec.o_w_id == w_id && rec.o_d_id == d_id && rec.o_c_id == c_id) {
-          o_id = rec.o_id;
-          return true;
-        }
-        return false;
-      },
-      [&]() { o_id = minInteger; });
-  if (o_id == minInteger)  // TODO: is this correct?
-    return;
+  Integer o_id;
+  order_wdc.lookup1({w_id, d_id, c_id}, [&](const order_wdc_t& rec) { o_id = rec.latest_o_id; });
   Timestamp ol_delivery_d;
   orderline.scan(
       {w_id, d_id, o_id, minInteger},

@@ -216,12 +216,11 @@ struct order_wdc_t {
     Integer o_w_id;
     Integer o_d_id;
     Integer o_c_id;
-    Integer o_id;
   };
   Integer o_w_id;
   Integer o_d_id;
   Integer o_c_id;
-  Integer o_id;
+  Integer latest_o_id;
 
   template <class T>
   static unsigned foldRecord(uint8_t* out, const T& record)
@@ -230,12 +229,14 @@ struct order_wdc_t {
     pos += fold(out + pos, record.o_w_id);
     pos += fold(out + pos, record.o_d_id);
     pos += fold(out + pos, record.o_c_id);
-    pos += fold(out + pos, record.o_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(o_w_id) + sizeof(o_d_id) + sizeof(o_c_id) + sizeof(o_id); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(o_w_id) + sizeof(o_d_id) + sizeof(o_c_id); };
 };
 
+// Key: 16
+// Value: 56
+// Total: 72
 struct orderline_t {
   static constexpr int id = 8;
   struct Key {
