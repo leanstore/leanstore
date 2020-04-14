@@ -48,7 +48,7 @@ TEST(BTree, VS)
     tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
       string result(max_payloads_length, '0');
       for (u64 i = range.begin(); i < range.end(); i++) {
-        if (!btree.lookup(reinterpret_cast<u8*>(keys[i].data()), keys[i].length(), [](const u8*, u16) {})) {
+        if (!btree.lookupOne(reinterpret_cast<u8*>(keys[i].data()), keys[i].length(), [](const u8*, u16) {})) {
           btree.insert(reinterpret_cast<u8*>(keys[i].data()), keys[i].length(), payloads[i].length(), reinterpret_cast<u8*>(payloads[i].data()));
           inserted_counter++;
         }
@@ -60,7 +60,7 @@ TEST(BTree, VS)
     PerfEventBlock b(e, n);
     tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
       for (u64 i = range.begin(); i < range.end(); i++) {
-        btree.lookup(reinterpret_cast<u8*>(keys[i].data()), keys[i].length(), [&](const u8* result, u16 result_length) {
+        btree.lookupOne(reinterpret_cast<u8*>(keys[i].data()), keys[i].length(), [&](const u8* result, u16 result_length) {
           EXPECT_EQ(result_length, payloads[i].length());
           EXPECT_EQ(std::memcmp(result, payloads[i].data(), result_length), 0);
         });

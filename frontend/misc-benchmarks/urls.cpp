@@ -52,7 +52,7 @@ int main(int argc, char** argv)
       while (keep_running) {
         u64 k = utils::RandomGenerator::getRandU64(0, tuple_count);
         bool flag = true;
-        vs_btree.lookup(reinterpret_cast<u8*>(const_cast<char*>(input_strings[k].data())), input_strings[k].size(),
+        vs_btree.lookupOne(reinterpret_cast<u8*>(const_cast<char*>(input_strings[k].data())), input_strings[k].size(),
                         [&](const u8* payload, u16 payload_length) {
                           flag &= payload_length == 8;
                           flag &= *reinterpret_cast<const u64*>(payload) == k;

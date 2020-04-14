@@ -30,8 +30,8 @@ tx <- ggplot(acc, aes(txacc, tx, color=factor(symbol), group=factor(symbol))) +
     scale_shape_discrete(name=NULL, breaks=c(1,2,3,4), labels=c("base", "+CS -EM","-CS +EM","+CS +EM")) +
     scale_color_discrete(name =NULL, labels=c("base", "+CS -EM","-CS +EM","+CS +EM"), breaks=c(1,2,3,4)) +
     labs(x='Processed M Transactions [txn]', y = 'TPC-C throughput [txns/sec]') +
-#    geom_smooth(method ="auto", size=0.5) +
-    geom_line() +
+    geom_smooth(method ="auto", size=0.5) +
+#    geom_line() +
     theme_bw() +
     theme(legend.position = 'top') +
    facet_grid(row=vars(c_worker_threads))#geom_point(data=outofmemory, aes(x=t,y=tx, colour=factor(symbol)), shape =4, size= 10)

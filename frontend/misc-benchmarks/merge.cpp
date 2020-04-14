@@ -57,7 +57,7 @@ int main(int argc, char** argv)
   auto compress_bf = [&](Key k) {
     BufferFrame* bf;
     u8 key_bytes[sizeof(Key)];
-    vs_btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); });
+    vs_btree.lookupOne(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); });
     OptimisticGuard c_guard = OptimisticGuard(bf->header.latch);
     auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
     merges_counter += vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler);

@@ -3,12 +3,11 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
-#include "types.hpp"
-
 #include <map>
 #include <string>
 
 #include "leanstore/LeanStore.hpp"
+#include "types.hpp"
 using namespace leanstore;
 template <class Record>
 struct LeanStoreAdapter {
@@ -27,6 +26,23 @@ struct LeanStoreAdapter {
     return std::string(reinterpret_cast<char*>(foldKey), foldKeyLen);
   }
 
+  // key_length - truncate_from_end  gives us the length of the prefix
+  // it gives us the maximum tuple with this prefix
+  template <class Fn>
+  void prefixMax1(const typename Record::Key& key, const u64 truncate_from_end, const Fn& fn)
+  {
+    string key_str = getStringKey(key);
+    const bool found = btree->prefixMaxOne((u8*)key_str.data(), key_str.length() - truncate_from_end, [&](const u8* payload, u16 payload_length) {
+      static_cast<void>(payload_length);
+      const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
+      assert(payload_length == sizeof(Record));
+      fn(typed_payload);
+    });
+    if (!found) {
+      ensure(false);
+    }
+  }
+
   void insert(const Record& record)
   {
     string key = getStringKey(record);
@@ -37,7 +53,7 @@ struct LeanStoreAdapter {
   void lookup1(const typename Record::Key& key, const Fn& fn)
   {
     string key_str = getStringKey(key);
-    const bool found = btree->lookup((u8*)key_str.data(), key_str.length(), [&](const u8* payload, u16 payload_length) {
+    const bool found = btree->lookupOne((u8*)key_str.data(), key_str.length(), [&](const u8* payload, u16 payload_length) {
       static_cast<void>(payload_length);
       const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
       assert(payload_length == sizeof(Record));
@@ -63,7 +79,7 @@ struct LeanStoreAdapter {
   bool erase(const typename Record::Key& key)
   {
     string key_str = getStringKey(key);
-    if (btree->lookup((u8*)key_str.data(), key_str.length(), [](const u8*, u16) {})) {
+    if (btree->lookupOne((u8*)key_str.data(), key_str.length(), [](const u8*, u16) {})) {
       if (!btree->remove((u8*)key_str.data(), key_str.length())) {
         return false;
       }
@@ -90,7 +106,7 @@ struct LeanStoreAdapter {
   {
     string key_str = getStringKey(key);
     Field local_f;
-    const bool found = btree->lookup((u8*)key_str.data(), key_str.length(), [&](const u8* payload, u16 payload_length) {
+    const bool found = btree->lookupOne((u8*)key_str.data(), key_str.length(), [&](const u8* payload, u16 payload_length) {
       static_cast<void>(payload_length);
       assert(payload_length == sizeof(Record));
       Record& typed_payload = *const_cast<Record*>(reinterpret_cast<const Record*>(payload));

@@ -24,7 +24,7 @@ void BTree::init(DTID dtid)
   root_swip = root_write_guard.bf;
 }
 // -------------------------------------------------------------------------------------
-bool BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
+bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
   volatile u32 mask = 1;
   while (true) {
@@ -131,7 +131,7 @@ void BTree::rangeScan(u8* start_key,
   }
 }
 // -------------------------------------------------------------------------------------
-void BTree::prefixMax(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
+bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
   volatile u32 mask = 1;
   u8 one_step_further_key[key_length];
@@ -146,21 +146,34 @@ void BTree::prefixMax(u8* key, u16 key_length, function<void(const u8*, u16)> pa
     jumpmuTry()
     {
       OptimisticPageGuard<BTreeNode> leaf;
-      findLeafForRead<11>(leaf, key, key_length);
+      findLeafForRead<11>(leaf, one_step_further_key, key_length);
       const s32 cur = leaf->lowerBound<false>(one_step_further_key, key_length);
-      if (cur >= leaf->count) {
-        jumpmu_return;
-      }
       if (cur > 0) {
         const s32 pos = cur - 1;
         const u16 payload_length = leaf->getPayloadLength(pos);
         const u8* payload = leaf->isLarge(pos) ? leaf->getPayloadLarge(pos) : leaf->getPayload(pos);
         payload_callback(payload, payload_length);
         leaf.recheck_done();
-        jumpmu_return;
+        jumpmu_return true;
       } else {
-        // pos is zero and we have to jump to the previous leaf and read the last tuple
-        ensure(false);
+        if (leaf->lower_fence.length == 0) {
+          jumpmu_return false;
+        } else {
+          const u16 lower_fence_key_length = leaf->lower_fence.length;
+          u8 lower_fence_key[lower_fence_key_length];
+          std::memcpy(lower_fence_key, leaf->getLowerFenceKey(), lower_fence_key_length);
+          OptimisticPageGuard<BTreeNode> prev;
+          findLeafForRead<11>(prev, lower_fence_key, lower_fence_key_length);
+          leaf.recheck_done();
+          // -------------------------------------------------------------------------------------
+          ensure(prev->count >= 1);
+          const s32 pos = prev->count - 1;
+          const u16 payload_length = prev->getPayloadLength(pos);
+          const u8* payload = prev->isLarge(pos) ? prev->getPayloadLarge(pos) : prev->getPayload(pos);
+          payload_callback(payload, payload_length);
+          prev.recheck_done();
+          jumpmu_return true;
+        }
       }
     }
     jumpmuCatch()

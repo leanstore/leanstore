@@ -209,7 +209,6 @@ void loadCustomer(Integer w_id, Integer d_id)
                      0,
                      randomastring<500>(300, 500)});
     customerwdl.insert({w_id, d_id, c_last, c_first, i + 1});
-    order_wdc.insert({w_id, d_id, i + 1, 0});
     Integer t_id = (Integer)WorkerCounters::myCounters().t_id;
     Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
     history.insert({t_id, h_id, i + 1, d_id, w_id, d_id, w_id, now, 10.00, randomastring<24>(12, 24)});
@@ -229,7 +228,7 @@ void loadOrders(Integer w_id, Integer d_id)
     Numeric o_ol_cnt = rnd(10) + 5;
 
     order.insert({w_id, d_id, o_id, o_c_id, now, o_carrier_id, o_ol_cnt, 1});
-    order_wdc.update1({w_id, d_id, o_c_id}, [&](order_wdc_t& rec) { rec.latest_o_id = std::max(rec.latest_o_id, o_id); });
+    order_wdc.insert({w_id, d_id, o_c_id, o_id});
 
     for (Integer ol_number = 1; ol_number <= o_ol_cnt; ol_number++) {
       Timestamp ol_delivery_d = 0;
@@ -288,7 +287,7 @@ void newOrder(Integer w_id,
   Numeric cnt = lineNumbers.size();
   Integer carrier_id = 0; /*null*/
   order.insert({w_id, d_id, o_id, c_id, timestamp, carrier_id, cnt, all_local});
-  order_wdc.update1({w_id, d_id, c_id}, [&](order_wdc_t& rec) { rec.latest_o_id = std::max(o_id, rec.latest_o_id); });
+  order_wdc.insert({w_id, d_id, c_id, o_id});
   neworder.insert({w_id, d_id, o_id});
 
   for (unsigned i = 0; i < lineNumbers.size(); i++) {
@@ -521,8 +520,12 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
     c_last = rec.c_last;
     c_balance = rec.c_balance;
   });
+
   Integer o_id;
-  order_wdc.lookup1({w_id, d_id, c_id}, [&](const order_wdc_t& rec) { o_id = rec.latest_o_id; });
+  // latest order id desc
+  order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) {
+    o_id = rec.o_id;
+  });
   Timestamp o_entry_d;
   Integer o_carrier_id;
 
@@ -578,7 +581,11 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
   Integer c_id = ids[index];
 
   Integer o_id;
-  order_wdc.lookup1({w_id, d_id, c_id}, [&](const order_wdc_t& rec) { o_id = rec.latest_o_id; });
+  // latest order id desc
+  order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) {
+    o_id = rec.o_id;
+  });
+
   Timestamp ol_delivery_d;
   orderline.scan(
       {w_id, d_id, o_id, minInteger},
