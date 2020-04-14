@@ -401,7 +401,7 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
       continue;
 
     if (!neworder.erase({w_id, d_id, o_id})) {
-      return;
+      continue;
     }
 
     // Integer ol_cnt = minInteger, c_id;
@@ -409,12 +409,41 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
     // if (ol_cnt == minInteger)
     // continue;
     Integer ol_cnt, c_id;
-    order.lookup1({w_id, d_id, o_id}, [&](const order_t& rec) {
-      ol_cnt = rec.o_ol_cnt;
-      c_id = rec.o_c_id;
-    });
-    order.update1({w_id, d_id, o_id}, [&](order_t& rec) { rec.o_carrier_id = carrier_id; });
 
+    bool is_safe_to_continue = false;
+    order.scan(
+        {w_id, d_id, o_id},
+        [&](const order_t& rec) {
+          if (rec.o_w_id == w_id && rec.o_d_id == d_id && rec.o_id == o_id) {
+            is_safe_to_continue = true;
+            ol_cnt = rec.o_ol_cnt;
+            c_id = rec.o_c_id;
+          } else {
+            is_safe_to_continue = false;
+          }
+          return false;
+        },
+        [&]() { is_safe_to_continue = false; });
+    if (!is_safe_to_continue)
+      continue;
+    order.update1({w_id, d_id, o_id}, [&](order_t& rec) { rec.o_carrier_id = carrier_id; });
+    // -------------------------------------------------------------------------------------
+    // First check if all orderlines have been inserted, a hack because of the missing transaction and concurrency control
+    orderline.scan(
+        {w_id, d_id, o_id, ol_cnt},
+        [&](const orderline_t& rec) {
+          if (rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id == o_id && rec.ol_number == ol_cnt) {
+            is_safe_to_continue = true;
+          } else {
+            is_safe_to_continue = false;
+          }
+          return false;
+        },
+        [&]() { is_safe_to_continue = false; });
+    if (!is_safe_to_continue) {
+      continue;
+    }
+    // -------------------------------------------------------------------------------------
     Numeric ol_total = 0;
     for (Integer ol_number = 1; ol_number <= ol_cnt; ol_number++) {
       orderline.update1({w_id, d_id, o_id, ol_number}, [&](orderline_t& rec) {
@@ -507,11 +536,10 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
   Numeric ol_quantity;
   Numeric ol_amount;
   {
-    u64 scanned_items = 0;  // debug
+    // AAA: expensive
     orderline.scan(
         {w_id, d_id, o_id, minInteger},
         [&](const orderline_t& rec) {
-          scanned_items++;
           if (rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id == o_id) {
             ol_i_id = rec.ol_i_id;
             ol_supply_w_id = rec.ol_supply_w_id;
@@ -523,7 +551,6 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
           return false;
         },
         [&]() {
-          scanned_items = 0;
           // NOTHING
         });
   }
@@ -787,27 +814,28 @@ void paymentRnd(Integer w_id)
 // was: [w_begin, w_end]
 int tx(Integer w_id)
 {
-  int rnd = leanstore::utils::RandomGenerator::getRand(0, 1000);
-  if (rnd < 430) {
+  // micro-optimized version of weighted distribution
+  int rnd = leanstore::utils::RandomGenerator::getRand(0, 10000);
+  if (rnd < 4300) {
     paymentRnd(w_id);
     return 0;
   }
-  rnd -= 430;
-  if (rnd < 40) {
+  rnd -= 4300;
+  if (rnd < 400) {
     orderStatusRnd(w_id);
     return 1;
   }
-  rnd -= 40;
-  if (rnd < 40) {
+  rnd -= 400;
+  if (rnd < 445) {
     deliveryRnd(w_id);
     return 2;
   }
-  rnd -= 40;
-  if (rnd < 40) {
+  rnd -= 445;
+  if (rnd < 400) {
     stockLevelRnd(w_id);
     return 3;
   }
-  rnd -= 40;
+  rnd -= 400;
   newOrderRnd(w_id);
   return 4;
 }
