@@ -10,8 +10,8 @@ library(scales)
 dev.set(0)
 
 #df=read.csv('./intel/C_intel_long.csv')
-#df=read.csv('./C_mutex.csv')
-df=read.csv('./C_rome_1000.csv')
+#df=read.csv('./C_rome_1000.csv')
+df=read.csv('./C_rome_short.csv')
 df=sqldf("select * from df where t >0")
 d= sqldf("
 select *, 1 as symbol from df where c_su_merge=0 and c_cm_split=0

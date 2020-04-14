@@ -131,6 +131,46 @@ void BTree::rangeScan(u8* start_key,
   }
 }
 // -------------------------------------------------------------------------------------
+void BTree::prefixMax(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
+{
+  volatile u32 mask = 1;
+  u8 one_step_further_key[key_length];
+  std::memcpy(one_step_further_key, key, key_length);
+  if (++one_step_further_key[key_length - 1] == 0) {
+    if (++one_step_further_key[key_length - 2] == 0) {
+      ensure(false);
+      // overflow is naively implemented
+    }
+  }
+  while (true) {
+    jumpmuTry()
+    {
+      OptimisticPageGuard<BTreeNode> leaf;
+      findLeafForRead<11>(leaf, key, key_length);
+      const s32 cur = leaf->lowerBound<false>(one_step_further_key, key_length);
+      if (cur >= leaf->count) {
+        jumpmu_return;
+      }
+      if (cur > 0) {
+        const s32 pos = cur - 1;
+        const u16 payload_length = leaf->getPayloadLength(pos);
+        const u8* payload = leaf->isLarge(pos) ? leaf->getPayloadLarge(pos) : leaf->getPayload(pos);
+        payload_callback(payload, payload_length);
+        leaf.recheck_done();
+        jumpmu_return;
+      } else {
+        // pos is zero and we have to jump to the previous leaf and read the last tuple
+        ensure(false);
+      }
+    }
+    jumpmuCatch()
+    {
+      BACKOFF_STRATEGIES()
+      WorkerCounters::myCounters().dt_restarts_read[dtid]++;
+    }
+  }
+}
+// -------------------------------------------------------------------------------------
 void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
 {
   volatile u32 mask = 1;
@@ -547,7 +587,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       if (FLAGS_cm_split && local_restarts_counter > 0) {
         const u64 random_number = utils::RandomGenerator::getRandU64();
         if ((random_number & ((1ul << FLAGS_cm_update_on) - 1)) == 0) {
-          s64 last_modified_pos = last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
+          s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
           c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
           c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
           c_x_guard.bf->header.contention_tracker.access_counter++;

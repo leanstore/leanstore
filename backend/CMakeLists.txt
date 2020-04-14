@@ -20,6 +20,10 @@ target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic) #tbb
 #    target_compile_options(leanstore PUBLIC -fsanitize=address)
 #    target_link_libraries(leanstore asan)
 #endif ()
+OPTION(LEANSTORE_COUNTERS "Compile leanstore with debugging/performance counters" ON)
+IF(LEANSTORE_COUNTERS)
+  target_compile_definitions(leanstore PUBLIC MACRO_FLAG_COUNTERS=1)
+ENDIF(LEANSTORE_COUNTERS)
 # ---------------------------------------------------------------------------
 target_include_directories(leanstore PUBLIC ${SHARED_INCLUDE_DIRECTORY})
 target_include_directories(leanstore PRIVATE ${CMAKE_CURRENT_LIST_DIR})

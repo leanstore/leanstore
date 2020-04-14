@@ -57,3 +57,7 @@ target_include_directories(seq PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(cx16 misc-benchmarks/cx16.cpp)
 target_link_libraries(cx16 leanstore Threads::Threads)
 target_include_directories(cx16 PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(replacement_strategy_test misc-benchmarks/replacement_strategy_test.cpp)
+target_link_libraries(replacement_strategy_test leanstore Threads::Threads)
+target_include_directories(replacement_strategy_test PRIVATE ${SHARED_INCLUDE_DIRECTORY})

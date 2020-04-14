@@ -30,7 +30,10 @@ struct BTree {
   // No side effects allowed!
   bool lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
   // -------------------------------------------------------------------------------------
+  // starts at the key >= start_key
   void rangeScan(u8* start_key, u16 key_length, function<bool(u8* payload, u16 payload_length, function<string()>&)>, function<void()>);
+  // starts at the key
+  void prefixMax(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
   // -------------------------------------------------------------------------------------
   void insert(u8* key, u16 key_length, u64 payloadLength, u8* payload);
   void trySplit(BufferFrame& to_split, s32 pos = -1);

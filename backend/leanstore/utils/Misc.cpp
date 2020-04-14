@@ -1,5 +1,10 @@
-#include "leanstore/Config.hpp"
 #include "Misc.hpp"
+
+#include "leanstore/Config.hpp"
+// -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
+#include <execinfo.h>
+
 #include <atomic>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -38,6 +43,22 @@ void pinThisThread()
   pthread_t current_thread = pthread_self();
   if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
     throw;
+}
+// -------------------------------------------------------------------------------------
+void printBackTrace()
+{
+  void* array[10];
+  size_t size;
+  char** strings;
+  size_t i;
+
+  size = backtrace(array, 10);
+  strings = backtrace_symbols(array, size);
+
+  for (i = 0; i < size; i++)
+    printf("%s\n", strings[i]);
+
+  free(strings);
 }
 // -------------------------------------------------------------------------------------
 }  // namespace utils

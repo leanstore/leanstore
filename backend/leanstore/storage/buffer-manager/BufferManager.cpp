@@ -116,6 +116,7 @@ BufferManager::BufferManager()
 void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_end)
 {
   pthread_setname_np(pthread_self(), "page_provider");
+  using Time = decltype(std::chrono::high_resolution_clock::now());
   // -------------------------------------------------------------------------------------
   // Init AIO Context
   AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_async_batch_size);
@@ -127,14 +128,14 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
     /*
      * Phase 1: unswizzle pages (put in the cooling stage)
      */
-    // phase_1:
-    auto phase_1_begin = std::chrono::high_resolution_clock::now();
+    [[maybe_unused]] Time phase_1_begin, phase_1_end;
+    COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
     BufferFrame* volatile r_buffer = &randomBufferFrame();  // Attention: we may set the r_buffer to a child of a bf instead of random
     while (true) {
       jumpmuTry()
       {
         while (phase_1_condition(randomPartition())) {
-          PPCounters::myCounters().phase_1_counter++;
+          COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
           if (r_buffer->header.latch.isAnyLatched()) {
             r_buffer = &randomBufferFrame();
             continue;
@@ -152,10 +153,11 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           }
           r_guard.recheck();
           // -------------------------------------------------------------------------------------
-          PPCounters::myCounters().touched_bfs_counter++;
+          COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
           // -------------------------------------------------------------------------------------
           bool picked_a_child_instead = false;
-          auto iterate_children_begin = std::chrono::high_resolution_clock::now();
+          [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
+          COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
           dt_registry.iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
             if (swip.isSwizzled()) {
               r_buffer = &swip.asBufferFrame();
@@ -166,19 +168,26 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             r_guard.recheck();
             return true;
           });
-          auto iterate_children_end = std::chrono::high_resolution_clock::now();
-          PPCounters::myCounters().iterate_children_ms +=
-              (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
+          COUNTERS_BLOCK()
+          {
+            iterate_children_begin = std::chrono::high_resolution_clock::now();
+            PPCounters::myCounters().iterate_children_ms +=
+                (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
+          }
           if (picked_a_child_instead) {
             continue;  // restart the inner loop
           }
           // -------------------------------------------------------------------------------------
-          auto find_parent_begin = std::chrono::high_resolution_clock::now();
+          [[maybe_unused]] Time find_parent_begin;
+          COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
           ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
           assert(parent_handler.parent_guard.latch_ptr != reinterpret_cast<OptimisticLatch*>(0x99));
           auto find_parent_end = std::chrono::high_resolution_clock::now();
-          PPCounters::myCounters().find_parent_ms +=
-              (std::chrono::duration_cast<std::chrono::microseconds>(find_parent_end - find_parent_begin).count());
+          COUNTERS_BLOCK()
+          {
+            PPCounters::myCounters().find_parent_ms +=
+                (std::chrono::duration_cast<std::chrono::microseconds>(find_parent_end - find_parent_begin).count());
+          }
           // -------------------------------------------------------------------------------------
           r_guard.recheck();
           if (dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer, r_guard, parent_handler)) {
@@ -219,7 +228,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
               partition.cooling_bfs_counter++;
             }
             // -------------------------------------------------------------------------------------
-            PPCounters::myCounters().unswizzled_pages_counter++;
+            COUNTERS_BLOCK() { PPCounters::myCounters().unswizzled_pages_counter++; }
             // -------------------------------------------------------------------------------------
             if (!phase_1_condition(partition)) {
               r_buffer = &randomBufferFrame();
@@ -233,8 +242,11 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
       }
       jumpmuCatch() { r_buffer = &randomBufferFrame(); }
     }
-    auto phase_1_end = std::chrono::high_resolution_clock::now();
-    PPCounters::myCounters().phase_1_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_1_end - phase_1_begin).count());
+    COUNTERS_BLOCK()
+    {
+      phase_1_end = std::chrono::high_resolution_clock::now();
+      PPCounters::myCounters().phase_1_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_1_end - phase_1_begin).count());
+    }
     // -------------------------------------------------------------------------------------
     for (volatile u64 p_i = p_begin; p_i < p_end; p_i++) {
       Partition& partition = partitions[p_i];
@@ -264,12 +276,12 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           reclaimBufferFrame(bf);
           // -------------------------------------------------------------------------------------
           partition.cooling_bfs_counter--;
-          PPCounters::myCounters().evicted_pages++;
+          COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; }
         }
         jumpmuCatch() { ensure(false); }
       };
       if (phase_2_3_condition(partition)) {
-        const u64 pages_to_iterate_partition = partition.free_bfs_limit - partition.dram_free_list.counter;
+        const s64 pages_to_iterate_partition = partition.free_bfs_limit - partition.dram_free_list.counter;
         // -------------------------------------------------------------------------------------
         /*
          * Phase 2:
@@ -277,8 +289,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          * iterate over the end of FIFO queue,
          */
         // phase_2:
-        auto phase_2_begin = std::chrono::high_resolution_clock::now();
-        if (pages_to_iterate_partition) {
+        [[maybe_unused]] Time phase_2_begin, phase_2_end;
+        COUNTERS_BLOCK() { phase_2_begin = std::chrono::high_resolution_clock::now(); }
+        if (pages_to_iterate_partition > 0) {
           PPCounters::myCounters().phase_2_counter++;
           volatile u64 pages_left_to_iterate_partition = pages_to_iterate_partition;
           JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
@@ -301,23 +314,30 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             bf_itr = next_bf_tr;
           }
         };
-        auto phase_2_end = std::chrono::high_resolution_clock::now();
+        COUNTERS_BLOCK() { phase_2_end = std::chrono::high_resolution_clock::now(); }
         /*
          * Phase 3:
          */
         // phase_3:
-        auto phase_3_begin = std::chrono::high_resolution_clock::now();
-        if (pages_to_iterate_partition) {
-          PPCounters::myCounters().phase_3_counter++;
-          auto submit_begin = std::chrono::high_resolution_clock::now();
+        [[maybe_unused]] Time phase_3_begin, phase_3_end;
+        COUNTERS_BLOCK() { phase_3_begin = std::chrono::high_resolution_clock::now(); }
+        if (pages_to_iterate_partition > 0) {
+          [[maybe_unused]] Time submit_begin, submit_end;
+          COUNTERS_BLOCK()
+          {
+            PPCounters::myCounters().phase_3_counter++;
+            submit_begin = std::chrono::high_resolution_clock::now();
+          }
           async_write_buffer.submit();
-          auto submit_end = std::chrono::high_resolution_clock::now();
+          COUNTERS_BLOCK() { submit_end = std::chrono::high_resolution_clock::now(); }
           // -------------------------------------------------------------------------------------
-          auto poll_begin = std::chrono::high_resolution_clock::now();
+          [[maybe_unused]] Time poll_begin, poll_end;
+          COUNTERS_BLOCK() { poll_begin = std::chrono::high_resolution_clock::now(); }
           const u32 polled_events = async_write_buffer.pollEventsSync();
-          auto poll_end = std::chrono::high_resolution_clock::now();
+          COUNTERS_BLOCK() { poll_end = std::chrono::high_resolution_clock::now(); }
           // -------------------------------------------------------------------------------------
-          auto async_wb_begin = std::chrono::high_resolution_clock::now();
+          [[maybe_unused]] Time async_wb_begin, async_wb_end;
+          COUNTERS_BLOCK() { async_wb_begin = std::chrono::high_resolution_clock::now(); }
           async_write_buffer.getWrittenBfs(
               [&](BufferFrame& written_bf, u64 written_lsn) {
                 assert(written_bf.header.lastWrittenLSN.load() < written_lsn);
@@ -327,7 +347,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                 PPCounters::myCounters().flushed_pages_counter++;
               },
               polled_events);
-          auto async_wb_end = std::chrono::high_resolution_clock::now();
+          COUNTERS_BLOCK() { async_wb_end = std::chrono::high_resolution_clock::now(); }
           // -------------------------------------------------------------------------------------
           volatile u64 pages_left_to_iterate_partition = polled_events;
           JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
@@ -345,17 +365,23 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             bf_itr = next_bf_tr;
           }
           // -------------------------------------------------------------------------------------
-          PPCounters::myCounters().poll_ms += (std::chrono::duration_cast<std::chrono::microseconds>(poll_end - poll_begin).count());
-          PPCounters::myCounters().async_wb_ms += (std::chrono::duration_cast<std::chrono::microseconds>(async_wb_end - async_wb_begin).count());
-          PPCounters::myCounters().submit_ms += (std::chrono::duration_cast<std::chrono::microseconds>(submit_end - submit_begin).count());
+          COUNTERS_BLOCK()
+          {
+            PPCounters::myCounters().poll_ms += (std::chrono::duration_cast<std::chrono::microseconds>(poll_end - poll_begin).count());
+            PPCounters::myCounters().async_wb_ms += (std::chrono::duration_cast<std::chrono::microseconds>(async_wb_end - async_wb_begin).count());
+            PPCounters::myCounters().submit_ms += (std::chrono::duration_cast<std::chrono::microseconds>(submit_end - submit_begin).count());
+            phase_3_end = std::chrono::high_resolution_clock::now();
+          }
         };
-        auto phase_3_end = std::chrono::high_resolution_clock::now();
         // -------------------------------------------------------------------------------------
-        PPCounters::myCounters().phase_2_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_2_end - phase_2_begin).count());
-        PPCounters::myCounters().phase_3_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_3_end - phase_3_begin).count());
+        COUNTERS_BLOCK()
+        {
+          PPCounters::myCounters().phase_2_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_2_end - phase_2_begin).count());
+          PPCounters::myCounters().phase_3_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_3_end - phase_3_begin).count());
+        }
       }
     }  // end of partitions for
-    PPCounters::myCounters().pp_thread_rounds++;
+    COUNTERS_BLOCK() { PPCounters::myCounters().pp_thread_rounds++; }
   }
   bg_threads_counter--;
 }
@@ -427,7 +453,7 @@ BufferFrame& BufferManager::allocatePage()
   }
   free_bf.header.latch.assertExclusivelyLatched();
   // -------------------------------------------------------------------------------------
-  WorkerCounters::myCounters().allocate_operations_counter++;
+  COUNTERS_BLOCK() { WorkerCounters::myCounters().allocate_operations_counter++; }
   // -------------------------------------------------------------------------------------
   return free_bf;
 }
@@ -493,7 +519,13 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
     g_guard->unlock();
     // -------------------------------------------------------------------------------------
     readPageSync(pid, bf.page);
-    WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
+    COUNTERS_BLOCK()
+    {
+      WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
+      if (FLAGS_trace_dt_id >= 0 && bf.page.dt_id == static_cast<u64>(FLAGS_trace_dt_id) && utils::RandomGenerator::getRand<u64>(0, 1000) == 0) {
+        utils::printBackTrace();
+      }
+    }
     assert(bf.page.magic_debugging_number == pid);
     // -------------------------------------------------------------------------------------
     // ATTENTION: Fill the BF
@@ -586,7 +618,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
           should_clean = false;
         }
       } else {
-        WorkerCounters::myCounters().cold_hit_counter++;
+        COUNTERS_BLOCK() { WorkerCounters::myCounters().cold_hit_counter++; }
       }
       if (should_clean) {
         partition.ht.remove(pid);
@@ -614,7 +646,7 @@ void BufferManager::readPageSync(u64 pid, u8* destination)
     bytes_left -= bytes_read;
   } while (bytes_left > 0);
   // -------------------------------------------------------------------------------------
-  WorkerCounters::myCounters().read_operations_counter++;
+  COUNTERS_BLOCK() { WorkerCounters::myCounters().read_operations_counter++; }
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()
@@ -634,7 +666,7 @@ DTID BufferManager::registerDatastructureInstance(DTType type, void* root_object
   DTID new_instance_id = dt_registry.dt_types_ht[type].instances_counter++;
   dt_registry.dt_instances_ht.insert({new_instance_id, {type, root_object, name}});
   // -------------------------------------------------------------------------------------
-  WorkerCounters::myCounters().dt_misses_counter[new_instance_id] = 0;
+  COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_misses_counter[new_instance_id] = 0; }
   // -------------------------------------------------------------------------------------
   return new_instance_id;
 }

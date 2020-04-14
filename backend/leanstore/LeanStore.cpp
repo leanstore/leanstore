@@ -51,7 +51,6 @@ void LeanStore::registerConfigEntry(string name, statCallback b)
   stat_entries.emplace_back(std::move(name), b);
 }
 // -------------------------------------------------------------------------------------
-
 void LeanStore::debuggingThread()
 {
   pthread_setname_np(pthread_self(), "debugging_thread");

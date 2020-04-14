@@ -16,5 +16,7 @@ double calculateMTPS(std::chrono::high_resolution_clock::time_point begin, std::
 // -------------------------------------------------------------------------------------
 void pinThisThread();
 // -------------------------------------------------------------------------------------
+void printBackTrace();
+// -------------------------------------------------------------------------------------
 }  // namespace utils
 }  // namespace leanstore
