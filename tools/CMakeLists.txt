@@ -37,3 +37,7 @@ target_include_directories(contention_effects PRIVATE ${SHARED_INCLUDE_DIRECTORY
 add_executable(signal micro-benchmarks/signal.cpp)
 target_link_libraries(signal leanstore Threads::Threads gflags)
 target_include_directories(signal PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(perf_test micro-benchmarks/perf_test.cpp)
+target_link_libraries(perf_test Threads::Threads gflags)
+target_include_directories(perf_test PRIVATE ${SHARED_INCLUDE_DIRECTORY})

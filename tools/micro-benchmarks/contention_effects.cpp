@@ -15,6 +15,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <fstream>
@@ -23,7 +24,9 @@
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(threads, 8, "");
 DEFINE_uint64(counters_per_cl, 1, "");
+DEFINE_uint64(tmp, 10, "");
 // -------------------------------------------------------------------------------------
+DEFINE_bool(pin, false, "");
 DEFINE_bool(cl_exp, false, "");
 DEFINE_bool(cond_futex, false, "");
 DEFINE_bool(cond_std, false, "");
@@ -117,27 +120,86 @@ int main(int argc, char** argv)
   }
   // -------------------------------------------------------------------------------------
   if (FLAGS_cl_exp) {
-    auto buffer = make_unique<u8[]>(64 * 8);
+    auto pin = [&](int id) {
+      if (!FLAGS_pin)
+        return;
+      cpu_set_t cpuset;
+      CPU_ZERO(&cpuset);
+      CPU_SET(id, &cpuset);
+
+      pthread_t current_thread = pthread_self();
+      if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
+        throw;
+    };
+
+    /*
+
+1 131574494
+2 480121611
+3 697433641
+4 921887375
+10 2275469398 , 17x
+
+
+      1 thread, 1 counters
+      190083815
+      32 threads, 32 counters
+      8 counters pro cache line -> 503369534 , 2.64x to single thread
+      4 counters pro cache line -> 791816677 , 1.5x to previous
+      2 counters pro cache line -> 1589375893 , 2,0x to previous
+      1 counters pro cache line -> 6091982294 , 3.8x to previous and 32.0x to single threaded
+
+      64 threads, 1 : 12159421906
+     */
+    const u64 MAX_CL = 128;
+    auto buffer = make_unique<u8[]>(64 * MAX_CL);
     auto local_counters = reinterpret_cast<std::atomic<u64>*>(buffer.get());
     // -------------------------------------------------------------------------------------
-    for (u64 t_i = 0; t_i < FLAGS_threads; t_i++) {
-      threads.emplace_back(
-          [&](u64 cl_i, u64 i) {
-            cout << cl_i << "," << i << endl;
-            while (true) {
-              local_counters[(cl_i * 8) + i]++;
-            }
-          },
-          t_i / FLAGS_counters_per_cl, t_i % FLAGS_counters_per_cl);
+    if (FLAGS_threads > 1) {
+      for (u64 t_i = 0; t_i < FLAGS_threads; t_i++) {
+        const u64 cl_i = t_i / FLAGS_counters_per_cl;
+        const u64 c_i = t_i % FLAGS_counters_per_cl;
+        // cout << t_i << "," << cl_i << "," << c_i << endl;
+        threads.emplace_back(
+            [&](u64 cl_i, u64 i, u64 t_i) {
+              pin(t_i);
+              const u64 my_counter_i = (cl_i * 8) + i;
+              while (true) {
+                local_counters[my_counter_i]++;
+              }
+            },
+            cl_i, c_i, t_i);
+      }
+    } else {
+      threads.emplace_back([&]() {
+        u64 c_i = 0;
+        pin(0);
+        while (true) {
+          const u64 my_counter_i = 0;
+          local_counters[my_counter_i]++;
+          //          local_counters[(c_i / 8) + ((c_i) % 8)]++;
+          //          local_counters[c_i * 8]++;
+          // c_i = (c_i + 1) % FLAGS_tmp;
+        }
+      });
     }
     threads.emplace_back([&]() {
+      std::vector<u64> measurements;
+      u64 i = 0;
       while (true) {
         u64 total = 0;
-        for (u64 t_i = 0; t_i < FLAGS_threads * 8; t_i++) {
+        for (u64 t_i = 0; t_i < 8 * MAX_CL; t_i++) {
           total += local_counters[t_i].exchange(0);
         }
-        cout << total << endl;
-        sleep(1);
+        measurements.push_back(total);
+        if (++i <= 6) {
+          sleep(1);
+        } else {
+          // done
+          auto top = std::max_element(measurements.begin() + 1, measurements.end());
+          cout << FLAGS_threads << "," << FLAGS_counters_per_cl << "," << *top << endl;
+          exit(0);
+        }
       }
     });
   }
