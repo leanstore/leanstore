@@ -16,7 +16,7 @@ namespace vs
 // calculate space needed for keys in inner nodes.
 unsigned BTreeNode::spaceNeeded(unsigned keyLength, unsigned prefixLength)
 {
-  assert(keyLength >= prefixLength);
+  // assert(keyLength >= prefixLength); can not run this assert in optimist
   unsigned restLen = keyLength - prefixLength;
   if (restLen <= 4)
     return sizeof(Slot) + sizeof(ValueType);

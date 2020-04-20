@@ -79,7 +79,7 @@ struct PerfEvent {
   PerfEvent() : printHeader(true)
   {
     registerCounter("cycle", PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES);
-    registerCounter("cycle-sys", PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES, 1);
+    registerCounter("cycle-kernel", PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES, 1);
     registerCounter("instr", PERF_TYPE_HARDWARE, PERF_COUNT_HW_INSTRUCTIONS);
     registerCounter("L1-miss", PERF_TYPE_HW_CACHE,
                     PERF_COUNT_HW_CACHE_L1D | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16));

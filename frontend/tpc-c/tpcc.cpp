@@ -1,4 +1,5 @@
 #include "adapter.hpp"
+#include "leanstore/counters/ThreadCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
@@ -118,12 +119,14 @@ int main(int argc, char** argv)
           [&](u64 w_begin, u64 w_end) {
             running_threads_counter++;
             pthread_setname_np(pthread_self(), "worker");
+            const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
             if (FLAGS_pin_threads)
               pinme(FLAGS_pp_threads + t_i);
             while (keep_running) {
               tx(urand(w_begin, w_end));
               WorkerCounters::myCounters().tx++;
             }
+            ThreadCounters::removeThread(r_id);
             running_threads_counter--;
           },
           w_begin, w_end);
@@ -133,6 +136,7 @@ int main(int argc, char** argv)
       threads.emplace_back([&]() {
         running_threads_counter++;
         pthread_setname_np(pthread_self(), "worker");
+        const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
           pinme(FLAGS_pp_threads + t_i);
         while (keep_running) {
@@ -145,6 +149,7 @@ int main(int argc, char** argv)
           tx(w_id);
           WorkerCounters::myCounters().tx++;
         }
+        ThreadCounters::removeThread(r_id);
         running_threads_counter--;
       });
     }

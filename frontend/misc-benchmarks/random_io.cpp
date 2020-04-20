@@ -2,6 +2,7 @@
 #include "leanstore/BTreeAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
+#include "leanstore/counters/ThreadCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
@@ -101,18 +102,21 @@ int main(int argc, char** argv)
   cout << "-------------------------------------------------------------------------------------" << endl;
   // -------------------------------------------------------------------------------------
   for (unsigned t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-    threads.emplace_back([&]() {
-      Payload local_payload;
-      while (true) {
-        Key rand_k = utils::RandomGenerator::getRandU64(0, max_key);
-        if (FLAGS_load_per_tuples) {
-          ensure(table.lookup(rand_k, local_payload));
-        } else {
-          table.lookup(rand_k, local_payload);
-        }
-        WorkerCounters::myCounters().tx++;
-      }
-    });
+    threads.emplace_back(
+        [&](const u64 t_i) {
+          ThreadCounters::registerThread("worker_" + std::to_string(t_i));
+          Payload local_payload;
+          while (true) {
+            Key rand_k = utils::RandomGenerator::getRandU64(0, max_key);
+            if (FLAGS_load_per_tuples) {
+              ensure(table.lookup(rand_k, local_payload));
+            } else {
+              table.lookup(rand_k, local_payload);
+            }
+            WorkerCounters::myCounters().tx++;
+          }
+        },
+        t_i);
   }
   threads.emplace_back([&]() {
     while (true) {

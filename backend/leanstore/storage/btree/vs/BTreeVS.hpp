@@ -36,7 +36,7 @@ struct BTree {
   bool prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
   // -------------------------------------------------------------------------------------
   void insert(u8* key, u16 key_length, u64 payloadLength, u8* payload);
-  void trySplit(BufferFrame& to_split, s32 pos = -1);
+  void trySplit(BufferFrame& to_split, s16 pos = -1);
   // -------------------------------------------------------------------------------------
   void updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)>);
   void update(u8* key, u16 key_length, u64 payloadLength, u8* payload);

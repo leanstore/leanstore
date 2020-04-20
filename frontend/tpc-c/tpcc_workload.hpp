@@ -523,9 +523,7 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
 
   Integer o_id;
   // latest order id desc
-  order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) {
-    o_id = rec.o_id;
-  });
+  order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) { o_id = rec.o_id; });
   Timestamp o_entry_d;
   Integer o_carrier_id;
 
@@ -582,9 +580,7 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
 
   Integer o_id;
   // latest order id desc
-  order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) {
-    o_id = rec.o_id;
-  });
+  order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) { o_id = rec.o_id; });
 
   Timestamp ol_delivery_d;
   orderline.scan(

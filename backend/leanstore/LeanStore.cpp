@@ -1,6 +1,7 @@
 #include "LeanStore.hpp"
 
 #include "leanstore/counters/PPCounters.hpp"
+#include "leanstore/counters/ThreadCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
@@ -22,13 +23,9 @@ LeanStore::LeanStore()
 // -------------------------------------------------------------------------------------
 void LeanStore::startDebuggingThread()
 {
-  e = make_unique<PerfEvent>();
   std::thread debugging_thread([&]() { debuggingThread(); });
   bg_threads_counter++;
   debugging_thread.detach();
-  // -------------------------------------------------------------------------------------
-  e = make_unique<PerfEvent>();
-  e->startCounters();
 }
 // -------------------------------------------------------------------------------------
 btree::vs::BTree& LeanStore::registerVSBTree(string name)
@@ -48,28 +45,31 @@ using leanstore::utils::threadlocal::sum;
 // -------------------------------------------------------------------------------------
 void LeanStore::registerConfigEntry(string name, statCallback b)
 {
-  stat_entries.emplace_back(std::move(name), b);
+  config_entries.emplace_back(std::move(name), b);
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::debuggingThread()
 {
   pthread_setname_np(pthread_self(), "debugging_thread");
   // -------------------------------------------------------------------------------------
-  std::ofstream csv;
+  std::ofstream stats_csv, dts_csv, threads_csv;
   std::ofstream::openmode open_flags;
   if (FLAGS_csv_truncate) {
     open_flags = ios::trunc;
   } else {
     open_flags = ios::app;
   }
-  csv.open(FLAGS_csv_path, open_flags);
-  csv.seekp(0, ios::end);
-  csv << std::setprecision(2) << std::fixed;
+  auto csv_open = [&](std::ofstream& csv, std::string name) {
+    csv.open(name, open_flags);
+    csv.seekp(0, ios::end);
+    csv << std::setprecision(2) << std::fixed;
+  };
+  csv_open(stats_csv, FLAGS_csv_path + "_stats.csv");
+  csv_open(dts_csv, FLAGS_csv_path + "_dts.csv");
+  csv_open(threads_csv, FLAGS_csv_path + "_threads.csv");
   // -------------------------------------------------------------------------------------
   s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0, total;
   u64 local_tx, local_total_free, local_total_cool;
-  u64 dt_id;
-  string dt_name;
   // -------------------------------------------------------------------------------------
   stat_entries.emplace_back("space_usage_gib", [&](ostream& out) {
     const double gib = buffer_manager.consumedPages() * 1.0 * PAGE_SIZE / 1024.0 / 1024.0 / 1024.0;
@@ -99,7 +99,6 @@ void LeanStore::debuggingThread()
   stat_entries.emplace_back("rounds", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::pp_thread_rounds); });
   stat_entries.emplace_back("touches", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::touched_bfs_counter); });
   stat_entries.emplace_back("unswizzled", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::unswizzled_pages_counter); });
-  stat_entries.emplace_back("cpus", [&](ostream& out) { out << e->getCPUs(); });
   stat_entries.emplace_back("submit_ms", [&](ostream& out) { out << (sum(PPCounters::pp_counters, &PPCounters::submit_ms) * 100.0 / total); });
   stat_entries.emplace_back("async_mb_ws", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::async_wb_ms); });
   stat_entries.emplace_back("w_mib", [&](ostream& out) {
@@ -140,6 +139,17 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
   config_entries.emplace_back("c_backoff", [&](ostream& out) { out << FLAGS_backoff; });
   // -------------------------------------------------------------------------------------
+  std::stringstream config_concatenation;
+  for (const auto& stat : config_entries) {
+    stat.callback(config_concatenation);
+  }
+  const u64 config_hash = std::hash<std::string>{}(config_concatenation.str());
+  config_entries.emplace_back("c_hash", [&config_hash](ostream& out) { out << config_hash; });
+  // -------------------------------------------------------------------------------------
+  // -------------------------------------------------------------------------------------
+  string dt_name;
+  u64 dt_id;
+  dt_entries.emplace_back("c_hash", [&](ostream& out) { out << config_hash; });
   dt_entries.emplace_back("dt_id", [&](ostream& out) { out << dt_id; });
   dt_entries.emplace_back("dt_name", [&](ostream& out) { out << dt_name; });
   dt_entries.emplace_back("dt_misses_counter",
@@ -165,29 +175,39 @@ void LeanStore::debuggingThread()
   // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   // Print header
-  if (csv.tellp() == 0) {
-    csv << "t";
+  if (stats_csv.tellp() == 0) {
+    stats_csv << "t";
     for (const auto& stat : config_entries) {
-      csv << "," << stat.name;
+      stats_csv << "," << stat.name;
     }
     for (const auto& stat : stat_entries) {
-      csv << "," << stat.name;
+      stats_csv << "," << stat.name;
     }
-    e->printCSVHeaders(csv);
-    for (u64 r_i = 0; r_i < WorkerCounters::max_researchy_counter; r_i++) {
-      csv << ","
-          << "dt_researchy_" << std::to_string(r_i);
+    stats_csv << endl;
+    // -------------------------------------------------------------------------------------
+    threads_csv << "t,name,c_hash";
+    {
+      std::unique_lock guard(ThreadCounters::mutex);
+      ensure(ThreadCounters::thread_counters.size() > 0);
+      ThreadCounters::thread_counters.begin()->second.e->printCSVHeaders(threads_csv);
     }
+    threads_csv << endl;
+    // -------------------------------------------------------------------------------------
+    dts_csv << "t";
     for (const auto& stat : dt_entries) {
-      csv << "," << stat.name;
+      dts_csv << "," << stat.name;
     }
-    csv << endl;
+    dts_csv << "t";
+    for (u64 r_i = 0; r_i < WorkerCounters::max_researchy_counter; r_i++) {
+      dts_csv << ","
+              << "dt_researchy_" << std::to_string(r_i);
+    }
+    dts_csv << endl;
   }
   // -------------------------------------------------------------------------------------
   u64 time = 0;
   // -------------------------------------------------------------------------------------
   while (FLAGS_print_debug && bg_threads_keep_running) {
-    e->stopCounters();
     // -------------------------------------------------------------------------------------
     local_phase_1_ms = sum(PPCounters::pp_counters, &PPCounters::phase_1_ms);
     local_phase_2_ms = sum(PPCounters::pp_counters, &PPCounters::phase_2_ms);
@@ -203,37 +223,44 @@ void LeanStore::debuggingThread()
       local_total_free += buffer_manager.partitions[p_i].dram_free_list.counter.load();
       local_total_cool += buffer_manager.partitions[p_i].cooling_bfs_counter.load();
     }
-    e->stopCounters();
     // -------------------------------------------------------------------------------------
-    std::stringstream all_except_dt_entries;
-    all_except_dt_entries << time;
+    stats_csv << time;
     for (const auto& entry : config_entries) {
-      all_except_dt_entries << ",";
-      entry.callback(all_except_dt_entries);
+      stats_csv << ",";
+      entry.callback(stats_csv);
     }
     for (const auto& entry : stat_entries) {
-      all_except_dt_entries << ",";
-      entry.callback(all_except_dt_entries);
+      stats_csv << ",";
+      entry.callback(stats_csv);
     }
-    e->printCSVData(all_except_dt_entries, local_tx);
+    stats_csv << endl;
+    // -------------------------------------------------------------------------------------
+    {
+      std::unique_lock guard(ThreadCounters::mutex);
+      for (auto& counter : ThreadCounters::thread_counters) {
+        threads_csv << time << "," << counter.second.name << "," << config_hash;
+        counter.second.e->stopCounters();
+        counter.second.e->printCSVData(threads_csv, 1);
+        counter.second.e->startCounters();
+        threads_csv << endl;
+      }
+    }
     // -------------------------------------------------------------------------------------
     for (const auto& dt : buffer_manager.dt_registry.dt_instances_ht) {
-      csv << all_except_dt_entries.str();
       dt_id = dt.first;
       dt_name = std::get<2>(dt.second);
       // -------------------------------------------------------------------------------------
+      dts_csv << time;
+      for (const auto& entry : dt_entries) {
+        dts_csv << ",";
+        entry.callback(dts_csv);
+      }
       for (u64 r_i = 0; r_i < WorkerCounters::max_researchy_counter; r_i++) {
-        csv << "," << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy, dt_id, r_i);
+        dts_csv << "," << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy, dt_id, r_i);
       }
       // -------------------------------------------------------------------------------------
-      for (const auto& entry : dt_entries) {
-        csv << ",";
-        entry.callback(csv);
-      }
-      csv << endl;
+      dts_csv << endl;
     }
-    // -------------------------------------------------------------------------------------
-    e->startCounters();
     // -------------------------------------------------------------------------------------
     if (FLAGS_print_tx_console) {
       cout << time << "," << local_tx << endl;
@@ -242,7 +269,7 @@ void LeanStore::debuggingThread()
     sleep(FLAGS_print_debug_interval_s);
     time += FLAGS_print_debug_interval_s;
   }
-  csv.close();
+  stats_csv.close();
   bg_threads_counter--;
 }
 // -------------------------------------------------------------------------------------

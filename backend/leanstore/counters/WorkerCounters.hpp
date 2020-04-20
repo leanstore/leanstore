@@ -1,6 +1,7 @@
 #pragma once
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
+#include "PerfEvent.hpp"
 #include <tbb/enumerable_thread_specific.h>
 // -------------------------------------------------------------------------------------
 #include <atomic>

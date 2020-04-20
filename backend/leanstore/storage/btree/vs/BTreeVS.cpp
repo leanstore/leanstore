@@ -515,7 +515,7 @@ void BTree::tryBStar(BufferFrame& bf)
   return;
 }
 // -------------------------------------------------------------------------------------
-void BTree::trySplit(BufferFrame& to_split, s32 favored_split_pos)
+void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
   auto parent_handler = findParent(this, to_split);
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();

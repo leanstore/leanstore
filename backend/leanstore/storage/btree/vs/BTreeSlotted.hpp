@@ -138,20 +138,20 @@ struct BTreeNode : public BTreeNodeHeader {
   // Accessors for large strings: | Value | restLength | restKey | Payload
   static constexpr u8 largeLimit = 254;
   static constexpr u8 largeMarker = largeLimit + 1;
-  inline u8* getRestLarge(unsigned slotId)
+  inline u8* getRestLarge(u16 slotId)
   {
     assert(isLarge(slotId));
     return ptr() + slot[slotId].offset + sizeof(ValueType) + sizeof(u16);
   }
-  inline u16& getRestLenLarge(unsigned slotId)
+  inline u16& getRestLenLarge(u16 slotId)
   {
     assert(isLarge(slotId));
     return *reinterpret_cast<u16*>(ptr() + slot[slotId].offset + sizeof(ValueType));
   }
-  inline bool isLarge(unsigned slotId) { return slot[slotId].rest_len == largeMarker; }
-  inline void setLarge(unsigned slotId) { slot[slotId].rest_len = largeMarker; }
+  inline bool isLarge(u16 slotId) { return slot[slotId].rest_len == largeMarker; }
+  inline void setLarge(u16 slotId) { slot[slotId].rest_len = largeMarker; }
   // AAA
-  inline u8* getPayloadLarge(unsigned slotId)
+  inline u8* getPayloadLarge(u16 slotId)
   {
     assert(is_leaf);
     assert(isLarge(slotId));
@@ -159,13 +159,13 @@ struct BTreeNode : public BTreeNodeHeader {
   }
 
   // Accessors for both types of strings
-  inline u16 &getPayloadLength(unsigned slotId) { return *reinterpret_cast<u16*>(ptr() + slot[slotId].offset); }
-  inline ValueType& getValue(unsigned slotId) { return *reinterpret_cast<ValueType*>(ptr() + slot[slotId].offset); }
-  inline unsigned getFullKeyLength(unsigned slotId)
+  inline u16 &getPayloadLength(u16 slotId) { return *reinterpret_cast<u16*>(ptr() + slot[slotId].offset); }
+  inline ValueType& getValue(u16 slotId) { return *reinterpret_cast<ValueType*>(ptr() + slot[slotId].offset); }
+  inline unsigned getFullKeyLength(u16 slotId)
   {
     return prefix_length + slot[slotId].head_len + (isLarge(slotId) ? getRestLenLarge(slotId) : getRestLen(slotId));
   }
-  inline void copyFullKey(unsigned slotId, u8* out, unsigned fullLength)
+  inline void copyFullKey(u16 slotId, u8* out, u16 fullLength)
   {
     memcpy(out, getLowerFenceKey(), prefix_length);
     out += prefix_length;

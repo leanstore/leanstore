@@ -5,6 +5,7 @@
 #include "Exceptions.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/counters/PPCounters.hpp"
+#include "leanstore/counters/ThreadCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
@@ -93,14 +94,16 @@ BufferManager::BufferManager()
   // -------------------------------------------------------------------------------------
   for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
     pp_threads.emplace_back(
-        [&](u64 p_begin, u64 p_end) {
+        [&](u64 t_i, u64 p_begin, u64 p_end) {
+          ThreadCounters::registerThread("pp_" + std::to_string(t_i));
           // https://linux.die.net/man/2/setpriority
           if (FLAGS_root) {
             posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
           }
           pageProviderThread(p_begin, p_end);
         },
-        t_i * partitions_per_thread, ((t_i + 1) * partitions_per_thread) + ((t_i == FLAGS_pp_threads - 1) ? extra_partitions_for_last_thread : 0));
+        t_i, t_i * partitions_per_thread,
+        ((t_i + 1) * partitions_per_thread) + ((t_i == FLAGS_pp_threads - 1) ? extra_partitions_for_last_thread : 0));
     bg_threads_counter++;
   }
   for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {

@@ -26,16 +26,17 @@ class LeanStore
   std::unordered_map<string, btree::vs::BTree> vs_btrees;
   buffermanager::BufferManager buffer_manager;
   // -------------------------------------------------------------------------------------
-  string file_suffix;
+  std::mutex debugging_mutex; // protect all counters
   void debuggingThread();
   vector<StatEntry> stat_entries, config_entries, dt_entries;
   atomic<u64> bg_threads_counter = 0;
   atomic<bool> bg_threads_keep_running = true;
-  unique_ptr<PerfEvent> e;
+  // -------------------------------------------------------------------------------------
 
  public:
   LeanStore();
   void registerConfigEntry(string name, statCallback b);
+  void registerThread(string name);
   // -------------------------------------------------------------------------------------
   template <typename Key, typename Value>
   btree::fs::BTree<Key, Value>& registerFSBTree(string name, DTType type_id = 0)
