@@ -27,6 +27,11 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #if defined(__linux__)
 
+#include <asm/unistd.h>
+#include <linux/perf_event.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
 #include <chrono>
 #include <cstring>
 #include <iomanip>
@@ -34,11 +39,6 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <map>
 #include <string>
 #include <vector>
-
-#include <asm/unistd.h>
-#include <linux/perf_event.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
 
 struct PerfEvent {
   struct event {
@@ -79,6 +79,7 @@ struct PerfEvent {
   PerfEvent() : printHeader(true)
   {
     registerCounter("cycle", PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES);
+    registerCounter("cycle-sys", PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES, 1);
     registerCounter("instr", PERF_TYPE_HARDWARE, PERF_COUNT_HW_INSTRUCTIONS);
     registerCounter("L1-miss", PERF_TYPE_HW_CACHE,
                     PERF_COUNT_HW_CACHE_L1D | (PERF_COUNT_HW_CACHE_OP_READ << 8) | (PERF_COUNT_HW_CACHE_RESULT_MISS << 16));
@@ -100,7 +101,7 @@ struct PerfEvent {
     }
   }
 
-  void registerCounter(const std::string& name, uint64_t type, uint64_t eventID)
+  void registerCounter(const std::string& name, uint64_t type, uint64_t eventID, const bool exclude_user = false)
   {
     names.push_back(name);
     events.push_back(event());
@@ -113,6 +114,7 @@ struct PerfEvent {
     pe.disabled = true;
     pe.inherit = 1;
     pe.inherit_stat = 0;
+    pe.exclude_user = exclude_user;
     pe.exclude_kernel = false;
     pe.exclude_hv = false;
     pe.read_format = PERF_FORMAT_TOTAL_TIME_ENABLED | PERF_FORMAT_TOTAL_TIME_RUNNING;
@@ -206,7 +208,8 @@ struct PerfEvent {
     printCounter(headerOut, dataOut, "GHz", getGHz(), false);
   }
   // -------------------------------------------------------------------------------------
-  void printCSVHeaders(std::ostream& headerOut) {
+  void printCSVHeaders(std::ostream& headerOut)
+  {
     if (!events.size())
       return;
 
@@ -216,12 +219,16 @@ struct PerfEvent {
     }
 
     // derived metrics
-    headerOut << "," << "IPC";
-    headerOut << "," << "CPU";
-    headerOut << "," << "GHz" ;
+    headerOut << ","
+              << "IPC";
+    headerOut << ","
+              << "CPU";
+    headerOut << ","
+              << "GHz";
   }
   // -------------------------------------------------------------------------------------
-  void printCSVData(std::ostream& dataOut, uint64_t normalizationConstant) {
+  void printCSVData(std::ostream& dataOut, uint64_t normalizationConstant)
+  {
     if (!events.size())
       return;
     // print all metrics
@@ -231,7 +238,7 @@ struct PerfEvent {
     // derived metrics
     dataOut << "," << getIPC();
     dataOut << "," << getCPUs();
-    dataOut << "," << getGHz() ;
+    dataOut << "," << getGHz();
   }
   // -------------------------------------------------------------------------------------
   void setParam(const std::string& name, const std::string& value) { params[name] = value; }
