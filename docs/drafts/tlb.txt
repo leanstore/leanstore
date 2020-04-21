@@ -1,0 +1,18 @@
+Paging, Translation lookaside buffer (TLB) in long mode(x64)
+
+https://forum.osdev.org/viewtopic.php?f=13&t=22330
+Long mode has 48 bit virtual addresses, but 52 bit physical addresses.
+Therefore, paging is required.
+
+Current x64 implementations use 4 level for page 
+
+https://en.wikichip.org/wiki/amd/microarchitectures/zen_2
+
+https://en.wikipedia.org/wiki/Translation_lookaside_buffer#TLB-miss_handling
+
+Address-space switch per process and not per thread
+page size (page frame size) is 4KiB on rome
+
+
+System calls don't flush TLB, because kernel uses another address space
+https://www.kernel.org/doc/gorman/html/understand/understand007.html
