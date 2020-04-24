@@ -99,7 +99,7 @@ TEST(BTree, VS)
     tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
       string result(max_payloads_length, '0');
       for (u64 i = range.begin(); i < range.end(); i++) {
-        EXPECT_FALSE(btree.lookup(reinterpret_cast<u8*>(keys[i].data()), keys[i].length(), [](const u8*, u16) {}));
+        EXPECT_FALSE(btree.lookupOne(reinterpret_cast<u8*>(keys[i].data()), keys[i].length(), [](const u8*, u16) {}));
       }
     });
   }
