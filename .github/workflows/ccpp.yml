@@ -17,4 +17,10 @@ jobs:
       run: sudo apt install -y libtbb-dev libaio-dev
     - name: cmake
       run: mkdir release && cd release && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j
-    
+
+  test:
+    needs: [ build ]
+    steps:
+      - uses: actions/checkout@v2
+      - name: dumb tpc-c test
+        run: cd release && touch ssd && ./tpcc -ssd_path=./ssd --worker_threads=6 --tpcc_warehouse_count=2 --run_for_seconds=20 --dram_gib=2 --print_tx_console
