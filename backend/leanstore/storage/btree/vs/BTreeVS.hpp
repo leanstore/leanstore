@@ -44,17 +44,17 @@ struct BTree {
   bool remove(u8* key, u16 key_length);
   bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
   // -------------------------------------------------------------------------------------
-  s32 mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
-                         s32 left_pos,
+  s16 mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
+                         s16 left_pos,
                          ExclusivePageGuard<BTreeNode>& from_left,
                          ExclusivePageGuard<BTreeNode>& to_right,
                          bool full_merge_or_nothing);
   bool kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
   // -------------------------------------------------------------------------------------
   // B*-tree
-  bool tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s32 l_pos);
-  bool tryBalanceLeft(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& right, s32 l_pos);
-  bool trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s32 l_pos);
+  bool tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s16 l_pos);
+  bool tryBalanceLeft(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& right, s16 l_pos);
+  bool trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s16 l_pos);
   void tryBStar(BufferFrame&);
   // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();

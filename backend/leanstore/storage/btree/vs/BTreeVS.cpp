@@ -35,7 +35,7 @@ bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> pa
       // -------------------------------------------------------------------------------------
       DEBUG_BLOCK()
       {
-        s32 sanity_check_result = leaf->sanityCheck(key, key_length);
+        s16 sanity_check_result = leaf->sanityCheck(key, key_length);
         leaf.recheck_done();
         if (sanity_check_result != 0) {
           cout << leaf->count << endl;
@@ -43,7 +43,7 @@ bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> pa
         ensure(sanity_check_result == 0);
       }
       // -------------------------------------------------------------------------------------
-      s32 pos = leaf->lowerBound<true>(key, key_length);
+      s16 pos = leaf->lowerBound<true>(key, key_length);
       if (pos != -1) {
         u16 payload_length = leaf->getPayloadLength(pos);
         payload_callback((leaf->isLarge(pos)) ? leaf->getPayloadLarge(pos) : leaf->getPayload(pos), payload_length);
@@ -77,7 +77,7 @@ void BTree::rangeScan(u8* start_key,
       OptimisticPageGuard<BTreeNode> leaf;
       findLeafForRead<11>(leaf, next_key, next_key_length);
       while (true) {
-        s32 cur = leaf->lowerBound<false>(start_key, key_length);
+        s16 cur = leaf->lowerBound<false>(start_key, key_length);
         while (cur < leaf->count) {
           u16 payload_length = leaf->getPayloadLength(cur);
           u8* payload = leaf->isLarge(cur) ? leaf->getPayloadLarge(cur) : leaf->getPayload(cur);
@@ -147,9 +147,9 @@ bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)>
     {
       OptimisticPageGuard<BTreeNode> leaf;
       findLeafForRead<11>(leaf, one_step_further_key, key_length);
-      const s32 cur = leaf->lowerBound<false>(one_step_further_key, key_length);
+      const s16 cur = leaf->lowerBound<false>(one_step_further_key, key_length);
       if (cur > 0) {
-        const s32 pos = cur - 1;
+        const s16 pos = cur - 1;
         const u16 payload_length = leaf->getPayloadLength(pos);
         const u8* payload = leaf->isLarge(pos) ? leaf->getPayloadLarge(pos) : leaf->getPayload(pos);
         payload_callback(payload, payload_length);
@@ -167,7 +167,7 @@ bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)>
           leaf.recheck_done();
           // -------------------------------------------------------------------------------------
           ensure(prev->count >= 1);
-          const s32 pos = prev->count - 1;
+          const s16 pos = prev->count - 1;
           const u16 payload_length = prev->getPayloadLength(pos);
           const u8* payload = prev->isLarge(pos) ? prev->getPayloadLarge(pos) : prev->getPayload(pos);
           payload_callback(payload, payload_length);
@@ -220,7 +220,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
   }
 }
 // -------------------------------------------------------------------------------------
-bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s32 l_pos)
+bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s16 l_pos)
 {
   if (!parent.hasBf() || l_pos + 1 >= parent->count) {
     return false;
@@ -239,8 +239,8 @@ bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPa
   r_free_space -= (worst_case_amplification_per_key * right->count);
   if (r_free_space <= 0)
     return false;
-  s32 left_boundary = -1;  // exclusive
-  for (s32 s_i = left->count - 1; s_i > 0; s_i--) {
+  s16 left_boundary = -1;  // exclusive
+  for (s16 s_i = left->count - 1; s_i > 0; s_i--) {
     r_free_space -= left->spaceUsedBySlot(s_i);
     const u16 new_right_lf_key_length = left->getFullKeyLength(s_i);
     if ((r_free_space - ((right->lower_fence.length < left->getFullKeyLength(s_i)) ? (new_right_lf_key_length - right->lower_fence.length) : 0)) >=
@@ -304,7 +304,7 @@ bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPa
   return true;
 }
 // -------------------------------------------------------------------------------------
-bool BTree::tryBalanceLeft(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& right, s32 c_pos)
+bool BTree::tryBalanceLeft(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& right, s16 c_pos)
 {
   if (!parent.hasBf() || c_pos - 1 < 0) {
     return false;
@@ -323,8 +323,8 @@ bool BTree::tryBalanceLeft(OptimisticPageGuard<BTreeNode>& parent, OptimisticPag
   l_free_space -= (worst_case_amplification_per_key * left->count);
   if (l_free_space <= 0)
     return false;
-  s32 right_boundary = -1;  // exclusive
-  for (s32 s_i = 0; s_i < right->count - 1; s_i++) {
+  s16 right_boundary = -1;  // exclusive
+  for (s16 s_i = 0; s_i < right->count - 1; s_i++) {
     l_free_space -= right->spaceUsedBySlot(s_i);
     const u16 new_left_uf_key_length = left->getFullKeyLength(s_i);
     if (l_free_space - ((new_left_uf_key_length > left->upper_fence.length) ? (new_left_uf_key_length - left->upper_fence.length) : 0) >=
@@ -388,7 +388,7 @@ bool BTree::tryBalanceLeft(OptimisticPageGuard<BTreeNode>& parent, OptimisticPag
   return true;
 }
 // -------------------------------------------------------------------------------------
-bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s32 l_pos)
+bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s16 l_pos)
 {
   if (!parent.hasBf() || l_pos + 1 >= parent->count) {
     return false;
@@ -402,7 +402,7 @@ bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPage
   // Choose another separator from the right node (sep_right, UF_right]
   // allocate a new node first with the fences (sep_left, sep_right]
   auto find_separator = [&](OptimisticPageGuard<BTreeNode>& node, u32 target_free_space, bool right_to_left) {
-    s32 s_i;
+    s16 s_i;
     s64 free_space = node->freeSpaceAfterCompaction();  // we want to increase the free space in node
     for (s_i = right_to_left ? (node->count - 1) : 0; free_space < target_free_space && s_i >= 0 && s_i <= node->count - 1;
          (right_to_left) ? s_i-- : s_i++) {
@@ -412,7 +412,7 @@ bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPage
   };
   // -------------------------------------------------------------------------------------
   // lf_pos and uf_pos refer to the middle node
-  s32 lf_pos = find_separator(left, 1.0 * EFFECTIVE_PAGE_SIZE / 3.0, true);
+  s16 lf_pos = find_separator(left, 1.0 * EFFECTIVE_PAGE_SIZE / 3.0, true);
   if (lf_pos == left->count - 1)
     return false;
   u16 lf_length = left->getFullKeyLength(lf_pos);
@@ -420,7 +420,7 @@ bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPage
   u8 lf_key[lf_length];
   left->copyFullKey(lf_pos, lf_key, lf_length);
   // -------------------------------------------------------------------------------------
-  s32 uf_pos = find_separator(right, 1.0 * EFFECTIVE_PAGE_SIZE / 3.0, false) - 1;
+  s16 uf_pos = find_separator(right, 1.0 * EFFECTIVE_PAGE_SIZE / 3.0, false) - 1;
   if (uf_pos + 1 == 0)
     return false;
   u16 uf_length = right->getFullKeyLength(uf_pos);
@@ -527,13 +527,13 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
   if (favored_split_pos < 0 || favored_split_pos >= c_guard->count - 1) {
     if (FLAGS_bulk_insert) {
       favored_split_pos = c_guard->count - 2;
-      sep_info = BTreeNode::SeparatorInfo{c_guard->getFullKeyLength(favored_split_pos), static_cast<u32>(favored_split_pos), false};
+      sep_info = BTreeNode::SeparatorInfo{c_guard->getFullKeyLength(favored_split_pos), static_cast<u16>(favored_split_pos), false};
     } else {
       sep_info = c_guard->findSep();
     }
   } else {
     // Split on a specified position, used by contention management
-    sep_info = BTreeNode::SeparatorInfo{c_guard->getFullKeyLength(favored_split_pos), static_cast<u32>(favored_split_pos), false};
+    sep_info = BTreeNode::SeparatorInfo{c_guard->getFullKeyLength(favored_split_pos), static_cast<u16>(favored_split_pos), false};
   }
   u8 sep_key[sep_info.length];
   if (!p_guard.hasBf()) {
@@ -558,7 +558,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
     height++;
     return;
   }
-  unsigned spaced_need_for_separator = BTreeNode::spaceNeeded(sep_info.length, p_guard->prefix_length);
+  u16 spaced_need_for_separator = BTreeNode::spaceNeeded(sep_info.length, p_guard->prefix_length);
   if (p_guard->hasEnoughSpaceFor(spaced_need_for_separator)) {  // Is there enough space in the parent
                                                                 // for the separator?
     auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
@@ -592,7 +592,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       findLeafForRead<10>(c_guard, key, key_length);
       u32 local_restarts_counter = c_guard.hasFacedContention();  // current implementation uses the mutex
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-      s32 pos = c_x_guard->lowerBound<true>(key, key_length);
+      s16 pos = c_x_guard->lowerBound<true>(key, key_length);
       assert(pos != -1);
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
@@ -612,7 +612,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
             c_x_guard.bf->header.contention_tracker.access_counter = 0;
             // -------------------------------------------------------------------------------------
             if (last_modified_pos != pos && normalized_restarts >= FLAGS_cm_slowpath_threshold && c_x_guard->count > 2) {
-              s32 split_pos = std::min<s32>(last_modified_pos, pos);
+              s16 split_pos = std::min<s16>(last_modified_pos, pos);
               c_guard = std::move(c_x_guard);
               c_guard.kill();
               jumpmuTry()
@@ -777,8 +777,8 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
 }
 // -------------------------------------------------------------------------------------
 // ret: 0 did nothing, 1 full, 2 partial
-s32 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
-                              s32 left_pos,
+s16 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
+                              s16 left_pos,
                               ExclusivePageGuard<BTreeNode>& from_left,
                               ExclusivePageGuard<BTreeNode>& to_right,
                               bool full_merge_or_nothing)
@@ -796,8 +796,8 @@ s32 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
   // -------------------------------------------------------------------------------------
   // Do a partial merge
   // Remove a key at a time from the merge and check if now it fits
-  s32 till_slot_id = -1;
-  for (s32 s_i = 0; s_i < from_left->count; s_i++) {
+  s16 till_slot_id = -1;
+  for (s16 s_i = 0; s_i < from_left->count; s_i++) {
     if (from_left->slot[s_i].rest_len) {
       space_upper_bound -= (from_left->isLarge(s_i) ? (from_left->getRestLenLarge(s_i) + sizeof(u16)) : from_left->getRestLen(s_i));
     }
@@ -860,9 +860,9 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
   }
   // -------------------------------------------------------------------------------------
   constexpr u8 MAX_MERGE_PAGES = 5;
-  s32 pos = parent_handler.pos;
+  s16 pos = parent_handler.pos;
   u8 pages_count = 1;
-  s32 max_right;
+  s16 max_right;
   OptimisticPageGuard<BTreeNode> guards[MAX_MERGE_PAGES];
   bool fully_merged[MAX_MERGE_PAGES];
   // -------------------------------------------------------------------------------------
@@ -891,7 +891,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
   // -------------------------------------------------------------------------------------
   ExclusivePageGuard<BTreeNode> p_x_guard = std::move(p_guard);
   // -------------------------------------------------------------------------------------
-  s32 left_hand, right_hand, ret;
+  s16 left_hand, right_hand, ret;
   while (true) {
     for (right_hand = max_right; right_hand > pos; right_hand--) {
       if (fully_merged[right_hand - pos]) {
@@ -984,7 +984,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   }
   // -------------------------------------------------------------------------------------
   OptimisticPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
-  s32 pos = -1;
+  s16 pos = -1;
   auto search_condition = [&]() {
     if (infinity) {
       c_swip = &(c_guard->upper);
