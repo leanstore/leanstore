@@ -16,11 +16,28 @@ jobs:
     - name: Install dependencies
       run: sudo apt install -y libtbb-dev libaio-dev
     - name: cmake
-      run: mkdir release && cd release && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j
+      run: mkdir release && cd release && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j tpcc random_io scan
+
+    - name: Upload tpc-c
+      uses: actions/upload-artifact@v1
+      with:
+        name: bin
+        path: release/frontend/tpcc
 
   test:
     needs: [ build ]
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Download tpc-c
+        uses: actions/download-artifact@v1
+        with:
+          name: bin
       - name: dumb tpc-c test
-        run: cd release && touch ssd && ./tpcc -ssd_path=./ssd --worker_threads=6 --tpcc_warehouse_count=2 --run_for_seconds=20 --dram_gib=2 --print_tx_console
+        run: |
+          cd bin
+          ls -al
+          touch ssd
+          ls -al
+          pwd
+          sudo chmod +x ./tpcc
+          sudo -E /home/runner/work/leanstore/leanstore/bin/tpcc --ssd_path=./ssd --worker_threads=6 --tpcc_warehouse_count=2 --run_for_seconds=20 --dram_gib=2 --print_tx_console
