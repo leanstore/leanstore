@@ -10,6 +10,8 @@ static constexpr INTEGER C_ID_C = 259;      // in range [0, 1023]
 // be within [65, 119]
 static constexpr INTEGER C_LAST_LOAD_C = 157;  // in range [0, 255]
 static constexpr INTEGER C_LAST_RUN_C = 223;   // in range [0, 255]
+// -------------------------------------------------------------------------------------
+static constexpr u64 ITEMS_NO = 100000;  // 100K
 
 // [0, n)
 Integer rnd(Integer n)
@@ -109,7 +111,7 @@ Integer nurand(Integer a, Integer x, Integer y, Integer C = 42)
 inline Integer getItemID()
 {
   // OL_I_ID_C
-  return nurand(8191, 1, 100000, OL_I_ID_C);
+  return nurand(8191, 1, ITEMS_NO, OL_I_ID_C);
 }
 inline Integer getCustomerID()
 {
@@ -131,7 +133,7 @@ inline Integer getNonUniformRandomLastNameForLoad()
 // -------------------------------------------------------------------------------------
 void loadItem()
 {
-  for (Integer i = 1; i <= 100000; i++) {
+  for (Integer i = 1; i <= ITEMS_NO; i++) {
     Varchar<50> i_data = randomastring<50>(25, 50);
     if (rnd(10) == 0) {
       i_data.length = rnd(i_data.length - 8);
@@ -151,7 +153,7 @@ void loadWarehouse()
 
 void loadStock(Integer w_id)
 {
-  for (Integer i = 0; i < 100000; i++) {
+  for (Integer i = 0; i < ITEMS_NO; i++) {
     Varchar<50> s_data = randomastring<50>(25, 50);
     if (rnd(10) == 0) {
       s_data.length = rnd(s_data.length - 8);
@@ -235,7 +237,8 @@ void loadOrders(Integer w_id, Integer d_id)
       if (o_id < 2101)
         ol_delivery_d = now;
       Numeric ol_amount = (o_id < 2101) ? 0 : randomNumeric(0.01, 9999.99);
-      orderline.insert({w_id, d_id, o_id, ol_number, rnd(100000) + 1, w_id, ol_delivery_d, 5, ol_amount, randomastring<24>(24, 24)});
+      const Integer ol_i_id = rnd(ITEMS_NO) + 1;
+      orderline.insert({w_id, d_id, o_id, ol_number, ol_i_id, w_id, ol_delivery_d, 5, ol_amount, randomastring<24>(24, 24)});
     }
     o_id++;
   }
@@ -487,7 +490,6 @@ s_i_id=ol_i_id AND s_quantity < :threshold;
       {w_id, d_id, min_ol_o_id, minInteger},
       [&](const orderline_t& rec) {
         if (rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id < o_id && rec.ol_o_id >= min_ol_o_id) {
-          // assert (rec.ol_o_id >= min_ol_o_id); // TODO: was missing ?
           items.push_back(rec.ol_i_id);
           return true;
         }
