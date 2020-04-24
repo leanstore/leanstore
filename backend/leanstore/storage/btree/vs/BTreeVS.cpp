@@ -104,6 +104,7 @@ void BTree::rangeScan(u8* start_key,
           is_heap_freed = true;
         }
         if (leaf->isUpperFenceInfinity()) {
+          leaf.recheck_done();
           jumpmu_return;
         }
         // -------------------------------------------------------------------------------------
