@@ -1,4 +1,4 @@
-name: C/C++ CI
+name: CI
 
 on:
   push:
@@ -13,6 +13,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Install dependencies
+      run: sudo apt install -y libtbb-dev libaio-dev
     - name: cmake
       run: mkdir release && cd release && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j
     
