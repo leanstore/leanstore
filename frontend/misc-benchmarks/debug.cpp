@@ -26,23 +26,6 @@ using namespace leanstore;
 using Key = u64;
 using Payload = BytesPayload<120>;
 // -------------------------------------------------------------------------------------
-void pinme(u64 t_i)
-{
-  u64 cpu = t_i / 8;
-  u64 l_cpu = t_i % 8;
-  bool is_upper = l_cpu > 3;
-  u64 pin_id = (is_upper) ? (64 + (cpu * 4) + (l_cpu % 4)) : ((cpu * 4) + (l_cpu % 4));
-  // -------------------------------------------------------------------------------------
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(pin_id, &cpuset);
-  pthread_t current_thread = pthread_self();
-  if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
-    throw;
-  // -------------------------------------------------------------------------------------
-  t_i++;
-}
-// -------------------------------------------------------------------------------------
 struct alignas(64) BF {
   OptimisticLatch latch;
 };
@@ -170,7 +153,7 @@ int main(int argc, char** argv)
             running_threads_counter++;
             pthread_setname_np(pthread_self(), "worker");
             if (FLAGS_pin_threads)
-              pinme(FLAGS_pp_threads + t_i);
+              utils::pinThisThread(FLAGS_pp_threads + t_i);
             while (keep_running) {
               if (FLAGS_pread_pct) {
                 u64 rnd = leanstore::utils::RandomGenerator::getRandU64(0, 1000);

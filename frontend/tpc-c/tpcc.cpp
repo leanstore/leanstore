@@ -1,6 +1,7 @@
 #include "adapter.hpp"
 #include "leanstore/counters/ThreadCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
+#include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
 #include "schema.hpp"
@@ -42,26 +43,6 @@ double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::hi
 {
   double tps = ((factor * 1.0 / (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0)));
   return (tps / 1000000.0);
-}
-// -------------------------------------------------------------------------------------
-void pin(int id)
-{
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(id, &cpuset);
-
-  pthread_t current_thread = pthread_self();
-  if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
-    throw;
-}
-void pinme(u64 t_i)
-{
-  u64 cpu = t_i / 8;
-  u64 l_cpu = t_i % 8;
-  bool is_upper = l_cpu > 3;
-  u64 pin_id = (is_upper) ? (64 + (cpu * 4) + (l_cpu % 4)) : ((cpu * 4) + (l_cpu % 4));
-  cout << pin_id << endl;
-  pin(pin_id);
 }
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
@@ -115,30 +96,28 @@ int main(int argc, char** argv)
       if (t_i == FLAGS_worker_threads - 1) {
         w_end = FLAGS_tpcc_warehouse_count;
       }
-      threads.emplace_back(
-          [&](u64 w_begin, u64 w_end) {
-            running_threads_counter++;
-            pthread_setname_np(pthread_self(), "worker");
-            const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
-            if (FLAGS_pin_threads)
-              pinme(FLAGS_pp_threads + t_i);
-            while (keep_running) {
-              tx(urand(w_begin, w_end));
-              WorkerCounters::myCounters().tx++;
-            }
-            ThreadCounters::removeThread(r_id);
-            running_threads_counter--;
-          },
-          w_begin, w_end);
-    }
-  } else {
-    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-      threads.emplace_back([&]() {
+      threads.emplace_back([&, t_i, w_begin, w_end]() {
         running_threads_counter++;
         pthread_setname_np(pthread_self(), "worker");
         const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
-          pinme(FLAGS_pp_threads + t_i);
+          utils::pinThisThread(FLAGS_pp_threads + t_i);
+        while (keep_running) {
+          tx(urand(w_begin, w_end));
+          WorkerCounters::myCounters().tx++;
+        }
+        ThreadCounters::removeThread(r_id);
+        running_threads_counter--;
+      });
+    }
+  } else {
+    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+      threads.emplace_back([&, t_i]() {
+        running_threads_counter++;
+        pthread_setname_np(pthread_self(), "worker");
+        const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
+        if (FLAGS_pin_threads)
+          utils::pinThisThread(FLAGS_pp_threads + t_i);
         while (keep_running) {
           Integer w_id;
           if (FLAGS_zipf_factor == 0) {

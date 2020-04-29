@@ -27,6 +27,12 @@ void pinThisThread()
 {
   static atomic<u64> a_t_i = 0;
   u64 t_i = a_t_i++;
+  pinThisThread(t_i);
+}
+// -------------------------------------------------------------------------------------
+// Hard coded for Rome
+void pinThisThread(const u64 t_i)
+{
   u64 pin_id;
   if (FLAGS_smt) {
     u64 cpu = t_i / 8;

@@ -3,6 +3,7 @@
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/sync-primitives/OptimisticLock.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>
@@ -43,24 +44,6 @@ using namespace leanstore::buffermanager;
 struct alignas(64) BF {
   OptimisticLatch latch;
 };
-void pinme()
-{
-  static atomic<u64> a_t_i = 0;
-  u64 t_i = a_t_i++;
-  u64 cpu = t_i / 8;
-  u64 l_cpu = t_i % 8;
-  bool is_upper = l_cpu > 3;
-  u64 pin_id = (is_upper) ? (64 + (cpu * 4) + (l_cpu % 4)) : ((cpu * 4) + (l_cpu % 4));
-  // -------------------------------------------------------------------------------------
-  cout << pin_id << endl;
-  // -------------------------------------------------------------------------------------
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(pin_id, &cpuset);
-  pthread_t current_thread = pthread_self();
-  if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
-    throw;
-}
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
@@ -131,7 +114,7 @@ int main(int argc, char** argv)
       threads.emplace_back(
           [&](int t_i) {
             if (FLAGS_pin)
-              pinme();
+              utils::pinThisThread();
             while (true) {
               jumpmuTry()
               {
