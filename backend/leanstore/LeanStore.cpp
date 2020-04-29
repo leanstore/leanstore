@@ -113,6 +113,7 @@ void LeanStore::debuggingThread()
   stat_entries.emplace_back("tx", [&](ostream& out) { out << local_tx; });
   // -------------------------------------------------------------------------------------
   // Constants for identifying the run [c for constants]
+  config_entries.emplace_back("c_tag", [&](ostream& out) { out << FLAGS_tag; });
   config_entries.emplace_back("c_worker_threads", [&](ostream& out) { out << FLAGS_worker_threads; });
   config_entries.emplace_back("c_pin_threads", [&](ostream& out) { out << FLAGS_pin_threads; });
   config_entries.emplace_back("c_smt", [&](ostream& out) { out << FLAGS_smt; });
