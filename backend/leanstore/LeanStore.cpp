@@ -114,6 +114,7 @@ void LeanStore::debuggingThread()
   // -------------------------------------------------------------------------------------
   // Constants for identifying the run [c for constants]
   config_entries.emplace_back("c_tag", [&](ostream& out) { out << FLAGS_tag; });
+  config_entries.emplace_back("c_mutex", [&](ostream& out) { out << FLAGS_mutex; });
   config_entries.emplace_back("c_worker_threads", [&](ostream& out) { out << FLAGS_worker_threads; });
   config_entries.emplace_back("c_pin_threads", [&](ostream& out) { out << FLAGS_pin_threads; });
   config_entries.emplace_back("c_smt", [&](ostream& out) { out << FLAGS_smt; });
@@ -188,9 +189,8 @@ void LeanStore::debuggingThread()
     // -------------------------------------------------------------------------------------
     threads_csv << "t,name,c_hash";
     {
-      std::unique_lock guard(ThreadCounters::mutex);
-      ensure(ThreadCounters::thread_counters.size() > 0);
-      ThreadCounters::thread_counters.begin()->second.e->printCSVHeaders(threads_csv);
+      PerfEvent e;
+      e.printCSVHeaders(threads_csv);
     }
     threads_csv << endl;
     // -------------------------------------------------------------------------------------
@@ -304,7 +304,7 @@ LeanStore::~LeanStore()
 {
   bg_threads_keep_running = false;
   while (bg_threads_counter) {
-    _mm_pause();
+    MYPAUSE();
   }
 }
 // -------------------------------------------------------------------------------------

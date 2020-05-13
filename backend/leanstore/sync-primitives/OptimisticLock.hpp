@@ -5,7 +5,14 @@
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#ifdef __x86_64__
 #include <emmintrin.h>
+#define MYPAUSE()  _mm_pause()
+#endif
+#ifdef __aarch64__
+#include <arm_acle.h>
+#define MYPAUSE() asm("YIELD");
+#endif
 #include <unistd.h>
 
 #include <atomic>
@@ -37,7 +44,7 @@ constexpr static u64 LATCH_EXCLUSIVE_STATE_MASK = ((1 << 9) - 1);
 #define BACKOFF_STRATEGIES()                                            \
   if (FLAGS_backoff) {                                                  \
     for (u64 i = utils::RandomGenerator::getRandU64(0, mask); i; --i) { \
-      _mm_pause();                                                      \
+      MYPAUSE();                                                      \
     }                                                                   \
     mask = mask < MAX_BACKOFF ? mask << 1 : MAX_BACKOFF;                \
   }
@@ -138,8 +145,9 @@ class OptimisticGuard
     // Ignore the state field
     for (u32 attempt = 0; attempt < 40; attempt++) {
       local_version = latch_ptr->version.load() & LATCH_VERSION_MASK;
-      if (((local_version & LATCH_EXCLUSIVE_BIT) == 0))
+      if (((local_version & LATCH_EXCLUSIVE_BIT) == 0)) {
         return;
+      }
     }
     if ((local_version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
       if (option == IF_LOCKED::JUMP) {
@@ -286,7 +294,7 @@ class SharedGuard
   u32 const max = 64;                    \
   while (expr) {                         \
     for (u32 i = mask; i; --i) {         \
-      _mm_pause();                       \
+      MYPAUSE();                       \
     }                                    \
     mask = mask < max ? mask << 1 : max; \
   }                                      \

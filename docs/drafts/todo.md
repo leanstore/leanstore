@@ -22,8 +22,6 @@ Last episode:
 * Rome: 120 threads, affinity, cool=20,free=1, 4 pp threads, 6 partition bits -> 5M (in-memory) to  1.37M(out-of-memory) after 300 seconds, writing ~3 GiB/s, reading ~2GiB/s [120ac.csv]
 
 # Next ?
-* Bulk loading ?
-* Correct YCSB implementation (latest distribution and scans)
 * Non clustered index with pointer swizzling ? BTree for TID->PID/Pointer
 * Contention management:
 * *  VS BTree: payload

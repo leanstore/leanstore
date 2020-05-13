@@ -24,60 +24,11 @@ DEFINE_string(type, "default", "");
 DEFINE_bool(seq, false, "");
 DEFINE_bool(ticket_shared_cl, false, "");
 // -------------------------------------------------------------------------------------
-
-struct A {
-  A() {}
-  jumpmu_defineCustomDestructor(A) ~A()
-  {
-    cout << "~A()" << endl;
-    jumpmu::clearLastDestructor();
-  }
-};
-struct B {
-  A a;
-  B() { jumpmu_registerDestructor(); }
-  jumpmu_defineCustomDestructor(B) ~B()
-  {
-    cout << "~B()" << endl;
-    jumpmu::clearLastDestructor();
-  }
-};
-int x()
-{
-  return 20;
-}
-struct C {
-  int a = 0, b;
-
-  C() : b(a + 1), a(x()) { cout << b << endl; }
-};
-struct Test {
-  int x;
-  Test(int y) : x(y){
-    cout << "constructor " << x << endl;
-  }
-  Test& operator=(Test& other) {
-    cout << " = (copy) left = " << x << " - " << other.x << endl;
-    return *this;
-  }
-  Test& operator=(Test&& other) {
-    cout << " = (move) left = " << x << " - " << other.x << endl;
-    return *this;
-  }
-  ~Test() {
-    cout << "des " << x << endl;
-  }
-};
-// -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
 using namespace leanstore::buffermanager;
 int main(int argc, char** argv)
 {
-  Test t1(1);
-  t1 = Test(2);
-  Test x(5);
-  return 0;
   // -------------------------------------------------------------------------------------
   gflags::SetUsageMessage("");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -106,43 +57,48 @@ int main(int argc, char** argv)
   AUX aux;
   const u64 max_size = FLAGS_samples_count;
   s32* sequence = new s32[max_size];
+  PerfEvent e;
+  e.printCSVHeaders(cout);
   for (s32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-    threads.emplace_back(
-        [&](int t_i) {
-          if (FLAGS_pin_threads)
-            utils::pinThisThread();
-          while (keep_running) {
-            if (FLAGS_type == "mutex") {
-              bf.lock.lock();
-              sequence[bf.seq_id] = t_i;
-              bf.seq_id = (bf.seq_id + 1) % max_size;
-              tx_counter[t_i]++;
-              bf.lock.unlock();
-            } else if (FLAGS_type == "ticket") {
-              u64 ticket_no = aux.ticket++;
-              while (bf.turn != ticket_no) {
-                // BACKOFF_STRATEGIES()
-              }
-              {
-                sequence[bf.seq_id] = t_i;
-                bf.seq_id = (bf.seq_id + 1) % max_size;
-                tx_counter[t_i]++;
-                bf.turn++;
-              }
-            } else {
-              jumpmuTry()
-              {
-                OptimisticGuard guard(bf.version);
-                ExclusiveGuard ex_guard(guard);
-                sequence[bf.seq_id] = t_i;
-                bf.seq_id = (bf.seq_id + 1) % max_size;
-                tx_counter[t_i]++;
-              }
-              jumpmuCatch() {}
-            }
+    threads.emplace_back([&, t_i]() {
+      if (FLAGS_pin_threads)
+        utils::pinThisThread(t_i);
+      while (keep_running) {
+        if (FLAGS_type == "mutex") {
+          bf.lock.lock();
+          sequence[bf.seq_id] = t_i;
+          bf.seq_id = (bf.seq_id + 1) % max_size;
+          tx_counter[t_i]++;
+          bf.lock.unlock();
+        } else if (FLAGS_type == "ticket") {
+          u32 mask = 1;
+          u64 ticket_no = aux.ticket.fetch_add(1, std::memory_order_release);
+          u64 c_turn = bf.turn.load();
+          while (c_turn != ticket_no) {
+            const u64 sleep_time = (ticket_no > c_turn) ? ((ticket_no - c_turn) * FLAGS_backoff) : 0;
+            for (u64 i = 0; i < sleep_time; i++)
+              _mm_pause();
+            c_turn = bf.turn.load();
           }
-        },
-        t_i);
+          {
+            sequence[bf.seq_id] = t_i;
+            bf.seq_id = (bf.seq_id + 1) % max_size;
+            tx_counter[t_i]++;
+            bf.turn.store(bf.turn.load() + 1, std::memory_order_release);
+          }
+        } else {
+          jumpmuTry()
+          {
+            OptimisticGuard guard(bf.version);
+            ExclusiveGuard ex_guard(guard);
+            sequence[bf.seq_id] = t_i;
+            bf.seq_id = (bf.seq_id + 1) % max_size;
+            tx_counter[t_i]++;
+          }
+          jumpmuCatch() {}
+        }
+      }
+    });
   }
   threads.emplace_back([&]() {
     while (keep_running) {
@@ -150,10 +106,14 @@ int main(int argc, char** argv)
       for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++)
         tx_sum += tx_counter[t_i].exchange(0);
       cout << tx_sum / 1.0e6 << "\t" << sleep_counter.exchange(0) / 1.0e6 << endl;
+      e.stopCounters();
+      e.printReport(cout, tx_sum);
+      e.startCounters();
       sleep(1);
     }
   });
   sleep(FLAGS_run_for_seconds);
+
   keep_running = false;
   for (auto& thread : threads) {
     thread.join();

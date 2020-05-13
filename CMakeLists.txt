@@ -8,12 +8,17 @@ cmake_minimum_required(VERSION 3.7)
 # ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
-
+enable_language(ASM)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -rdynamic")
-add_compile_options(-Wall -Wextra -mavx2 -mcx16) # -fno-elide-constructors no need for now
+
+if(CMAKE_CROSSCOMPILING)
+  add_compile_options(-Wall -Wextra)
+else()
+  add_compile_options(-Wall -Wextra -mavx2 -mcx16 -m64) # -fno-elide-constructors no need for now
+endif()
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 
@@ -48,7 +53,10 @@ include("${CMAKE_SOURCE_DIR}/libs/benchmark.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/yaml-cpp.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/fastpfor.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/spdlog.cmake")
-#include("${CMAKE_SOURCE_DIR}/libs/tbb.cmake")
+
+if(CMAKE_CROSSCOMPILING)
+  include("${CMAKE_SOURCE_DIR}/libs/tbb.cmake")
+endif()
 #include("${CMAKE_SOURCE_DIR}/libs/psql.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/gdouble.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/turbo.cmake")

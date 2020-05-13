@@ -70,11 +70,15 @@ struct PerfEvent {
 
   bool isIntel()
   {
-    unsigned eax = 0, ebx, ecx = 0, edx;
+#ifdef __x86_64__
     // EAX=0: Highest Function Parameter and Manufacturer ID
     // ecx is often an input as well as an output
+    unsigned eax = 0, ebx, ecx = 0, edx;
     asm volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "0"(0), "2"(ecx));
     return ecx == 0x6c65746e;
+#else
+    return false;
+#endif
   }
   PerfEvent() : printHeader(true)
   {

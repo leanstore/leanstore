@@ -74,11 +74,19 @@ struct BTree {
       {
         auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
         OptimisticPageGuard<BTreeNode> c_guard;
-        c_guard = OptimisticPageGuard(p_guard, root_swip, true);
+        if (FLAGS_mutex) {
+          c_guard = OptimisticPageGuard(p_guard, root_swip, true);
+        } else {
+          c_guard = OptimisticPageGuard(p_guard, root_swip);
+        }
         while (!c_guard->is_leaf) {
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
-          c_guard = OptimisticPageGuard(p_guard, c_swip, true);
+          if (FLAGS_mutex) {
+            c_guard = OptimisticPageGuard(p_guard, c_swip, true);
+          } else {
+            c_guard = OptimisticPageGuard(p_guard, c_swip);
+          }
         }
         p_guard.kill();
         target_guard = std::move(c_guard);

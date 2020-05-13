@@ -1,5 +1,6 @@
 #pragma once
 #include "Exceptions.hpp"
+#include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -32,7 +33,11 @@ template <typename T>
 class OptimisticPageGuard
 {
  protected:
-  OptimisticPageGuard(OptimisticLatch& swip_version) : bf_s_lock(OptimisticGuard(swip_version)), moved(false) { jumpmu_registerDestructor(); }
+  OptimisticPageGuard(OptimisticLatch& swip_version) : bf_s_lock(OptimisticGuard(swip_version)), moved(false)
+  {
+    WorkerCounters::myCounters().dt_researchy[0][8]++;
+    jumpmu_registerDestructor();
+  }
   OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : bf(bf), bf_s_lock(std::move(read_guard)), moved(false)
   {
     assert((bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == 0);
@@ -76,7 +81,7 @@ class OptimisticPageGuard
     jumpmu_registerDestructor();
     p_guard.recheck();
   }
-  // I: Lock coupling with mutex [SHOULD BE USED ONLY FOR LEAVES] WIP
+  // I: Lock coupling with mutex
   OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip, bool)
       : bf(&BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip.template cast<BufferFrame>())),
         bf_s_lock(OptimisticGuard(bf->header.latch, OptimisticGuard::IF_LOCKED::SET_NULL))
@@ -87,6 +92,9 @@ class OptimisticPageGuard
       bf->header.latch.mutex.lock();
       bf_s_lock = OptimisticGuard(bf->header.latch, OptimisticGuard::IF_LOCKED::CAN_NOT_BE);
       bf_s_lock.mutex_locked_upfront = true;
+      WorkerCounters::myCounters().dt_researchy[0][9]++;
+    } else {
+      WorkerCounters::myCounters().dt_researchy[0][8]++;
     }
     jumpmu_registerDestructor();
     p_guard.recheck();

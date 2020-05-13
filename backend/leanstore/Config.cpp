@@ -44,7 +44,7 @@ DEFINE_uint64(cm_slowpath_threshold, 1, "");
 DEFINE_bool(su_merge, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff, 512, "");
-DEFINE_bool(mutex, false, "");
+DEFINE_bool(mutex, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(x, 512, "");
 DEFINE_uint64(y, 100, "");

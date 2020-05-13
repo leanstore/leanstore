@@ -92,6 +92,7 @@ class BufferManager
    */
   // -------------------------------------------------------------------------------------
   void readPageSync(PID pid, u8* destination);
+  void readPageAsync(PID pid, u8* destination, std::function<void()> callback);
   void fDataSync();
   // -------------------------------------------------------------------------------------
   void registerDatastructureType(DTType type, DTRegistry::DTMeta dt_meta);

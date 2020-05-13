@@ -1,6 +1,7 @@
 project(tools)
 set(ENV{LD_RUN_PATH} "/home/adnan/gcc92/lib/../lib64")
 
+
 add_executable(btree_benchmark btree-implementations/btree_benchmark.cpp)
 target_link_libraries(btree_benchmark leanstore)
 
@@ -41,3 +42,11 @@ target_include_directories(signal PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(perf_test micro-benchmarks/perf_test.cpp)
 target_link_libraries(perf_test Threads::Threads gflags)
 target_include_directories(perf_test PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(aio_mb micro-benchmarks/aio.cpp micro-benchmarks/swapcontextopt.S)
+target_link_libraries(aio_mb leanstore Threads::Threads gflags aio)
+target_include_directories(aio_mb PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(morsel morsel/morsel.cpp)
+target_link_libraries(morsel Threads::Threads gflags)
+target_include_directories(morsel PRIVATE ${SHARED_INCLUDE_DIRECTORY})

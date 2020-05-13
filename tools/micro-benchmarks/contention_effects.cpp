@@ -1,4 +1,6 @@
 #include "Exceptions.hpp"
+#include "leanstore/Config.hpp"
+#include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 
@@ -30,6 +32,7 @@ DEFINE_bool(pin, false, "");
 DEFINE_bool(cl_exp, false, "");
 DEFINE_bool(cond_futex, false, "");
 DEFINE_bool(cond_std, false, "");
+DEFINE_bool(release_cycles, false, "");
 // -------------------------------------------------------------------------------------
 struct alignas(64) CountersLine {
   std::atomic<u64> counter[8];
@@ -50,6 +53,42 @@ int main(int argc, char** argv)
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   // -------------------------------------------------------------------------------------
   vector<thread> threads;
+  // -------------------------------------------------------------------------------------
+  if (FLAGS_release_cycles) {
+    atomic<bool> keep_running = true;
+    struct alignas(64) CL {
+      atomic<u64> counter = 0;
+    };
+    CL lock;
+    threads.emplace_back([&]() {
+      sleep(FLAGS_tmp);
+      keep_running = false;
+    });
+    for (u64 t_i = 0; t_i < FLAGS_threads; t_i++) {
+      threads.emplace_back([&, t_i]() {
+        if (FLAGS_pin_threads)
+          leanstore::utils::pinThisThread(t_i);
+        while (true) {
+          u64 c_lock = lock.counter.load();
+          DO_NOT_OPTIMIZE(c_lock);
+        }
+      });
+    }
+    threads.emplace_back([&]() {
+      if (FLAGS_pin_threads)
+        leanstore::utils::pinThisThread(FLAGS_threads + 1);
+      u64 counter = 0;
+      PerfEvent e;
+      e.startCounters();
+      while (keep_running) {
+        //lock.counter.store(counter++, std::memory_order_release);
+        lock.counter.fetch_add(counter++, std::memory_order_seq_cst);
+        //lock.counter.store(counter++, std::memory_order_seq_cst);
+      }
+      e.stopCounters();
+      e.printReport(cout, FLAGS_tmp * counter);
+    });
+  }
   // -------------------------------------------------------------------------------------
   if (FLAGS_cond_futex) {
     CountersLine cl;

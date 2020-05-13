@@ -281,7 +281,7 @@ struct BTree {
       jumpmuCatch()
       {
         for (u32 i = mask; i; --i) {
-          _mm_pause();
+          MYPAUSE();
         }
         mask = mask < max ? mask << 1 : max;
         restarts_counter++;

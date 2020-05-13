@@ -61,3 +61,7 @@ target_include_directories(cx16 PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(replacement_strategy_test misc-benchmarks/replacement_strategy_test.cpp)
 target_link_libraries(replacement_strategy_test leanstore Threads::Threads)
 target_include_directories(replacement_strategy_test PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(fairness misc-benchmarks/fairness.cpp)
+target_link_libraries(fairness leanstore Threads::Threads)
+target_include_directories(fairness PRIVATE ${SHARED_INCLUDE_DIRECTORY})

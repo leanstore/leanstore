@@ -32,8 +32,8 @@ set(TBB_LIBRARY_PATH ${binary_dir}/libtbb.so)
 
 file(MAKE_DIRECTORY ${TBB_INCLUDE_DIR})
 
-add_library(tbb_compiled SHARED IMPORTED)
-add_dependencies(tbb_compiled tbb_src)
+add_library(tbb SHARED IMPORTED)
+add_dependencies(tbb tbb_src)
 
-set_property(TARGET tbb_compiled PROPERTY IMPORTED_LOCATION ${TBB_LIBRARY_PATH})
-set_property(TARGET tbb_compiled APPEND PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${TBB_INCLUDE_DIR})
+set_property(TARGET tbb PROPERTY IMPORTED_LOCATION ${TBB_LIBRARY_PATH})
+set_property(TARGET tbb APPEND PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${TBB_INCLUDE_DIR})

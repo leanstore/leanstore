@@ -26,7 +26,6 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size) : 
   if (ret != 0) {
     throw ex::GenericException("io_setup failed, ret code = " + std::to_string(ret));
   }
-  ensure(io_setup(batch_max_size, &aio_context) != 0);
 }
 // -------------------------------------------------------------------------------------
 bool AsyncWriteBuffer::add(BufferFrame& bf)
