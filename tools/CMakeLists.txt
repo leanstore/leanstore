@@ -43,7 +43,7 @@ add_executable(perf_test micro-benchmarks/perf_test.cpp)
 target_link_libraries(perf_test Threads::Threads gflags)
 target_include_directories(perf_test PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
-add_executable(aio_mb micro-benchmarks/aio.cpp micro-benchmarks/swapcontextopt.S)
+add_executable(aio_mb micro-benchmarks/aio.cpp)
 target_link_libraries(aio_mb leanstore Threads::Threads gflags aio)
 target_include_directories(aio_mb PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 

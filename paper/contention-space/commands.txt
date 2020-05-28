@@ -10,4 +10,6 @@ make -j ycsb && ./ycsb --ssd_path=/blk/adapter --worker_threads=1 --pp_threads=1
 make -j tpcc && ./tpcc --ssd_path=/blk/adapter --worker_threads=1 --tpcc_warehouse_count=1 --dram_gib=1 --pp_threads=1 --run_for_seconds=1000
 
 
+
+sudo apt install -y emacs libtbb-dev libaio-dev
 sudo apt install -y emacs libtbb-dev libaio-dev

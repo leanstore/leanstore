@@ -33,15 +33,14 @@
 constexpr u64 PAGE_SIZE = 16 * 1024;
 constexpr u64 BUFFER_SIZE = 1024;
 constexpr u64 STACK_SIZE = 16 * 1024 * 1024;
-
-extern int swapcontextopt (ucontext_t *oucp, const ucontext_t *ucp);
 // -------------------------------------------------------------------------------------
 DEFINE_bool(perf, false, "");
 DEFINE_bool(libaio, false, "");
 DEFINE_bool(liburing, false, "");
 DEFINE_bool(userthreads, false, "");
 DEFINE_bool(sync, false, "");
-DEFINE_uint64(range,  1024 * 1024 * 20, "");
+DEFINE_bool(interrupt, false, "");
+DEFINE_uint64(range, 1024 * 1024 * 20, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -141,6 +140,34 @@ static void perf(void)
     posix_check(swapcontext(&uctx_perf, &uctx_main) != -1);
 }
 // -------------------------------------------------------------------------------------
+ucontext_t uctx_ping, uctx_pong;
+atomic<bool> ping_or_pong = 0;
+static void ping(void)
+{
+  while (true) {
+    cout << "ping" << endl;
+    posix_check(swapcontext(&uctx_ping, &uctx_main) != -1);
+  }
+}
+static void pong(void)
+{
+  while (true) {
+    cout << "pong" << endl;
+    posix_check(swapcontext(&uctx_pong, &uctx_main) != -1);
+  }
+}
+void sig_handler(int signo)
+{
+  bool ping = ping_or_pong;
+  ping_or_pong = !ping_or_pong;
+  if (ping) {
+    posix_check(swapcontext(&uctx_main, &uctx_ping) != -1);
+  } else {
+    posix_check(swapcontext(&uctx_main, &uctx_pong) != -1);
+  }
+  return;
+}
+// -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
   gflags::SetUsageMessage("");
@@ -151,6 +178,47 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   AIO aio(fd);
   // -------------------------------------------------------------------------------------
+  // https://stackoverflow.com/questions/15651964/linux-can-a-signal-handler-excution-be-preempted
+  if (FLAGS_interrupt) {
+    atomic<s64> thread_id = -1;
+    vector<thread> threads;
+    threads.emplace_back([&]() {
+      thread_id = syscall(__NR_gettid);
+      if (signal(55, sig_handler) == SIG_ERR) {
+        fputs("An error occurred while setting a signal handler.\n", stderr);
+        exit(1);
+      }
+
+      u8* ping_stack = new u8[8 * 1024];
+      posix_check(getcontext(&uctx_ping) != -1);
+      uctx_ping.uc_stack.ss_sp = ping_stack;
+      uctx_ping.uc_stack.ss_size = 8 * 1024;
+      uctx_ping.uc_link = &uctx_main;
+      makecontext(&uctx_ping, ping, 0);
+
+      u8* pong_stack = new u8[8 * 1024];
+      posix_check(getcontext(&uctx_pong) != -1);
+      uctx_pong.uc_stack.ss_sp = pong_stack;
+      uctx_pong.uc_stack.ss_size = 8 * 1024;
+      uctx_pong.uc_link = &uctx_main;
+      makecontext(&uctx_pong, pong, 0);
+      while (true) {
+        cout << "gonna sleep" << endl;
+        sleep(10);
+        cout << "while true" << endl;
+      }
+    });
+    threads.emplace_back([&]() {
+      while (true) {
+        sleep(4);
+        syscall(SYS_tkill, thread_id.load(), 55);
+      }
+    });
+    for (auto& thread : threads) {
+      thread.join();
+    }
+    cout << "no way" << endl;
+  }
   if (FLAGS_perf) {
     {
       const u64 N = FLAGS_x;
@@ -199,7 +267,7 @@ int main(int argc, char** argv)
               utils::RandomGenerator::getRand<u64>(0, FLAGS_range), page->data,
               [t_i]() {
                 uts[t_i].active = false;
-                posix_check(swapcontextopt(&uts[t_i].context, &uctx_main) != -1);
+                posix_check(swapcontext(&uts[t_i].context, &uctx_main) != -1);
               },
               [t_i]() { uts[t_i].active = true; });
         }

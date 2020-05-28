@@ -32,6 +32,7 @@ DEFINE_bool(pin, false, "");
 DEFINE_bool(cl_exp, false, "");
 DEFINE_bool(cond_futex, false, "");
 DEFINE_bool(cond_std, false, "");
+DEFINE_bool(exchange, false, "");
 DEFINE_bool(release_cycles, false, "");
 // -------------------------------------------------------------------------------------
 struct alignas(64) CountersLine {
@@ -53,6 +54,31 @@ int main(int argc, char** argv)
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   // -------------------------------------------------------------------------------------
   vector<thread> threads;
+  // -------------------------------------------------------------------------------------
+  if (FLAGS_exchange) {
+    CountersLine cl;
+    CountersLine tl_counters;
+    for (u64 t_i = 0; t_i < FLAGS_threads; t_i++) {
+      threads.emplace_back([&, t_i]() {
+        tl_counters.counter[t_i] = 0;
+        while (true) {
+          cl.counter[0].exchange(t_i);
+          tl_counters.counter[t_i]++;
+          //usleep(1);
+        }
+      });
+    }
+    threads.emplace_back([&]() {
+      while (true) {
+        u64 counter = 0;
+        for (u64 t_i = 0; t_i < FLAGS_threads; t_i++) {
+          counter += tl_counters.counter[t_i].exchange(0);
+        }
+        cout << counter << endl;
+        sleep(1);
+      }
+    });
+  }
   // -------------------------------------------------------------------------------------
   if (FLAGS_release_cycles) {
     atomic<bool> keep_running = true;
@@ -81,9 +107,9 @@ int main(int argc, char** argv)
       PerfEvent e;
       e.startCounters();
       while (keep_running) {
-        //lock.counter.store(counter++, std::memory_order_release);
+        // lock.counter.store(counter++, std::memory_order_release);
         lock.counter.fetch_add(counter++, std::memory_order_seq_cst);
-        //lock.counter.store(counter++, std::memory_order_seq_cst);
+        // lock.counter.store(counter++, std::memory_order_seq_cst);
       }
       e.stopCounters();
       e.printReport(cout, FLAGS_tmp * counter);
