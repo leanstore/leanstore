@@ -16,7 +16,7 @@ namespace vs
 // calculate space needed for keys in inner nodes.
 u16 BTreeNode::spaceNeeded(u16 keyLength, u16 prefixLength)
 {
-  //assert(keyLength >= prefixLength);
+  // assert(keyLength >= prefixLength);
   u16 restLen = keyLength - prefixLength;
   if (restLen <= 4)
     return sizeof(Slot) + sizeof(ValueType);
@@ -156,9 +156,9 @@ u32 BTreeNode::mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right)
   assert(right->is_leaf);
   BTreeNode tmp(true);
   tmp.setFences(getLowerFenceKey(), lower_fence.length, right->getUpperFenceKey(), right->upper_fence.length);
-  u16 leftGrow = (prefix_length - tmp.prefix_length) * count;
-  u16 rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
-  u16 spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow;
+  u32 leftGrow = (prefix_length - tmp.prefix_length) * count;
+  u32 rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
+  u32 spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow;
   return spaceUpperBound;
 }
 // -------------------------------------------------------------------------------------
@@ -202,7 +202,7 @@ bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, Exclusi
     u16 rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
     u16 extraKeyLength = parent->getFullKeyLength(slotId);
     u16 spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow +
-                               spaceNeeded(extraKeyLength, tmp.prefix_length);
+                          spaceNeeded(extraKeyLength, tmp.prefix_length);
     if (spaceUpperBound > EFFECTIVE_PAGE_SIZE)
       return false;
     copyKeyValueRange(&tmp, 0, 0, count);
@@ -261,9 +261,6 @@ void BTreeNode::storeKeyValue(u16 slotId, u8* key, u16 keyLength, ValueType valu
 // ATTENTION: dstSlot then srcSlot !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 void BTreeNode::copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, u16 count)
 {
-  if (is_leaf && count == u16(this->count - 1) && dst->count == 0) {
-    // raise(SIGTRAP);
-  }
   if (prefix_length == dst->prefix_length) {
     // Fast path
     memcpy(dst->slot + dstSlot, slot + srcSlot, sizeof(Slot) * count);
@@ -285,7 +282,11 @@ void BTreeNode::copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, u16 
       dst->data_offset -= kv_size;
       dst->space_used += kv_size;
       dst->slot[dstSlot + i].offset = dst->data_offset;
-      assert((dst->ptr() + dst->data_offset) >= reinterpret_cast<u8*>(dst->slot + dstSlot + count));
+      DEBUG_BLOCK()
+      {
+        [[maybe_unused]] s64 off_by = reinterpret_cast<u8*>(dst->slot + dstSlot + count) - (dst->ptr() + dst->data_offset);
+        assert(off_by <= 0);
+      }
       memcpy(dst->ptr() + dst->data_offset, ptr() + slot[srcSlot + i].offset, kv_size);
     }
   } else {
@@ -419,11 +420,7 @@ Swip<BTreeNode>& BTreeNode::lookupInner(u8* key, u16 keyLength)
   return getValue(pos);
 }
 // -------------------------------------------------------------------------------------
-void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent,
-                      ExclusivePageGuard<BTreeNode>& nodeLeft,
-                      u16 sepSlot,
-                      u8* sepKey,
-                      u16 sepLength)
+void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& nodeLeft, u16 sepSlot, u8* sepKey, u16 sepLength)
 {
   // PRE: current, parent and nodeLeft are x locked
   // assert(sepSlot > 0); TODO: really ?

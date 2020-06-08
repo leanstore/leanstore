@@ -234,17 +234,17 @@ bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPa
   BTreeNode tmp(true);
   tmp.setFences(left->getLowerFenceKey(), left->lower_fence.length, right->getUpperFenceKey(), right->upper_fence.length);
   ensure(tmp.prefix_length <= right->prefix_length);
-  const u32 worst_case_amplification_per_key = right->prefix_length - tmp.prefix_length;
+  const u32 worst_case_amplification_per_key = 2 + right->prefix_length - tmp.prefix_length;
   // -------------------------------------------------------------------------------------
-  s64 r_free_space = right->freeSpaceAfterCompaction();
+  s64 r_free_space = right->freeSpaceAfterCompaction() - 512;
   r_free_space -= (worst_case_amplification_per_key * right->count);
   if (r_free_space <= 0)
     return false;
   s16 left_boundary = -1;  // exclusive
   for (s16 s_i = left->count - 1; s_i > 0; s_i--) {
-    r_free_space -= left->spaceUsedBySlot(s_i);
+    r_free_space -= left->spaceUsedBySlot(s_i) + (worst_case_amplification_per_key);
     const u16 new_right_lf_key_length = left->getFullKeyLength(s_i);
-    if ((r_free_space - ((right->lower_fence.length < left->getFullKeyLength(s_i)) ? (new_right_lf_key_length - right->lower_fence.length) : 0)) >=
+    if ((r_free_space - ((right->lower_fence.length < new_right_lf_key_length) ? (new_right_lf_key_length - right->lower_fence.length) : 0)) >
         r_target_free_space) {
       left_boundary = s_i - 1;
     } else {
@@ -253,6 +253,11 @@ bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPa
   }
   // -------------------------------------------------------------------------------------
   if (left_boundary == -1) {
+    return false;
+  }
+  // -------------------------------------------------------------------------------------
+  // temporary hack
+  if (left->getFullKeyLength(left_boundary) > left->upper_fence.length) {
     return false;
   }
   // -------------------------------------------------------------------------------------
@@ -318,9 +323,9 @@ bool BTree::tryBalanceLeft(OptimisticPageGuard<BTreeNode>& parent, OptimisticPag
   BTreeNode tmp(true);
   tmp.setFences(left->getLowerFenceKey(), left->lower_fence.length, right->getUpperFenceKey(), right->upper_fence.length);
   ensure(tmp.prefix_length <= left->prefix_length);
-  const u32 worst_case_amplification_per_key = left->prefix_length - tmp.prefix_length;
+  const u32 worst_case_amplification_per_key = 2 + left->prefix_length - tmp.prefix_length;
   // -------------------------------------------------------------------------------------
-  s64 l_free_space = left->freeSpaceAfterCompaction();
+  s64 l_free_space = left->freeSpaceAfterCompaction() - 256;
   l_free_space -= (worst_case_amplification_per_key * left->count);
   if (l_free_space <= 0)
     return false;
@@ -788,7 +793,8 @@ s16 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
   u32 space_upper_bound = from_left->mergeSpaceUpperBound(to_right);
   if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge TODO: threshold
     bool succ = from_left->merge(left_pos, parent, to_right);
-    ensure(succ);
+    static_cast<void>(succ);
+    assert(succ);
     from_left.reclaim();
     return 1;
   }
@@ -803,14 +809,16 @@ s16 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
       space_upper_bound -= (from_left->isLarge(s_i) ? (from_left->getRestLenLarge(s_i) + sizeof(u16)) : from_left->getRestLen(s_i));
     }
     space_upper_bound -= sizeof(ValueType) + sizeof(BTreeNode::Slot) + from_left->getPayloadLength(s_i);
-    if (space_upper_bound < EFFECTIVE_PAGE_SIZE * 1.0) {
+    if (space_upper_bound + (from_left->getFullKeyLength(s_i) - to_right->lower_fence.length) < EFFECTIVE_PAGE_SIZE * 1.0) {
       till_slot_id = s_i + 1;
       break;
     }
   }
   if (!(till_slot_id != -1 && till_slot_id < (from_left->count - 1)))
     return 0;  // false
-  ensure(till_slot_id > 0);
+
+  assert((space_upper_bound + (from_left->getFullKeyLength(till_slot_id - 1) - to_right->lower_fence.length)) < EFFECTIVE_PAGE_SIZE * 1.0);
+  assert(till_slot_id > 0);
   // -------------------------------------------------------------------------------------
   u16 copy_from_count = from_left->count - till_slot_id;
   // -------------------------------------------------------------------------------------
@@ -854,10 +862,12 @@ s16 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
 }
 // -------------------------------------------------------------------------------------
 // returns true if it has exclusively locked anything
-bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler& parent_handler)
+BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard,
+                                            OptimisticPageGuard<BTreeNode>& c_guard,
+                                            ParentSwipHandler& parent_handler)
 {
   if (c_guard->fillFactorAfterCompaction() >= 0.9) {  // || utils::RandomGenerator::getRandU64(0, 100) >= FLAGS_y
-    return false;
+    return KWayMergeReturnCode::NOTHING;
   }
   // -------------------------------------------------------------------------------------
   constexpr u8 MAX_MERGE_PAGES = 5;
@@ -873,10 +883,10 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
   // -------------------------------------------------------------------------------------
   // Handle upper swip instead of avoiding p_guard->count -1 swip
   if (!p_guard.hasBf() || !guards[0]->is_leaf)
-    return false;
+    return KWayMergeReturnCode::NOTHING;
   for (max_right = pos + 1; (max_right - pos) < MAX_MERGE_PAGES && (max_right + 1) < p_guard->count; max_right++) {
     if (!p_guard->getValue(max_right).isSwizzled())
-      return false;
+      return KWayMergeReturnCode::NOTHING;
     // -------------------------------------------------------------------------------------
     guards[max_right - pos] = OptimisticPageGuard<BTreeNode>(p_guard, p_guard->getValue(max_right));
     fully_merged[max_right - pos] = false;
@@ -887,11 +897,12 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
     }
   }
   if (((pages_count - std::ceil(total_fill_factor))) < (1)) {
-    return false;
+    return KWayMergeReturnCode::NOTHING;
   }
   // -------------------------------------------------------------------------------------
   ExclusivePageGuard<BTreeNode> p_x_guard = std::move(p_guard);
   // -------------------------------------------------------------------------------------
+  KWayMergeReturnCode ret_code = KWayMergeReturnCode::PARTIAL_MERGE;
   s16 left_hand, right_hand, ret;
   while (true) {
     for (right_hand = max_right; right_hand > pos; right_hand--) {
@@ -915,6 +926,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
       if (ret == 1) {
         fully_merged[left_hand - pos] = true;
         WorkerCounters::myCounters().su_merge_full_counter[dtid]++;
+        ret_code = KWayMergeReturnCode::FULL_MERGE;
       } else if (ret == 2) {
         guards[left_hand - pos] = std::move(left_x_guard);
         WorkerCounters::myCounters().su_merge_partial_counter[dtid]++;
@@ -926,7 +938,7 @@ bool BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGua
     }
     // -------------------------------------------------------------------------------------
   }
-  return true;
+  return ret_code;
 }
 // -------------------------------------------------------------------------------------
 BTree::~BTree() {}
@@ -948,10 +960,10 @@ bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Optimisti
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(std::move(guard), &bf);
   // -------------------------------------------------------------------------------------
   if (FLAGS_su_merge) {
-    bool merged = btree.kWayMerge(p_guard, c_guard, parent_handler);
+    KWayMergeReturnCode merged = btree.kWayMerge(p_guard, c_guard, parent_handler);
     p_guard.kill();
     c_guard.kill();
-    return merged;
+    return !(merged == KWayMergeReturnCode::NOTHING);
   }
   p_guard.kill();
   c_guard.kill();

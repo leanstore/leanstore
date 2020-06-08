@@ -2,6 +2,7 @@
 #include "leanstore/BTreeAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
+#include "leanstore/counters/ThreadCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/storage/btree/vs/BTreeSlotted.hpp"
 #include "leanstore/utils/FVector.hpp"
@@ -18,8 +19,8 @@
 // -------------------------------------------------------------------------------------
 DEFINE_string(in, "", "");
 DEFINE_bool(random_insert, false, "");
+DEFINE_bool(verify, false, "");
 DEFINE_bool(print_fill_factors, false, "");  // 1582587
-DEFINE_uint64(stop_at, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -46,21 +47,24 @@ int main(int argc, char** argv)
   } else {
     open_flags = ios::app;
   }
-  csv.open("merge.csv", open_flags);
+  csv.open(FLAGS_csv_path + "_merge.csv", open_flags);
   csv.seekp(0, ios::end);
   csv << std::setprecision(2) << std::fixed;
   if (FLAGS_csv_truncate) {
-    csv << "i,ff,flag,bstar,su_merge" << endl;
+    csv << "i,ff,flag,bstar,su_merge,tag" << endl;
   }
   // -------------------------------------------------------------------------------------
-  u64 merges_counter = 0;
-  auto compress_bf = [&](Key k) {
+  auto compress_bf = [&](u8* key_bytes, u16 key_length) {
     BufferFrame* bf;
-    u8 key_bytes[sizeof(Key)];
-    vs_btree.lookupOne(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); });
-    OptimisticGuard c_guard = OptimisticGuard(bf->header.latch);
+    ensure(vs_btree.lookupOne(key_bytes, key_length, [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); }));
+    OptimisticGuard o_guard = OptimisticGuard(bf->header.latch);
     auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
-    merges_counter += vs_btree.checkSpaceUtilization(reinterpret_cast<void*>(&vs_btree), *bf, c_guard, parent_handler);
+    // -------------------------------------------------------------------------------------
+    auto p_guard = parent_handler.getParentReadPageGuard<leanstore::btree::vs::BTreeNode>();
+    auto c_guard = OptimisticPageGuard<leanstore::btree::vs::BTreeNode>::manuallyAssembleGuard(std::move(o_guard), bf);
+    auto ret_code = vs_btree.kWayMerge(p_guard, c_guard, parent_handler);
+    p_guard.kill();
+    c_guard.kill();
   };
   auto print_stats = [&]() {
     cout << "Inner = " << vs_btree.countInner() << endl;
@@ -74,7 +78,7 @@ int main(int argc, char** argv)
     vs_btree.iterateAllPages([&](leanstore::btree::vs::BTreeNode&) { return 0; },
                              [&](leanstore::btree::vs::BTreeNode& leaf) {
                                csv << t_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_bstar << "," << FLAGS_su_merge
-                                   << endl;
+                                   << "," << FLAGS_tag << endl;
                                return 0;
                              });
   };
@@ -91,7 +95,16 @@ int main(int argc, char** argv)
   tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
   begin = chrono::high_resolution_clock::now();
-  if (FLAGS_random_insert) {
+  if (FLAGS_in != "") {
+    utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
+    tuple_count = input_strings.size();
+    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+        vs_btree.insert(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8,
+                        reinterpret_cast<u8*>(&t_i));
+      }
+    });
+  } else if (FLAGS_random_insert) {
     vector<u64> random_keys(tuple_count);
     tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
       for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
@@ -128,16 +141,28 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   vector<thread> threads;
   sleep(1);
-  if (FLAGS_su_merge)
+  if (FLAGS_su_merge) {
     threads.emplace_back([&]() {
       running_threads_counter++;
-      while (keep_running) {  // && (FLAGS_stop_at == 0 || db.getBufferManager().consumedPages() <= FLAGS_stop_at)
-        Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
-        compress_bf(k);
-        WorkerCounters::myCounters().tx++;
+      ThreadCounters::registerThread("merge");
+      if (FLAGS_in == "") {
+        while (keep_running) {
+          Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
+          u8 key_bytes[sizeof(Key)];
+          compress_bf(key_bytes, fold(key_bytes, k));
+          WorkerCounters::myCounters().tx++;
+        }
+      } else {
+        utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
+        while (keep_running) {
+          Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
+          compress_bf(reinterpret_cast<u8*>(const_cast<char*>(input_strings[k].data())), input_strings[k].size());
+          WorkerCounters::myCounters().tx++;
+        }
       }
       running_threads_counter--;
     });
+  }
   // -------------------------------------------------------------------------------------
   {
     // Shutdown threads
@@ -153,19 +178,35 @@ int main(int argc, char** argv)
   }
   // -------------------------------------------------------------------------------------
   sleep(1);
-  tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
-    for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-      Payload result;
-      ensure(table.lookup(t_i, result));
-      ensure(result == payload);
+  if (FLAGS_verify) {
+    if (FLAGS_in != "") {
+      utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
+      tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+        for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+          bool flag = true;
+          vs_btree.lookupOne(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(),
+                             [&](const u8* payload, u16 payload_length) {
+                               flag &= (payload_length == 8);
+                               flag &= (*reinterpret_cast<const u64*>(payload) == t_i);
+                             });
+          ensure(flag);
+        }
+      });
+    } else {
+      tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+        for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+          Payload result;
+          ensure(table.lookup(t_i, result));
+          ensure(result == payload);
+        }
+      });
     }
-  });
+  }
   // -------------------------------------------------------------------------------------
   if (FLAGS_print_fill_factors)
     print_fill_factors(csv, 1);
   // -------------------------------------------------------------------------------------
   print_stats();
-  cout << merges_counter << endl;
   // -------------------------------------------------------------------------------------
   return 0;
 }

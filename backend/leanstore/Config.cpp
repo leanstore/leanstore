@@ -10,7 +10,7 @@ DEFINE_uint32(free_pct, 1, "pct");
 DEFINE_uint32(partition_bits, 6, "bits per partition");
 DEFINE_uint32(pp_threads, 1, "number of page provider threads");
 // -------------------------------------------------------------------------------------
-DEFINE_string(csv_path, "./log.csv", "");
+DEFINE_string(csv_path, "./log", "");
 DEFINE_bool(csv_truncate, false, "");
 DEFINE_string(ssd_path, "./leanstore", "");
 DEFINE_uint32(async_batch_size, 256, "");

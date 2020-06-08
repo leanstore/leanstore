@@ -68,7 +68,7 @@ int main(int argc, char** argv)
   cout << "-------------------------------------------------------------------------------------" << endl;
   // -------------------------------------------------------------------------------------
   // Connection: either divide the workload into HW threads. or one after another
-  atomic<u64> connections_done = 0;
+  atomic<u64> connections_done = 0, threads_counter = 0;
   auto olap = [&](const u64 c_i) {
     const u64 range = convert_gib_to_n(FLAGS_olap_gib);
     if (FLAGS_pg) {
@@ -82,7 +82,8 @@ int main(int argc, char** argv)
       const u64 chunk_size = range / FLAGS_worker_threads;
       for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
         threads.emplace_back(
-            [&, chunk_size](const u32 begin) {
+            [&, chunk_size](const u64 begin) {
+              threads_counter++;
               Payload local_payload;
               for (u64 key = begin; key < chunk_size; key++) {
                 table.lookup(key, local_payload);
@@ -99,13 +100,17 @@ int main(int argc, char** argv)
   chrono::high_resolution_clock::time_point begin, end;
   begin = chrono::high_resolution_clock::now();
   for (unsigned c_i = 0; c_i < FLAGS_connections; c_i++) {
-    threads.emplace_back([&, c_i]() { olap(c_i); });
+    threads.emplace_back([&, c_i]() {
+        threads_counter++;
+        olap(c_i); });
   }
   for (auto& thread : threads) {
     thread.join();
   }
+  ensure(connections_done == FLAGS_connections);
   end = chrono::high_resolution_clock::now();
   cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
+  cout << threads_counter << endl;
   // -------------------------------------------------------------------------------------
   return 0;
 }
