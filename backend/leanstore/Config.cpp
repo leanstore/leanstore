@@ -42,6 +42,7 @@ DEFINE_uint64(cm_period, 14, "as exponent of 2");
 DEFINE_uint64(cm_slowpath_threshold, 1, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(su_merge, false, "");
+DEFINE_uint64(su_kwaymerge, 5, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff, 512, "");
 DEFINE_bool(mutex, true, "");

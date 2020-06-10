@@ -30,6 +30,7 @@ DECLARE_uint64(cm_period);
 DECLARE_uint64(cm_slowpath_threshold);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(su_merge);
+DECLARE_uint64(su_kwaymerge);
 // -------------------------------------------------------------------------------------
 DECLARE_string(zipf_path);
 DECLARE_double(zipf_factor);

@@ -870,7 +870,7 @@ BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_gu
     return KWayMergeReturnCode::NOTHING;
   }
   // -------------------------------------------------------------------------------------
-  constexpr u8 MAX_MERGE_PAGES = 5;
+  const u8 MAX_MERGE_PAGES = FLAGS_su_kwaymerge;
   s16 pos = parent_handler.pos;
   u8 pages_count = 1;
   s16 max_right;
@@ -893,6 +893,7 @@ BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_gu
     total_fill_factor += guards[max_right - pos]->fillFactorAfterCompaction();
     pages_count++;
     if ((pages_count - std::ceil(total_fill_factor)) >= (1)) {
+      // we can probably save a page by merging all together so there is no need to look furhter
       break;
     }
   }
