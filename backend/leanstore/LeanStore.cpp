@@ -198,7 +198,6 @@ void LeanStore::debuggingThread()
     for (const auto& stat : dt_entries) {
       dts_csv << "," << stat.name;
     }
-    dts_csv << "t";
     for (u64 r_i = 0; r_i < WorkerCounters::max_researchy_counter; r_i++) {
       dts_csv << ","
               << "dt_researchy_" << std::to_string(r_i);

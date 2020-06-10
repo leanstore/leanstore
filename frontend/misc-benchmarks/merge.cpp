@@ -55,6 +55,9 @@ int main(int argc, char** argv)
   }
   // -------------------------------------------------------------------------------------
   auto compress_bf = [&](u8* key_bytes, u16 key_length) {
+    static u64 sleep_counter = 0;
+    static u64 succ_counter = 0;
+    // -------------------------------------------------------------------------------------
     BufferFrame* bf;
     ensure(vs_btree.lookupOne(key_bytes, key_length, [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); }));
     OptimisticGuard o_guard = OptimisticGuard(bf->header.latch);
@@ -63,6 +66,19 @@ int main(int argc, char** argv)
     auto p_guard = parent_handler.getParentReadPageGuard<leanstore::btree::vs::BTreeNode>();
     auto c_guard = OptimisticPageGuard<leanstore::btree::vs::BTreeNode>::manuallyAssembleGuard(std::move(o_guard), bf);
     auto ret_code = vs_btree.kWayMerge(p_guard, c_guard, parent_handler);
+    WorkerCounters::myCounters().dt_researchy[0][1]++;
+    if (ret_code == leanstore::btree::vs::BTree::KWayMergeReturnCode::FULL_MERGE) {
+      succ_counter++;
+    }
+    sleep_counter++;
+    if (sleep_counter == 10) {
+      sleep_counter = 0;
+      auto l_succ_counter = succ_counter;
+      succ_counter = 0;
+      if (l_succ_counter < FLAGS_y) {
+        usleep(100);
+      }
+    }
     p_guard.kill();
     c_guard.kill();
   };
@@ -98,6 +114,8 @@ int main(int argc, char** argv)
   if (FLAGS_in != "") {
     utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
     tuple_count = input_strings.size();
+    PerfEvent e;
+    PerfEventBlock b(e, tuple_count);
     tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
       for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
         vs_btree.insert(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8,

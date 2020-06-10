@@ -75,11 +75,8 @@ struct BTreeLeaf : public BTreeLeafBase {
         payloads[pos] = p;
         return;
       }
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
       memmove(keys + pos + 1, keys + pos, sizeof(Key) * (count - pos));
       memmove(payloads + pos + 1, payloads + pos, sizeof(Payload) * (count - pos));
-#pragma GCC diagnostic pop
       keys[pos] = k;
       payloads[pos] = p;
     } else {
@@ -93,11 +90,8 @@ struct BTreeLeaf : public BTreeLeafBase {
   {
     new_leaf.count = count - (count / 2);
     count = count - new_leaf.count;
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memcpy(new_leaf.keys, keys + count, sizeof(Key) * new_leaf.count);
     memcpy(new_leaf.payloads, payloads + count, sizeof(Payload) * new_leaf.count);
-#pragma GCC diagnostic pop
     sep = keys[count - 1];
   }
 };
@@ -147,21 +141,15 @@ struct BTreeInner : public BTreeInnerBase {
     new_inner.count = count - (count / 2);
     count = count - new_inner.count - 1;
     sep = keys[count];
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memcpy(new_inner.keys, keys + count + 1, sizeof(Key) * (new_inner.count + 1));
     memcpy(new_inner.children, children + count + 1, sizeof(Swip<BTreeInner<Key>>) * (new_inner.count + 1));
-#pragma GCC diagnostic pop
   }
 
   void insert(Key k, Swip<BTreeInner<Key>> child)
   {
     unsigned pos = lowerBound(k);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memmove(keys + pos + 1, keys + pos, sizeof(Key) * (count - pos + 1));
     memmove(children + pos + 1, children + pos, sizeof(Swip<BTreeInner<Key>>) * (count - pos + 1));
-#pragma GCC diagnostic pop
     keys[pos] = k;
     children[pos] = child;
     std::swap(children[pos], children[pos + 1]);
