@@ -56,6 +56,7 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   auto compress_bf = [&](u8* key_bytes, u16 key_length) {
     static u64 sleep_counter = 0;
+    static u64 sleep_ms = 100;
     static u64 succ_counter = 0;
     // -------------------------------------------------------------------------------------
     BufferFrame* bf;
@@ -76,7 +77,10 @@ int main(int argc, char** argv)
       auto l_succ_counter = succ_counter;
       succ_counter = 0;
       if (l_succ_counter < FLAGS_y) {
-        usleep(100);
+        usleep(sleep_ms);
+        sleep_ms++;
+      } else {
+        sleep_ms = 100;
       }
     }
     p_guard.kill();
