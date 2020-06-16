@@ -16,5 +16,13 @@ sqldf("select avg(ff), min(ff), max(ff), flag from df group by flag")
 
 sqldf("select c.*, s.space_usage_gib from cpu c, stats s where name ='merge' and instr > 0 and s.t=c.t")
 
+after = sqldf("select * from d where flag = 1")
+before = sqldf("select * from d where flag = 0")
+
+hist(after$ff)
+
+hist(before$ff)
+
+>
 # raw: 3,8 + 0,5 = 4,3 GiB B+: 4,5 GiB, B+-EM: 3,5 GiB
 # 72701109 lines --> 0,5 GiB u64 payloads

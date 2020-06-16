@@ -17,6 +17,7 @@
 // -------------------------------------------------------------------------------------
 #include <iostream>
 // -------------------------------------------------------------------------------------
+DEFINE_string(dataset, "integers", "");
 DEFINE_string(in, "", "");
 DEFINE_bool(random_insert, false, "");
 DEFINE_bool(verify, false, "");
@@ -115,7 +116,7 @@ int main(int argc, char** argv)
   tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
   begin = chrono::high_resolution_clock::now();
-  if (FLAGS_in != "") {
+  if (FLAGS_dataset == "strings") {
     utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
     tuple_count = input_strings.size();
     PerfEvent e;
@@ -167,7 +168,7 @@ int main(int argc, char** argv)
     threads.emplace_back([&]() {
       running_threads_counter++;
       ThreadCounters::registerThread("merge");
-      if (FLAGS_in == "") {
+      if (FLAGS_dataset == "integers") {
         while (keep_running) {
           Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
           u8 key_bytes[sizeof(Key)];
@@ -201,7 +202,7 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   sleep(1);
   if (FLAGS_verify) {
-    if (FLAGS_in != "") {
+    if (FLAGS_dataset == "strings") {
       utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
       tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
         for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
