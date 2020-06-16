@@ -462,10 +462,7 @@ bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPage
     BTreeNode tmp(true);
     tmp.setFences(left->getLowerFenceKey(), left->lower_fence.length, lf_key, lf_length);
     left->copyKeyValueRange(&tmp, 0, 0, new_left_count);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memcpy(left.ptr(), &tmp, sizeof(BTreeNode));
-#pragma GCC diagnostic pop
     left->makeHint();
     ensure(left->count == new_left_count);
   }
@@ -474,10 +471,7 @@ bool BTree::trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPage
     BTreeNode tmp(true);
     tmp.setFences(uf_key, uf_length, right->getUpperFenceKey(), right->upper_fence.length);
     right->copyKeyValueRange(&tmp, 0, uf_pos + 1, new_right_count);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
     memcpy(right.ptr(), &tmp, sizeof(BTreeNode));
-#pragma GCC diagnostic pop
     right->makeHint();
     ensure(right->count == new_right_count);
   }
@@ -866,6 +860,7 @@ BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_gu
                                             OptimisticPageGuard<BTreeNode>& c_guard,
                                             ParentSwipHandler& parent_handler)
 {
+  WorkerCounters::myCounters().dt_researchy[0][1]++;
   if (c_guard->fillFactorAfterCompaction() >= 0.9) {  // || utils::RandomGenerator::getRandU64(0, 100) >= FLAGS_y
     return KWayMergeReturnCode::NOTHING;
   }

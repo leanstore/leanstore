@@ -48,6 +48,10 @@ void LeanStore::registerConfigEntry(string name, statCallback b)
   config_entries.emplace_back(std::move(name), b);
 }
 // -------------------------------------------------------------------------------------
+u64 LeanStore::getConfigHash() {
+  return config_hash;
+}
+// -------------------------------------------------------------------------------------
 void LeanStore::debuggingThread()
 {
   pthread_setname_np(pthread_self(), "debugging_thread");
@@ -136,6 +140,7 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_cm_period", [&](ostream& out) { out << FLAGS_cm_period; });
   config_entries.emplace_back("c_cm_slowpath_threshold", [&](ostream& out) { out << FLAGS_cm_slowpath_threshold; });
   // -------------------------------------------------------------------------------------
+  config_entries.emplace_back("c_su_kwaymerge", [&](ostream& out) { out << FLAGS_su_kwaymerge; });
   config_entries.emplace_back("c_su_merge", [&](ostream& out) { out << FLAGS_su_merge; });
   // -------------------------------------------------------------------------------------
   config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
@@ -145,8 +150,8 @@ void LeanStore::debuggingThread()
   for (const auto& stat : config_entries) {
     stat.callback(config_concatenation);
   }
-  const u64 config_hash = std::hash<std::string>{}(config_concatenation.str());
-  config_entries.emplace_back("c_hash", [&config_hash](ostream& out) { out << config_hash; });
+  config_hash = std::hash<std::string>{}(config_concatenation.str());
+  config_entries.emplace_back("c_hash", [&](ostream& out) { out << config_hash; });
   // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   string dt_name;

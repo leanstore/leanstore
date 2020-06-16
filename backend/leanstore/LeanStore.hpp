@@ -31,11 +31,12 @@ class LeanStore
   vector<StatEntry> stat_entries, config_entries, dt_entries;
   atomic<u64> bg_threads_counter = 0;
   atomic<bool> bg_threads_keep_running = true;
+  u64 config_hash = 0;
   // -------------------------------------------------------------------------------------
-
  public:
   LeanStore();
   void registerConfigEntry(string name, statCallback b);
+  u64 getConfigHash();
   void registerThread(string name);
   // -------------------------------------------------------------------------------------
   template <typename Key, typename Value>
