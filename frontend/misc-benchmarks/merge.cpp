@@ -20,6 +20,7 @@
 DEFINE_string(in, "", "");
 DEFINE_bool(random_insert, false, "");
 DEFINE_bool(verify, false, "");
+DEFINE_bool(aggresive, false, "");
 DEFINE_bool(print_fill_factors, false, "");  // 1582587
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
@@ -67,20 +68,22 @@ int main(int argc, char** argv)
     auto p_guard = parent_handler.getParentReadPageGuard<leanstore::btree::vs::BTreeNode>();
     auto c_guard = OptimisticPageGuard<leanstore::btree::vs::BTreeNode>::manuallyAssembleGuard(std::move(o_guard), bf);
     auto ret_code = vs_btree.kWayMerge(p_guard, c_guard, parent_handler);
-    WorkerCounters::myCounters().dt_researchy[0][1]++;
-    if (ret_code == leanstore::btree::vs::BTree::KWayMergeReturnCode::FULL_MERGE) {
-      succ_counter++;
-    }
-    sleep_counter++;
-    if (sleep_counter == 10) {
-      sleep_counter = 0;
-      auto l_succ_counter = succ_counter;
-      succ_counter = 0;
-      if (l_succ_counter < FLAGS_y) {
-        usleep(sleep_ms);
-        sleep_ms++;
-      } else {
-        sleep_ms = 100;
+    if (FLAGS_aggresive) {
+    } else {
+      if (ret_code == leanstore::btree::vs::BTree::KWayMergeReturnCode::FULL_MERGE) {
+        succ_counter++;
+      }
+      sleep_counter++;
+      if (sleep_counter == 10) {
+        sleep_counter = 0;
+        auto l_succ_counter = succ_counter;
+        succ_counter = 0;
+        if (l_succ_counter < FLAGS_y) {
+          usleep(sleep_ms);
+          sleep_ms++;
+        } else {
+          sleep_ms = 100;
+        }
       }
     }
     p_guard.kill();
@@ -115,43 +118,45 @@ int main(int argc, char** argv)
   tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
   begin = chrono::high_resolution_clock::now();
-  if (FLAGS_in != "") {
-    utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
-    tuple_count = input_strings.size();
+  {
     PerfEvent e;
     PerfEventBlock b(e, tuple_count);
-    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
-      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-        vs_btree.insert(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8,
-                        reinterpret_cast<u8*>(&t_i));
-      }
-    });
-  } else if (FLAGS_random_insert) {
-    vector<u64> random_keys(tuple_count);
-    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
-      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-        random_keys[t_i] = t_i;
-      }
-    });
-    std::random_shuffle(random_keys.begin(), random_keys.end());
-    sleep(1);
-    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
-      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-        table.insert(random_keys[t_i], payload);
-        WorkerCounters::myCounters().tx++;
-      }
-    });
-  } else {
-    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
-      for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-        table.insert(t_i, payload);
-        WorkerCounters::myCounters().tx++;
-      }
-    });
+    if (FLAGS_in != "") {
+      utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
+      tuple_count = input_strings.size();
+      tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+        for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+          vs_btree.insert(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8,
+                          reinterpret_cast<u8*>(&t_i));
+        }
+      });
+    } else if (FLAGS_random_insert) {
+      vector<u64> random_keys(tuple_count);
+      tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+        for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+          random_keys[t_i] = t_i;
+        }
+      });
+      std::random_shuffle(random_keys.begin(), random_keys.end());
+      sleep(1);
+      tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+        for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+          table.insert(random_keys[t_i], payload);
+          WorkerCounters::myCounters().tx++;
+        }
+      });
+    } else {
+      tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
+        for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+          table.insert(t_i, payload);
+          WorkerCounters::myCounters().tx++;
+        }
+      });
+    }
   }
-  // -------------------------------------------------------------------------------------
   end = chrono::high_resolution_clock::now();
   cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
+  // -------------------------------------------------------------------------------------
   sleep(1);
   print_stats();
   // -------------------------------------------------------------------------------------
