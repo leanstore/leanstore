@@ -16,7 +16,7 @@ function benchmarkA() { # URLs
     rm -f $CSV_PATH"*.csv"
     (cd $EXEC_DIR; make -j $EXEC_NAME)
     for FLAGS_worker_threads in 10; do
-    for FLAGS_target_gib in 2; do
+    for FLAGS_target_gib in 20; do
     for FLAGS_dataset in strings integers; do
     for FLAGS_insertion_order in seq rnd; do #  integers rnd
     for FLAGS_su_kwaymerge in 3 4 5 6 7 8 9 10 11 12 13 14 15; do

@@ -24,13 +24,14 @@ joinResults <- function(path) {
     return(final)
 }
 
-path <- './em_a'
+path <- './tmp'
 joined <- joinResults(path)
-ff=read.csv(paste(c(path, '_merge.csv'), collapse=''))
 
-config=sqldf("select c_hash, c_su_kwaymerge, min(space_usage_gib) gib from joined group by c_hash, c_su_kwaymerge")
+ff=read.csv.sql(paste(c(path, '_merge.csv'), collapse=''), sql = 'select * from file where flag = 1')
 
-sqldf("select c_su_kwaymerge,gib, f.c_hash,tag,flag, avg(ff), min(ff), median(ff) from ff f, config j where f.c_hash = j.c_hash and flag =1 group by tag, f.c_hash,flag, c_su_kwaymerge order by tag asc, gib desc")
+config=sqldf("select c_tag,c_hash, c_su_kwaymerge, min(space_usage_gib) gib from joined group by c_hash, c_su_kwaymerge")
+
+sqldf("select c_su_kwaymerge,gib,j.c_hash,tag,flag, avg(ff), min(ff), median(ff) from ff f, config j where f.c_hash = j.c_hash and flag =1 group by tag, f.c_hash,flag, c_su_kwaymerge order by tag asc, gib desc")
 
 
 sqldf("select c_hash, t, 100.0 *  su_merge_full_counter /dt_researchy_1, dt_researchy_1, dt_researchy_2, dt_researchy_3, dt_researchy_4,dt_researchy_5, su_merge_full_counter, su_merge_partial_counter from dts where su_merge_full_counter > 0 group by c_hash, t")

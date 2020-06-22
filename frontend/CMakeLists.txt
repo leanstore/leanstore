@@ -69,3 +69,7 @@ target_include_directories(fairness PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(scheduler misc-benchmarks/scheduler.cpp)
 target_link_libraries(scheduler leanstore Threads::Threads)
 target_include_directories(scheduler PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(ut misc-benchmarks/ut.cpp)
+target_link_libraries(ut leanstore Threads::Threads)
+target_include_directories(ut PRIVATE ${SHARED_INCLUDE_DIRECTORY})

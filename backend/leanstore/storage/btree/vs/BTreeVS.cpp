@@ -599,12 +599,12 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       // -------------------------------------------------------------------------------------
       if (FLAGS_cm_split && local_restarts_counter > 0) {
         const u64 random_number = utils::RandomGenerator::getRandU64();
-        if ((random_number & ((1ul << FLAGS_cm_update_on) - 1)) == 0) {
+        if ((random_number & ((1ull << FLAGS_cm_update_on) - 1)) == 0) {
           s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
           c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
           c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
           c_x_guard.bf->header.contention_tracker.access_counter++;
-          if ((random_number & ((1ul << FLAGS_cm_period) - 1)) == 0) {
+          if ((random_number & ((1ull << FLAGS_cm_period) - 1)) == 0) {
             const u64 current_restarts_counter = c_x_guard.bf->header.contention_tracker.restarts_counter;
             const u64 current_access_counter = c_x_guard.bf->header.contention_tracker.access_counter;
             const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
