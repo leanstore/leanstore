@@ -14,6 +14,9 @@ std::vector<u64> UserThreadManager::uts_blocked;
 static thread_local s64 current_user_thread_slot = -1;
 static thread_local ucontext_t* current_uctx = nullptr;
 static thread_local s64 worker_id = -1;
+static thread_local std::function<void(std::function<void()>)> work_to_execute_after_context_switch;
+static thread_local bool is_work_delegated = false;
+static atomic<s64> in_flight = 0;
 // -------------------------------------------------------------------------------------
 static void exec()
 {
@@ -23,7 +26,7 @@ static void exec()
 // -------------------------------------------------------------------------------------
 void UserThreadManager::destroy()
 {
-  while (uts_ready.size() > 0) {
+  while (uts_ready.size() + in_flight > 0) {
   }
   keep_running = false;
   while (running_threads > 0) {
@@ -54,6 +57,7 @@ void UserThreadManager::init(u64 n)
             utm_mutex.unlock();
             continue;
           }
+          in_flight++;
           uts_ready.pop_back();
         } else {
           current_user_thread_slot = -1;
@@ -66,9 +70,24 @@ void UserThreadManager::init(u64 n)
             makecontext(&th->context, (void (*)())exec, 0);
             th->init = true;
             th->worker_id = worker_id;
+          } else {
+            in_flight--;
           }
           assert(current_user_thread_slot != -1);
           posix_check(swapcontext(current_uctx, &th->context) != -1);
+          if (is_work_delegated) {
+            // after sleepThenCall
+            const s64 slot_id = current_user_thread_slot;
+            auto revive = [&, slot_id]() {
+              utm_mutex.lock();
+              uts_ready.push_back(slot_id);
+              utm_mutex.unlock();
+            };
+            work_to_execute_after_context_switch(revive);
+            is_work_delegated = false;
+          } else {
+            in_flight--;
+          }
         }
       }
       running_threads--;
@@ -91,16 +110,12 @@ void UserThreadManager::addThread(std::function<void()> run)
   utm_mutex.unlock();
 }
 // -------------------------------------------------------------------------------------
-void UserThreadManager::asyncCall(std::function<void(std::function<void()>)> work)
+void UserThreadManager::sleepThenCall(std::function<void(std::function<void()>)> work)
 {
   assert(current_user_thread_slot != -1);
-  s64 slot_id = current_user_thread_slot;
-  auto revive = [&, slot_id]() {
-    utm_mutex.lock();
-    uts_ready.push_back(slot_id);
-    utm_mutex.unlock();
-  };
-  work(revive);
+  work_to_execute_after_context_switch = work;
+  const s64 slot_id = current_user_thread_slot;
+  is_work_delegated = true;
   posix_check(swapcontext(&uts[slot_id].context, current_uctx) != -1);
 }
 // -------------------------------------------------------------------------------------

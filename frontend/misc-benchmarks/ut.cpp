@@ -2,6 +2,7 @@
 
 #include "Exceptions.hpp"
 #include "leanstore/Config.hpp"
+#include "leanstore/storage/buffer-manager/BufferFrame.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
@@ -34,6 +35,57 @@
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 using namespace leanstore::threads;
+using namespace leanstore::buffermanager;
+using leanstore::buffermanager::PAGE_SIZE;
+// -------------------------------------------------------------------------------------
+struct SIO {
+  int ssd_fd = -1;
+  SIO()
+  {
+    int flags = O_RDWR;
+    if (FLAGS_trunc) {
+      flags |= O_TRUNC | O_CREAT;
+    }
+    ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
+    posix_check(ssd_fd > -1);
+    if (FLAGS_falloc > 0) {
+      const u64 gib_size = 1024ull * 1024ull * 1024ull;
+      auto dummy_data = (u8*)aligned_alloc(512, gib_size);
+      for (u64 i = 0; i < FLAGS_falloc; i++) {
+        const int ret = pwrite(ssd_fd, dummy_data, gib_size, gib_size * i);
+        posix_check(ret == gib_size);
+      }
+      free(dummy_data);
+      fsync(ssd_fd);
+    }
+    ensure(fcntl(ssd_fd, F_GETFL) != -1);
+  }
+  void read(u64 pid, u8* destination)
+  {
+    const int fd = ssd_fd;
+    UserThreadManager::sleepThenCall([&, fd, pid, destination](std::function<void()> revive) {
+      std::thread t([&, pid, destination, fd, revive]() {
+        const int bytes_read = pread(fd, destination, PAGE_SIZE, pid * PAGE_SIZE);
+        ensure(bytes_read == PAGE_SIZE);
+        revive();
+      });
+      t.detach();
+    });
+  }
+  void write(u64 pid, u8* src)
+  {
+    const int fd = ssd_fd;
+    UserThreadManager::sleepThenCall([&, fd, pid, src](std::function<void()> revive) {
+      std::thread t([&, pid, src, fd, revive]() {
+        const int bytes_read = pwrite(fd, src, PAGE_SIZE, pid * PAGE_SIZE);
+        ensure(bytes_read == PAGE_SIZE);
+        revive();
+      });
+      t.detach();
+    });
+  }
+};
+// -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
   gflags::SetUsageMessage("");
@@ -43,21 +95,20 @@ int main(int argc, char** argv)
   for (u64 i = 0; i < FLAGS_y; i++)
     UserThreadManager::addThread([&, i]() { cout << "Hello from user thread " << i << endl; });
 
-  std::atomic<bool> aio_ready = false;
-  std::function<void()> to_revive;
+  SIO sio;
   UserThreadManager::addThread([&]() {
-    cout << "aio thread " << endl;
-    UserThreadManager::asyncCall([&](std::function<void()> revive) {
-      cout << "doing aio work" << endl;
-      to_revive = revive;
-      aio_ready = true;
+    cout << "writing thread" << endl;
+    u8 page[PAGE_SIZE];
+    page[0] = 'A';
+    sio.write(0, page);
+    cout << "done writing" << endl;
+    UserThreadManager::addThread([&]() {
+      u8 page[PAGE_SIZE];
+      sio.read(0, page);
+      cout << page[0] << endl;
+      ensure(page[0] == 'A');
     });
-    cout << "last step" << endl;
   });
-
-  while (!aio_ready) {
-  }
-  to_revive();
   cout << "destroy" << endl;
   UserThreadManager::destroy();
   return 0;

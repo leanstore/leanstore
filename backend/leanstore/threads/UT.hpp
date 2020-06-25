@@ -50,7 +50,9 @@ struct UserThreadManager {
   static void init(u64);
   static void destroy();
   static void addThread(std::function<void()> run);
-  static void asyncCall(std::function<void(std::function<void()>)> work);
+  static void sleepThenCall(std::function<void(std::function<void()>)> work);
 };
+using UT = UserThread;
+using UTM = UserThreadManager;
 }  // namespace threads
 }  // namespace leanstore
