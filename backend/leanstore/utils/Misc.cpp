@@ -23,15 +23,15 @@ double calculateMTPS(std::chrono::high_resolution_clock::time_point begin, std::
   return (tps / 1000000.0);
 }
 // -------------------------------------------------------------------------------------
-void pinThisThread()
+void pinThisThreadRome()
 {
   static atomic<u64> a_t_i = 0;
   u64 t_i = a_t_i++;
-  pinThisThread(t_i);
+  pinThisThreadRome(t_i);
 }
 // -------------------------------------------------------------------------------------
 // Hard coded for Rome
-void pinThisThread(const u64 t_i)
+void pinThisThreadRome(const u64 t_i)
 {
   u64 pin_id;
   if (FLAGS_smt) {
@@ -42,10 +42,14 @@ void pinThisThread(const u64 t_i)
   } else {
     pin_id = t_i;
   }
-  // -------------------------------------------------------------------------------------
+  pinThisThread(pin_id);
+}
+// -------------------------------------------------------------------------------------
+void pinThisThread(const u64 t_i)
+{
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
-  CPU_SET(pin_id, &cpuset);
+  CPU_SET(t_i, &cpuset);
   pthread_t current_thread = pthread_self();
   if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
     throw;

@@ -92,24 +92,38 @@ int main(int argc, char** argv)
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   // -------------------------------------------------------------------------------------
   UserThreadManager::init(FLAGS_worker_threads);
-  for (u64 i = 0; i < FLAGS_y; i++)
-    UserThreadManager::addThread([&, i]() { cout << "Hello from user thread " << i << endl; });
-
-  SIO sio;
-  UserThreadManager::addThread([&]() {
-    cout << "writing thread" << endl;
-    u8 page[PAGE_SIZE];
-    page[0] = 'A';
-    sio.write(0, page);
-    cout << "done writing" << endl;
+  if (0) {
     UserThreadManager::addThread([&]() {
-      u8 page[PAGE_SIZE];
-      sio.read(0, page);
-      cout << page[0] << endl;
-      ensure(page[0] == 'A');
+      cout << "Hello from user thread " << endl;
+      UserThreadManager::sleepThenCall([&](std::function<void()> revive) {
+        std::thread t([&, revive]() {
+          sleep(2);
+          cout <<"time to wakeup" <<endl;
+          revive();
+        });
+        t.detach();
+      });
+      cout << "Bye bye from user thread " << endl;
     });
-  });
-  cout << "destroy" << endl;
+  } else {
+    for (u64 i = 0; i < FLAGS_y; i++)
+      UserThreadManager::addThread([&, i]() { cout << "Hello from user thread " << i << endl; });
+
+    SIO sio;
+    UserThreadManager::addThread([&]() {
+      cout << "writing thread" << endl;
+      u8 page[PAGE_SIZE];
+      page[0] = 'A';
+      sio.write(0, page);
+      cout << "done writing" << endl;
+      UserThreadManager::addThread([&]() {
+        u8 page[PAGE_SIZE];
+        sio.read(0, page);
+        cout << page[0] << endl;
+        ensure(page[0] == 'A');
+      });
+    });
+  }
   UserThreadManager::destroy();
   return 0;
 }

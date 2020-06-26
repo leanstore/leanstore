@@ -153,7 +153,7 @@ int main(int argc, char** argv)
             running_threads_counter++;
             pthread_setname_np(pthread_self(), "worker");
             if (FLAGS_pin_threads)
-              utils::pinThisThread(FLAGS_pp_threads + t_i);
+              utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
             while (keep_running) {
               if (FLAGS_pread_pct) {
                 u64 rnd = leanstore::utils::RandomGenerator::getRandU64(0, 1000);

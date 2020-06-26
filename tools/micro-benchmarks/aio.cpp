@@ -277,7 +277,7 @@ int main(int argc, char** argv)
     // -------------------------------------------------------------------------------------
     vector<thread> threads;
     threads.emplace_back([&]() {
-      utils::pinThisThread(1);
+      utils::pinThisThreadRome(1);
       while (true) {
         for (volatile u64 t_i = 0; t_i < uts.size(); t_i++) {
           auto& th = uts[t_i];

@@ -67,7 +67,7 @@ int main(int argc, char** argv)
     threads.emplace_back([&, t_i]() {
       threads_counter++;
       if (FLAGS_pin_threads)
-        utils::pinThisThread(FLAGS_pp_threads + t_i);
+        utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
       while (keep_running) {
         if (FLAGS_mixed && t_i % 4 == 0) {
           table.lookup(t_i, dummy_payload);

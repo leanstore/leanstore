@@ -14,7 +14,8 @@ u32 getBitsNeeded(u64 input);
 // -------------------------------------------------------------------------------------
 double calculateMTPS(std::chrono::high_resolution_clock::time_point begin, std::chrono::high_resolution_clock::time_point end, u64 factor);
 // -------------------------------------------------------------------------------------
-void pinThisThread();
+void pinThisThreadRome();
+void pinThisThreadRome(const u64 t_i);
 void pinThisThread(const u64 t_i);
 // -------------------------------------------------------------------------------------
 void printBackTrace();

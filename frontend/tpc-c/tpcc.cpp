@@ -101,7 +101,7 @@ int main(int argc, char** argv)
         pthread_setname_np(pthread_self(), "worker");
         const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
-          utils::pinThisThread(FLAGS_pp_threads + t_i);
+          utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
         while (keep_running) {
           tx(urand(w_begin, w_end));
           WorkerCounters::myCounters().tx++;
@@ -117,7 +117,7 @@ int main(int argc, char** argv)
         pthread_setname_np(pthread_self(), "worker");
         const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
-          utils::pinThisThread(FLAGS_pp_threads + t_i);
+          utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
         while (keep_running) {
           Integer w_id;
           if (FLAGS_zipf_factor == 0) {

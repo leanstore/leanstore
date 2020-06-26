@@ -62,7 +62,7 @@ int main(int argc, char** argv)
   for (s32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&, t_i]() {
       if (FLAGS_pin_threads)
-        utils::pinThisThread(t_i);
+        utils::pinThisThreadRome(t_i);
       while (keep_running) {
         if (FLAGS_type == "mutex") {
           bf.lock.lock();

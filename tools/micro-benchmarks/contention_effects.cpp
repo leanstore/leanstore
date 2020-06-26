@@ -93,7 +93,7 @@ int main(int argc, char** argv)
     for (u64 t_i = 0; t_i < FLAGS_threads; t_i++) {
       threads.emplace_back([&, t_i]() {
         if (FLAGS_pin_threads)
-          leanstore::utils::pinThisThread(t_i);
+          leanstore::utils::pinThisThreadRome(t_i);
         while (true) {
           u64 c_lock = lock.counter.load();
           DO_NOT_OPTIMIZE(c_lock);
@@ -102,7 +102,7 @@ int main(int argc, char** argv)
     }
     threads.emplace_back([&]() {
       if (FLAGS_pin_threads)
-        leanstore::utils::pinThisThread(FLAGS_threads + 1);
+        leanstore::utils::pinThisThreadRome(FLAGS_threads + 1);
       u64 counter = 0;
       PerfEvent e;
       e.startCounters();
