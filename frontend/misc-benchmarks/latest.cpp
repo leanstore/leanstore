@@ -52,7 +52,7 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   const u64 tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
   const u64 window_tuple_count =
-      FLAGS_latest_window_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage
+      FLAGS_latest_window_gib * 1024 * 1024 * 1024 * 1.0 / 1.0 / (sizeof(Key) + sizeof(Payload));  // 1.0 corresponds to 100% space usage
   // -------------------------------------------------------------------------------------
   const u64 n = tuple_count;
   // Insert values
@@ -74,7 +74,7 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   atomic<u64> window_offset = window_tuple_count;
   const u64 step_size =
-      FLAGS_latest_window_offset_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(Payload));  // 2.0 corresponds to 50% space usage;
+      FLAGS_latest_window_offset_gib * 1024 * 1024 * 1024 * 1.0 / 1.0 / (sizeof(Key) + sizeof(Payload));  // 1.0 corresponds to 100% space usage;
   auto zipf_random = std::make_unique<utils::ZipfGenerator>(window_tuple_count, FLAGS_zipf_factor);
   // -------------------------------------------------------------------------------------
   cout << setprecision(4) << endl;
