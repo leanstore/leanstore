@@ -11,7 +11,9 @@ dev.set(0)
 
 #df=read.csv('./intel/C_intel_long.csv')
 #df=read.csv('./C_rome_1000.csv')
-df=read.csv('./C_rome_short.csv')
+#df=read.csv('./C_mutex_overnight.csv')
+#df=read.csv('./C_rome_short.csv')
+df=read.csv('./C_mutex.csv')
 df=sqldf("select * from df where t >0")
 d= sqldf("
 select *, 1 as symbol from df where c_su_merge=0 and c_cm_split=0
@@ -25,18 +27,25 @@ outofmemory = sqldf("select a.txacc, o.* from (select symbol,c_su_merge,c_cm_spl
 
 tx <- ggplot(acc, aes(txacc, tx, color=factor(symbol), group=factor(symbol))) +
     geom_point(aes(shape=factor(symbol)), size=0.5, alpha=0.5) +
-    geom_point(data=outofmemory, aes(x=txacc,y=tx, color=factor(symbol), group=factor(symbol)), shape = 4, size=5) +
+    # include everything in one dataframe, outofmemory case as shape
+#    geom_point(data=outofmemory, aes(x=txacc,y=tx, color=factor(symbol), group=factor(symbol)), shape = 4, size=5) +
     scale_size_identity(name=NULL) +
-    scale_shape_discrete(name=NULL, breaks=c(1,2,3,4), labels=c("base", "+CS -EM","-CS +EM","+CS +EM")) +
-    scale_color_discrete(name =NULL, labels=c("base", "+CS -EM","-CS +EM","+CS +EM"), breaks=c(1,2,3,4)) +
+    scale_shape_discrete(name=NULL, breaks=c(1,2,3,4), labels=c("base", "+Contention Split","+XMerge","+Contention Split +XMerge")) +
+    scale_color_discrete(name =NULL, labels=c("base", "+Contention Split","+XMerge","+Contention Split +XMerge"), breaks=c(1,2,3,4)) +
     labs(x='Processed M Transactions [txn]', y = 'TPC-C throughput [txns/sec]') +
-    geom_smooth(method ="auto", size=0.5) +
+    geom_smooth(method ="auto", size=0.5, se=FALSE) +
 #    geom_line() +
     theme_bw() +
     theme(legend.position = 'top') +
-   facet_grid(row=vars(c_worker_threads))#geom_point(data=outofmemory, aes(x=t,y=tx, colour=factor(symbol)), shape =4, size= 10)
+    expand_limits(y=0) +
+   facet_grid(row=vars(c_worker_threads), scales="free")#geom_point(data=outofmemory, aes(x=t,y=tx, colour=factor(symbol)), shape =4, size= 10)
 print(tx)
 
 CairoPDF("./tpcc_C.pdf", bg="transparent")
 print(tx)
 dev.off()
+
+
+
+gdc=sqldf("select max(txacc) txacc,symbol, c_worker_threads from acc group by symbol, c_worker_threads")
+sqldf("select min(txacc) from gdc")

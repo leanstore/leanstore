@@ -43,6 +43,7 @@ DEFINE_uint64(cm_slowpath_threshold, 1, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(su_merge, false, "");
 DEFINE_uint64(su_kwaymerge, 5, "");
+DEFINE_double(su_target_pct, 80, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff, 512, "");
 DEFINE_bool(mutex, true, "");

@@ -35,7 +35,7 @@ class OptimisticPageGuard
  protected:
   OptimisticPageGuard(OptimisticLatch& swip_version) : bf_s_lock(OptimisticGuard(swip_version)), moved(false)
   {
-    WorkerCounters::myCounters().dt_researchy[0][8]++;
+    COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_researchy[0][8]++; }
     jumpmu_registerDestructor();
   }
   OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : bf(bf), bf_s_lock(std::move(read_guard)), moved(false)
@@ -92,9 +92,9 @@ class OptimisticPageGuard
       bf->header.latch.mutex.lock();
       bf_s_lock = OptimisticGuard(bf->header.latch, OptimisticGuard::IF_LOCKED::CAN_NOT_BE);
       bf_s_lock.mutex_locked_upfront = true;
-      WorkerCounters::myCounters().dt_researchy[0][9]++;
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_researchy[0][9]++; }
     } else {
-      WorkerCounters::myCounters().dt_researchy[0][8]++;
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_researchy[0][8]++; }
     }
     jumpmu_registerDestructor();
     p_guard.recheck();

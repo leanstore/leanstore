@@ -52,14 +52,20 @@ int main(int argc, char** argv)
   csv.open(FLAGS_csv_path + "_merge.csv", open_flags);
   csv.seekp(0, ios::end);
   csv << std::setprecision(2) << std::fixed;
-  if (FLAGS_csv_truncate) {
+  if (csv.tellp() == 0) {
     csv << "i,ff,flag,bstar,su_merge,tag,c_hash" << endl;
   }
   // -------------------------------------------------------------------------------------
   auto compress_bf = [&](u8* key_bytes, u16 key_length) {
-    static u64 sleep_counter = 0;
-    static u64 sleep_ms = 100;
-    static u64 succ_counter = 0;
+    static double sum_ff = 0;
+    static u64 try_counter = 0;
+    static u64 sleep_ms = 1000;
+    static const u64 sample_size = 3250;
+    static bool stop = false;
+    // -------------------------------------------------------------------------------------
+    if (stop) {
+      return;
+    }
     // -------------------------------------------------------------------------------------
     BufferFrame* bf;
     ensure(vs_btree.lookupOne(key_bytes, key_length, [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); }));
@@ -68,18 +74,26 @@ int main(int argc, char** argv)
     // -------------------------------------------------------------------------------------
     auto p_guard = parent_handler.getParentReadPageGuard<leanstore::btree::vs::BTreeNode>();
     auto c_guard = OptimisticPageGuard<leanstore::btree::vs::BTreeNode>::manuallyAssembleGuard(std::move(o_guard), bf);
-    auto ret_code = vs_btree.kWayMerge(p_guard, c_guard, parent_handler);
     if (FLAGS_aggressive) {
+      auto ret_code = vs_btree.kWayMerge(p_guard, c_guard, parent_handler);
     } else {
+      auto ret_code = vs_btree.kWayMerge(p_guard, c_guard, parent_handler);
       if (ret_code == leanstore::btree::vs::BTree::KWayMergeReturnCode::FULL_MERGE) {
-        succ_counter++;
       }
-      sleep_counter++;
-      if (sleep_counter == 10) {
-        sleep_counter = 0;
-        auto l_succ_counter = succ_counter;
-        succ_counter = 0;
-        if (l_succ_counter < FLAGS_y) {
+      sum_ff += c_guard->fillFactorAfterCompaction();
+      try_counter++;
+      if (try_counter == sample_size) {
+        try_counter = 0;
+        auto l_sum_ff = sum_ff;
+        sum_ff = 0;
+        // -------------------------------------------------------------------------------------
+        double avg_ff = l_sum_ff * 100.0 / sample_size;
+        WorkerCounters::myCounters().dt_researchy[0][5] = avg_ff;
+        // -------------------------------------------------------------------------------------
+        if (avg_ff >= FLAGS_su_target_pct) {
+          stop = true;
+          cout << "stop!" << endl;
+          sleep(FLAGS_run_for_seconds);
           usleep(sleep_ms);
           sleep_ms++;
         } else {
@@ -98,10 +112,10 @@ int main(int argc, char** argv)
   };
   // -------------------------------------------------------------------------------------
   auto print_fill_factors = [&](std::ofstream& csv, s32 flag) {
-    u64 t_i = 0;
+    u64 p_i = 0;
     vs_btree.iterateAllPages([&](leanstore::btree::vs::BTreeNode&) { return 0; },
                              [&](leanstore::btree::vs::BTreeNode& leaf) {
-                               csv << t_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_bstar << "," << FLAGS_su_merge
+                               csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_bstar << "," << FLAGS_su_merge
                                    << "," << FLAGS_tag << "," << db.getConfigHash() << endl;
                                return 0;
                              });
