@@ -1,24 +1,31 @@
-library(ggplot2)
-library(sqldf)
-library(Cairo)
-library(stringr)
-library(scales)
+source("../common.r", local = TRUE)
+setwd("../tpcc")
 # TPC-C A: 100 warehouse, in-memory, variable threads, with/-out split&merge
+
+stats=read.csv('./A_rome_stats.csv')
+d=sqldf("select c_tag, c_mutex,c_worker_threads,c_cm_split,max(tx) tx from stats group by c_worker_threads, c_cm_split,c_pin_threads, c_tag")
+d
+d=sqldf("
+select *, 0 as type from d where c_cm_split = false and c_mutex = false
+UNION
+select *, 1 as type from d where c_cm_split = false and c_mutex = true
+UNION
+select *, 2 as type from d where c_cm_split = true and c_mutex = true
+")
 
 dev.set(0)
 df=read.csv('./A_mutex.csv')
 df$c_mutex <- ordered(df$c_mutex,levels=c(0,1), labels=c("Spin", "Mutex"))
-d=sqldf("select c_pin_threads,c_worker_threads,c_cm_split,max(tx) tx from df group by c_worker_threads, c_cm_split,c_pin_threads")
 
-tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(c_cm_split), group=factor(c_cm_split))) +
+tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(type), group=factor(type))) +
     geom_point() +
     scale_x_discrete(name="worker threads") +
     scale_y_continuous(name="TPC-C throughput [txn/s]") +
-    scale_color_discrete(name=NULL, labels=c("baseline","+CS +EM")) +
+    scale_color_discrete(name=NULL, labels=c("Baseline","+Mutex", "+Contention Split")) +
     geom_line() +
     expand_limits(y=0) +
     theme_bw() +
-    facet_grid(row=vars(),col=vars())
+    facet_grid(row=vars(c_tag),col=vars())
 print(tx)
 
 CairoPDF("./tpcc_A_intel.pdf", bg="transparent", height=3)

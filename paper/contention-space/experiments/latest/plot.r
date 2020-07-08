@@ -1,8 +1,9 @@
-source("../common.r")
+source("../common.r", local = TRUE)
+setwd("../latest")
 
 dev.set(0)
-
 stats=read.csv('./latest_stats.csv')
+stats = sqldf("select * from stats where latest_window_offset_gib = 0.1")
 dts=read.csv('./latest_dts.csv')
 dts=sqldf("select d.*, s.latest_window_offset_gib from dts d, stats s where d.c_hash = s.c_hash")
 
@@ -10,24 +11,33 @@ tx <- ggplot(stats, aes(t, tx, color=factor(c_cm_split), group=factor(c_cm_split
     geom_point() +
     geom_line() +
     expand_limits(y=0, x=0) +
-    scale_color_manual(name =NULL, labels=c("Base", "+ Contention Split"), breaks=c(0,1), values=c("black", "red")) +
+    geom_vline(xintercept = 10, linetype="dashed") +
+    geom_vline(xintercept = 20, linetype="dashed") +
+    scale_color_manual(name =NULL, labels=c("Base", "+Contention Split +XMerge"), breaks=c(0,1), values=c("black", "purple")) +
 #    scale_color_discrete(name =NULL, labels=c("Base", "+ Contention Split"), breaks=c(0,1)) +
     theme(legend.position = 'top') +
-    facet_grid(rows=vars(latest_window_offset_gib))+
     labs(x='Time [sec]', y = 'Updates/second')
 tx
+CairoPDF("./latest.pdf", bg="transparent")
+print(tx)
+dev.off()
+
+
 so <- ggplot(dts, aes(t, cm_split_succ_counter)) +
-    geom_point(color='red') +
-    geom_line(color='red') +
+    geom_point(color='purple') +
+    geom_vline(xintercept = 10, linetype="dashed") +
+    geom_vline(xintercept = 20, linetype="dashed") +
+#    geom_line(color='purple') +
     expand_limits(y=0, x=0) +
-    facet_grid(rows=vars(latest_window_offset_gib))+
+#    facet_grid(rows=vars(latest_window_offset_gib))+
     labs(x='Time [sec]', y = 'Contention Splits/second')
 so
 mo <- ggplot(dts, aes(t, su_merge_full_counter)) +
-    geom_point(color='red') +
-    geom_line(color='red') +
+    geom_point(color='purple') +
+    geom_vline(xintercept = 10, linetype="dashed") +
+    geom_vline(xintercept = 20, linetype="dashed") +
     expand_limits(y=0, x=0) +
-    facet_grid(rows=vars(latest_window_offset_gib))+
+#    facet_grid(rows=vars(latest_window_offset_gib))+
     labs(x='Time [sec]', y = 'Eviction Merges/second')
 mo
 g2 <- ggplotGrob(tx)

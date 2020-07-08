@@ -37,7 +37,7 @@ tx <- ggplot(acc, aes(txacc, tx, color=factor(symbol), group=factor(symbol))) +
 #    geom_line() +
     theme_bw() +
     theme(legend.position = 'top') +
-    expand_limits(y=0) +
+    expand_limits(y=0, x=0) +
    facet_grid(row=vars(c_worker_threads), scales="free")#geom_point(data=outofmemory, aes(x=t,y=tx, colour=factor(symbol)), shape =4, size= 10)
 print(tx)
 

@@ -1,12 +1,12 @@
 #!/bin/bash -f
-
+# Runs on Skylake
 set -x
 set -e
 
 BUILD=${BUILD:-release}
 EXEC_DIR=../../../../$BUILD/frontend/
 EXEC_NAME="merge"
-IN=${FLAGS_in:-/bulk/datasets/urls.vector}
+IN=${IN:-/bulk/datasets/urls.vector}
 FLAGS_aggressive=${FLAGS_aggresive:-true}
 FLAGS_print_fill_factors=${FLAGS_print_fill_factors:-true}
 
@@ -26,7 +26,7 @@ function benchmarkA() { # URLs
             if [ "$FLAGS_insertion_order" = "seq" ]; then #
                 FLAGS_in=$IN".sorted"
             else
-                FLAGS_in=$IN
+                FLAGS_in=$IN".random"
             fi
         fi
 
@@ -64,6 +64,56 @@ function benchmarkA() { # URLs
 
 if [[ -n ${A} ]]; then
     benchmarkA
+    exit 0
+fi
+
+function benchmarkS() { # Sizes
+    CSV_PATH=${CSV_PATH:-"$(pwd)/size"}
+    rm -f ${CSV_PATH}*.csv
+    (cd $EXEC_DIR; make -j $EXEC_NAME)
+    for FLAGS_worker_threads in 10; do
+    for FLAGS_dram_gib in 20; do
+    for FLAGS_dataset in urls emails wikititles2; do
+    for FLAGS_insertion_order in seq rnd; do
+    for FLAGS_su_kwaymerge in 5; do
+      if [ "$FLAGS_insertion_order" = "seq" ]; then #
+        FLAGS_in=$IN$FLAGS_dataset".vector.sorted"
+      else
+         FLAGS_in=$IN$FLAGS_dataset".vector.random"
+      fi
+
+        (
+        $EXEC_DIR/$EXEC_NAME \
+            -worker_threads=$FLAGS_worker_threads \
+            -dram_gib=$FLAGS_dram_gib \
+            -csv_path=$CSV_PATH \
+            -nocsv_truncate \
+            -ssd_path="${SSD_PATH}" \
+            -run_for_seconds=30 \
+            -cool_pct=20 \
+            -pp_threads=0 \
+            -partition_bits=6 \
+            -free_pct=1 \
+            -print_fill_factors=false \
+            -aggressive\
+            -tag=$FLAGS_dataset"-"$FLAGS_insertion_order \
+            -insertion_order=$FLAGS_insertion_order \
+            -dataset=strings \
+            -in=$FLAGS_in \
+            -su_merge \
+            -su_kwaymerge=$FLAGS_su_kwaymerge
+    )
+
+    done
+    done
+    done
+    done
+    done
+}
+
+
+if [[ -n ${S} ]]; then
+    benchmarkS
     exit 0
 fi
 
