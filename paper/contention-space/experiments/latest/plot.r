@@ -4,6 +4,7 @@ dev.set(0)
 
 stats=read.csv('./latest_stats.csv')
 dts=read.csv('./latest_dts.csv')
+dts=sqldf("select d.*, s.latest_window_offset_gib from dts d, stats s where d.c_hash = s.c_hash")
 
 tx <- ggplot(stats, aes(t, tx, color=factor(c_cm_split), group=factor(c_cm_split))) +
     geom_point() +
@@ -15,7 +16,6 @@ tx <- ggplot(stats, aes(t, tx, color=factor(c_cm_split), group=factor(c_cm_split
     facet_grid(rows=vars(latest_window_offset_gib))+
     labs(x='Time [sec]', y = 'Updates/second')
 tx
-
 so <- ggplot(dts, aes(t, cm_split_succ_counter)) +
     geom_point(color='red') +
     geom_line(color='red') +
@@ -23,7 +23,6 @@ so <- ggplot(dts, aes(t, cm_split_succ_counter)) +
     facet_grid(rows=vars(latest_window_offset_gib))+
     labs(x='Time [sec]', y = 'Contention Splits/second')
 so
-
 mo <- ggplot(dts, aes(t, su_merge_full_counter)) +
     geom_point(color='red') +
     geom_line(color='red') +
@@ -31,7 +30,6 @@ mo <- ggplot(dts, aes(t, su_merge_full_counter)) +
     facet_grid(rows=vars(latest_window_offset_gib))+
     labs(x='Time [sec]', y = 'Eviction Merges/second')
 mo
-
 g2 <- ggplotGrob(tx)
 g3 <- ggplotGrob(so)
 g4 <- ggplotGrob(mo)
