@@ -28,3 +28,11 @@ joinResults <- function(path) {
     final$t <- t
     return(final)
 }
+
+breakByVariant <- c(1,2,3,4)
+labelByVariant <- c("Baseline", "+Contention Split", "+XMerge", "+Contention Split +XMerge")
+#colorByVariant <- c("black", "red","blue", "purple")
+colorByVariant <- c("#F8766D", "","#619CFF", "purple")
+# green: #00BA38
+
+# write.csv(arm, './A/arm/arm_stats.csv', quote=FALSE, row.names = FALSE)

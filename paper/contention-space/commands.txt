@@ -11,5 +11,5 @@ make -j tpcc && ./tpcc --ssd_path=/blk/adapter --worker_threads=1 --tpcc_warehou
 
 
 
-sudo apt install -y emacs libtbb-dev libaio-dev
-sudo apt install -y emacs libtbb-dev libaio-dev
+sudo apt update
+sudo apt install -y emacs libtbb-dev libaio-dev g++ git cmake
