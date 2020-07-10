@@ -19,6 +19,7 @@
 #include <vector>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
+DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
@@ -68,6 +69,7 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   db.registerConfigEntry("tpcc_warehouse_count", [&](ostream& out) { out << FLAGS_tpcc_warehouse_count; });
   db.registerConfigEntry("tpcc_warehouse_affinity", [&](ostream& out) { out << FLAGS_tpcc_warehouse_affinity; });
+  db.registerConfigEntry("run_until_tx", [&](ostream& out) { out << FLAGS_run_until_tx; });
   // -------------------------------------------------------------------------------------
   // tbb::task_scheduler_init task_scheduler(FLAGS_worker_threads);
   tbb::task_scheduler_init task_scheduler(thread::hardware_concurrency());
@@ -134,8 +136,17 @@ int main(int argc, char** argv)
     }
   }
   {
-    // Shutdown threads
-    sleep(FLAGS_run_for_seconds);
+    if (FLAGS_run_until_tx) {
+      while (true) {
+        if (db.getGlobalStats().accumulated_tx_counter >= FLAGS_run_until_tx) {
+          break;
+        }
+        usleep(500);
+      }
+    } else {
+      // Shutdown threads
+      sleep(FLAGS_run_for_seconds);
+    }
     keep_running = false;
     while (running_threads_counter) {
       MYPAUSE();

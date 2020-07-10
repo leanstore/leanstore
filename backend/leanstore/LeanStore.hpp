@@ -19,6 +19,9 @@ class LeanStore
     statCallback callback;
     StatEntry(string&& n, statCallback b) : name(std::move(n)), callback(b) {}
   };
+  struct GlobalStats {
+    u64 accumulated_tx_counter = 0;
+  };
   // -------------------------------------------------------------------------------------
  private:
   // Poor man catalog
@@ -32,11 +35,14 @@ class LeanStore
   atomic<u64> bg_threads_counter = 0;
   atomic<bool> bg_threads_keep_running = true;
   u64 config_hash = 0;
+  GlobalStats global_stats;
   // -------------------------------------------------------------------------------------
  public:
   LeanStore();
+  // -------------------------------------------------------------------------------------
   void registerConfigEntry(string name, statCallback b);
   u64 getConfigHash();
+  GlobalStats getGlobalStats();
   void registerThread(string name);
   // -------------------------------------------------------------------------------------
   template <typename Key, typename Value>

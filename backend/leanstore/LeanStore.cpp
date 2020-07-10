@@ -48,7 +48,8 @@ void LeanStore::registerConfigEntry(string name, statCallback b)
   config_entries.emplace_back(std::move(name), b);
 }
 // -------------------------------------------------------------------------------------
-u64 LeanStore::getConfigHash() {
+u64 LeanStore::getConfigHash()
+{
   return config_hash;
 }
 // -------------------------------------------------------------------------------------
@@ -223,6 +224,7 @@ void LeanStore::debuggingThread()
     total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
     // -------------------------------------------------------------------------------------
     local_tx = sum(WorkerCounters::worker_counters, &WorkerCounters::tx);
+    global_stats.accumulated_tx_counter += local_tx;
     local_total_free = 0;
     local_total_cool = 0;
     for (u64 p_i = 0; p_i < buffer_manager.partitions_count; p_i++) {
@@ -277,6 +279,11 @@ void LeanStore::debuggingThread()
   }
   stats_csv.close();
   bg_threads_counter--;
+}
+// -------------------------------------------------------------------------------------
+LeanStore::GlobalStats LeanStore::getGlobalStats()
+{
+  return global_stats;
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::persist()

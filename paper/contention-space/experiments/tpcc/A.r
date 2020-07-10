@@ -3,11 +3,20 @@ setwd("../tpcc")
 # TPC-C A: 100 warehouse, in-memory, variable threads, with/-out split&merge
 
 rome=read.csv('./A/rome/A_rome_stats.csv')
+romesmt=read.csv('./A/rome/A_smt_stats.csv')
 intel=read.csv('./A/intel/GenuineIntel_stats.csv')
 intel=sqldf("select * from intel where c_worker_threads <=96")
-arm=read.csv('./A/arm/arm_stats.csv')
+intel$c_tag <- "aws-c5.x24lage"
+numa=read.csv('./A/intel/numa4_stats.csv')
+numa=sqldf("select * from numa where c_worker_threads <=120")
+numa$c_tag <- "numa-4socket"
+arm20=read.csv('./A/arm/arm_stats.csv')
+arm20$c_tag <- "arm-ubuntu20.04"
+arm18=read.csv('./A/arm/arm-ubuntu18_stats.csv')
+arm18$c_tag <- "arm-ubuntu18.04"
 
-stats=sqldf("select * from rome UNION select * from intel UNION select * from arm")
+stats=sqldf("select * from rome UNION select * from intel UNION select * from arm18 UNION select * from arm20 UNION select * from numa")
+
 d=sqldf("select c_tag, c_mutex,c_worker_threads,c_cm_split,max(tx) tx from stats group by c_worker_threads, c_cm_split,c_pin_threads, c_tag, c_mutex")
 d=sqldf("
 select *, 1 as type from d where c_cm_split = false and c_mutex = true
@@ -16,7 +25,6 @@ select *, 3 as type from d where c_cm_split = true and c_mutex = true
 ")
 
 dev.set(0)
-
 tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(type), group=factor(type))) +
     geom_point() +
     scale_x_discrete(name="worker threads") +
