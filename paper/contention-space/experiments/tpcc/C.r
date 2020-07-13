@@ -11,7 +11,17 @@ dev.set(0)
 #df=read.csv('./C_mutex_overnight.csv')
 #df=read.csv('./C_rome_short.csv')
 #df=read.csv('./C_mutex_overnight.csv')
-df=read.csv('./tmp_stats.csv')
+#df=read.csv('./tmp_stats.csv')
+c1=read.csv('./C_t120_splitfalse_mergefalse_stats.csv')
+c2=read.csv('./C_t120_splittrue_mergefalse_stats.csv')
+c3=read.csv('./C_t120_splitfalse_mergetrue_stats.csv')
+c4=read.csv('./C_t120_splittrue_mergetrue_stats.csv')
+df=sqldf("
+select * from c1 UNION
+select * from c2 UNION
+select * from c3 UNION
+select * from c4
+")
 df=sqldf("select * from df where t >0 ")
 d= sqldf("
 select *, 1 as variant from df where c_su_merge=0 and c_cm_split=0
@@ -26,7 +36,7 @@ outofmemory = sqldf("select a.txacc, o.* from (select variant,c_su_merge,c_cm_sp
 tx <- ggplot(acc, aes(txacc, tx, color=factor(variant), group=factor(variant))) +
     geom_point(aes(shape=factor(variant)), size=0.5, alpha=0.5) +
     # include everything in one dataframe, outofmemory case as shape
-#    geom_point(data=outofmemory, aes(x=txacc,y=tx, color=factor(variant), group=factor(variant)), shape = 4, size=5) +
+    geom_point(data=outofmemory, aes(x=txacc,y=tx, color=factor(variant), group=factor(variant)), shape = 4, size=5) +
     scale_size_identity(name=NULL) +
     scale_shape_discrete(name=NULL, labels=labelByVariant, breaks=breakByVariant) +
     scale_color_manual(name =NULL, labels=labelByVariant, values=colorByVariant, breaks=breakByVariant) +

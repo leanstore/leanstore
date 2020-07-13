@@ -1,7 +1,7 @@
 library(ggplot2)
 library(sqldf)
 library(Cairo)
-library(stringr)
+#library(stringr)
 library(scales)
 library(gtable)
 library(grid)
@@ -32,7 +32,7 @@ joinResults <- function(path) {
 breakByVariant <- c(1,2,3,4)
 labelByVariant <- c("Baseline", "+Contention Split", "+XMerge", "+Contention Split +XMerge")
 #colorByVariant <- c("black", "red","blue", "purple")
-colorByVariant <- c("#F8766D", "","#619CFF", "purple")
+colorByVariant <- c("black", "#F8766D", "#619CFF", "purple")
 # green: #00BA38
 
 # write.csv(arm, './A/arm/arm_stats.csv', quote=FALSE, row.names = FALSE)
