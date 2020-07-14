@@ -139,6 +139,7 @@ int main(int argc, char** argv)
     if (FLAGS_run_until_tx) {
       while (true) {
         if (db.getGlobalStats().accumulated_tx_counter >= FLAGS_run_until_tx) {
+          cout << FLAGS_run_until_tx << " has been reached";
           break;
         }
         usleep(500);

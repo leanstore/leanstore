@@ -85,10 +85,11 @@ int main(int argc, char** argv)
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++)
     threads.emplace_back([&]() {
       running_threads_counter++;
+      Payload local_payload;
       const u64 max = window_offset + (FLAGS_run_for_seconds * step_size);
       while (keep_running) {
         Key k = utils::RandomGenerator::getRandU64(0, max);
-        table.lookup(k, payload);
+        table.lookup(k, local_payload);
       }
       running_threads_counter--;
     });
@@ -108,11 +109,12 @@ int main(int argc, char** argv)
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&]() {
       running_threads_counter++;
+      Payload local_payload;
       while (keep_running) {
         Key key = window_offset - zipf_random->rand();
         if ((FLAGS_latest_read_ratio > 0) &&
             (FLAGS_latest_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_latest_read_ratio)) {
-          table.lookup(key, payload);
+          table.lookup(key, local_payload);
         } else {
           table.update(key, payload);
         }
@@ -121,7 +123,8 @@ int main(int argc, char** argv)
       running_threads_counter--;
     });
   }
-  cout << tuple_count << "\t:\t" << window_tuple_count << "\t:\t" << step_size << endl;
+  cout << "tuple_count,window_tuple_count,step_size" << endl;
+  cout << tuple_count << "," << window_tuple_count << "," << step_size << endl;
   ensure(step_size < window_tuple_count);
   if (FLAGS_run_for_seconds > (FLAGS_latest_window_ms / 1000))
     threads.emplace_back([&]() {

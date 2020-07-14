@@ -12,16 +12,8 @@ dev.set(0)
 #df=read.csv('./C_rome_short.csv')
 #df=read.csv('./C_mutex_overnight.csv')
 #df=read.csv('./tmp_stats.csv')
-c1=read.csv('./C_t120_splitfalse_mergefalse_stats.csv')
-c2=read.csv('./C_t120_splittrue_mergefalse_stats.csv')
-c3=read.csv('./C_t120_splitfalse_mergetrue_stats.csv')
-c4=read.csv('./C_t120_splittrue_mergetrue_stats.csv')
-df=sqldf("
-select * from c1 UNION
-select * from c2 UNION
-select * from c3 UNION
-select * from c4
-")
+df=read.csv('./C_stats.csv')
+#df=read.csv('./C_adhoc_stats.csv')
 df=sqldf("select * from df where t >0 ")
 d= sqldf("
 select *, 1 as variant from df where c_su_merge=0 and c_cm_split=0
@@ -49,11 +41,14 @@ tx <- ggplot(acc, aes(txacc, tx, color=factor(variant), group=factor(variant))) 
    facet_grid(row=vars(c_worker_threads), scales="free")#geom_point(data=outofmemory, aes(x=t,y=tx, colour=factor(variant)), shape =4, size= 10)
 print(tx)
 
-CairoPDF("./tpcc_C.pdf", bg="transparent")
+CairoPDF("./tpcc_C40gib.pdf", bg="transparent")
 print(tx)
 dev.off()
 
 
 
-gdc=sqldf("select max(txacc) txacc,variant, c_worker_threads from acc group by variant, c_worker_threads")
-sqldf("select min(txacc) from gdc")
+stats=d
+dts=read.csv('./C_adhoc_dts.csv')
+
+merged=sqldf("select dts.*, stats.c_cm_split from dts,stats where stats.c_hash = dts.c_hash and stats.t=dts.t")
+ggplot(merged, aes(t, cm_split_succ_counter)) + facet_grid(col=vars(c_cm_split), row=vars(dt_name)) + geom_line()

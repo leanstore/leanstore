@@ -99,10 +99,11 @@ int main(int argc, char** argv)
   csv.seekp(0, ios::end);
   csv << std::setprecision(2) << std::fixed;
   if (csv.tellp() == 0) {
-    csv << "i,t,c_worker_threads,c_pin_threads,c_smt,tag" << endl;
+    csv << "i,t,c_worker_threads,c_pin_threads,c_smt,c_hash" << endl;
   }
   for (u64 i = 0; i < max_size; i++) {
-    csv << i << "," << sequence[i] << "," << FLAGS_worker_threads << "," << FLAGS_pin_threads << "," << FLAGS_smt << "," << FLAGS_tag << endl;
+    csv << i << "," << sequence[i] << "," << FLAGS_worker_threads << "," << FLAGS_pin_threads << "," << FLAGS_smt << "," << db.getConfigHash()
+        << endl;
   }
   return 0;
 }
