@@ -16,8 +16,12 @@ res=sqldf("select * from res order by dataset asc,size desc")
 res$type <- gsub("rnd", "Random", res$type)
 res$type <- gsub("seq", "Sequential", res$type)
 
-ggplot(res, aes(label=size, x=reorder(type, -size), y=size)) +
+g <- ggplot(res, aes(label=size, x=reorder(type, -size), y=size)) +
     facet_grid(cols=vars(dataset), labeller = label_both) +
     geom_bar(stat="identity", position =  position_dodge())+
     geom_text(position=position_dodge(1), vjust=-0.5) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), axis.title.x=element_blank())
+
+CairoPDF("./size.pdf", bg="transparent", height=6, width =10)
+print(g)
+dev.off()

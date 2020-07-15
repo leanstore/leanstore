@@ -12,8 +12,8 @@ dev.set(0)
 #df=read.csv('./C_rome_short.csv')
 #df=read.csv('./C_mutex_overnight.csv')
 #df=read.csv('./tmp_stats.csv')
-df=read.csv('./C_stats.csv')
-#df=read.csv('./C_adhoc_stats.csv')
+#df=read.csv('./C_stats.csv')
+df=read.csv('./C_adhoc_stats.csv')
 df=sqldf("select * from df where t >0 ")
 d= sqldf("
 select *, 1 as variant from df where c_su_merge=0 and c_cm_split=0

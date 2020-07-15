@@ -4,7 +4,7 @@ setwd("../tpcc")
 
 dev.set(0)
 df=read.csv('./O_long_stats.csv')
-df=sqldf("select * from df where t >0")
+df=sqldf("select * from df where t >0 and tpcc_warehouse_count=10000 and c_pp_threads=4")
 d= sqldf("
 select *, 1 as symbol from df where c_su_merge=0 and c_cm_split=0
 UNION select *, 2 as symbol from df where c_su_merge=0 and c_cm_split=1
@@ -12,7 +12,9 @@ UNION select *, 3 as symbol from df where c_su_merge=1 and c_cm_split=0
 UNION select *, 4 as symbol from df where c_su_merge=1 and c_cm_split=1
 ")
 
-dev.new()
+
+d=read.csv('./O.csv')
+dev.set(0)
 g <- ggplot(d, aes(t, tx, color=factor(symbol), group=factor(symbol))) +
     geom_point(aes(shape=factor(symbol)), size=0.5, alpha=0.5) +
     scale_size_identity(name=NULL) +
@@ -22,9 +24,13 @@ g <- ggplot(d, aes(t, tx, color=factor(symbol), group=factor(symbol))) +
     geom_smooth(method ="auto", size=0.5, se=FALSE) +
     theme_bw() +
     theme(legend.position = 'top') +
-    expand_limits(y=0) +
-    facet_grid(row=vars(tpcc_warehouse_count), scales="free", labeller = label_both)
+    expand_limits(y=0)
+#    facet_grid(row=vars(tpcc_warehouse_count), scales="free", labeller = label_both)
 print(g)
+
+CairoPDF("./tpcc_O.pdf", bg="transparent", height=4, width =8)
+print(g)
+dev.off()
 
 
 ggplot(d, aes (t, (w_mib)/tx, color=factor(symbol))) + geom_smooth() + expand_limits(y=0) + facet_grid(rows=vars(tpcc_warehouse_count))

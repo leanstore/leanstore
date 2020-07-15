@@ -7,6 +7,7 @@ library(gtable)
 library(grid)
 
 # color scheme: base black, contention split red, XMerge blue, both purple
+# TODO: base_size
 theme_adnan <- theme_bw() +
     theme(axis.title=element_text(size=14), axis.text=element_text(size=12))
 

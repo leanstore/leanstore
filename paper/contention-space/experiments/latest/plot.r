@@ -19,7 +19,7 @@ tx <- ggplot(stats, aes(t, tx, color=factor(c_cm_split), group=factor(c_cm_split
     labs(x='Time [sec]', y = 'Operations/second')
 tx
 
-CairoPDF("./latest.pdf", bg="transparent", height=4, width =10)
+CairoPDF("./latest_raw.pdf", bg="transparent", height=4, width =10)
 print(tx)
 dev.off()
 

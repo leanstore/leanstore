@@ -1,8 +1,5 @@
-library(ggplot2)
-library(sqldf)
-library(Cairo)
-library(stringr)
-library(scales)
+source("../common.r")
+setwd("../space")
 # Rome
 
 dev.set(0)
