@@ -2,7 +2,49 @@ source("../common.r", local = TRUE)
 setwd("../tpcc")
 # TPC-C A: 100 warehouse, in-memory, variable threads, with/-out split&merge
 
+
+
+# Paper Plots
 rome=read.csv('./A/rome/A_rome_stats.csv')
+romesmt=read.csv('./A/rome/A_smt_stats.csv')
+rome$c_tag <- "EPYC 7702P"
+intel=read.csv('./A/intel/GenuineIntel_stats.csv')
+intel=sqldf("select * from intel where c_worker_threads <=96")
+intel$c_tag <- "AWS EC2: c5.x24lage"
+
+stats=sqldf("select * from rome UNION select * from intel")
+d=sqldf("select c_tag, c_mutex,c_worker_threads,c_cm_split,max(tx) tx from stats group by c_worker_threads, c_cm_split,c_pin_threads, c_tag, c_mutex")
+d=sqldf("
+select *, 1 as type from d where c_cm_split = false and c_mutex = true
+UNION
+select *, 3 as type from d where c_cm_split = true and c_mutex = true
+")
+dev.set(0)
+
+tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(type), group=factor(type))) +
+    geom_point() +
+    scale_x_discrete(name="worker threads") +
+    scale_y_continuous(name="TPC-C throughput [txn/s]") +
+    scale_color_manual(name=NULL, labels=c("Baseline", "+Contention Split"), values=c("black", CSColor), guide = FALSE) +
+    geom_line() +
+    expand_limits(y=0) +
+    theme_acm +
+    annotate("text", x = 14, y= 2.8e6, label = "+Contention Split", size =2, color = CSColor) +
+    annotate("text", x = 14, y= 1.0e6, label = "Baseline", size =2, color = "black") +
+    facet_grid(row=vars(c_tag),col=vars())
+tx
+ggsave('../../tex/figures/tpcc_A.pdf', width=3 , height = 3, units="in")
+
+#Cairo(type="PDF", file="../../tex/figures/tpcc_A.pdf",units="in", bg="transparent", width = 3, height=3, pointsize = 9)
+#print(tx)
+#dev.off()
+
+
+
+
+
+# Adhoc plots
+rrome=read.csv('./A/rome/A_rome_stats.csv')
 romesmt=read.csv('./A/rome/A_smt_stats.csv')
 intel=read.csv('./A/intel/GenuineIntel_stats.csv')
 intel=sqldf("select * from intel where c_worker_threads <=96")
@@ -15,8 +57,8 @@ arm20$c_tag <- "arm-ubuntu20.04"
 arm18=read.csv('./A/arm/arm-ubuntu18_stats.csv')
 arm18$c_tag <- "arm-ubuntu18.04"
 
-stats=sqldf("select * from rome UNION select * from intel UNION select * from arm18 UNION select * from arm20 UNION select * from numa")
 
+stats=sqldf("select * from rome UNION select * from intel UNION select * from arm18 UNION select * from arm20 UNION select * from numa")
 d=sqldf("select c_tag, c_mutex,c_worker_threads,c_cm_split,max(tx) tx from stats group by c_worker_threads, c_cm_split,c_pin_threads, c_tag, c_mutex")
 d=sqldf("
 select *, 1 as type from d where c_cm_split = false and c_mutex = true

@@ -7,19 +7,20 @@ stats = sqldf("select * from stats where c_zipf_factor = 0.75")
 dts=read.csv('./latest_dts.csv')
 dts=sqldf("select d.*, s.latest_window_offset_gib from dts d, stats s where d.c_hash = s.c_hash and d.t=s.t")
 
+
 tx <- ggplot(stats, aes(t, tx, color=factor(c_cm_split), group=factor(c_cm_split))) +
-    geom_point() +
     geom_line() +
     expand_limits(y=0, x=0) +
     geom_vline(xintercept = 10, linetype="dashed") +
     geom_vline(xintercept = 20, linetype="dashed") +
     scale_color_manual(name =NULL, labels=c("Baseline", "+Contention Split +XMerge"), breaks=c(0,1), values=c("black", "purple")) +
-                                        #    scale_color_discrete(name =NULL, labels=c("Base", "+ Contention Split"), breaks=c(0,1)) +
-    theme(legend.position = 'top') +
+    theme_acm +
+    geom_point() +
     labs(x='Time [sec]', y = 'Operations/second')
 tx
+ggsave('../../tex/figures/latest_raw.pdf', width=3 , height = 1.5, units="in")
 
-CairoPDF("./latest_raw.pdf", bg="transparent", height=4, width =10)
+#Cairo(type="PDF", file="", bg="transparent", units="in", width=3, height =1.5, pointsize=9)
 print(tx)
 dev.off()
 

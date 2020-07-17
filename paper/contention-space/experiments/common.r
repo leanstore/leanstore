@@ -8,10 +8,16 @@ library(grid)
 
 # color scheme: base black, contention split red, XMerge blue, both purple
 # TODO: base_size
-theme_adnan <- theme_bw() +
-    theme(axis.title=element_text(size=14), axis.text=element_text(size=12))
+theme_acm <- theme_bw(base_size = 6, base_line_size = 0.05, base_rect_size = 0.2) +
+    theme( plot.margin = unit(c(0,0,0,0), "cm")) +
+    theme(legend.position = 'top', legend.margin = margin(t=0)) +
+    theme(strip.background = element_blank(), strip.text = element_text (size = 9))
 
-theme_set(theme_adnan)
+theme_set(theme_acm)
+update_geom_defaults("point", list(size=0.005))
+update_geom_defaults("line", list(size=0.2))
+update_geom_defaults("smooth", list(size=0.2))
+update_geom_defaults("vline", list(size=0.2))
 
 joinResults <- function(path) {
     ff=read.csv(paste(c(path, '_merge.csv'), collapse=''))
@@ -33,7 +39,11 @@ joinResults <- function(path) {
 breakByVariant <- c(1,2,3,4)
 labelByVariant <- c("Baseline", "+Contention Split", "+XMerge", "+Contention Split +XMerge")
 #colorByVariant <- c("black", "red","blue", "purple")
+CSColor <- "#F8766D"
+XMergeColor <- "#619CFF"
 colorByVariant <- c("black", "#F8766D", "#619CFF", "purple")
+
+
 # green: #00BA38
 
 # write.csv(arm, './A/arm/arm_stats.csv', quote=FALSE, row.names = FALSE)
