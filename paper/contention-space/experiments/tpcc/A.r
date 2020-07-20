@@ -1,18 +1,16 @@
 source("../common.r", local = TRUE)
 setwd("../tpcc")
+
 # TPC-C A: 100 warehouse, in-memory, variable threads, with/-out split&merge
-
-
-
 # Paper Plots
 rome=read.csv('./A/rome/A_rome_stats.csv')
-romesmt=read.csv('./A/rome/A_smt_stats.csv')
 rome$c_tag <- "EPYC 7702P"
-intel=read.csv('./A/intel/GenuineIntel_stats.csv')
-intel=sqldf("select * from intel where c_worker_threads <=96")
-intel$c_tag <- "AWS EC2: c5.x24lage"
+# CIDR: only rome
+#intel=read.csv('./A/intel/GenuineIntel_stats.csv')
+#intel=sqldf("select * from intel where c_worker_threads <=96")
+#intel$c_tag <- "AWS EC2: c5.x24lage"
 
-stats=sqldf("select * from rome UNION select * from intel")
+stats=sqldf("select * from rome")
 d=sqldf("select c_tag, c_mutex,c_worker_threads,c_cm_split,max(tx) tx from stats group by c_worker_threads, c_cm_split,c_pin_threads, c_tag, c_mutex")
 d=sqldf("
 select *, 1 as type from d where c_cm_split = false and c_mutex = true
@@ -29,17 +27,15 @@ tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(type), group
     geom_line() +
     expand_limits(y=0) +
     theme_acm +
-    annotate("text", x = 14, y= 2.8e6, label = "+Contention Split", size =2, color = CSColor) +
-    annotate("text", x = 14, y= 1.0e6, label = "Baseline", size =2, color = "black") +
-    facet_grid(row=vars(c_tag),col=vars())
+    annotate("text", x = 10, y= 2.8e6, label = "+Contention Split", size =2, color = CSColor) +
+    annotate("text", x = 10, y= 1.3e6, label = "Baseline", size =2, color = "black")
+#+    facet_grid(row=vars(c_tag),col=vars())
 tx
-ggsave('../../tex/figures/tpcc_A.pdf', width=3 , height = 3, units="in")
+ggsave('../../tex/figures/tpcc_A.pdf', width=lineWidthInInches , height = 2, units="in")
 
 #Cairo(type="PDF", file="../../tex/figures/tpcc_A.pdf",units="in", bg="transparent", width = 3, height=3, pointsize = 9)
 #print(tx)
 #dev.off()
-
-
 
 
 

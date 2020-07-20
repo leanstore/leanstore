@@ -30,11 +30,6 @@ g <- ggplot(d, aes(t, tx, color=factor(symbol), group=factor(symbol))) +
 g
 ggsave('../../tex/figures/tpcc_O.pdf', width=3 , height = 1.75, units="in")
 
-#CairoPDF("../../tex/figures/tpcc_O.pdf", bg="transparent", width=3, height=1.75)
-#print(g)
-#dev.off()
-
-
 ggplot(d, aes (t, (w_mib)/tx, color=factor(symbol))) + geom_smooth() + expand_limits(y=0) + facet_grid(rows=vars(tpcc_warehouse_count))
 dev.new()
 ggplot(d, aes (t, (r_mib)/tx, color=factor(symbol))) + geom_smooth() + expand_limits(y=0) + facet_grid(rows=vars(tpcc_warehouse_count))
