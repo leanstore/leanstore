@@ -9,7 +9,7 @@ library(grid)
 # color scheme: base black, contention split red, XMerge blue, both purple
 # TODO: base_size
 theme_acm <- theme_bw(base_size = 9, base_line_size = 0.05, base_rect_size = 0.2) +
-    theme( plot.margin = unit(c(0,0,0,0), "cm")) +
+    theme( plot.margin = unit(c(0,0.1,0,0), "cm")) +
     theme(legend.position = 'top', legend.margin = margin(t=0)) +
     theme(strip.background = element_blank(), strip.text = element_text (size = 9))
 
