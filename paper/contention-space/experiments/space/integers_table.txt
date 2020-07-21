@@ -1,0 +1,46 @@
+Insert 20 GiB Random
+  time,   cycle, cycle-kernel,   instr, L1-miss, LLC-miss, br-miss,   task,     scale,  IPC,  CPU,  GHz
+165.57, 3497.42,         4.54, 2870.91,   46.49,    32.08,   15.33, 832.66, 198841078, 0.82, 1.00, 4.20
+Inserted volume: (pages, mib) = (2053135,32080.2)
+
++XMerge
+Inserted volume: (pages, mib) = (1643305,25676.6)
+  sum(cycle)/198841078.0 sum(instr)/198841078.0 sum([L1.miss])/198841078.0
+1               148.2615               124.9631                   6.445022
+
+instr B-Tree: 2870 + 125 = 2995
+cycle B-Tree: 3497 + 148 = 3645
+
+BStar
+  time,   cycle, cycle-kernel,   instr, L1-miss, LLC-miss, br-miss,    task,     scale,  IPC,  CPU,  GHz
+217.61, 4580.33,        14.68, 3594.35,   83.16,    52.17,   16.27, 1094.35, 198841078, 0.78, 1.00, 4.19
+Inner = 2055
+Pages = 1743470
+Inserted volume: (pages, mib) = (1743470,27241.7)
+
+  time,   cycle, cycle-kernel,   instr, L1-miss, LLC-miss, br-miss,    task,     scale,  IPC,  CPU,  GHz
+199.75, 4217.99,         5.64, 3507.54,   79.78,    50.42,   16.24, 1004.56, 198841078, 0.83, 1.00, 4.20
+time elapsed = 214.698
+Inner = 2055
+Pages = 1743470
+Inserted volume: (pages, mib) = (1743470,27241.7)
+
+
+=========================
+Insert 20 GiB Sorted
+ time,   cycle, cycle-kernel,   instr, L1-miss, LLC-miss, br-miss,   task,     scale,  IPC,  CPU,  GHz
+72.39, 1537.49,         1.61, 3994.52,   10.75,     2.52,    2.24, 364.04, 198841078, 2.60, 1.00, 4.22
+time elapsed = 72.41
+Inner = 7227
+Pages = 2941513
+Inserted volume: (pages, mib) = (2941513,45961.1)
+
+
+
+BStar
+ time,   cycle, cycle-kernel,   instr, L1-miss, LLC-miss, br-miss,   task,     scale,  IPC,  CPU,  GHz
+89.92, 1907.70,         1.82, 4762.70,   54.71,     1.69,    2.60, 452.19, 198841078, 2.50, 1.00, 4.22
+time elapsed = 89.9374
+Inner = 4206
+Pages = 1711605
+Inserted volume: (pages, mib) = (1711605,26743.8)

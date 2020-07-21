@@ -129,17 +129,16 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   chrono::high_resolution_clock::time_point begin, end;
   // -------------------------------------------------------------------------------------
-  db.startDebuggingThread();
-  tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
+  tbb::task_scheduler_init task_scheduler(FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
   begin = chrono::high_resolution_clock::now();
   {
-    PerfEvent e;
-    PerfEventBlock b(e, tuple_count);
     if (FLAGS_dataset == "strings") {
       utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
       tuple_count = input_strings.size();
       cout << "tuple_count = " << tuple_count << endl;
+      PerfEvent e;
+      PerfEventBlock b(e, tuple_count);
       tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
         for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
           vs_btree.insert(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8,
@@ -148,6 +147,8 @@ int main(int argc, char** argv)
       });
     } else if (FLAGS_dataset == "integers") {
       if (FLAGS_insertion_order == "rnd") {
+        task_scheduler.terminate();
+        task_scheduler.initialize(thread::hardware_concurrency());
         vector<u64> random_keys(tuple_count);
         tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
           for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
@@ -155,6 +156,11 @@ int main(int argc, char** argv)
           }
         });
         std::random_shuffle(random_keys.begin(), random_keys.end());
+        task_scheduler.terminate();
+        task_scheduler.initialize(FLAGS_worker_threads);
+        // -------------------------------------------------------------------------------------
+        PerfEvent e;
+        PerfEventBlock b(e, tuple_count);
         tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
           for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
             table.insert(random_keys[t_i], payload);
@@ -162,6 +168,8 @@ int main(int argc, char** argv)
           }
         });
       } else {
+        PerfEvent e;
+        PerfEventBlock b(e, tuple_count);
         tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
           for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
             table.insert(t_i, payload);
@@ -183,6 +191,7 @@ int main(int argc, char** argv)
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   // -------------------------------------------------------------------------------------
+  db.startDebuggingThread();
   vector<thread> threads;
   for (u64 i = 0; i < 1; i++)
     threads.emplace_back([&]() {

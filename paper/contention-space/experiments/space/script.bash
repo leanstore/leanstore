@@ -120,16 +120,17 @@ fi
 
 
 function benchmarkB() {
-    CSV_PATH=${CSV_PATH:-"$(pwd)/small"}
+    CSV_PATH=${CSV_PATH:-"$(pwd)/integers"}
     rm -f ${CSV_PATH}*.csv
     (cd $EXEC_DIR; make -j $EXEC_NAME)
-    for FLAGS_worker_threads in 10; do
-    for FLAGS_target_gib in 4; do
+    for FLAGS_worker_threads in 1; do
+    for FLAGS_target_gib in 20; do
     for FLAGS_dataset in integers; do
     for FLAGS_insertion_order in rnd; do #  integers rnd
-    for FLAGS_su_target_pct in 60 70 80 90; do
+    for FLAGS_su_target_pct in 90; do
     for FLAGS_su_kwaymerge in 5; do
-        FLAGS_dram_gib=$[FLAGS_target_gib*20/10]
+    for FLAGS_bstar in false true; do
+        FLAGS_dram_gib=$[FLAGS_target_gib*25/10]
         (
         $EXEC_DIR/$EXEC_NAME \
             -worker_threads=$FLAGS_worker_threads \
@@ -143,17 +144,19 @@ function benchmarkB() {
             -pp_threads=0 \
             -partition_bits=6 \
             -free_pct=1 \
-            -print_fill_factors=$FLAGS_print_fill_factors \
+            -noprint_fill_factors \
             -noaggressive\
             -tag=$FLAGS_dataset"-"$FLAGS_insertion_order \
             -insertion_order=$FLAGS_insertion_order \
             -dataset=$FLAGS_dataset \
             -in=$FLAGS_in \
+            -bstar=$FLAGS_bstar \
             -su_merge \
             -su_target_pct=$FLAGS_su_target_pct \
             -su_kwaymerge=$FLAGS_su_kwaymerge
     )
 
+    done
     done
     done
     done
