@@ -9,16 +9,24 @@ dts=sqldf("select d.*, s.latest_window_offset_gib from dts d, stats s where d.c_
 
 
 tx <- ggplot(stats, aes(t, tx, color=factor(c_cm_split), group=factor(c_cm_split))) +
-    geom_line() +
+    geom_line(size=1.75/.pt) +
+    geom_point(size=2/.pt) +
     expand_limits(y=0, x=0) +
+    geom_hline(yintercept = 3e7, size=0.25, color="purple") +
+    annotate("text", x=3, y=3.6e7, label="66 Splits\n0 Merges", color ="purple", size = 2, hjust = 0) +
+    annotate("text", x=13, y=3.6e7, label="84 Splits\n14 Merges", color ="purple", size = 2, hjust = 0) +
+    annotate("text", x=23, y=3.6e7, label="96 Splits\n45 Merges", color ="purple", size = 2, hjust = 0) +
+    annotate("text", x=10.5, y=0e7, label="workload change", color ="black", size = 2.0, hjust = 0) +
+    annotate("text", x=20.5, y=0e7, label="workload change", color ="black", size = 2.0, hjust = 0) +
     geom_vline(xintercept = 10, linetype="dashed") +
     geom_vline(xintercept = 20, linetype="dashed") +
-    scale_color_manual(name =NULL, labels=c("Baseline", "+Contention Split +XMerge"), breaks=c(0,1), values=c("black", "purple")) +
+    scale_color_manual(name =NULL, labels=c("Baseline", "+Contention Split +XMerge"), breaks=c(0,1), values=c("black", "purple"), guide = FALSE) +
     theme_acm +
-    geom_point() +
-    labs(x='Time [sec]', y = 'Operations/second')
+    labs(x='Time [sec]', y = 'Throughput [ops/s]') +
+    annotate("text", x=23, y=1.1e7, label="Baseline", color ="black", size = 2, hjust = 0) +
+    annotate("text", x=23, y=6.0e7, label="+Contention Split\n+XMerge", color = "purple", size = 2, hjust=0)
 tx
-ggsave('../../tex/figures/latest_raw.pdf', width=3 , height = 1.5, units="in")
+ggsave('../../tex/figures/latest_raw.pdf',width=lineWidthInInches , height = 1.75, units="in")
 
 #Cairo(type="PDF", file="", bg="transparent", units="in", width=3, height =1.5, pointsize=9)
 print(tx)

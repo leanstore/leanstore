@@ -15,20 +15,22 @@ UNION select *, 4 as symbol from df where c_su_merge=1 and c_cm_split=1
 
 
 d=read.csv('./O.csv')
+
 dev.set(0)
 g <- ggplot(d, aes(t, tx, color=factor(symbol), group=factor(symbol))) +
-    geom_point(aes(shape=factor(symbol)), alpha=0.5, size = 0.25) +
+    geom_point(aes(shape=factor(symbol)), alpha=0.5, size = 1/.pt) +
     scale_size_identity(name=NULL) +
     labs(x='Time [sec]', y = 'TPC-C throughput [txns/sec]') +
-    geom_smooth(method ="auto", se=FALSE) +
+    geom_smooth(method ="auto", se=FALSE, size=1.75/.pt) +
     scale_color_manual(guide=FALSE, breaks=c(1,3), values=c("black", "#619CFF"))+
     scale_shape_discrete(guide=FALSE)+
     theme_acm +
+    theme(axis.title.y = element_text(hjust = 1.5)) +
     expand_limits(x=0,y=0) +
     annotate("text", x=1400, y=30000, label="Baseline", color ="black", size = 2) +
     annotate("text", x=1450, y=55000, label="+XMerge", color = "#619CFF", size = 2)
 g
-ggsave('../../tex/figures/tpcc_O.pdf', width=3 , height = 1.75, units="in")
+ggsave('../../tex/figures/tpcc_O.pdf', width=lineWidthInInches , height = 1.75, units="in")
 
 ggplot(d, aes (t, (w_mib)/tx, color=factor(symbol))) + geom_smooth() + expand_limits(y=0) + facet_grid(rows=vars(tpcc_warehouse_count))
 dev.new()
