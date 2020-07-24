@@ -18,25 +18,22 @@ UNION
 select *, 3 as type from d where c_cm_split = true and c_mutex = true
 ")
 dev.set(0)
+d$tx <- d$tx / 1e6
 
 tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(type), group=factor(type))) +
     geom_line(size=1.75/.pt) +
     geom_point(size=2/.pt) +
-    scale_x_discrete(name="worker threads") +
-    scale_y_continuous(name="TPC-C throughput [txn/s]") +
+    scale_x_discrete(name="Worker threads") +
+    scale_y_continuous(limits=c(0,3),breaks=c(0,1,2,3), name="TPC-C throughput [M txn/s]") +
     scale_color_manual(name=NULL, labels=c("Baseline", "+Contention Split"), values=c("black", CSColor), guide = FALSE) +
     expand_limits(y=0) +
     theme_acm +
-    theme(axis.title.y = element_text(hjust = -1.5)) +
-    annotate("text", x = 10, y= 2.8e6, label = "+Contention Split", size =2, color = CSColor) +
-    annotate("text", x = 10, y= 1.3e6, label = "Baseline", size =2, color = "black")
+    theme(axis.title.y = element_text(hjust = 2.0)) +
+    annotate("text", x = 10, y= 2.8e0, label = "+Contention Split", size = 7/.pt, color = CSColor) +
+    annotate("text", x = 10, y= 1.3e0, label = "Baseline", size =7/.pt, color = "black")
 #+    facet_grid(row=vars(c_tag),col=vars())
 tx
 ggsave('../../tex/figures/tpcc_A.pdf', width=lineWidthInInches , height = 1.75, units="in")
-
-#Cairo(type="PDF", file="../../tex/figures/tpcc_A.pdf",units="in", bg="transparent", width = 3, height=3, pointsize = 9)
-#print(tx)
-#dev.off()
 
 
 
