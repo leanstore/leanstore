@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include <iostream>
+#include <set>
 #include <string>
 #include <vector>
 // -------------------------------------------------------------------------------------
@@ -50,6 +51,17 @@ int main(int argc, char** argv)
 {
   gflags::SetUsageMessage("Leanstore TPC-C");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  // -------------------------------------------------------------------------------------
+  if (0) {
+    std::set<Integer> ids;
+    u64 counter = 0;
+    while (ids.size() < 1000) {
+      ids.insert(getCustomerID());
+      counter++;
+    }
+    cout << "it took " << counter << endl;
+    return 0;
+  }
   // -------------------------------------------------------------------------------------
   LeanStore db;
   // -------------------------------------------------------------------------------------

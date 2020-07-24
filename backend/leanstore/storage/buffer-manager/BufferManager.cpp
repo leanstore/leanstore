@@ -526,7 +526,7 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
     COUNTERS_BLOCK()
     {
       WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
-      if (FLAGS_trace_dt_id >= 0 && bf.page.dt_id == static_cast<u64>(FLAGS_trace_dt_id) && utils::RandomGenerator::getRand<u64>(0, 1000) == 0) {
+      if (FLAGS_trace_dt_id >= 0 && bf.page.dt_id == static_cast<u64>(FLAGS_trace_dt_id) && utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
         utils::printBackTrace();
       }
     }

@@ -52,4 +52,5 @@ DECLARE_bool(bstar);
 DECLARE_bool(bulk_insert);
 // -------------------------------------------------------------------------------------
 DECLARE_int64(trace_dt_id);
+DECLARE_int64(trace_trigger_probability);
 DECLARE_string(tag);

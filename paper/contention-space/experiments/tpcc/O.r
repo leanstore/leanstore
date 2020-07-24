@@ -20,7 +20,7 @@ dev.set(0)
 g <- ggplot(d, aes(t, tx, color=factor(symbol), group=factor(symbol))) +
     geom_point(aes(shape=factor(symbol)), alpha=0.5, size = 1/.pt) +
     scale_size_identity(name=NULL) +
-    labs(x='Time [sec]', y = 'TPC-C throughput [M txns/sec]') +
+    labs(x='Time [sec]', y = 'TPC-C throughput [M txns/s]') +
     geom_smooth(method ="auto", se=FALSE, size=1.75/.pt) +
     scale_color_manual(guide=FALSE, breaks=c(1,3), values=c("black", "#619CFF"))+
     scale_shape_discrete(guide=FALSE)+

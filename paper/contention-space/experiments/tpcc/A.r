@@ -28,7 +28,7 @@ tx <- ggplot(d, aes(x=factor(c_worker_threads), y =tx, color=factor(type), group
     scale_color_manual(name=NULL, labels=c("Baseline", "+Contention Split"), values=c("black", CSColor), guide = FALSE) +
     expand_limits(y=0) +
     theme_acm +
-    theme(axis.title.y = element_text(hjust = 2.0)) +
+    theme(axis.title.y = element_text(hjust = 1.0)) +
     annotate("text", x = 10, y= 2.8e0, label = "+Contention Split", size = 7/.pt, color = CSColor) +
     annotate("text", x = 10, y= 1.3e0, label = "Baseline", size =7/.pt, color = "black")
 #+    facet_grid(row=vars(c_tag),col=vars())
@@ -114,6 +114,8 @@ CairoPDF("./arm_vs_x64.pdf", bg="transparent")
 print(tx)
 dev.off()
 
+overhead = sqldf("select d1.c_worker_threads, d1.tx/d2.tx overhead from d d1, d d2 where d1.c_worker_threads=d2.c_worker_threads and d1.c_cm_split=false and d2.c_cm_split=true group by d1.c_worker_threads")
+sqldf("select max(overhead) from overhead")
 # arm 5,54009  rome 7,64342 (1 warehouse)
 
 

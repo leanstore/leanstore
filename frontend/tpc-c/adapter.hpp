@@ -25,7 +25,7 @@ struct LeanStoreAdapter {
     unsigned foldKeyLen = Record::foldRecord(foldKey, record);
     return std::string(reinterpret_cast<char*>(foldKey), foldKeyLen);
   }
-
+  // -------------------------------------------------------------------------------------
   // key_length - truncate_from_end  gives us the length of the prefix
   // it gives us the maximum tuple with this prefix
   template <class Fn>
@@ -42,7 +42,21 @@ struct LeanStoreAdapter {
       ensure(false);
     }
   }
-
+  // -------------------------------------------------------------------------------------
+  template <class Fn>
+  void scanDesc(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
+  {
+    string key_str = getStringKey(key);
+    btree->rangeScanDesc(
+        reinterpret_cast<u8*>(key_str.data()), u16(key_str.length()),
+        [&](u8* payload, u16 payload_length, std::function<string()>&) {
+          static_cast<void>(payload_length);
+          const Record& typed_payload = *reinterpret_cast<Record*>(payload);
+          return fn(typed_payload);
+        },
+        undo);
+  }
+  // -------------------------------------------------------------------------------------
   void insert(const Record& record)
   {
     string key = getStringKey(record);
@@ -86,12 +100,12 @@ struct LeanStoreAdapter {
     }
     return true;
   }
-
+  // -------------------------------------------------------------------------------------
   template <class Fn>
   void scan(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
   {
     string key_str = getStringKey(key);
-    btree->rangeScan(
+    btree->rangeScanAsc(
         reinterpret_cast<u8*>(key_str.data()), u16(key_str.length()),
         [&](u8* payload, u16 payload_length, std::function<string()>&) {
           static_cast<void>(payload_length);
@@ -100,7 +114,7 @@ struct LeanStoreAdapter {
         },
         undo);
   }
-
+  // -------------------------------------------------------------------------------------
   template <class Field>
   auto lookupField(const typename Record::Key& key, Field Record::*f)
   {
