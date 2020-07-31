@@ -13,11 +13,17 @@ template <class Record>
 struct LeanStoreAdapter {
   btree::vs::BTree* btree;
   std::map<std::string, Record> map;
+  string name;
   LeanStoreAdapter()
   {
     // hack
   }
-  LeanStoreAdapter(LeanStore& db, string name) : btree(&db.registerVSBTree(name)) {}
+  LeanStoreAdapter(LeanStore& db, string name) : btree(&db.registerVSBTree(name)), name(name) {}
+  // -------------------------------------------------------------------------------------
+  void printTreeHeight() {
+    cout << name << " height = " << btree->height << endl;
+  }
+  // -------------------------------------------------------------------------------------
   template <class T>
   static std::string getStringKey(const T& record)
   {

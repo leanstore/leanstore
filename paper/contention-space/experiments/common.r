@@ -42,6 +42,8 @@ labelByVariant <- c("Baseline", "+Contention Split", "+XMerge", "+Contention Spl
 CSColor <- "#F8766D"
 XMergeColor <- "#619CFF"
 colorByVariant <- c("black", "#F8766D", "#619CFF", "purple")
+shapeByVariant <- c(20,4,1,13)
+shapeByVariant <- c(16,3,1,10)
 lineWidthInInches <- 3.3374 # = \linewidth in latex acm sigconf
 
 # green: #00BA38

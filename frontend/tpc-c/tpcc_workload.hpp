@@ -1,3 +1,4 @@
+DEFINE_bool(order_wdc_index, true, "");
 atomic<u64> scanned_elements = 0;
 
 // load
@@ -117,6 +118,7 @@ inline Integer getCustomerID()
 {
   // C_ID_C
   return nurand(1023, 1, 3000, C_ID_C);
+  // return urand(1, 3000);
 }
 inline Integer getNonUniformRandomLastNameForRun()
 {
@@ -230,6 +232,9 @@ void loadOrders(Integer w_id, Integer d_id)
     Numeric o_ol_cnt = rnd(10) + 5;
 
     order.insert({w_id, d_id, o_id, o_c_id, now, o_carrier_id, o_ol_cnt, 1});
+    if (FLAGS_order_wdc_index) {
+      order_wdc.insert({w_id, d_id, o_c_id, o_id});
+    }
 
     for (Integer ol_number = 1; ol_number <= o_ol_cnt; ol_number++) {
       Timestamp ol_delivery_d = 0;
@@ -289,6 +294,9 @@ void newOrder(Integer w_id,
   Numeric cnt = lineNumbers.size();
   Integer carrier_id = 0; /*null*/
   order.insert({w_id, d_id, o_id, c_id, timestamp, carrier_id, cnt, all_local});
+  if (FLAGS_order_wdc_index) {
+    order_wdc.insert({w_id, d_id, c_id, o_id});
+  }
   neworder.insert({w_id, d_id, o_id});
 
   for (unsigned i = 0; i < lineNumbers.size(); i++) {
@@ -358,7 +366,6 @@ void newOrderRnd(Integer w_id)
 {
   Integer d_id = urand(1, 10);
   Integer c_id = getCustomerID();
-  ;
   Integer ol_cnt = urand(5, 15);
 
   vector<Integer> lineNumbers;
@@ -524,17 +531,21 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
   Integer o_id = -1;
   // -------------------------------------------------------------------------------------
   // latest order id desc
-  order.scanDesc(
-      {w_id, d_id, std::numeric_limits<Integer>::max()},
-      [&](const order_t& rec) {
-        if (rec.o_w_id == w_id && rec.o_d_id == d_id && rec.o_c_id == c_id) {
-          o_id = rec.o_id;
-          return false;
-        }
-        return true;
-      },
-      [&]() {});
-  ensure(o_id > -1);
+  if (FLAGS_order_wdc_index) {
+    order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) { o_id = rec.o_id; });
+  } else {
+    order.scanDesc(
+        {w_id, d_id, std::numeric_limits<Integer>::max()},
+        [&](const order_t& rec) {
+          if (rec.o_w_id == w_id && rec.o_d_id == d_id && rec.o_c_id == c_id) {
+            o_id = rec.o_id;
+            return false;
+          }
+          return true;
+        },
+        [&]() { });
+    ensure(o_id > -1);
+  }
   // -------------------------------------------------------------------------------------
   Timestamp o_entry_d;
   Integer o_carrier_id;
@@ -592,17 +603,21 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
 
   Integer o_id = -1;
   // latest order id desc
-  order.scanDesc(
-      {w_id, d_id, std::numeric_limits<Integer>::max()},
-      [&](const order_t& rec) {
-        if (rec.o_w_id == w_id && rec.o_d_id == d_id && rec.o_c_id == c_id) {
-          o_id = rec.o_id;
-          return false;
-        }
-        return true;
-      },
-      [&]() {});
-  ensure(o_id > -1);
+  if (FLAGS_order_wdc_index) {
+    order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) { o_id = rec.o_id; });
+  } else {
+    order.scanDesc(
+        {w_id, d_id, std::numeric_limits<Integer>::max()},
+        [&](const order_t& rec) {
+          if (rec.o_w_id == w_id && rec.o_d_id == d_id && rec.o_c_id == c_id) {
+            o_id = rec.o_id;
+            return false;
+          }
+          return true;
+        },
+        [&]() {});
+    ensure(o_id > -1);
+  }
   // -------------------------------------------------------------------------------------
   Timestamp ol_delivery_d;
   orderline.scan(

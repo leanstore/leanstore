@@ -2,7 +2,7 @@ rome:
 sudo ~haas/meanio/extern/spdk/scripts/setup.sh
 sudo ~haas/meanio/extern/spdk/scripts/setup.sh reset
 sudo mdadm --create /dev/md0 --auto md --level=0 --raid-devices=4 /blk/ss0 /blk/ss1 /blk/ss2 /blk/ss3
-
+sudo chown alhomssi:disk /dev/md0
 
 make -j ycsb && ./ycsb --ssd_path=/blk/adapter --worker_threads=1 --pp_threads=1 --run_for_seconds=1000 --target_gib=1 --dram_gib=2 --ycsb_read_ratio=50
 
