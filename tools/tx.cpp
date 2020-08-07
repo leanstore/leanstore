@@ -114,7 +114,7 @@ int main(int argc, char** argv)
       threads.emplace_back(
           [&](int t_i) {
             if (FLAGS_pin)
-              utils::pinThisThread();
+              leanstore::utils::pinThisThreadRome();
             while (true) {
               jumpmuTry()
               {
