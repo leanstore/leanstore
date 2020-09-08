@@ -27,7 +27,7 @@ namespace vs
 // -------------------------------------------------------------------------------------
 struct BTreeNode;
 using ValueType = Swip<BTreeNode>;
-using SketchType = u32;
+using HeadType = u32;
 // -------------------------------------------------------------------------------------
 static inline u64 swap(u64 x)
 {
@@ -83,12 +83,12 @@ struct BTreeNodeHeader {
 // -------------------------------------------------------------------------------------
 struct BTreeNode : public BTreeNodeHeader {
   struct Slot {
+    // Layout:  Value | restKey | Payload
     u16 offset;
-    u8 head_len;
-    u8 rest_len;
+    u16 len;
     union {
-      SketchType sketch;
-      u8 sketch_bytes[4];
+      HeadType head;
+      u8 head_bytes[4];
     };
   };
   Slot slot[(EFFECTIVE_PAGE_SIZE - sizeof(BTreeNodeHeader)) / (sizeof(Slot))];
@@ -100,7 +100,6 @@ struct BTreeNode : public BTreeNodeHeader {
   // -------------------------------------------------------------------------------------
   double fillFactorAfterCompaction() { return (1 - (freeSpaceAfterCompaction() * 1.0 / EFFECTIVE_PAGE_SIZE)); }
   // -------------------------------------------------------------------------------------
-
   bool hasEnoughSpaceFor(u32 space_needed) { return (space_needed <= freeSpace() || space_needed <= freeSpaceAfterCompaction()); }
   // ATTENTION: this method has side effects !
   bool requestSpaceFor(u16 space_needed)
@@ -113,93 +112,42 @@ struct BTreeNode : public BTreeNodeHeader {
     }
     return false;
   }
-
-  // Accessors for normal strings: | Value | restKey | Payload
-  inline u8* getData(u16 slotId) { return ptr() + slot[slotId].offset; }
-  inline u8* getRest(u16 slotId)
-  {
-    assert(!isLarge(slotId));
-    return ptr() + slot[slotId].offset + sizeof(ValueType);
-  }
-  inline u16 getRestLen(u16 slotId)
-  {
-    assert(!isLarge(slotId));
-    return slot[slotId].rest_len;
-  }
-  // AAA
+  inline u8* getKey(u16 slotId) { return ptr() + slot[slotId].offset + sizeof(ValueType); }
+  inline u16 getKeyLen(u16 slotId) { return slot[slotId].len; }
+  inline u16 getFullKeyLen(u16 slotId) { return prefix_length + getKeyLen(slotId); }
+  inline ValueType& getChild(u16 slotId) { return *reinterpret_cast<ValueType*>(ptr() + slot[slotId].offset); }
+  inline u16& getPayloadLength(u16 slotId) { return *reinterpret_cast<u16*>(ptr() + slot[slotId].offset); }
   inline u8* getPayload(u16 slotId)
   {
     assert(is_leaf);
-    assert(!isLarge(slotId));
-    return ptr() + slot[slotId].offset + sizeof(ValueType) + getRestLen(slotId);
+    return ptr() + slot[slotId].offset + slot[slotId].len + sizeof(ValueType);
   }
-
-  // Accessors for large strings: | Value | restLength | restKey | Payload
-  static constexpr u8 largeLimit = 254;
-  static constexpr u8 largeMarker = largeLimit + 1;
-  inline u8* getRestLarge(u16 slotId)
-  {
-    assert(isLarge(slotId));
-    return ptr() + slot[slotId].offset + sizeof(ValueType) + sizeof(u16);
-  }
-  inline u16& getRestLenLarge(u16 slotId)
-  {
-    assert(isLarge(slotId));
-    return *reinterpret_cast<u16*>(ptr() + slot[slotId].offset + sizeof(ValueType));
-  }
-  inline bool isLarge(u16 slotId) { return slot[slotId].rest_len == largeMarker; }
-  inline void setLarge(u16 slotId) { slot[slotId].rest_len = largeMarker; }
-  // AAA
-  inline u8* getPayloadLarge(u16 slotId)
-  {
-    assert(is_leaf);
-    assert(isLarge(slotId));
-    return ptr() + slot[slotId].offset + sizeof(ValueType) + sizeof(u16) + getRestLenLarge(slotId);
-  }
-
-  // Accessors for both types of strings
-  inline u16 &getPayloadLength(u16 slotId) { return *reinterpret_cast<u16*>(ptr() + slot[slotId].offset); }
-  inline ValueType& getValue(u16 slotId) { return *reinterpret_cast<ValueType*>(ptr() + slot[slotId].offset); }
-  inline u16 getFullKeyLength(u16 slotId)
-  {
-    return prefix_length + slot[slotId].head_len + (isLarge(slotId) ? getRestLenLarge(slotId) : getRestLen(slotId));
-  }
-  inline void copyFullKey(u16 slotId, u8* out, u16 fullLength)
+  inline void copyFullKey(u16 slotId, u8* out)
   {
     memcpy(out, getLowerFenceKey(), prefix_length);
-    out += prefix_length;
-    fullLength -= prefix_length;
-    switch (slot[slotId].head_len) {
-      case 4:
-        *reinterpret_cast<u32*>(out) = swap(slot[slotId].sketch);
-        memcpy(out + slot[slotId].head_len, (isLarge(slotId) ? getRestLarge(slotId) : getRest(slotId)), fullLength - slot[slotId].head_len);
-        break;
-      case 3:
-        out[2] = slot[slotId].sketch_bytes[1];  // fallthrough
-      case 2:
-        out[1] = slot[slotId].sketch_bytes[2];  // fallthrough
-      case 1:
-        out[0] = slot[slotId].sketch_bytes[3];  // fallthrough
-      case 0:
-        break;
-      default:
-        __builtin_unreachable();  // mmmm, dangerous
-    };
+    memcpy(out + prefix_length, getKey(slotId), getKeyLen(slotId));
   }
   // -------------------------------------------------------------------------------------
-  static u16 spaceNeeded(u16 keyLength, u16 prefixLength);
+  static u16 spaceNeededAsInner(u16 keyLength, u16 prefixLength);
   static s32 cmpKeys(u8* a, u8* b, u16 aLength, u16 bLength);
-  static SketchType head(u8*& key, u16& keyLength);
+  static HeadType head(u8*& key, u16& keyLength);
   void makeHint();
   // -------------------------------------------------------------------------------------
   s32 sanityCheck(u8* key, u16 keyLength);
   // -------------------------------------------------------------------------------------
+  void searchHint(u32 keyHead, unsigned& pos, unsigned& pos2)
+  {
+    for (pos = 0; pos < hint_count; pos++)
+      if (hint[pos] >= keyHead)
+        break;
+    for (pos2 = pos; pos2 < hint_count; pos2++)
+      if (hint[pos2] != keyHead)
+        break;
+  }
+  // -------------------------------------------------------------------------------------
   template <bool equalityOnly = false>
   s16 lowerBound(u8* key, u16 keyLength)
   {
-    // for (unsigned i=1; i<count; i++)
-    // assert(slot[i-1].sketch <= slot[i].sketch);
-
     if (equalityOnly) {
       if ((keyLength < prefix_length) || (bcmp(key, getLowerFenceKey(), prefix_length) != 0))
         return -1;
@@ -210,53 +158,40 @@ struct BTreeNode : public BTreeNodeHeader {
       else if (prefixCmp > 0)
         return count;
     }
+    // the compared key has the same prefix
     key += prefix_length;
     keyLength -= prefix_length;
 
     u16 lower = 0;
     u16 upper = count;
-
-    u16 oldKeyLength = keyLength;
-    SketchType keyHead = head(key, keyLength);
+    HeadType keyHead = head(key, keyLength);
 
     if (count > hint_count * 2) {
-      u16 dist = count / (hint_count + 1);
-      u16 pos;
-      for (pos = 0; pos < hint_count; pos++)
-        if (hint[pos] >= keyHead)
-          break;
+      unsigned dist = count / (hint_count + 1);
+      unsigned pos, pos2;
+      searchHint(keyHead, pos, pos2);
       lower = pos * dist;
-      u16 pos2;
-      for (pos2 = pos; pos2 < hint_count; pos2++)
-        if (hint[pos2] != keyHead)
-          break;
       if (pos2 < hint_count)
         upper = (pos2 + 1) * dist;
-      // cout << is_leaf << " " << count << " " << lower << " " << upper << " "
-      // << dist << endl;
     }
 
     while (lower < upper) {
       u16 mid = ((upper - lower) / 2) + lower;
-      if (keyHead < slot[mid].sketch) {
+      if (keyHead < slot[mid].head) {
         upper = mid;
-      } else if (keyHead > slot[mid].sketch) {
+      } else if (keyHead > slot[mid].head) {
         lower = mid + 1;
-      } else if (slot[mid].rest_len == 0) {
-        if (oldKeyLength < slot[mid].head_len) {
+      } else if (slot[mid].len <= 4) {
+        // head is equal, we don't have to check the rest of the key
+        if (keyLength < slot[mid].len) {
           upper = mid;
-        } else if (oldKeyLength > slot[mid].head_len) {
+        } else if (keyLength > slot[mid].len) {
           lower = mid + 1;
         } else {
           return mid;
         }
       } else {
-        int cmp;
-        if (isLarge(mid)) {
-          cmp = cmpKeys(key, getRestLarge(mid), keyLength, getRestLenLarge(mid));
-        } else {
-          cmp = cmpKeys(key, getRest(mid), keyLength, getRestLen(mid));
-        }
+        int cmp = cmpKeys(key, getKey(mid), keyLength, getKeyLen(mid));
         if (cmp < 0) {
           upper = mid;
         } else if (cmp > 0) {
