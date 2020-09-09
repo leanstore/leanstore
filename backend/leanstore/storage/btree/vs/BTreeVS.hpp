@@ -51,7 +51,7 @@ struct BTree {
                          ExclusivePageGuard<BTreeNode>& from_left,
                          ExclusivePageGuard<BTreeNode>& to_right,
                          bool full_merge_or_nothing);
-  enum class KWayMergeReturnCode : u8 {NOTHING, FULL_MERGE, PARTIAL_MERGE};
+  enum class KWayMergeReturnCode : u8 { NOTHING, FULL_MERGE, PARTIAL_MERGE };
   KWayMergeReturnCode kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
   // -------------------------------------------------------------------------------------
   // B*-tree
@@ -76,12 +76,7 @@ struct BTree {
       jumpmuTry()
       {
         auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-        OptimisticPageGuard<BTreeNode> c_guard;
-        if (FLAGS_mutex) {
-          c_guard = OptimisticPageGuard(p_guard, root_swip, true);
-        } else {
-          c_guard = OptimisticPageGuard(p_guard, root_swip);
-        }
+        OptimisticPageGuard<BTreeNode> c_guard(p_guard, root_swip, true);
         while (!c_guard->is_leaf) {
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);

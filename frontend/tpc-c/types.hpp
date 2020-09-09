@@ -78,3 +78,24 @@ unsigned fold(uint8_t* writer, const Varchar<len>& x)
   writer[x.length] = 0;
   return x.length + 1;
 }
+
+unsigned unfold(uint8_t* input, Integer& x)
+{
+  x = __builtin_bswap32(*reinterpret_cast<uint32_t*>(input)) ^ (1ul<<31);
+  return sizeof(x);
+}
+
+unsigned unfold(uint8_t* input, Timestamp& x)
+{
+  x = __builtin_bswap64(*reinterpret_cast<uint64_t*>(input)) ^ (1ul<<63);
+  return sizeof(x);
+}
+
+template<int len>
+unsigned unfold(uint8_t* input, Varchar<len>& x)
+{
+  int l = strlen(reinterpret_cast<char*>(input));
+  memcpy(x.data, input, len);
+  x.length = l;
+  return l+1;
+}
