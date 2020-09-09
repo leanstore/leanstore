@@ -15,8 +15,6 @@ struct warehouse_t {
   Numeric w_tax;
   Numeric w_ytd;
   // -------------------------------------------------------------------------------------
-  // Varchar<15000> hack;
-  // -------------------------------------------------------------------------------------
   template <class T>
   static unsigned foldRecord(uint8_t* out, const T& record)
   {
