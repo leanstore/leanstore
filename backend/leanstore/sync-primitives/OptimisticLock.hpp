@@ -55,19 +55,19 @@ class ExclusiveGuard;
 template <typename T>
 class OptimisticPageGuard;
 // -------------------------------------------------------------------------------------
-using OptimisticLatchVersionType = atomic<u64>;
-struct alignas(64) OptimisticLatch {
-  OptimisticLatchVersionType version;
+using VersionType = atomic<u64>;
+struct alignas(64) HybridLatch {
+  VersionType version;
   std::shared_mutex mutex;
   // -------------------------------------------------------------------------------------
   template <typename... Args>
-  OptimisticLatch(Args&&... args) : version(std::forward<Args>(args)...)
+  HybridLatch(Args&&... args) : version(std::forward<Args>(args)...)
   {
   }
-  OptimisticLatchVersionType* operator->() { return &version; }
+  VersionType* operator->() { return &version; }
   // -------------------------------------------------------------------------------------
-  OptimisticLatchVersionType* ptr() { return &version; }
-  OptimisticLatchVersionType& ref() { return version; }
+  VersionType* ptr() { return &version; }
+  VersionType& ref() { return version; }
   // -------------------------------------------------------------------------------------
   void assertExclusivelyLatched() { assert(isExclusivelyLatched()); }
   void assertNotExclusivelyLatched() { assert(!isExclusivelyLatched()); }
@@ -79,7 +79,7 @@ struct alignas(64) OptimisticLatch {
   bool isSharedLatched() { return (version & LATCH_STATE_MASK) > 0; }
   bool isAnyLatched() { return (version & LATCH_EXCLUSIVE_STATE_MASK) > 0; }
 };
-static_assert(sizeof(OptimisticLatch) == 64, "");
+static_assert(sizeof(HybridLatch) == 64, "");
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 class OptimisticGuard
@@ -92,12 +92,12 @@ class OptimisticGuard
   friend class ExclusivePageGuard;
 
  private:
-  OptimisticGuard(OptimisticLatch* latch_ptr, u64 local_version) : latch_ptr(latch_ptr), local_version(local_version) {}
+  OptimisticGuard(HybridLatch* latch_ptr, u64 local_version) : latch_ptr(latch_ptr), local_version(local_version) {}
 
  public:
   enum class IF_LOCKED { JUMP, SET_NULL, CAN_NOT_BE };
   // -------------------------------------------------------------------------------------
-  OptimisticLatch* latch_ptr = nullptr;
+  HybridLatch* latch_ptr = nullptr;
   u64 local_version;                  // without the state
   bool mutex_locked_upfront = false;  // set to true only when OptimisticPageGuard has acquired the mutex
   // -------------------------------------------------------------------------------------
@@ -111,7 +111,7 @@ class OptimisticGuard
   OptimisticGuard(OptimisticGuard&& other)
       : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked_upfront(other.mutex_locked_upfront)
   {
-    other.latch_ptr = reinterpret_cast<OptimisticLatch*>(0x99);
+    other.latch_ptr = reinterpret_cast<HybridLatch*>(0x99);
     other.local_version = 0;
     other.mutex_locked_upfront = false;
   }
@@ -122,7 +122,7 @@ class OptimisticGuard
     local_version = other.local_version;
     mutex_locked_upfront = other.mutex_locked_upfront;
     // -------------------------------------------------------------------------------------
-    other.latch_ptr = reinterpret_cast<OptimisticLatch*>(0x99);
+    other.latch_ptr = reinterpret_cast<HybridLatch*>(0x99);
     other.local_version = 0;
     other.mutex_locked_upfront = false;
     // -------------------------------------------------------------------------------------
@@ -130,7 +130,7 @@ class OptimisticGuard
   }
   // -------------------------------------------------------------------------------------
   // Keep spinning constructor
-  OptimisticGuard(OptimisticLatch& lock) : latch_ptr(&lock)
+  OptimisticGuard(HybridLatch& lock) : latch_ptr(&lock)
   {
     // Ignore the state field
     local_version = latch_ptr->version.load() & LATCH_VERSION_MASK;
@@ -140,7 +140,7 @@ class OptimisticGuard
     assert((local_version & LATCH_EXCLUSIVE_BIT) != LATCH_EXCLUSIVE_BIT);
   }
   // -------------------------------------------------------------------------------------
-  OptimisticGuard(OptimisticLatch& lock, IF_LOCKED option) : latch_ptr(&lock)
+  OptimisticGuard(HybridLatch& lock, IF_LOCKED option) : latch_ptr(&lock)
   {
     // Ignore the state field
     for (u32 attempt = 0; attempt < 40; attempt++) {

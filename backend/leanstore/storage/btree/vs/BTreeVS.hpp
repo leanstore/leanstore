@@ -21,7 +21,7 @@ struct BTree {
   DTID dtid;
   // -------------------------------------------------------------------------------------
   atomic<u16> height = 1;  // debugging
-  OptimisticLatch root_lock = 0;
+  HybridLatch root_lock = 0;
   Swip<BTreeNode> root_swip;
   // -------------------------------------------------------------------------------------
   BTree();

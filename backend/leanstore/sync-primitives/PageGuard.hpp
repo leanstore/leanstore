@@ -33,7 +33,7 @@ template <typename T>
 class OptimisticPageGuard
 {
  protected:
-  OptimisticPageGuard(OptimisticLatch& swip_version) : bf_s_lock(OptimisticGuard(swip_version)), moved(false)
+  OptimisticPageGuard(HybridLatch& swip_version) : bf_s_lock(OptimisticGuard(swip_version)), moved(false)
   {
     COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_researchy[0][8]++; }
     jumpmu_registerDestructor();
@@ -70,7 +70,7 @@ class OptimisticPageGuard
   }
   // -------------------------------------------------------------------------------------
   // I: Root case
-  static OptimisticPageGuard makeRootGuard(OptimisticLatch& swip_version) { return OptimisticPageGuard(swip_version); }
+  static OptimisticPageGuard makeRootGuard(HybridLatch& swip_version) { return OptimisticPageGuard(swip_version); }
   // -------------------------------------------------------------------------------------
   // I: Lock coupling
   OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip)

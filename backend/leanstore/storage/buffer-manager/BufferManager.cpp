@@ -185,7 +185,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           [[maybe_unused]] Time find_parent_begin;
           COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
           ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
-          assert(parent_handler.parent_guard.latch_ptr != reinterpret_cast<OptimisticLatch*>(0x99));
+          assert(parent_handler.parent_guard.latch_ptr != reinterpret_cast<HybridLatch*>(0x99));
           auto find_parent_end = std::chrono::high_resolution_clock::now();
           COUNTERS_BLOCK()
           {

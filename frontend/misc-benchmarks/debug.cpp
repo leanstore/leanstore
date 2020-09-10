@@ -27,7 +27,7 @@ using Key = u64;
 using Payload = BytesPayload<120>;
 // -------------------------------------------------------------------------------------
 struct alignas(64) BF {
-  OptimisticLatch latch;
+  HybridLatch latch;
 };
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)

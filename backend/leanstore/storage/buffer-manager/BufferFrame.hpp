@@ -34,7 +34,7 @@ struct BufferFrame {
     atomic<bool> isWB = false;
     bool isCooledBecauseOfReading = false;
     PID pid = 9999;             // INIT:
-    OptimisticLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
+    HybridLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;
     ContentionTracker contention_tracker;

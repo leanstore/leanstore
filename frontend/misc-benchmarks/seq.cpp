@@ -44,7 +44,7 @@ int main(int argc, char** argv)
   std::array<u8, 128> dump = {1};
   // -------------------------------------------------------------------------------------
   struct alignas(64) BF {
-    buffermanager::OptimisticLatch version;
+    buffermanager::HybridLatch version;
     std::mutex lock;
     u64 seq_id = 0;
     // -------------------------------------------------------------------------------------

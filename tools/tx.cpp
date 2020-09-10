@@ -42,7 +42,7 @@ using leanstore::utils::RandomGenerator;
 using namespace leanstore::buffermanager;
 
 struct alignas(64) BF {
-  OptimisticLatch latch;
+  HybridLatch latch;
 };
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
