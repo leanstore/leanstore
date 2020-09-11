@@ -75,10 +75,10 @@ int main(int argc, char** argv)
     auto p_guard = parent_handler.getParentReadPageGuard<leanstore::btree::vs::BTreeNode>();
     auto c_guard = OptimisticPageGuard<leanstore::btree::vs::BTreeNode>::manuallyAssembleGuard(std::move(o_guard), bf);
     if (FLAGS_aggressive) {
-      auto ret_code = vs_btree.kWayMerge(p_guard, c_guard, parent_handler);
+      auto ret_code = vs_btree.XMerge(p_guard, c_guard, parent_handler);
     } else {
-      auto ret_code = vs_btree.kWayMerge(p_guard, c_guard, parent_handler);
-      if (ret_code == leanstore::btree::vs::BTree::KWayMergeReturnCode::FULL_MERGE) {
+      auto ret_code = vs_btree.XMerge(p_guard, c_guard, parent_handler);
+      if (ret_code == leanstore::btree::vs::BTree::XMergeReturnCode::FULL_MERGE) {
       }
       sum_ff += c_guard->fillFactorAfterCompaction();
       try_counter++;

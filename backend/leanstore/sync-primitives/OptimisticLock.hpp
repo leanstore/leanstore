@@ -98,15 +98,11 @@ class OptimisticGuard
   enum class IF_LOCKED { JUMP, SET_NULL, CAN_NOT_BE };
   // -------------------------------------------------------------------------------------
   HybridLatch* latch_ptr = nullptr;
-  u64 local_version;                  // without the state
+  u64 local_version;
   bool mutex_locked_upfront = false;  // set to true only when OptimisticPageGuard has acquired the mutex
   // -------------------------------------------------------------------------------------
   OptimisticGuard() = delete;
-  // copy constructor
-  OptimisticGuard(OptimisticGuard& other)
-      : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked_upfront(other.mutex_locked_upfront)
-  {
-  }
+  OptimisticGuard(OptimisticGuard& other) = delete;  // copy constructor
   // move constructor
   OptimisticGuard(OptimisticGuard&& other)
       : latch_ptr(other.latch_ptr), local_version(other.local_version), mutex_locked_upfront(other.mutex_locked_upfront)
@@ -171,7 +167,6 @@ class OptimisticGuard
   }
   // -------------------------------------------------------------------------------------
   void slowPath();
-  // -------------------------------------------------------------------------------------
 };
 // -------------------------------------------------------------------------------------
 class ExclusiveGuard
@@ -249,7 +244,8 @@ class SharedGuard
   {
     // TODO:
   }
-  static inline void unlatch(OptimisticGuard&) {
+  static inline void unlatch(OptimisticGuard&)
+  {
     // TODO:
   }
   // -------------------------------------------------------------------------------------

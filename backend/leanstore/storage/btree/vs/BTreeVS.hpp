@@ -51,8 +51,8 @@ struct BTree {
                          ExclusivePageGuard<BTreeNode>& from_left,
                          ExclusivePageGuard<BTreeNode>& to_right,
                          bool full_merge_or_nothing);
-  enum class KWayMergeReturnCode : u8 { NOTHING, FULL_MERGE, PARTIAL_MERGE };
-  KWayMergeReturnCode kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
+  enum class XMergeReturnCode : u8 { NOTHING, FULL_MERGE, PARTIAL_MERGE };
+  XMergeReturnCode XMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
   // -------------------------------------------------------------------------------------
   // B*-tree
   bool tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s16 l_pos);
@@ -61,7 +61,7 @@ struct BTree {
   void tryBStar(BufferFrame&);
   // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();
-  static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard, ParentSwipHandler);
+  static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);
   static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
   static void iterateChildrenSwips(void* /*btree_object*/, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback);
   // -------------------------------------------------------------------------------------

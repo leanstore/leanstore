@@ -3,6 +3,7 @@
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
+#include <signal.h>
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::buffermanager;
@@ -924,13 +925,13 @@ s16 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
 }
 // -------------------------------------------------------------------------------------
 // returns true if it has exclusively locked anything
-BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_guard,
-                                            OptimisticPageGuard<BTreeNode>& c_guard,
-                                            ParentSwipHandler& parent_handler)
+BTree::XMergeReturnCode BTree::XMerge(OptimisticPageGuard<BTreeNode>& p_guard,
+                                      OptimisticPageGuard<BTreeNode>& c_guard,
+                                      ParentSwipHandler& parent_handler)
 {
   WorkerCounters::myCounters().dt_researchy[0][1]++;
-  if (c_guard->fillFactorAfterCompaction() >= 0.9) {  // || utils::RandomGenerator::getRandU64(0, 100) >= FLAGS_y
-    return KWayMergeReturnCode::NOTHING;
+  if (c_guard->fillFactorAfterCompaction() >= 0.9) {
+    return XMergeReturnCode::NOTHING;
   }
   // -------------------------------------------------------------------------------------
   const u8 MAX_MERGE_PAGES = FLAGS_su_kwaymerge;
@@ -945,11 +946,15 @@ BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_gu
   double total_fill_factor = guards[0]->fillFactorAfterCompaction();
   // -------------------------------------------------------------------------------------
   // Handle upper swip instead of avoiding p_guard->count -1 swip
-  if (!p_guard.hasBf() || !guards[0]->is_leaf)
-    return KWayMergeReturnCode::NOTHING;
+  if (!p_guard.hasBf() || !guards[0]->is_leaf) {
+    c_guard = std::move(guards[0]);
+    return XMergeReturnCode::NOTHING;
+  }
   for (max_right = pos + 1; (max_right - pos) < MAX_MERGE_PAGES && (max_right + 1) < p_guard->count; max_right++) {
-    if (!p_guard->getChild(max_right).isSwizzled())
-      return KWayMergeReturnCode::NOTHING;
+    if (!p_guard->getChild(max_right).isSwizzled()) {
+      c_guard = std::move(guards[0]);
+      return XMergeReturnCode::NOTHING;
+    }
     // -------------------------------------------------------------------------------------
     guards[max_right - pos] = OptimisticPageGuard<BTreeNode>(p_guard, p_guard->getChild(max_right));
     fully_merged[max_right - pos] = false;
@@ -961,12 +966,13 @@ BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_gu
     }
   }
   if (((pages_count - std::ceil(total_fill_factor))) < (1)) {
-    return KWayMergeReturnCode::NOTHING;
+    c_guard = std::move(guards[0]);
+    return XMergeReturnCode::NOTHING;
   }
   // -------------------------------------------------------------------------------------
   ExclusivePageGuard<BTreeNode> p_x_guard = std::move(p_guard);
   // -------------------------------------------------------------------------------------
-  KWayMergeReturnCode ret_code = KWayMergeReturnCode::PARTIAL_MERGE;
+  XMergeReturnCode ret_code = XMergeReturnCode::PARTIAL_MERGE;
   s16 left_hand, right_hand, ret;
   while (true) {
     for (right_hand = max_right; right_hand > pos; right_hand--) {
@@ -990,7 +996,7 @@ BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_gu
       if (ret == 1) {
         fully_merged[left_hand - pos] = true;
         WorkerCounters::myCounters().su_merge_full_counter[dtid]++;
-        ret_code = KWayMergeReturnCode::FULL_MERGE;
+        ret_code = XMergeReturnCode::FULL_MERGE;
       } else if (ret == 2) {
         guards[left_hand - pos] = std::move(left_x_guard);
         WorkerCounters::myCounters().su_merge_partial_counter[dtid]++;
@@ -1002,6 +1008,9 @@ BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_gu
     }
     // -------------------------------------------------------------------------------------
   }
+  if (c_guard.moved)
+    c_guard = std::move(guards[0]);
+  p_guard = std::move(p_x_guard);
   return ret_code;
 }
 // -------------------------------------------------------------------------------------
@@ -1017,20 +1026,19 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // Called by buffer manager before eviction
 // Returns true if the buffer manager has to restart and pick another buffer frame for eviction
 // Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
-bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard guard, ParentSwipHandler parent_handler)
+bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard& guard, ParentSwipHandler& parent_handler)
 {
-  auto& btree = *reinterpret_cast<BTree*>(btree_object);
-  OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-  OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(std::move(guard), &bf);
-  // -------------------------------------------------------------------------------------
   if (FLAGS_su_merge) {
-    KWayMergeReturnCode merged = btree.kWayMerge(p_guard, c_guard, parent_handler);
+    auto& btree = *reinterpret_cast<BTree*>(btree_object);
+    OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
+    OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(std::move(guard), &bf);
+    XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
+    guard = std::move(c_guard.bf_s_lock);
+    parent_handler.parent_guard = std::move(p_guard.bf_s_lock);
     p_guard.kill();
     c_guard.kill();
-    return !(merged == KWayMergeReturnCode::NOTHING);
+    return (return_code != XMergeReturnCode::NOTHING);
   }
-  p_guard.kill();
-  c_guard.kill();
   return false;
 }
 // -------------------------------------------------------------------------------------

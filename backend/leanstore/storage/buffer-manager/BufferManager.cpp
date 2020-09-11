@@ -86,7 +86,7 @@ BufferManager::BufferManager()
   // Background threads
   // -------------------------------------------------------------------------------------
   // Page Provider threads
-  if (FLAGS_pp_threads) { // make it optional for pure in-memory experiments
+  if (FLAGS_pp_threads) {  // make it optional for pure in-memory experiments
     std::vector<thread> pp_threads;
     const u64 partitions_per_thread = partitions_count / FLAGS_pp_threads;
     ensure(FLAGS_pp_threads <= partitions_count);
@@ -182,13 +182,13 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             continue;  // restart the inner loop
           }
           // -------------------------------------------------------------------------------------
-          [[maybe_unused]] Time find_parent_begin;
+          [[maybe_unused]] Time find_parent_begin, find_parent_end;
           COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
           ParentSwipHandler parent_handler = dt_registry.findParent(r_buffer->page.dt_id, *r_buffer);
           assert(parent_handler.parent_guard.latch_ptr != reinterpret_cast<HybridLatch*>(0x99));
-          auto find_parent_end = std::chrono::high_resolution_clock::now();
           COUNTERS_BLOCK()
           {
+            find_parent_end = std::chrono::high_resolution_clock::now();
             PPCounters::myCounters().find_parent_ms +=
                 (std::chrono::duration_cast<std::chrono::microseconds>(find_parent_end - find_parent_begin).count());
           }
@@ -198,6 +198,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             r_buffer = &randomBufferFrame();
             continue;
           }
+          r_guard.recheck();
           // -------------------------------------------------------------------------------------
           // Suitable page founds, lets unswizzle
           {
@@ -526,7 +527,8 @@ BufferFrame& BufferManager::resolveSwip(OptimisticGuard& swip_guard,
     COUNTERS_BLOCK()
     {
       WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
-      if (FLAGS_trace_dt_id >= 0 && bf.page.dt_id == static_cast<u64>(FLAGS_trace_dt_id) && utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
+      if (FLAGS_trace_dt_id >= 0 && bf.page.dt_id == static_cast<u64>(FLAGS_trace_dt_id) &&
+          utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
         utils::printBackTrace();
       }
     }
