@@ -1,6 +1,6 @@
 #pragma once
 #include "Config.hpp"
-#include "storage/btree/vs/BTreeVS.hpp"
+#include "storage/btree/BTreeVS.hpp"
 #include "storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/counters/ThreadCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
-#include "leanstore/storage/btree/vs/BTreeSlotted.hpp"
+#include "leanstore/storage/btree/BTreeSlotted.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
