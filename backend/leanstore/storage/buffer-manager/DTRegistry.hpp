@@ -20,9 +20,9 @@ struct ParentSwipHandler {
   s32 pos = -2; // meaning it is the root bf in the dt
   // -------------------------------------------------------------------------------------
   template <typename T>
-  OptimisticPageGuard<T> getParentReadPageGuard()
+  HybridPageGuard<T> getParentReadPageGuard()
   {
-    return OptimisticPageGuard<T>::manuallyAssembleGuard(std::move(parent_guard), parent_bf);
+    return HybridPageGuard<T>::manuallyAssembleGuard(std::move(parent_guard), parent_bf);
   }
 };
 // -------------------------------------------------------------------------------------

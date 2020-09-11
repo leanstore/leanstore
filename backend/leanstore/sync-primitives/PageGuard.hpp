@@ -1,5 +1,6 @@
 #pragma once
 #include "Exceptions.hpp"
+#include "Latch.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
@@ -8,10 +9,10 @@ namespace leanstore
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
-#define PAGE_GUARD_HEADER    \
-  BufferFrame* bf = nullptr; \
-  OptimisticGuard bf_s_lock; \
-  bool moved = false;
+#define PAGE_GUARD_HEADER           \
+  BufferFrame* bf = nullptr;        \
+  HybridLatch* latch_ptr = nullptr; \
+  GUARD_STATE state = GUARD_STATE::UNITIALIZED;
 
 #define PAGE_GUARD_UTILS                                        \
   T& ref() { return *reinterpret_cast<T*>(bf->page.dt); }       \
@@ -30,33 +31,22 @@ class ExclusivePageGuard;
 template <typename T>
 class SharedPageGuard;
 template <typename T>
-class OptimisticPageGuard
+class HybridPageGuard
 {
  protected:
-  OptimisticPageGuard(HybridLatch& swip_version) : bf_s_lock(OptimisticGuard(swip_version)), moved(false)
-  {
-    COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_researchy[0][8]++; }
-    jumpmu_registerDestructor();
-  }
-  OptimisticPageGuard(OptimisticGuard read_guard, BufferFrame* bf) : bf(bf), bf_s_lock(std::move(read_guard)), moved(false)
-  {
-    assert((bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT) == 0);
-    jumpmu_registerDestructor();
-  }
+  HybridPageGuard(HybridLatch& latch) : latch_ptr(&latch) { jumpmu_registerDestructor(); }
   // -------------------------------------------------------------------------------------
-  // -------------------------------------------------------------------------------------
-
  public:
   // -------------------------------------------------------------------------------------
   PAGE_GUARD_HEADER
   bool manually_checked = false;
   // -------------------------------------------------------------------------------------
-  OptimisticPageGuard() : bf(nullptr), bf_s_lock(nullptr, 0), moved(true) { jumpmu_registerDestructor(); }  // use with caution
+  HybridPageGuard() : bf(nullptr), bf_s_lock(nullptr, 0), moved(true) { jumpmu_registerDestructor(); }  // use with caution
   // -------------------------------------------------------------------------------------
   // Copy constructor
-  OptimisticPageGuard(OptimisticPageGuard& other) = delete;
+  HybridPageGuard(HybridPageGuard& other) = delete;
   // Move constructor
-  OptimisticPageGuard(OptimisticPageGuard&& other)
+  HybridPageGuard(HybridPageGuard&& other)
       : bf(other.bf), bf_s_lock(std::move(other.bf_s_lock)), moved(other.moved), manually_checked(other.manually_checked)
   {
     assert(!other.moved);
@@ -64,16 +54,13 @@ class OptimisticPageGuard
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
-  static OptimisticPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf)
-  {
-    return OptimisticPageGuard(std::move(read_guard), bf);
-  }
+  static HybridPageGuard manuallyAssembleGuard(OptimisticGuard read_guard, BufferFrame* bf) { return HybridPageGuard(std::move(read_guard), bf); }
   // -------------------------------------------------------------------------------------
   // I: Root case
-  static OptimisticPageGuard makeRootGuard(HybridLatch& swip_version) { return OptimisticPageGuard(swip_version); }
+  static HybridPageGuard makeRootGuard(HybridLatch& latch_guard) { return HybridPageGuard(latch_guard); }
   // -------------------------------------------------------------------------------------
   // I: Lock coupling
-  OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip)
+  HybridPageGuard(HybridPageGuard& p_guard, Swip<T>& swip)
       : bf(&BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip.template cast<BufferFrame>())), bf_s_lock(OptimisticGuard(bf->header.latch))
   {
     assert(!(p_guard.bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
@@ -82,9 +69,9 @@ class OptimisticPageGuard
     p_guard.recheck();
   }
   // I: Lock coupling with mutex
-  OptimisticPageGuard(OptimisticPageGuard& p_guard, Swip<T>& swip, bool)
+  HybridPageGuard(HybridPageGuard& p_guard, Swip<T>& swip, bool)
       : bf(&BMC::global_bf->resolveSwip(p_guard.bf_s_lock, swip.template cast<BufferFrame>())),
-        bf_s_lock(OptimisticGuard(bf->header.latch, OptimisticGuard::IF_LOCKED::SET_NULL))
+        bf_s_lock(OptimisticGuard(bf->header.latch, FALLBACK_METHOD::SET_NULL))
   {
     assert(!(p_guard.bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
     assert(!p_guard.moved);
@@ -100,7 +87,7 @@ class OptimisticPageGuard
     p_guard.recheck();
   }
   // I: Downgrade exclusive
-  OptimisticPageGuard& operator=(ExclusivePageGuard<T>&& other)
+  HybridPageGuard& operator=(ExclusivePageGuard<T>&& other)
   {
     assert(!other.moved);
     assert(moved);
@@ -120,22 +107,15 @@ class OptimisticPageGuard
     return *this;
   }
   // I: Downgrade shared
-  OptimisticPageGuard(SharedPageGuard<T>&&) = delete;
-  OptimisticPageGuard& operator=(SharedPageGuard<T>&& other)
+  HybridPageGuard(SharedPageGuard<T>&&) = delete;
+  HybridPageGuard& operator=(SharedPageGuard<T>&& other)
   {
-    bf = other.bf;
-    bf_s_lock = std::move(other.bf_s_lock);
-    // -------------------------------------------------------------------------------------
-    SharedGuard::unlatch(bf_s_lock);
-    // -------------------------------------------------------------------------------------
-    moved = false;
-    other.moved = true;
-    return *this;
+    // TODO
   }
   // -------------------------------------------------------------------------------------
   // Assignment operator
-  constexpr OptimisticPageGuard& operator=(OptimisticPageGuard& other) = delete;
-  constexpr OptimisticPageGuard& operator=(OptimisticPageGuard&& other)
+  constexpr HybridPageGuard& operator=(HybridPageGuard& other) = delete;
+  constexpr HybridPageGuard& operator=(HybridPageGuard&& other)
   {
     if (!moved && bf_s_lock.mutex_locked_upfront) {
       assert(!(bf_s_lock.local_version & LATCH_EXCLUSIVE_BIT));
@@ -150,12 +130,6 @@ class OptimisticPageGuard
     // -------------------------------------------------------------------------------------
     other.moved = true;
     return *this;
-  }
-  // -------------------------------------------------------------------------------------
-  template <typename T2>
-  OptimisticPageGuard<T2>& cast()
-  {
-    return *reinterpret_cast<OptimisticPageGuard<T2>*>(this);
   }
   // -------------------------------------------------------------------------------------
   bool hasFacedContention() { return bf_s_lock.mutex_locked_upfront; }
@@ -178,9 +152,9 @@ class OptimisticPageGuard
   // Guard not needed anymore
   PAGE_GUARD_UTILS
   // -------------------------------------------------------------------------------------
-  jumpmu_defineCustomDestructor(OptimisticPageGuard)
+  jumpmu_defineCustomDestructor(HybridPageGuard)
       // -------------------------------------------------------------------------------------
-      ~OptimisticPageGuard()
+      ~HybridPageGuard()
   {
     if (!moved && bf_s_lock.mutex_locked_upfront) {
       // raise(SIGTRAP);
@@ -220,7 +194,7 @@ class ExclusivePageGuard
  public:
   // -------------------------------------------------------------------------------------
   // I: Upgrade
-  ExclusivePageGuard(OptimisticPageGuard<T>&& o_guard) : bf(o_guard.bf), bf_s_lock(std::move(o_guard.bf_s_lock)), moved(false)
+  ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : bf(o_guard.bf), bf_s_lock(std::move(o_guard.bf_s_lock)), moved(false)
   {
     ExclusiveGuard::latch(bf_s_lock);
     o_guard.moved = true;
@@ -285,19 +259,6 @@ class SharedPageGuard
 {
  public:
   PAGE_GUARD_HEADER
-  // -------------------------------------------------------------------------------------
-  SharedPageGuard(OptimisticPageGuard<T>&& o_guard) : bf(o_guard.bf), bf_s_lock(std::move(o_guard.bf_s_lock)), moved(false)
-  {
-    SharedGuard::latch(bf_s_lock);
-    // -------------------------------------------------------------------------------------
-    o_guard.moved = true;
-  }
-  ~SharedPageGuard()
-  {
-    if (!moved) {
-      SharedGuard::unlatch(bf_s_lock);
-    }
-  }
   // -------------------------------------------------------------------------------------
   PAGE_GUARD_UTILS
 };

@@ -31,7 +31,7 @@ bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> pa
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> leaf;
+      HybridPageGuard<BTreeNode> leaf;
       findLeafForRead<0>(leaf, key, key_length);
       // -------------------------------------------------------------------------------------
       DEBUG_BLOCK()
@@ -74,7 +74,7 @@ void BTree::rangeScanAsc(u8* start_key,
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> leaf;
+      HybridPageGuard<BTreeNode> leaf;
       findLeafForRead<11>(leaf, next_key, next_key_length);
       while (true) {
         s16 cur = leaf->lowerBound<false>(start_key, key_length);
@@ -144,7 +144,7 @@ void BTree::rangeScanDesc(u8* start_key,
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> leaf;
+      HybridPageGuard<BTreeNode> leaf;
       findLeafForRead<11>(leaf, next_key, next_key_length);
       while (true) {
         s16 cur = leaf->lowerBound<false>(start_key, key_length);
@@ -218,7 +218,7 @@ bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)>
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> leaf;
+      HybridPageGuard<BTreeNode> leaf;
       findLeafForRead<11>(leaf, one_step_further_key, key_length);
       const s16 cur = leaf->lowerBound<false>(one_step_further_key, key_length);
       if (cur > 0) {
@@ -235,7 +235,7 @@ bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)>
           const u16 lower_fence_key_length = leaf->lower_fence.length;
           u8 lower_fence_key[lower_fence_key_length];
           std::memcpy(lower_fence_key, leaf->getLowerFenceKey(), lower_fence_key_length);
-          OptimisticPageGuard<BTreeNode> prev;
+          HybridPageGuard<BTreeNode> prev;
           findLeafForRead<11>(prev, lower_fence_key, lower_fence_key_length);
           leaf.recheck_done();
           // -------------------------------------------------------------------------------------
@@ -264,7 +264,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> c_guard;
+      HybridPageGuard<BTreeNode> c_guard;
       findLeafForRead<2>(c_guard, key, key_length);
       // -------------------------------------------------------------------------------------
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
@@ -290,12 +290,12 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
   }
 }
 // -------------------------------------------------------------------------------------
-bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s16 l_pos)
+bool BTree::tryBalanceRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<BTreeNode>& left, s16 l_pos)
 {
   if (!parent.hasBf() || l_pos + 1 >= parent->count) {
     return false;
   }
-  OptimisticPageGuard<BTreeNode> right = OptimisticPageGuard(parent, parent->getChild(l_pos + 1));
+  HybridPageGuard<BTreeNode> right = HybridPageGuard(parent, parent->getChild(l_pos + 1));
   // -------------------------------------------------------------------------------------
   // Rebalance: move key/value from end of left to the beginning of right
   const u32 total_free_space = left->freeSpaceAfterCompaction() + right->freeSpaceAfterCompaction();
@@ -382,8 +382,8 @@ bool BTree::tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPa
 void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
   auto parent_handler = findParent(this, to_split);
-  OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-  OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
+  HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
+  HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
   if (c_guard->count <= 2)
     return;
   // -------------------------------------------------------------------------------------
@@ -452,7 +452,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
     jumpmuTry()
     {
       // -------------------------------------------------------------------------------------
-      OptimisticPageGuard<BTreeNode> c_guard;
+      HybridPageGuard<BTreeNode> c_guard;
       findLeafForRead<10>(c_guard, key, key_length);
       u32 local_restarts_counter = c_guard.hasFacedContention();  // current implementation uses the mutex
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
@@ -519,7 +519,7 @@ bool BTree::remove(u8* key, u16 key_length)
   while (true) {
     jumpmuTry()
     {
-      OptimisticPageGuard<BTreeNode> c_guard;
+      HybridPageGuard<BTreeNode> c_guard;
       findLeafForRead<2>(c_guard, key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (!c_x_guard->remove(key, key_length)) {
@@ -547,8 +547,8 @@ bool BTree::remove(u8* key, u16 key_length)
 bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
 {
   auto parent_handler = findParent(this, to_merge);
-  OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-  OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
+  HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
+  HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
   int pos = parent_handler.pos;
   if (!p_guard.hasBf() || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
     p_guard.kill();
@@ -569,7 +569,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
     if (!swizzle_sibling && !l_swip.isSwizzled()) {
       return false;
     }
-    auto l_guard = OptimisticPageGuard(p_guard, l_swip);
+    auto l_guard = HybridPageGuard(p_guard, l_swip);
     if (l_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
       l_guard.kill();
       return false;
@@ -595,7 +595,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
     if (!swizzle_sibling && !r_swip.isSwizzled()) {
       return false;
     }
-    auto r_guard = OptimisticPageGuard(p_guard, r_swip);
+    auto r_guard = HybridPageGuard(p_guard, r_swip);
     if (r_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
       r_guard.kill();
       return false;
@@ -717,8 +717,8 @@ s16 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
 }
 // -------------------------------------------------------------------------------------
 // returns true if it has exclusively locked anything
-BTree::XMergeReturnCode BTree::XMerge(OptimisticPageGuard<BTreeNode>& p_guard,
-                                      OptimisticPageGuard<BTreeNode>& c_guard,
+BTree::XMergeReturnCode BTree::XMerge(HybridPageGuard<BTreeNode>& p_guard,
+                                      HybridPageGuard<BTreeNode>& c_guard,
                                       ParentSwipHandler& parent_handler)
 {
   WorkerCounters::myCounters().dt_researchy[0][1]++;
@@ -730,7 +730,7 @@ BTree::XMergeReturnCode BTree::XMerge(OptimisticPageGuard<BTreeNode>& p_guard,
   s16 pos = parent_handler.pos;
   u8 pages_count = 1;
   s16 max_right;
-  OptimisticPageGuard<BTreeNode> guards[MAX_MERGE_PAGES];
+  HybridPageGuard<BTreeNode> guards[MAX_MERGE_PAGES];
   bool fully_merged[MAX_MERGE_PAGES];
   // -------------------------------------------------------------------------------------
   guards[0] = std::move(c_guard);
@@ -748,7 +748,7 @@ BTree::XMergeReturnCode BTree::XMerge(OptimisticPageGuard<BTreeNode>& p_guard,
       return XMergeReturnCode::NOTHING;
     }
     // -------------------------------------------------------------------------------------
-    guards[max_right - pos] = OptimisticPageGuard<BTreeNode>(p_guard, p_guard->getChild(max_right));
+    guards[max_right - pos] = HybridPageGuard<BTreeNode>(p_guard, p_guard->getChild(max_right));
     fully_merged[max_right - pos] = false;
     total_fill_factor += guards[max_right - pos]->fillFactorAfterCompaction();
     pages_count++;
@@ -822,8 +822,8 @@ bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Optimisti
 {
   if (FLAGS_su_merge) {
     auto& btree = *reinterpret_cast<BTree*>(btree_object);
-    OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-    OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(std::move(guard), &bf);
+    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
+    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard<BTreeNode>::manuallyAssembleGuard(std::move(guard), &bf);
     XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
     guard = std::move(c_guard.bf_s_lock);
     parent_handler.parent_guard = std::move(p_guard.bf_s_lock);
@@ -848,7 +848,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   Swip<BTreeNode>* c_swip = &btree.root_swip;
   u16 level = 0;
   // -------------------------------------------------------------------------------------
-  auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(btree.root_lock);
+  auto p_guard = HybridPageGuard<BTreeNode>::makeRootGuard(btree.root_lock);
   // -------------------------------------------------------------------------------------
   const bool infinity = c_node.upper_fence.offset == 0;
   u16 key_length = c_node.upper_fence.length;
@@ -860,7 +860,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
     return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.bf_s_lock), .parent_bf = nullptr};
   }
   // -------------------------------------------------------------------------------------
-  OptimisticPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
+  HybridPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
   s16 pos = -1;
   auto search_condition = [&]() {
     if (infinity) {
@@ -878,7 +878,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   };
   while (!c_guard->is_leaf && search_condition()) {
     p_guard = std::move(c_guard);
-    c_guard = OptimisticPageGuard(p_guard, c_swip->cast<BTreeNode>());
+    c_guard = HybridPageGuard(p_guard, c_swip->cast<BTreeNode>());
     level++;
   }
   p_guard.kill();
@@ -906,7 +906,7 @@ void BTree::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip
 }
 // Helpers
 // -------------------------------------------------------------------------------------
-s64 BTree::iterateAllPagesRec(OptimisticPageGuard<BTreeNode>& node_guard, std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf)
+s64 BTree::iterateAllPagesRec(HybridPageGuard<BTreeNode>& node_guard, std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf)
 {
   if (node_guard->is_leaf) {
     return leaf(node_guard.ref());
@@ -914,13 +914,13 @@ s64 BTree::iterateAllPagesRec(OptimisticPageGuard<BTreeNode>& node_guard, std::f
   s64 res = inner(node_guard.ref());
   for (u16 i = 0; i < node_guard->count; i++) {
     Swip<BTreeNode>& c_swip = node_guard->getChild(i);
-    auto c_guard = OptimisticPageGuard(node_guard, c_swip);
+    auto c_guard = HybridPageGuard(node_guard, c_swip);
     c_guard.recheck_done();
     res += iterateAllPagesRec(c_guard, inner, leaf);
   }
   // -------------------------------------------------------------------------------------
   Swip<BTreeNode>& c_swip = node_guard->upper;
-  auto c_guard = OptimisticPageGuard(node_guard, c_swip);
+  auto c_guard = HybridPageGuard(node_guard, c_swip);
   c_guard.recheck_done();
   res += iterateAllPagesRec(c_guard, inner, leaf);
   // -------------------------------------------------------------------------------------
@@ -932,8 +932,8 @@ s64 BTree::iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s
   while (true) {
     jumpmuTry()
     {
-      auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-      OptimisticPageGuard c_guard(p_guard, root_swip);
+      auto p_guard = HybridPageGuard<BTreeNode>::makeRootGuard(root_lock);
+      HybridPageGuard c_guard(p_guard, root_swip);
       jumpmu_return iterateAllPagesRec(c_guard, inner, leaf);
     }
     jumpmuCatch() {}
@@ -968,8 +968,8 @@ u32 BTree::bytesFree()
 // -------------------------------------------------------------------------------------
 void BTree::printInfos(uint64_t totalSize)
 {
-  auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-  OptimisticPageGuard r_guard(p_guard, root_swip);
+  auto p_guard = HybridPageGuard<BTreeNode>::makeRootGuard(root_lock);
+  HybridPageGuard r_guard(p_guard, root_swip);
   uint64_t cnt = countPages();
   cout << "nodes:" << cnt << " innerNodes:" << countInner() << " space:" << (cnt * EFFECTIVE_PAGE_SIZE) / (float)totalSize << " height:" << height
        << " rootCnt:" << r_guard->count << " bytesFree:" << bytesFree() << endl;

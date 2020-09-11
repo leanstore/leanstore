@@ -52,12 +52,12 @@ struct BTree {
                          ExclusivePageGuard<BTreeNode>& to_right,
                          bool full_merge_or_nothing);
   enum class XMergeReturnCode : u8 { NOTHING, FULL_MERGE, PARTIAL_MERGE };
-  XMergeReturnCode XMerge(OptimisticPageGuard<BTreeNode>& p_guard, OptimisticPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
+  XMergeReturnCode XMerge(HybridPageGuard<BTreeNode>& p_guard, HybridPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
   // -------------------------------------------------------------------------------------
   // B*-tree
-  bool tryBalanceRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s16 l_pos);
-  bool tryBalanceLeft(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& right, s16 l_pos);
-  bool trySplitRight(OptimisticPageGuard<BTreeNode>& parent, OptimisticPageGuard<BTreeNode>& left, s16 l_pos);
+  bool tryBalanceRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<BTreeNode>& left, s16 l_pos);
+  bool tryBalanceLeft(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<BTreeNode>& right, s16 l_pos);
+  bool trySplitRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<BTreeNode>& left, s16 l_pos);
   void tryBStar(BufferFrame&);
   // -------------------------------------------------------------------------------------
   static DTRegistry::DTMeta getMeta();
@@ -69,21 +69,21 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   // Helpers
   template <int op_type = 0>  // 0 point lookup, 1 update same size, 2 structural change, 10 updatesamesize, 11 scan // TODO better code
-  void findLeafForRead(OptimisticPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
+  void findLeafForRead(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
   {
     u32 volatile mask = 1;
     while (true) {
       jumpmuTry()
       {
-        auto p_guard = OptimisticPageGuard<BTreeNode>::makeRootGuard(root_lock);
-        OptimisticPageGuard<BTreeNode> c_guard(p_guard, root_swip, true);
+        auto p_guard = HybridPageGuard<BTreeNode>::makeRootGuard(root_lock);
+        HybridPageGuard<BTreeNode> c_guard(p_guard, root_swip, true);
         while (!c_guard->is_leaf) {
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
           if (FLAGS_mutex) {
-            c_guard = OptimisticPageGuard(p_guard, c_swip, true);
+            c_guard = HybridPageGuard(p_guard, c_swip, true);
           } else {
-            c_guard = OptimisticPageGuard(p_guard, c_swip);
+            c_guard = HybridPageGuard(p_guard, c_swip);
           }
         }
         p_guard.kill();
@@ -107,7 +107,7 @@ struct BTree {
   }
   // -------------------------------------------------------------------------------------
   s64 iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
-  s64 iterateAllPagesRec(OptimisticPageGuard<BTreeNode>& node_guard, std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
+  s64 iterateAllPagesRec(HybridPageGuard<BTreeNode>& node_guard, std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
   unsigned countInner();
   u32 countPages();
   u32 countEntries();
