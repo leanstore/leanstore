@@ -131,7 +131,6 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_dram_gib", [&](ostream& out) { out << FLAGS_dram_gib; });
   config_entries.emplace_back("c_target_gib", [&](ostream& out) { out << FLAGS_target_gib; });
   config_entries.emplace_back("c_run_for_seconds", [&](ostream& out) { out << FLAGS_run_for_seconds; });
-  config_entries.emplace_back("c_bstar", [&](ostream& out) { out << FLAGS_bstar; });
   config_entries.emplace_back("c_bulk_insert", [&](ostream& out) { out << FLAGS_bulk_insert; });
   config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });
   // -------------------------------------------------------------------------------------
