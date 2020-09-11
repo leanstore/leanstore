@@ -26,7 +26,6 @@ DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(root, false, "does this process have root rights ?");
-DEFINE_bool(fs, false, "use fix\ed size btree");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff_strategy, 0, "");
 // -------------------------------------------------------------------------------------

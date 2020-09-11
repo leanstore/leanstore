@@ -140,7 +140,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
       {
         while (phase_1_condition(randomPartition())) {
           COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
-          if (r_buffer->header.latch.isAnyLatched()) {
+          if (r_buffer->header.latch.isExclusivelyLatched()) {
             r_buffer = &randomBufferFrame();
             continue;
           }
