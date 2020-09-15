@@ -144,7 +144,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             r_buffer = &randomBufferFrame();
             continue;
           }
-          OptimisticGuard r_guard(r_buffer->header.latch); // TODO: , FALLBACK_METHOD::JUMP
+          OptimisticGuard r_guard(r_buffer->header.latch, true);
           // -------------------------------------------------------------------------------------
           const u64 partition_i = getPartitionID(r_buffer->header.pid);
           static_cast<void>(partition_i);
@@ -604,7 +604,8 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard,
     {
       // We have to exclusively lock the bf because the page provider thread will
       // try to evict them when its IO is done
-      OptimisticGuard bf_guard(bf->header.latch); // TODO: <FALLBACK_METHOD::SHOULD_NOT_HAPPEN>
+      bf->header.latch.assertNotExclusivelyLatched();
+      OptimisticGuard bf_guard(bf->header.latch);
       ExclusiveGuard swip_x_guard(swip_guard);
       ExclusiveGuard bf_x_guard(bf_guard);
       // -------------------------------------------------------------------------------------

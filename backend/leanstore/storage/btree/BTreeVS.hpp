@@ -80,7 +80,7 @@ struct BTree {
         while (!c_guard->is_leaf) {
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
-          c_guard = HybridPageGuard<BTreeNode>(p_guard, c_swip, FALLBACK_METHOD::EXCLUSIVE);
+          c_guard = HybridPageGuard(p_guard, c_swip, FALLBACK_METHOD::EXCLUSIVE);
         }
         p_guard.kill();
         target_guard = std::move(c_guard);

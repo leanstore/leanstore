@@ -33,6 +33,10 @@ class OptimisticGuard
     // assert(if_contended != FALLBACK_METHOD::EXCLUSIVE && if_contended != FALLBACK_METHOD::SHARED);
     guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SPIN>();
   }
+  OptimisticGuard(HybridLatch& lock, bool) : guard(lock)  // TODO: temporary hack
+  {
+    guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::JUMP>();
+  }
   // -------------------------------------------------------------------------------------
   OptimisticGuard() = delete;
   OptimisticGuard(OptimisticGuard& other) = delete;  // copy constructor

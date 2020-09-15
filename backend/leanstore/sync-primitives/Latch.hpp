@@ -76,7 +76,10 @@ struct Guard {
   Guard(HybridLatch& latch, GUARD_STATE state, u64 version) : latch(&latch), state(state), version(version) {}
   // -------------------------------------------------------------------------------------
   // Move
-  Guard(Guard&& other) : latch(other.latch), state(other.state), version(other.version) { other.state = GUARD_STATE::MOVED; }
+  Guard(Guard&& other) : latch(other.latch), state(other.state), version(other.version), faced_contention(other.faced_contention)
+  {
+    other.state = GUARD_STATE::MOVED;
+  }
   Guard& operator=(Guard&& other)
   {
     transition<GUARD_STATE::OPTIMISTIC>();
@@ -84,6 +87,7 @@ struct Guard {
     latch = other.latch;
     state = other.state;
     version = other.version;
+    faced_contention = other.faced_contention;
     // -------------------------------------------------------------------------------------
     other.state = GUARD_STATE::MOVED;
     // -------------------------------------------------------------------------------------
@@ -123,6 +127,7 @@ struct Guard {
               version = latch->ref().load();
             }
             state = GUARD_STATE::OPTIMISTIC;
+            faced_contention = true;
             break;
           }
           case FALLBACK_METHOD::JUMP: {
