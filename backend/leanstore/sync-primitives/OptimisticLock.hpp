@@ -30,7 +30,7 @@ class OptimisticGuard
   // -------------------------------------------------------------------------------------
   OptimisticGuard(HybridLatch& lock, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN) : guard(lock)
   {
-    ensure(if_contended != FALLBACK_METHOD::EXCLUSIVE && if_contended != FALLBACK_METHOD::SHARED);
+    assert(if_contended != FALLBACK_METHOD::EXCLUSIVE && if_contended != FALLBACK_METHOD::SHARED);
     guard.transition(GUARD_STATE::OPTIMISTIC, if_contended);
   }
   // -------------------------------------------------------------------------------------

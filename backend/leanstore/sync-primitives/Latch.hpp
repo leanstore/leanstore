@@ -97,7 +97,7 @@ struct Guard {
     }
   }
   // -------------------------------------------------------------------------------------
-  void transition(GUARD_STATE dest_state, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
+  inline void transition(GUARD_STATE dest_state, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
   {
     // -------------------------------------------------------------------------------------
     // enum class GUARD_STATE { UNINITIALIZED, OPTIMISTIC, SHARED, EXCLUSIVE, MOVED, RELEASED };
@@ -106,10 +106,10 @@ struct Guard {
     }
     switch (state) {
       case GUARD_STATE::UNINITIALIZED: {
-        ensure(dest_state == GUARD_STATE::OPTIMISTIC);
-        for (u32 attempt = 0; attempt < 40; attempt++) {
+        assert(dest_state == GUARD_STATE::OPTIMISTIC);
+        for (u8 attempt = 0; attempt < 40; attempt++) {
           version = latch->ref().load();
-          if (((version & LATCH_EXCLUSIVE_BIT) == 0)) {
+          if ((version & LATCH_EXCLUSIVE_BIT) == 0) {
             state = GUARD_STATE::OPTIMISTIC;
             return;
           }
@@ -126,6 +126,7 @@ struct Guard {
           }
           case FALLBACK_METHOD::JUMP: {
             jumpmu::jump();
+            break;
           }
           case FALLBACK_METHOD::EXCLUSIVE: {
             latch->mutex.lock();
