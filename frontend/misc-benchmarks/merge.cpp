@@ -73,7 +73,9 @@ int main(int argc, char** argv)
     auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
     // -------------------------------------------------------------------------------------
     auto p_guard = parent_handler.getParentReadPageGuard<leanstore::btree::vs::BTreeNode>();
-    auto c_guard = HybridPageGuard<leanstore::btree::vs::BTreeNode>::manuallyAssembleGuard(std::move(o_guard), bf);
+    auto c_guard = HybridPageGuard<leanstore::btree::vs::BTreeNode>;
+    c_guard.guard = std::move(o_guard.guard);
+    c_guard.bf = bf;
     if (FLAGS_aggressive) {
       auto ret_code = vs_btree.XMerge(p_guard, c_guard, parent_handler);
     } else {

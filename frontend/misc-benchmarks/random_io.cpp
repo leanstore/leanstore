@@ -37,13 +37,8 @@ int main(int argc, char** argv)
   // LeanStore DB
   LeanStore db;
   unique_ptr<BTreeInterface<Key, Payload>> adapter;
-  if (FLAGS_fs) {
-    auto& fs_btree = db.registerFSBTree<Key, Payload>("rio");
-    adapter.reset(new BTreeFSAdapter(fs_btree));
-  } else {
-    auto& vs_btree = db.registerVSBTree("rio");
-    adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
-  }
+  auto& vs_btree = db.registerVSBTree("rio");
+  adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
   db.startDebuggingThread();
   // -------------------------------------------------------------------------------------

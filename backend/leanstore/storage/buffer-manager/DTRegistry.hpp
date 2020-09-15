@@ -15,14 +15,14 @@ namespace buffermanager
 // -------------------------------------------------------------------------------------
 struct ParentSwipHandler {
   Swip<BufferFrame>& swip;
-  OptimisticGuard parent_guard;
+  Guard parent_guard;
   BufferFrame* parent_bf;
-  s32 pos = -2; // meaning it is the root bf in the dt
+  s32 pos = -2;  // meaning it is the root bf in the dt
   // -------------------------------------------------------------------------------------
   template <typename T>
   HybridPageGuard<T> getParentReadPageGuard()
   {
-    return HybridPageGuard<T>::manuallyAssembleGuard(std::move(parent_guard), parent_bf);
+    return HybridPageGuard<T>(parent_guard, parent_bf);
   }
 };
 // -------------------------------------------------------------------------------------
@@ -39,7 +39,7 @@ struct DTRegistry {
   // -------------------------------------------------------------------------------------
   void iterateChildrenSwips(DTID dtid, BufferFrame&, std::function<bool(Swip<BufferFrame>&)>);
   ParentSwipHandler findParent(DTID dtid, BufferFrame&);
-  bool checkSpaceUtilization(DTID dtid, BufferFrame &, OptimisticGuard&, ParentSwipHandler&);
+  bool checkSpaceUtilization(DTID dtid, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager

@@ -76,15 +76,11 @@ struct BTree {
       jumpmuTry()
       {
         auto p_guard = HybridPageGuard<BTreeNode>::makeRootGuard(root_lock);
-        HybridPageGuard<BTreeNode> c_guard(p_guard, root_swip, true);
+        HybridPageGuard<BTreeNode> c_guard(p_guard, root_swip, FALLBACK_METHOD::SHARED);
         while (!c_guard->is_leaf) {
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
-          if (FLAGS_mutex) {
-            c_guard = HybridPageGuard(p_guard, c_swip, true);
-          } else {
-            c_guard = HybridPageGuard(p_guard, c_swip);
-          }
+          c_guard = HybridPageGuard(p_guard, c_swip, FALLBACK_METHOD::EXCLUSIVE);
         }
         p_guard.kill();
         target_guard = std::move(c_guard);

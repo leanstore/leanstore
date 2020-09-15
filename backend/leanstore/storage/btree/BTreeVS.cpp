@@ -717,9 +717,7 @@ s16 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
 }
 // -------------------------------------------------------------------------------------
 // returns true if it has exclusively locked anything
-BTree::XMergeReturnCode BTree::XMerge(HybridPageGuard<BTreeNode>& p_guard,
-                                      HybridPageGuard<BTreeNode>& c_guard,
-                                      ParentSwipHandler& parent_handler)
+BTree::XMergeReturnCode BTree::XMerge(HybridPageGuard<BTreeNode>& p_guard, HybridPageGuard<BTreeNode>& c_guard, ParentSwipHandler& parent_handler)
 {
   WorkerCounters::myCounters().dt_researchy[0][1]++;
   if (c_guard->fillFactorAfterCompaction() >= 0.9) {
@@ -800,7 +798,7 @@ BTree::XMergeReturnCode BTree::XMerge(HybridPageGuard<BTreeNode>& p_guard,
     }
     // -------------------------------------------------------------------------------------
   }
-  if (c_guard.moved)
+  if (c_guard.guard.state == GUARD_STATE::MOVED)
     c_guard = std::move(guards[0]);
   p_guard = std::move(p_x_guard);
   return ret_code;
@@ -818,15 +816,15 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // Called by buffer manager before eviction
 // Returns true if the buffer manager has to restart and pick another buffer frame for eviction
 // Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
-bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard& guard, ParentSwipHandler& parent_handler)
+bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard& o_guard, ParentSwipHandler& parent_handler)
 {
   if (FLAGS_su_merge) {
     auto& btree = *reinterpret_cast<BTree*>(btree_object);
     HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard<BTreeNode>::manuallyAssembleGuard(std::move(guard), &bf);
+    HybridPageGuard<BTreeNode> c_guard(o_guard.guard, &bf);
     XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
-    guard = std::move(c_guard.bf_s_lock);
-    parent_handler.parent_guard = std::move(p_guard.bf_s_lock);
+    o_guard.guard = std::move(c_guard.guard);
+    parent_handler.parent_guard = std::move(p_guard.guard);
     p_guard.kill();
     c_guard.kill();
     return (return_code != XMergeReturnCode::NOTHING);
@@ -857,7 +855,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   // check if bf is the root node
   if (c_swip->bf == &to_find) {
     p_guard.recheck_done();
-    return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.bf_s_lock), .parent_bf = nullptr};
+    return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = nullptr};
   }
   // -------------------------------------------------------------------------------------
   HybridPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
@@ -887,7 +885,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   if (!found) {
     jumpmu::jump();
   }
-  return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.bf_s_lock), .parent_bf = c_guard.bf, .pos = pos};
+  return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.guard), .parent_bf = c_guard.bf, .pos = pos};
 }
 // -------------------------------------------------------------------------------------
 void BTree::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)
