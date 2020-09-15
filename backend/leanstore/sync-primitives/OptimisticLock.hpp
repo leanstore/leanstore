@@ -28,10 +28,10 @@ class OptimisticGuard
  public:
   Guard guard;
   // -------------------------------------------------------------------------------------
-  OptimisticGuard(HybridLatch& lock, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN) : guard(lock)
+  OptimisticGuard(HybridLatch& lock) : guard(lock)
   {
-    assert(if_contended != FALLBACK_METHOD::EXCLUSIVE && if_contended != FALLBACK_METHOD::SHARED);
-    guard.transition(GUARD_STATE::OPTIMISTIC, if_contended);
+    // assert(if_contended != FALLBACK_METHOD::EXCLUSIVE && if_contended != FALLBACK_METHOD::SHARED);
+    guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SPIN>();
   }
   // -------------------------------------------------------------------------------------
   OptimisticGuard() = delete;
@@ -61,13 +61,13 @@ class ExclusiveGuard
  public:
   ExclusiveGuard(OptimisticGuard& o_lock) : optimistic_guard(&o_lock)
   {
-    optimistic_guard->guard.transition(GUARD_STATE::EXCLUSIVE);
+    optimistic_guard->guard.transition<GUARD_STATE::EXCLUSIVE>();
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
   ExclusiveGuard(Guard& guard) : guard(&guard), is_optimistic_guard(false)
   {
-    optimistic_guard->guard.transition(GUARD_STATE::EXCLUSIVE);
+    optimistic_guard->guard.transition<GUARD_STATE::EXCLUSIVE>();
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
@@ -76,9 +76,9 @@ class ExclusiveGuard
       ~ExclusiveGuard()
   {
     if (is_optimistic_guard) {
-      optimistic_guard->guard.transition(GUARD_STATE::OPTIMISTIC);
+      optimistic_guard->guard.transition<GUARD_STATE::OPTIMISTIC>();
     } else {
-      guard->transition(GUARD_STATE::OPTIMISTIC);
+      guard->transition<GUARD_STATE::OPTIMISTIC>();
     }
     jumpmu::clearLastDestructor();
   }

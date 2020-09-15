@@ -70,8 +70,8 @@ struct Guard {
   u64 version;
   bool faced_contention = false;
   // -------------------------------------------------------------------------------------
-  Guard(HybridLatch& latch) : latch(&latch) { transition(GUARD_STATE::OPTIMISTIC); }
-  Guard(HybridLatch* latch) : latch(latch) { transition(GUARD_STATE::OPTIMISTIC); }
+  Guard(HybridLatch& latch) : latch(&latch) { transition<GUARD_STATE::OPTIMISTIC>(); }
+  Guard(HybridLatch* latch) : latch(latch) { transition<GUARD_STATE::OPTIMISTIC>(); }
   // -------------------------------------------------------------------------------------
   Guard(HybridLatch& latch, GUARD_STATE state, u64 version) : latch(&latch), state(state), version(version) {}
   // -------------------------------------------------------------------------------------
@@ -79,7 +79,7 @@ struct Guard {
   Guard(Guard&& other) : latch(other.latch), state(other.state), version(other.version) { other.state = GUARD_STATE::MOVED; }
   Guard& operator=(Guard&& other)
   {
-    transition(GUARD_STATE::OPTIMISTIC);
+    transition<GUARD_STATE::OPTIMISTIC>();
     // -------------------------------------------------------------------------------------
     latch = other.latch;
     state = other.state;
@@ -97,7 +97,8 @@ struct Guard {
     }
   }
   // -------------------------------------------------------------------------------------
-  inline void transition(GUARD_STATE dest_state, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
+  template <GUARD_STATE dest_state, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN>
+  inline void transition()
   {
     // -------------------------------------------------------------------------------------
     // enum class GUARD_STATE { UNINITIALIZED, OPTIMISTIC, SHARED, EXCLUSIVE, MOVED, RELEASED };
@@ -131,7 +132,7 @@ struct Guard {
           case FALLBACK_METHOD::EXCLUSIVE: {
             latch->mutex.lock();
             version = latch->ref().load() + LATCH_EXCLUSIVE_BIT;
-            latch->ref().store(version);
+            latch->ref().store(version, std::memory_order_release);
             state = GUARD_STATE::EXCLUSIVE;
             faced_contention = true;
             break;
@@ -189,7 +190,7 @@ struct Guard {
         }
         ensure(dest_state == GUARD_STATE::OPTIMISTIC);
         version += LATCH_EXCLUSIVE_BIT;
-        latch->ref().store(version);
+        latch->ref().store(version, std::memory_order_release);
         latch->mutex.unlock();
         state = GUARD_STATE::OPTIMISTIC;
         break;

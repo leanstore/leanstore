@@ -56,7 +56,13 @@ class HybridPageGuard
   HybridPageGuard(HybridPageGuard& p_guard, Swip<T>& swip, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
       : bf(&BMC::global_bf->resolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
   {
-    guard.transition(GUARD_STATE::OPTIMISTIC, if_contended);
+    if (if_contended == FALLBACK_METHOD::SPIN) {
+      guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SPIN>();
+    } else if (if_contended == FALLBACK_METHOD::EXCLUSIVE) {
+      guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::EXCLUSIVE>();
+    } else if (if_contended == FALLBACK_METHOD::SHARED) {
+      guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SHARED>();
+    }
     jumpmu_registerDestructor();
     p_guard.recheck();
   }
@@ -69,7 +75,7 @@ class HybridPageGuard
     if (hasBf()) {
       bf->page.LSN++;
     }
-    guard.transition(GUARD_STATE::OPTIMISTIC);
+    guard.transition<GUARD_STATE::OPTIMISTIC>();
     return *this;
   }
   // I: Downgrade shared
@@ -89,7 +95,7 @@ class HybridPageGuard
   }
   // -------------------------------------------------------------------------------------
   bool hasFacedContention() { return guard.faced_contention; }
-  void kill() { guard.transition(GUARD_STATE::OPTIMISTIC); }
+  void kill() { guard.transition<GUARD_STATE::OPTIMISTIC>(); }
   void recheck() { guard.recheck(); }
   void recheck_done()
   {
@@ -104,7 +110,7 @@ class HybridPageGuard
       // -------------------------------------------------------------------------------------
       ~HybridPageGuard()
   {
-    guard.transition(GUARD_STATE::OPTIMISTIC);
+    guard.transition<GUARD_STATE::OPTIMISTIC>();
     jumpmu::clearLastDestructor();
   }
 };
@@ -129,7 +135,7 @@ class ExclusivePageGuard
   // I: Upgrade
   ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : bf(o_guard.bf), guard(std::move(o_guard.guard))
   {
-    guard.transition(GUARD_STATE::EXCLUSIVE);
+    guard.transition<GUARD_STATE::EXCLUSIVE>();
     // -------------------------------------------------------------------------------------
     jumpmu_registerDestructor();
   }
@@ -167,7 +173,7 @@ class ExclusivePageGuard
         if (hasBf()) {
           bf->page.LSN++;
         }
-        guard.transition(GUARD_STATE::OPTIMISTIC);
+        guard.transition<GUARD_STATE::OPTIMISTIC>();
       }
     }
     // -------------------------------------------------------------------------------------
