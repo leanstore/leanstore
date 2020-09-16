@@ -96,8 +96,11 @@ struct Guard {
   // -------------------------------------------------------------------------------------
   void recheck()
   {
-    if (version != latch->ref().load()) {
-      jumpmu::jump();
+    assert(state == GUARD_STATE::OPTIMISTIC || state == GUARD_STATE::EXCLUSIVE || state == GUARD_STATE::SHARED);
+    if (state == GUARD_STATE::OPTIMISTIC) {
+      if (version != latch->ref().load()) {
+        jumpmu::jump();
+      }
     }
   }
   // -------------------------------------------------------------------------------------
@@ -105,8 +108,6 @@ struct Guard {
   template <GUARD_STATE dest_state, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN>
   inline void transition()
   {
-    // -------------------------------------------------------------------------------------
-    // enum class GUARD_STATE { UNINITIALIZED, OPTIMISTIC, SHARED, EXCLUSIVE, MOVED, RELEASED };
     if (state == dest_state || state == GUARD_STATE::MOVED || latch == nullptr) {
       return;
     }

@@ -445,8 +445,8 @@ BufferFrame& BufferManager::allocatePage()
   // -------------------------------------------------------------------------------------
   // Initialize Buffer Frame
   free_bf.header.latch.assertNotExclusivelyLatched();
-  free_bf.header.latch.mutex.lock();
-  free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);  // Write lock
+  free_bf.header.latch.mutex.lock();  // Exclusive lock before changing to HOT
+  free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
   free_bf.header.pid = free_pid;
   free_bf.header.state = BufferFrame::State::HOT;
   free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;

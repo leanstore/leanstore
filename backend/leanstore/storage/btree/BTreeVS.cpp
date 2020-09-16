@@ -20,9 +20,10 @@ BTree::BTree() {}
 void BTree::init(DTID dtid)
 {
   this->dtid = dtid;
-  auto root_write_guard = ExclusivePageGuard<BTreeNode>::allocateNewPage(dtid);
+  auto root_write_guard_h = HybridPageGuard<BTreeNode>(dtid);
+  auto root_write_guard = ExclusivePageGuard<BTreeNode>(std::move(root_write_guard_h));
   root_write_guard.init(true);
-  root_swip = root_write_guard.bf;
+  root_swip = root_write_guard.bf();
 }
 // -------------------------------------------------------------------------------------
 bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
@@ -397,16 +398,18 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
     auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
     auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
     assert(height == 1 || !c_x_guard->is_leaf);
-    assert(root_swip.bf == c_x_guard.bf);
+    assert(root_swip.bf == c_x_guard.bf());
     // create new root
-    auto new_root = ExclusivePageGuard<BTreeNode>::allocateNewPage(dtid, false);
-    auto new_left_node = ExclusivePageGuard<BTreeNode>::allocateNewPage(dtid);
+    auto new_root_h = HybridPageGuard<BTreeNode>(dtid, false);
+    auto new_root = ExclusivePageGuard<BTreeNode>(std::move(new_root_h));
+    auto new_left_node_h = HybridPageGuard<BTreeNode>(dtid);
+    auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
     new_root.keepAlive();
     new_left_node.init(c_x_guard->is_leaf);
     new_root.init(false);
     // -------------------------------------------------------------------------------------
-    new_root->upper = c_x_guard.bf;
-    root_swip.swizzle(new_root.bf);
+    new_root->upper = c_x_guard.bf();
+    root_swip.swizzle(new_root.bf());
     // -------------------------------------------------------------------------------------
     c_x_guard->getSep(sep_key, sep_info);
     // -------------------------------------------------------------------------------------
@@ -424,7 +427,8 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
     assert(p_x_guard.hasBf());
     assert(!p_x_guard->is_leaf);
     // -------------------------------------------------------------------------------------
-    auto new_left_node = ExclusivePageGuard<BTreeNode>::allocateNewPage(dtid);
+    auto new_left_node_h = HybridPageGuard<BTreeNode>(dtid);
+    auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
     new_left_node.init(c_x_guard->is_leaf);
     // -------------------------------------------------------------------------------------
     c_x_guard->getSep(sep_key, sep_info);
@@ -457,16 +461,16 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       if (FLAGS_cm_split && local_restarts_counter > 0) {
         const u64 random_number = utils::RandomGenerator::getRandU64();
         if ((random_number & ((1ull << FLAGS_cm_update_on) - 1)) == 0) {
-          s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
-          c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
-          c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
-          c_x_guard.bf->header.contention_tracker.access_counter++;
+          s64 last_modified_pos = c_x_guard.bf()->header.contention_tracker.last_modified_pos;
+          c_x_guard.bf()->header.contention_tracker.last_modified_pos = pos;
+          c_x_guard.bf()->header.contention_tracker.restarts_counter += local_restarts_counter;
+          c_x_guard.bf()->header.contention_tracker.access_counter++;
           if ((random_number & ((1ull << FLAGS_cm_period) - 1)) == 0) {
-            const u64 current_restarts_counter = c_x_guard.bf->header.contention_tracker.restarts_counter;
-            const u64 current_access_counter = c_x_guard.bf->header.contention_tracker.access_counter;
+            const u64 current_restarts_counter = c_x_guard.bf()->header.contention_tracker.restarts_counter;
+            const u64 current_access_counter = c_x_guard.bf()->header.contention_tracker.access_counter;
             const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
-            c_x_guard.bf->header.contention_tracker.restarts_counter = 0;
-            c_x_guard.bf->header.contention_tracker.access_counter = 0;
+            c_x_guard.bf()->header.contention_tracker.restarts_counter = 0;
+            c_x_guard.bf()->header.contention_tracker.access_counter = 0;
             // -------------------------------------------------------------------------------------
             if (last_modified_pos != pos && normalized_restarts >= FLAGS_cm_slowpath_threshold && c_x_guard->count > 2) {
               s16 split_pos = std::min<s16>(last_modified_pos, pos);
@@ -597,7 +601,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
     auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
     auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
     // -------------------------------------------------------------------------------------
-    assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf);
+    assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf());
     if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
       p_guard = std::move(p_x_guard);
       c_guard = std::move(c_x_guard);

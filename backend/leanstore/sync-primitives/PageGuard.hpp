@@ -9,17 +9,6 @@ namespace leanstore
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
-#define PAGE_GUARD_HEADER    \
-  BufferFrame* bf = nullptr; \
-  Guard guard;
-
-#define PAGE_GUARD_UTILS                                        \
-  T& ref() { return *reinterpret_cast<T*>(bf->page.dt); }       \
-  T* ptr() { return reinterpret_cast<T*>(bf->page.dt); }        \
-  Swip<T> swip() { return Swip<T>(bf); }                        \
-  T* operator->() { return reinterpret_cast<T*>(bf->page.dt); } \
-  bool hasBf() const { return bf != nullptr; }
-
 // Objects of this class must be thread local !
 // OptimisticPageGuard can hold the mutex. There are 3 locations where it can release it:
 // 1- Destructor if not moved
@@ -37,8 +26,10 @@ class HybridPageGuard
   // -------------------------------------------------------------------------------------
  public:
   // -------------------------------------------------------------------------------------
-  PAGE_GUARD_HEADER
+  BufferFrame* bf = nullptr;
+  Guard guard;
   bool manually_checked = false;
+  bool keep_alive = true;
   // -------------------------------------------------------------------------------------
   HybridPageGuard() : bf(nullptr), guard(nullptr) { jumpmu_registerDestructor(); }  // use with caution
   HybridPageGuard(Guard& guard, BufferFrame* bf) : bf(bf), guard(std::move(guard)) { jumpmu_registerDestructor(); }
@@ -48,6 +39,14 @@ class HybridPageGuard
   // Move constructor
   HybridPageGuard(HybridPageGuard&& other) : bf(other.bf), guard(std::move(other.guard)) { jumpmu_registerDestructor(); }
   // -------------------------------------------------------------------------------------
+  // Allocate a new page
+  HybridPageGuard(DTID dt_id, bool keep_alive = true)
+      : bf(&BMC::global_bf->allocatePage()), guard(bf->header.latch, GUARD_STATE::EXCLUSIVE, bf->header.latch.ref().load()), keep_alive(keep_alive)
+  {
+    assert(BMC::global_bf != nullptr);
+    bf->page.dt_id = dt_id;
+    jumpmu_registerDestructor();
+  }
   // -------------------------------------------------------------------------------------
   // I: Root case
   static HybridPageGuard makeRootGuard(HybridLatch& latch_guard) { return HybridPageGuard(latch_guard); }
@@ -68,23 +67,15 @@ class HybridPageGuard
   }
   // I: Downgrade exclusive
   HybridPageGuard(ExclusivePageGuard<T>&&) = delete;
-  HybridPageGuard& operator=(ExclusivePageGuard<T>&& other)
+  HybridPageGuard& operator=(ExclusivePageGuard<T>&&)
   {
-    bf = other.bf;
-    guard = std::move(other.guard);
-    // -------------------------------------------------------------------------------------
-    if (hasBf()) {
-      bf->page.LSN++;
-    }
     guard.transition<GUARD_STATE::OPTIMISTIC>();
     return *this;
   }
   // I: Downgrade shared
   HybridPageGuard(SharedPageGuard<T>&&) = delete;
-  HybridPageGuard& operator=(SharedPageGuard<T>&& other)
+  HybridPageGuard& operator=(SharedPageGuard<T>&&)
   {
-    bf = other.bf;
-    guard = std::move(other.guard);
     guard.transition<GUARD_STATE::OPTIMISTIC>();
     return *this;
   }
@@ -95,25 +86,41 @@ class HybridPageGuard
   {
     bf = other.bf;
     guard = std::move(other.guard);
+    keep_alive = other.keep_alive;
+    manually_checked = other.manually_checked;
     return *this;
   }
   // -------------------------------------------------------------------------------------
-  bool hasFacedContention() { return guard.faced_contention; }
-  void kill() { guard.transition<GUARD_STATE::OPTIMISTIC>(); }
-  void recheck() { guard.recheck(); }
-  void recheck_done()
+  inline bool hasFacedContention() { return guard.faced_contention; }
+  inline void kill() { guard.transition<GUARD_STATE::OPTIMISTIC>(); }
+  inline void recheck() { guard.recheck(); }
+  inline void recheck_done()
   {
     manually_checked = true;
     guard.recheck();
   }
   // -------------------------------------------------------------------------------------
-  // Guard not needed anymore
-  PAGE_GUARD_UTILS
+  inline T& ref() { return *reinterpret_cast<T*>(bf->page.dt); }
+  inline T* ptr() { return reinterpret_cast<T*>(bf->page.dt); }
+  inline Swip<T> swip() { return Swip<T>(bf); }
+  inline T* operator->() { return reinterpret_cast<T*>(bf->page.dt); }
+  inline bool hasBf() const { return bf != nullptr; }
+  // -------------------------------------------------------------------------------------
+  void reclaim()
+  {
+    BMC::global_bf->reclaimPage(*(bf));
+    guard.state = GUARD_STATE::MOVED;
+  }
   // -------------------------------------------------------------------------------------
   jumpmu_defineCustomDestructor(HybridPageGuard)
       // -------------------------------------------------------------------------------------
       ~HybridPageGuard()
   {
+    if (guard.state == GUARD_STATE::EXCLUSIVE) {
+      if (!keep_alive) {
+        reclaim();
+      }
+    }
     guard.transition<GUARD_STATE::OPTIMISTIC>();
     jumpmu::clearLastDestructor();
   }
@@ -122,93 +129,61 @@ class HybridPageGuard
 template <typename T>
 class ExclusivePageGuard
 {
- public:
-  PAGE_GUARD_HEADER
- protected:
-  bool keep_alive = true;  // for the case when more than one page is allocated
-                           // (2nd might fail and waste the first)
-  // Called by the buffer manager when allocating a new page
-  ExclusivePageGuard(BufferFrame& bf, bool keep_alive)
-      : bf(&bf), guard(bf.header.latch, GUARD_STATE::EXCLUSIVE, bf.header.latch->load()), keep_alive(keep_alive)
-  {
-    jumpmu_registerDestructor();
-  }
-  // -------------------------------------------------------------------------------------
+ private:
+  HybridPageGuard<T>& ref_guard;
+
  public:
   // -------------------------------------------------------------------------------------
   // I: Upgrade
-  ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : bf(o_guard.bf), guard(std::move(o_guard.guard))
+  ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard)
   {
-    guard.transition<GUARD_STATE::EXCLUSIVE>();
-    // -------------------------------------------------------------------------------------
-    jumpmu_registerDestructor();
+    ref_guard.guard.template transition<GUARD_STATE::EXCLUSIVE>();
+    if (ref_guard.hasBf()) {
+      ref_guard.bf->page.LSN++;
+    }
   }
   // -------------------------------------------------------------------------------------
-  static ExclusivePageGuard allocateNewPage(DTID dt_id, bool keep_alive = true)
-  {
-    ensure(BMC::global_bf != nullptr);
-    auto& bf = BMC::global_bf->allocatePage();
-    bf.page.dt_id = dt_id;
-    return ExclusivePageGuard(bf, keep_alive);
-  }
-
   template <typename... Args>
   void init(Args&&... args)
   {
-    new (bf->page.dt) T(std::forward<Args>(args)...);
+    new (ref_guard.bf->page.dt) T(std::forward<Args>(args)...);
   }
   // -------------------------------------------------------------------------------------
-  void keepAlive() { keep_alive = true; }
+  void keepAlive() { ref_guard.keep_alive = true; }
   // -------------------------------------------------------------------------------------
-  void reclaim()
+  ~ExclusivePageGuard()
   {
-    BMC::global_bf->reclaimPage(*bf);
-    guard.state = GUARD_STATE::MOVED;
-  }
-  // -------------------------------------------------------------------------------------
-  jumpmu_defineCustomDestructor(ExclusivePageGuard)
-      // -------------------------------------------------------------------------------------
-      ~ExclusivePageGuard()
-  {
-    if (guard.state == GUARD_STATE::EXCLUSIVE) {
-      if (!keep_alive) {
-        reclaim();
-      } else {
-        if (hasBf()) {
-          bf->page.LSN++;
-        }
-        guard.transition<GUARD_STATE::OPTIMISTIC>();
-      }
+    if (!ref_guard.keep_alive && ref_guard.guard.state == GUARD_STATE::EXCLUSIVE) {
+      ref_guard.reclaim();
+    } else {
+      ref_guard.guard.template transition<GUARD_STATE::OPTIMISTIC>();
     }
-    // -------------------------------------------------------------------------------------
-    jumpmu::clearLastDestructor();
   }
   // -------------------------------------------------------------------------------------
-  PAGE_GUARD_UTILS
+  inline T& ref() { return *reinterpret_cast<T*>(ref_guard.bf->page.dt); }
+  inline T* ptr() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }
+  inline Swip<T> swip() { return Swip<T>(ref_guard.bf); }
+  inline T* operator->() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }
+  inline bool hasBf() const { return ref_guard.bf != nullptr; }
+  inline BufferFrame* bf() { return ref_guard.bf; }
+  inline void reclaim() { ref_guard.reclaim(); }
 };
 // -------------------------------------------------------------------------------------
 template <typename T>
 class SharedPageGuard
 {
  public:
-  PAGE_GUARD_HEADER
+  HybridPageGuard<T>& ref_guard;
   // I: Upgrade
-  SharedPageGuard(HybridPageGuard<T>&& o_guard) : bf(o_guard.bf), guard(std::move(o_guard.guard))
-  {
-    guard.transition<GUARD_STATE::SHARED>();
-    // -------------------------------------------------------------------------------------
-    jumpmu_registerDestructor();
-  }
+  SharedPageGuard(HybridPageGuard<T>&& h_guard) : ref_guard(h_guard) { ref_guard.guard.template transition<GUARD_STATE::SHARED>(); }
   // -------------------------------------------------------------------------------------
-  jumpmu_defineCustomDestructor(SharedPageGuard)
-      // -------------------------------------------------------------------------------------
-      ~SharedPageGuard()
-  {
-    guard.transition<GUARD_STATE::OPTIMISTIC>();
-    jumpmu::clearLastDestructor();
-  }
+  ~SharedPageGuard() { ref_guard.guard.template transition<GUARD_STATE::OPTIMISTIC>(); }
   // -------------------------------------------------------------------------------------
-  PAGE_GUARD_UTILS
+  inline T& ref() { return *reinterpret_cast<T*>(ref_guard.bf->page.dt); }
+  inline T* ptr() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }
+  inline Swip<T> swip() { return Swip<T>(ref_guard.bf); }
+  inline T* operator->() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }
+  inline bool hasBf() const { return ref_guard.bf != nullptr; }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager
