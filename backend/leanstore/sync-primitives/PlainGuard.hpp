@@ -56,20 +56,10 @@ class OptimisticGuard
 class ExclusiveGuard
 {
  private:
-  union {
-    OptimisticGuard* optimistic_guard;  // our basis
-    Guard* guard;                       // our basis
-  };
-  const bool is_optimistic_guard = true;
+  OptimisticGuard* optimistic_guard;  // our basis
 
  public:
   ExclusiveGuard(OptimisticGuard& o_lock) : optimistic_guard(&o_lock)
-  {
-    optimistic_guard->guard.transition<GUARD_STATE::EXCLUSIVE>();
-    jumpmu_registerDestructor();
-  }
-  // -------------------------------------------------------------------------------------
-  ExclusiveGuard(Guard& guard) : guard(&guard), is_optimistic_guard(false)
   {
     optimistic_guard->guard.transition<GUARD_STATE::EXCLUSIVE>();
     jumpmu_registerDestructor();
@@ -79,10 +69,29 @@ class ExclusiveGuard
       // -------------------------------------------------------------------------------------
       ~ExclusiveGuard()
   {
-    if (is_optimistic_guard) {
-      optimistic_guard->guard.transition<GUARD_STATE::OPTIMISTIC>();
-    } else {
-      guard->transition<GUARD_STATE::OPTIMISTIC>();
+    optimistic_guard->guard.transition<GUARD_STATE::OPTIMISTIC>();
+    jumpmu::clearLastDestructor();
+  }
+};
+// -------------------------------------------------------------------------------------
+class ExclusiveUpgradeIfNeeded
+{
+ private:
+  Guard& guard;
+  const bool was_exclusive;
+
+ public:
+  ExclusiveUpgradeIfNeeded(Guard& guard) : guard(guard), was_exclusive(guard.state == GUARD_STATE::EXCLUSIVE)
+  {
+    guard.transition<GUARD_STATE::EXCLUSIVE>();
+    jumpmu_registerDestructor();
+  }
+  jumpmu_defineCustomDestructor(ExclusiveUpgradeIfNeeded)
+      // -------------------------------------------------------------------------------------
+      ~ExclusiveUpgradeIfNeeded()
+  {
+    if (!was_exclusive) {
+      guard.transition<GUARD_STATE::OPTIMISTIC>();
     }
     jumpmu::clearLastDestructor();
   }

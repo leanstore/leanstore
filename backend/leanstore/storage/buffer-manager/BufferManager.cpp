@@ -207,7 +207,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             // r_x_guard can only be acquired and release while the partition mutex is locked
             {
               JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
-              ExclusiveGuard p_x_guard(parent_handler.parent_guard);
+              ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
               ExclusiveGuard r_x_guard(r_guard);
               // -------------------------------------------------------------------------------------
               assert(r_buffer->header.state == BufferFrame::State::HOT);
@@ -539,7 +539,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     {
       swip_guard.recheck();
       JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
-      ExclusiveGuard swip_x_guard(swip_guard);
+      ExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
       cio_frame.mutex.unlock();
       swip_value.swizzle(&bf);
       bf.header.state = BufferFrame::State::HOT;  // ATTENTION: SET TO HOT AFTER
@@ -601,7 +601,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       // try to evict them when its IO is done
       bf->header.latch.assertNotExclusivelyLatched();
       OptimisticGuard bf_guard(bf->header.latch);
-      ExclusiveGuard swip_x_guard(swip_guard);
+      ExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
       ExclusiveGuard bf_x_guard(bf_guard);
       // -------------------------------------------------------------------------------------
       assert(bf->header.pid == pid);
