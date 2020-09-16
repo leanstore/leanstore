@@ -24,12 +24,12 @@ DECLARE_bool(print_debug);
 DECLARE_bool(print_tx_console);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
-DECLARE_bool(cm_split);
+DECLARE_bool(contention_split);
 DECLARE_uint64(cm_update_on);
 DECLARE_uint64(cm_period);
 DECLARE_uint64(cm_slowpath_threshold);
 // -------------------------------------------------------------------------------------
-DECLARE_bool(su_merge);
+DECLARE_bool(xmerge);
 DECLARE_uint64(su_kwaymerge);
 DECLARE_double(su_target_pct);
 // -------------------------------------------------------------------------------------

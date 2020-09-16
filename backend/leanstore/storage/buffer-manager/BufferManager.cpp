@@ -490,17 +490,12 @@ void BufferManager::reclaimPage(BufferFrame& bf)
 }
 // -------------------------------------------------------------------------------------
 // returns a non-latched BufferFrame
-BufferFrame& BufferManager::resolveSwip(Guard& swip_guard,
-                                        Swip<BufferFrame>& swip_value)  // throws RestartException
+BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
 {
+  assert(swip_guard.state == GUARD_STATE::OPTIMISTIC);
   if (swip_value.isSwizzled()) {
     BufferFrame& bf = swip_value.asBufferFrame();
     swip_guard.recheck();
-    // -------------------------------------------------------------------------------------
-    // TODO: if
-    //      debugging_counters.hot_hit_counter++;
-    //      PPCounters::thread_local_counters.hot_hit_counter++;
-    // -------------------------------------------------------------------------------------
     return bf;
   }
   // -------------------------------------------------------------------------------------
@@ -632,8 +627,6 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard,
       }
       g_guard->unlock();
     }
-    // -------------------------------------------------------------------------------------
-    // dt_registry.checkSpaceUtilization(bf->page.dt_id, *bf); // BETA:
     // -------------------------------------------------------------------------------------
     return *bf;
   }

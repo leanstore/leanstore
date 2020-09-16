@@ -133,13 +133,13 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_bulk_insert", [&](ostream& out) { out << FLAGS_bulk_insert; });
   config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });
   // -------------------------------------------------------------------------------------
-  config_entries.emplace_back("c_cm_split", [&](ostream& out) { out << FLAGS_cm_split; });
+  config_entries.emplace_back("c_contention_split", [&](ostream& out) { out << FLAGS_contention_split; });
   config_entries.emplace_back("c_cm_update_on", [&](ostream& out) { out << FLAGS_cm_update_on; });
   config_entries.emplace_back("c_cm_period", [&](ostream& out) { out << FLAGS_cm_period; });
   config_entries.emplace_back("c_cm_slowpath_threshold", [&](ostream& out) { out << FLAGS_cm_slowpath_threshold; });
   // -------------------------------------------------------------------------------------
   config_entries.emplace_back("c_su_kwaymerge", [&](ostream& out) { out << FLAGS_su_kwaymerge; });
-  config_entries.emplace_back("c_su_merge", [&](ostream& out) { out << FLAGS_su_merge; });
+  config_entries.emplace_back("c_xmerge", [&](ostream& out) { out << FLAGS_xmerge; });
   config_entries.emplace_back("c_su_target_pct", [&](ostream& out) { out << FLAGS_su_target_pct; });
   // -------------------------------------------------------------------------------------
   config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
@@ -166,18 +166,18 @@ void LeanStore::debuggingThread()
                           [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_structural_change, dt_id); });
   dt_entries.emplace_back("dt_restarts_read",
                           [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_read, dt_id); });
-  dt_entries.emplace_back("cm_split_succ_counter",
-                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_split_succ_counter, dt_id); });
-  dt_entries.emplace_back("cm_split_fail_counter",
-                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_split_fail_counter, dt_id); });
+  dt_entries.emplace_back("contention_split_succ_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_succ_counter, dt_id); });
+  dt_entries.emplace_back("contention_split_fail_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_fail_counter, dt_id); });
   dt_entries.emplace_back("cm_merge_succ_counter",
                           [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_merge_succ_counter, dt_id); });
   dt_entries.emplace_back("cm_merge_fail_counter",
                           [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_merge_fail_counter, dt_id); });
-  dt_entries.emplace_back("su_merge_partial_counter",
-                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::su_merge_partial_counter, dt_id); });
-  dt_entries.emplace_back("su_merge_full_counter",
-                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::su_merge_full_counter, dt_id); });
+  dt_entries.emplace_back("xmerge_partial_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::xmerge_partial_counter, dt_id); });
+  dt_entries.emplace_back("xmerge_full_counter",
+                          [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::xmerge_full_counter, dt_id); });
   // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   // Print header

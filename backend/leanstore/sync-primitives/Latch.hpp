@@ -184,20 +184,24 @@ struct Guard {
         break;
       }
       case GUARD_STATE::SHARED: {
-        ensure(dest_state == GUARD_STATE::OPTIMISTIC);
         latch->mutex.unlock_shared();
         state = GUARD_STATE::OPTIMISTIC;
+        // -------------------------------------------------------------------------------------
+        if (dest_state == GUARD_STATE::EXCLUSIVE) {
+          transition<dest_state, if_contended>();
+        }
         break;
       }
       case GUARD_STATE::EXCLUSIVE: {
-        if (dest_state == GUARD_STATE::EXCLUSIVE) {
-          break;
-        }
         ensure(dest_state == GUARD_STATE::OPTIMISTIC);
         version += LATCH_EXCLUSIVE_BIT;
         latch->ref().store(version, std::memory_order_release);
         latch->mutex.unlock();
         state = GUARD_STATE::OPTIMISTIC;
+        // -------------------------------------------------------------------------------------
+        if (dest_state == GUARD_STATE::SHARED) {
+          transition<dest_state, if_contended>();
+        }
         break;
       }
       default:

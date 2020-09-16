@@ -35,12 +35,12 @@ DEFINE_double(target_gib, 0.0, "size of dataset in gib (exact interpretation dep
 DEFINE_uint64(run_for_seconds, 10, "Keep the experiment running for x seconds");
 DEFINE_uint64(warmup_for_seconds, 10, "Warmup for x seconds");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(cm_split, false, "");
+DEFINE_bool(contention_split, false, "");
 DEFINE_uint64(cm_update_on, 7, "as exponent of 2");
 DEFINE_uint64(cm_period, 14, "as exponent of 2");
 DEFINE_uint64(cm_slowpath_threshold, 100, "");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(su_merge, false, "");
+DEFINE_bool(xmerge, false, "");
 DEFINE_uint64(su_kwaymerge, 5, "");
 DEFINE_double(su_target_pct, 80, "");
 // -------------------------------------------------------------------------------------

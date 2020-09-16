@@ -117,8 +117,8 @@ int main(int argc, char** argv)
     u64 p_i = 0;
     vs_btree.iterateAllPages([&](leanstore::btree::vs::BTreeNode&) { return 0; },
                              [&](leanstore::btree::vs::BTreeNode& leaf) {
-                               csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_su_merge
-                                   << "," << FLAGS_tag << "," << db.getConfigHash() << endl;
+                               csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_su_merge << "," << FLAGS_tag
+                                   << "," << db.getConfigHash() << endl;
                                return 0;
                              });
   };

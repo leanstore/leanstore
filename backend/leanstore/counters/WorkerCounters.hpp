@@ -25,12 +25,12 @@ struct WorkerCounters {
   atomic<s32> tmp = 0;
   // -------------------------------------------------------------------------------------
   // Space and contention management
-  atomic<u64> cm_split_succ_counter[max_dt_id] = {0};
-  atomic<u64> cm_split_fail_counter[max_dt_id] = {0};
+  atomic<u64> contention_split_succ_counter[max_dt_id] = {0};
+  atomic<u64> contention_split_fail_counter[max_dt_id] = {0};
   atomic<u64> cm_merge_succ_counter[max_dt_id] = {0};
   atomic<u64> cm_merge_fail_counter[max_dt_id] = {0};
-  atomic<u64> su_merge_partial_counter[max_dt_id] = {0};
-  atomic<u64> su_merge_full_counter[max_dt_id] = {0};
+  atomic<u64> xmerge_partial_counter[max_dt_id] = {0};
+  atomic<u64> xmerge_full_counter[max_dt_id] = {0};
   // -------------------------------------------------------------------------------------
   atomic<u64> dt_misses_counter[max_dt_id] = {0};
   atomic<u64> dt_restarts_update_same_size[max_dt_id] = {0};   // without structural change

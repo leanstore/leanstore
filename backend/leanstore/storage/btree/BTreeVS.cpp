@@ -458,7 +458,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback(c_x_guard->getPayload(pos), payload_length);
       // -------------------------------------------------------------------------------------
-      if (FLAGS_cm_split && local_restarts_counter > 0) {
+      if (FLAGS_contention_split && local_restarts_counter > 0) {
         const u64 random_number = utils::RandomGenerator::getRandU64();
         if ((random_number & ((1ull << FLAGS_cm_update_on) - 1)) == 0) {
           s64 last_modified_pos = c_x_guard.bf()->header.contention_tracker.last_modified_pos;
@@ -479,9 +479,9 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
               jumpmuTry()
               {
                 trySplit(*c_guard.bf, split_pos);
-                WorkerCounters::myCounters().cm_split_succ_counter[dtid]++;
+                WorkerCounters::myCounters().contention_split_succ_counter[dtid]++;
               }
-              jumpmuCatch() { WorkerCounters::myCounters().cm_split_fail_counter[dtid]++; }
+              jumpmuCatch() { WorkerCounters::myCounters().contention_split_fail_counter[dtid]++; }
             }
           }
         }
@@ -782,11 +782,11 @@ BTree::XMergeReturnCode BTree::XMerge(HybridPageGuard<BTreeNode>& p_guard, Hybri
       // we unlock only the left page, the right one should not be touched again
       if (ret == 1) {
         fully_merged[left_hand - pos] = true;
-        WorkerCounters::myCounters().su_merge_full_counter[dtid]++;
+        WorkerCounters::myCounters().xmerge_full_counter[dtid]++;
         ret_code = XMergeReturnCode::FULL_MERGE;
       } else if (ret == 2) {
         guards[left_hand - pos] = std::move(left_x_guard);
-        WorkerCounters::myCounters().su_merge_partial_counter[dtid]++;
+        WorkerCounters::myCounters().xmerge_partial_counter[dtid]++;
       } else if (ret == 0) {
         break;
       } else {
@@ -815,7 +815,7 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
 bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard& o_guard, ParentSwipHandler& parent_handler)
 {
-  if (FLAGS_su_merge) {
+  if (FLAGS_xmerge) {
     auto& btree = *reinterpret_cast<BTree*>(btree_object);
     HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
     HybridPageGuard<BTreeNode> c_guard(o_guard.guard, &bf);
