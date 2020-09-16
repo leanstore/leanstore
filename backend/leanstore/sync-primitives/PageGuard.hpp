@@ -21,25 +21,20 @@ class SharedPageGuard;
 template <typename T>
 class HybridPageGuard
 {
- protected:
-  HybridPageGuard(HybridLatch& latch) : guard(latch) { jumpmu_registerDestructor(); }
-  // -------------------------------------------------------------------------------------
  public:
-  // -------------------------------------------------------------------------------------
   BufferFrame* bf = nullptr;
   Guard guard;
   bool manually_checked = false;
   bool keep_alive = true;
   // -------------------------------------------------------------------------------------
+  // Constructors
   HybridPageGuard() : bf(nullptr), guard(nullptr) { jumpmu_registerDestructor(); }  // use with caution
   HybridPageGuard(Guard& guard, BufferFrame* bf) : bf(bf), guard(std::move(guard)) { jumpmu_registerDestructor(); }
   // -------------------------------------------------------------------------------------
-  // Copy constructor
-  HybridPageGuard(HybridPageGuard& other) = delete;
-  // Move constructor
-  HybridPageGuard(HybridPageGuard&& other) : bf(other.bf), guard(std::move(other.guard)) { jumpmu_registerDestructor(); }
+  HybridPageGuard(HybridPageGuard& other) = delete;   // Copy constructor
+  HybridPageGuard(HybridPageGuard&& other) = delete;  // Move constructor
   // -------------------------------------------------------------------------------------
-  // Allocate a new page
+  // I: Allocate a new page
   HybridPageGuard(DTID dt_id, bool keep_alive = true)
       : bf(&BMC::global_bf->allocatePage()), guard(bf->header.latch, GUARD_STATE::EXCLUSIVE, bf->header.latch.ref().load()), keep_alive(keep_alive)
   {
@@ -49,10 +44,10 @@ class HybridPageGuard
   }
   // -------------------------------------------------------------------------------------
   // I: Root case
-  static HybridPageGuard makeRootGuard(HybridLatch& latch_guard) { return HybridPageGuard(latch_guard); }
+  HybridPageGuard(HybridLatch& latch) : guard(latch) { jumpmu_registerDestructor(); }
   // -------------------------------------------------------------------------------------
   // I: Lock coupling
-  HybridPageGuard(HybridPageGuard& p_guard, Swip<T>& swip, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
+  HybridPageGuard(HybridPageGuard& p_guard, Swip<T>& swip, const FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
       : bf(&BMC::global_bf->resolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
   {
     if (if_contended == FALLBACK_METHOD::SPIN) {

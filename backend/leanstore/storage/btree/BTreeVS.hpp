@@ -75,7 +75,7 @@ struct BTree {
     while (true) {
       jumpmuTry()
       {
-        auto p_guard = HybridPageGuard<BTreeNode>::makeRootGuard(root_lock);
+        HybridPageGuard<BTreeNode> p_guard(root_lock);
         HybridPageGuard<BTreeNode> c_guard(p_guard, root_swip, FALLBACK_METHOD::SHARED);
         while (!c_guard->is_leaf) {
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);

@@ -843,7 +843,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   Swip<BTreeNode>* c_swip = &btree.root_swip;
   u16 level = 0;
   // -------------------------------------------------------------------------------------
-  auto p_guard = HybridPageGuard<BTreeNode>::makeRootGuard(btree.root_lock);
+  HybridPageGuard<BTreeNode> p_guard(btree.root_lock);
   // -------------------------------------------------------------------------------------
   const bool infinity = c_node.upper_fence.offset == 0;
   u16 key_length = c_node.upper_fence.length;
@@ -927,7 +927,8 @@ s64 BTree::iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s
   while (true) {
     jumpmuTry()
     {
-      auto p_guard = HybridPageGuard<BTreeNode>::makeRootGuard(root_lock);
+
+      HybridPageGuard<BTreeNode> p_guard(root_lock);
       HybridPageGuard c_guard(p_guard, root_swip);
       jumpmu_return iterateAllPagesRec(c_guard, inner, leaf);
     }
@@ -963,7 +964,7 @@ u32 BTree::bytesFree()
 // -------------------------------------------------------------------------------------
 void BTree::printInfos(uint64_t totalSize)
 {
-  auto p_guard = HybridPageGuard<BTreeNode>::makeRootGuard(root_lock);
+  HybridPageGuard<BTreeNode> p_guard(root_lock);
   HybridPageGuard r_guard(p_guard, root_swip);
   uint64_t cnt = countPages();
   cout << "nodes:" << cnt << " innerNodes:" << countInner() << " space:" << (cnt * EFFECTIVE_PAGE_SIZE) / (float)totalSize << " height:" << height

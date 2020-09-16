@@ -160,15 +160,14 @@ struct Guard {
         if (dest_state == GUARD_STATE::EXCLUSIVE) {
           const u64 new_version = version + LATCH_EXCLUSIVE_BIT;
           u64 expected = version;
-          if (!latch->mutex.try_lock()) {
-            jumpmu::jump();
-          }
+          latch->mutex.lock(); // changed from try_lock because of possible retries b/c lots of readers
           if (!latch->ref().compare_exchange_strong(expected, new_version)) {
             latch->mutex.unlock();
             jumpmu::jump();
           }
           version = new_version;
           state = GUARD_STATE::EXCLUSIVE;
+          // -------------------------------------------------------------------------------------
         } else if (dest_state == GUARD_STATE::SHARED) {
           if (!latch->mutex.try_lock_shared()) {
             jumpmu::jump();
