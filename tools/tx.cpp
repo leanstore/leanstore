@@ -1,9 +1,9 @@
 
 #include "Exceptions.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
-#include "leanstore/sync-primitives/OptimisticLock.hpp"
-#include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/sync-primitives/PlainGuard.hpp"
 #include "leanstore/utils/Misc.hpp"
+#include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>

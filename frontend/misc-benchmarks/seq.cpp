@@ -1,6 +1,6 @@
 #include "Exceptions.hpp"
 #include "leanstore/Config.hpp"
-#include "leanstore/sync-primitives/OptimisticLock.hpp"
+#include "leanstore/sync-primitives/PlainGuard.hpp"
 #include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
