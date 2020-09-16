@@ -53,7 +53,7 @@ int main(int argc, char** argv)
   csv.seekp(0, ios::end);
   csv << std::setprecision(2) << std::fixed;
   if (csv.tellp() == 0) {
-    csv << "i,ff,flag,bstar,su_merge,tag,c_hash" << endl;
+    csv << "i,ff,flag,su_merge,tag,c_hash" << endl;
   }
   // -------------------------------------------------------------------------------------
   auto compress_bf = [&](u8* key_bytes, u16 key_length) {
@@ -73,7 +73,7 @@ int main(int argc, char** argv)
     auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
     // -------------------------------------------------------------------------------------
     auto p_guard = parent_handler.getParentReadPageGuard<leanstore::btree::vs::BTreeNode>();
-    auto c_guard = HybridPageGuard<leanstore::btree::vs::BTreeNode>;
+    auto c_guard = HybridPageGuard<leanstore::btree::vs::BTreeNode>();
     c_guard.guard = std::move(o_guard.guard);
     c_guard.bf = bf;
     if (FLAGS_aggressive) {
@@ -117,7 +117,7 @@ int main(int argc, char** argv)
     u64 p_i = 0;
     vs_btree.iterateAllPages([&](leanstore::btree::vs::BTreeNode&) { return 0; },
                              [&](leanstore::btree::vs::BTreeNode& leaf) {
-                               csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_bstar << "," << FLAGS_su_merge
+                               csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_su_merge
                                    << "," << FLAGS_tag << "," << db.getConfigHash() << endl;
                                return 0;
                              });
