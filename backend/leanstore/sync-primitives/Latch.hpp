@@ -101,6 +101,7 @@ struct Guard {
     }
   }
   // -------------------------------------------------------------------------------------
+  // Must release mutex before jumping
   template <GUARD_STATE dest_state, FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN>
   inline void transition()
   {
@@ -172,6 +173,7 @@ struct Guard {
             jumpmu::jump();
           }
           if (latch->ref().load() != version) {
+            latch->mutex.unlock_shared();
             jumpmu::jump();
           }
           state = GUARD_STATE::SHARED;
@@ -181,9 +183,6 @@ struct Guard {
         break;
       }
       case GUARD_STATE::SHARED: {
-        if (dest_state == GUARD_STATE::SHARED) {
-          break;
-        }
         ensure(dest_state == GUARD_STATE::OPTIMISTIC);
         latch->mutex.unlock_shared();
         state = GUARD_STATE::OPTIMISTIC;

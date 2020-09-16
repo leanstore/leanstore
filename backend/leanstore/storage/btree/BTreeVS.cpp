@@ -75,21 +75,22 @@ void BTree::rangeScanAsc(u8* start_key,
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> leaf;
-      findLeafForRead<11>(leaf, next_key, next_key_length);
       while (true) {
-        s16 cur = leaf->lowerBound<false>(start_key, key_length);
-        while (cur < leaf->count) {
-          u16 payload_length = leaf->getPayloadLength(cur);
-          u8* payload = leaf->getPayload(cur);
+        findLeafForRead<11>(leaf, next_key, next_key_length);
+        SharedPageGuard s_leaf(std::move(leaf));
+        // -------------------------------------------------------------------------------------
+        s16 cur = s_leaf->lowerBound<false>(start_key, key_length);
+        while (cur < s_leaf->count) {
+          u16 payload_length = s_leaf->getPayloadLength(cur);
+          u8* payload = s_leaf->getPayload(cur);
           std::function<string()> key_extract_fn = [&]() {
             ensure(false);
-            u16 key_length = leaf->getFullKeyLen(cur);
+            u16 key_length = s_leaf->getFullKeyLen(cur);
             string key(key_length, '0');
-            leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()));
+            s_leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()));
             return key;
           };
           if (!callback(payload, payload_length, key_extract_fn)) {
-            leaf.recheck_done();
             if (!is_heap_freed) {
               delete[] next_key;
               is_heap_freed = true;
@@ -103,19 +104,15 @@ void BTree::rangeScanAsc(u8* start_key,
           delete[] next_key;
           is_heap_freed = true;
         }
-        if (leaf->isUpperFenceInfinity()) {
-          leaf.recheck_done();
+        if (s_leaf->isUpperFenceInfinity()) {
           jumpmu_return;
         }
         // -------------------------------------------------------------------------------------
-        next_key_length = leaf->upper_fence.length + 1;
+        next_key_length = s_leaf->upper_fence.length + 1;
         next_key = new u8[next_key_length];
         is_heap_freed = false;
-        memcpy(next_key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
+        memcpy(next_key, s_leaf->getUpperFenceKey(), s_leaf->upper_fence.length);
         next_key[next_key_length - 1] = 0;
-        // -------------------------------------------------------------------------------------
-        leaf.recheck_done();
-        findLeafForRead<11>(leaf, next_key, next_key_length);
       }
     }
     jumpmuCatch()
@@ -145,24 +142,24 @@ void BTree::rangeScanDesc(u8* start_key,
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> leaf;
-      findLeafForRead<11>(leaf, next_key, next_key_length);
       while (true) {
-        s16 cur = leaf->lowerBound<false>(start_key, key_length);
-        if (leaf->lowerBound<true>(start_key, key_length) == -1) {
+        findLeafForRead<11>(leaf, next_key, next_key_length);
+        SharedPageGuard s_leaf(std::move(leaf));
+        s16 cur = s_leaf->lowerBound<false>(start_key, key_length);
+        if (s_leaf->lowerBound<true>(start_key, key_length) == -1) {
           cur--;
         }
         while (cur >= 0) {
-          u16 payload_length = leaf->getPayloadLength(cur);
-          u8* payload = leaf->getPayload(cur);
+          u16 payload_length = s_leaf->getPayloadLength(cur);
+          u8* payload = s_leaf->getPayload(cur);
           std::function<string()> key_extract_fn = [&]() {
             ensure(false);
-            u16 key_length = leaf->getFullKeyLen(cur);
+            u16 key_length = s_leaf->getFullKeyLen(cur);
             string key(key_length, '0');
-            leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()));
+            s_leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()));
             return key;
           };
           if (!callback(payload, payload_length, key_extract_fn)) {
-            leaf.recheck_done();
             if (!is_heap_freed) {
               delete[] next_key;
               is_heap_freed = true;
@@ -176,18 +173,14 @@ void BTree::rangeScanDesc(u8* start_key,
           delete[] next_key;
           is_heap_freed = true;
         }
-        if (leaf->isLowerFenceInfinity()) {
-          leaf.recheck_done();
+        if (s_leaf->isLowerFenceInfinity()) {
           jumpmu_return;
         }
         // -------------------------------------------------------------------------------------
-        next_key_length = leaf->lower_fence.length;
+        next_key_length = s_leaf->lower_fence.length;
         next_key = new u8[next_key_length];
         is_heap_freed = false;
-        memcpy(next_key, leaf->getLowerFenceKey(), leaf->lower_fence.length);
-        // -------------------------------------------------------------------------------------
-        leaf.recheck_done();
-        findLeafForRead<11>(leaf, next_key, next_key_length);
+        memcpy(next_key, s_leaf->getLowerFenceKey(), s_leaf->lower_fence.length);
       }
     }
     jumpmuCatch()

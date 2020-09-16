@@ -67,6 +67,7 @@ class HybridPageGuard
     p_guard.recheck();
   }
   // I: Downgrade exclusive
+  HybridPageGuard(ExclusivePageGuard<T>&&) = delete;
   HybridPageGuard& operator=(ExclusivePageGuard<T>&& other)
   {
     bf = other.bf;
@@ -82,7 +83,10 @@ class HybridPageGuard
   HybridPageGuard(SharedPageGuard<T>&&) = delete;
   HybridPageGuard& operator=(SharedPageGuard<T>&& other)
   {
-    // TODO
+    bf = other.bf;
+    guard = std::move(other.guard);
+    guard.transition<GUARD_STATE::OPTIMISTIC>();
+    return *this;
   }
   // -------------------------------------------------------------------------------------
   // Assignment operator
@@ -183,12 +187,26 @@ class ExclusivePageGuard
   PAGE_GUARD_UTILS
 };
 // -------------------------------------------------------------------------------------
-// Plan: take the mutex in shared mode
 template <typename T>
 class SharedPageGuard
 {
  public:
   PAGE_GUARD_HEADER
+  // I: Upgrade
+  SharedPageGuard(HybridPageGuard<T>&& o_guard) : bf(o_guard.bf), guard(std::move(o_guard.guard))
+  {
+    guard.transition<GUARD_STATE::SHARED>();
+    // -------------------------------------------------------------------------------------
+    jumpmu_registerDestructor();
+  }
+  // -------------------------------------------------------------------------------------
+  jumpmu_defineCustomDestructor(SharedPageGuard)
+      // -------------------------------------------------------------------------------------
+      ~SharedPageGuard()
+  {
+    guard.transition<GUARD_STATE::OPTIMISTIC>();
+    jumpmu::clearLastDestructor();
+  }
   // -------------------------------------------------------------------------------------
   PAGE_GUARD_UTILS
 };
