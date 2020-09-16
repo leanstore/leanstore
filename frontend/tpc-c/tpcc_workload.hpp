@@ -12,7 +12,7 @@ static constexpr INTEGER C_ID_C = 259;      // in range [0, 1023]
 static constexpr INTEGER C_LAST_LOAD_C = 157;  // in range [0, 255]
 static constexpr INTEGER C_LAST_RUN_C = 223;   // in range [0, 255]
 // -------------------------------------------------------------------------------------
-static constexpr u64 ITEMS_NO = 100000;  // 100K
+static constexpr INTEGER ITEMS_NO = 100000;  // 100K
 
 // [0, n)
 Integer rnd(Integer n)
