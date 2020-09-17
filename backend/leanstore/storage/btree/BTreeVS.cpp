@@ -601,7 +601,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
     auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
     auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
     // -------------------------------------------------------------------------------------
-    assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf());
+    assert(&p_x_guard->getChild(pos).bfRef() == c_x_guard.bf());
     if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
       p_guard = std::move(p_x_guard);
       c_guard = std::move(c_x_guard);
@@ -850,7 +850,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   u8* key = c_node.getUpperFenceKey();
   // -------------------------------------------------------------------------------------
   // check if bf is the root node
-  if (c_swip->bf == &to_find) {
+  if (c_swip->asBufferFrame() == &to_find) {
     p_guard.recheck_done();
     return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = nullptr};
   }
@@ -869,7 +869,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
         c_swip = &(c_guard->getChild(pos));
       }
     }
-    return (c_swip->bf != &to_find);
+    return (c_swip->asBufferFrame() != &to_find);
   };
   while (!c_guard->is_leaf && search_condition()) {
     p_guard = std::move(c_guard);
@@ -877,7 +877,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
     level++;
   }
   p_guard.kill();
-  const bool found = c_swip->bf == &to_find;
+  const bool found = c_swip->asBufferFrame() == &to_find;
   c_guard.recheck_done();
   if (!found) {
     jumpmu::jump();
@@ -927,7 +927,6 @@ s64 BTree::iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s
   while (true) {
     jumpmuTry()
     {
-
       HybridPageGuard<BTreeNode> p_guard(root_lock);
       HybridPageGuard c_guard(p_guard, root_swip);
       jumpmu_return iterateAllPagesRec(c_guard, inner, leaf);

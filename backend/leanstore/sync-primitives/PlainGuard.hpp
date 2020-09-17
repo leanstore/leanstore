@@ -11,8 +11,6 @@ namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
 class OptimisticGuard;
-template <typename T>
-class SharedGuard;
 class ExclusiveGuard;
 template <typename T>
 class HybridPageGuard;
@@ -56,12 +54,12 @@ class OptimisticGuard
 class ExclusiveGuard
 {
  private:
-  OptimisticGuard* optimistic_guard;  // our basis
+  OptimisticGuard& optimistic_guard;  // our basis
 
  public:
-  ExclusiveGuard(OptimisticGuard& o_lock) : optimistic_guard(&o_lock)
+  ExclusiveGuard(OptimisticGuard& o_lock) : optimistic_guard(o_lock)
   {
-    optimistic_guard->guard.transition<GUARD_STATE::EXCLUSIVE>();
+    optimistic_guard.guard.transition<GUARD_STATE::EXCLUSIVE>();
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
@@ -69,7 +67,7 @@ class ExclusiveGuard
       // -------------------------------------------------------------------------------------
       ~ExclusiveGuard()
   {
-    optimistic_guard->guard.transition<GUARD_STATE::OPTIMISTIC>();
+    optimistic_guard.guard.transition<GUARD_STATE::OPTIMISTIC>();
     jumpmu::clearLastDestructor();
   }
 };
@@ -93,6 +91,27 @@ class ExclusiveUpgradeIfNeeded
     if (!was_exclusive) {
       guard.transition<GUARD_STATE::OPTIMISTIC>();
     }
+    jumpmu::clearLastDestructor();
+  }
+};
+// -------------------------------------------------------------------------------------
+class SharedGuard
+{
+ private:
+  OptimisticGuard& optimistic_guard;  // our basis
+
+ public:
+  SharedGuard(OptimisticGuard& o_lock) : optimistic_guard(o_lock)
+  {
+    optimistic_guard.guard.transition<GUARD_STATE::SHARED>();
+    jumpmu_registerDestructor();
+  }
+  // -------------------------------------------------------------------------------------
+  jumpmu_defineCustomDestructor(SharedGuard)
+      // -------------------------------------------------------------------------------------
+      ~SharedGuard()
+  {
+    optimistic_guard.guard.transition<GUARD_STATE::OPTIMISTIC>();
     jumpmu::clearLastDestructor();
   }
 };

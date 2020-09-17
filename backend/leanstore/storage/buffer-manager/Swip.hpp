@@ -17,14 +17,15 @@ template <typename T>
 class Swip
 {
   // -------------------------------------------------------------------------------------
-  // 1xxxxxxxxxxxx unswizzled, 01xxxxxxxxxxx cooled, 00xxxxxxxxxxx swizzled
-  // Swizzle: HOT, Cool: in-memory but cool, Unswizzle: Evicted (cold)
+  // 1xxxxxxxxxxxx evicted, 01xxxxxxxxxxx cooling, 00xxxxxxxxxxx hot
   static const u64 evicted_bit = u64(1) << 63;
   static const u64 evicted_mask = ~(u64(1) << 63);
-  static const u64 cooling_bit = u64(1) << 62;
-  static const u64 cooling_mask = ~(u64(1) << 62);
+  static const u64 cool_bit = u64(1) << 62;
+  static const u64 cool_mask = ~(u64(1) << 62);
+  static const u64 hot_mask = ~(u64(3) << 62);
   static_assert(evicted_bit == 0x8000000000000000, "");
   static_assert(evicted_mask == 0x7FFFFFFFFFFFFFFF, "");
+  static_assert(hot_mask == 0x3FFFFFFFFFFFFFFF, "");
 
  public:
   union {
@@ -41,23 +42,24 @@ class Swip
   // -------------------------------------------------------------------------------------
   bool operator==(const Swip& other) const { return (raw() == other.raw()); }
   // -------------------------------------------------------------------------------------
-  bool isHOT() { return (pid & (evicted_bit | cooling_bit)) == 0; }
-  bool isCOLD() { return pid & cooling_bit; }
+  bool isHOT() { return (pid & (evicted_bit | cool_bit)) == 0; }
+  bool isCOOL() { return pid & cool_bit; }
   bool isEVICTED() { return pid & evicted_bit; }
   // -------------------------------------------------------------------------------------
   u64 asPageID() { return pid & evicted_mask; }
-  BufferFrame& asBufferFrame() { return *bf; }
+  BufferFrame& bfRef() { return *(bf & hot_mask); }
+  BufferFrame* bfPtr() { return (bf & hot_mask); }
   u64 raw() const { return pid; }
   // -------------------------------------------------------------------------------------
   template <typename T2>
-  void swizzle(T2* bf)
+  void warm(T2* bf)
   {
     this->bf = bf;
   }
   void evict(PID pid) { this->pid = pid | evicted_bit; }
   // -------------------------------------------------------------------------------------
-  void cool() { this->pid = pid | cooling_bit; }
-  void warm() { this->pid = pid & ~cooling_bit; }
+  void cool() { this->pid = pid | cool_bit; }
+  void warm() { this->pid = pid & ~cool_bit; }
   // -------------------------------------------------------------------------------------
   template <typename T2>
   Swip<T2>& cast()

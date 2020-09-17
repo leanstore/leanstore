@@ -70,8 +70,8 @@ struct Guard {
   u64 version;
   bool faced_contention = false;
   // -------------------------------------------------------------------------------------
-  Guard(HybridLatch& latch) : latch(&latch) { transition<GUARD_STATE::OPTIMISTIC>(); }
-  Guard(HybridLatch* latch) : latch(latch) { transition<GUARD_STATE::OPTIMISTIC>(); }
+  Guard(HybridLatch& latch) : latch(&latch) {}
+  Guard(HybridLatch* latch) : latch(latch) {}
   // -------------------------------------------------------------------------------------
   Guard(HybridLatch& latch, GUARD_STATE state, u64 version) : latch(&latch), state(state), version(version) {}
   // -------------------------------------------------------------------------------------
@@ -160,7 +160,7 @@ struct Guard {
         if (dest_state == GUARD_STATE::EXCLUSIVE) {
           const u64 new_version = version + LATCH_EXCLUSIVE_BIT;
           u64 expected = version;
-          latch->mutex.lock(); // changed from try_lock because of possible retries b/c lots of readers
+          latch->mutex.lock();  // changed from try_lock because of possible retries b/c lots of readers
           if (!latch->ref().compare_exchange_strong(expected, new_version)) {
             latch->mutex.unlock();
             jumpmu::jump();

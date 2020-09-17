@@ -15,7 +15,7 @@ namespace buffermanager
 const u64 PAGE_SIZE = 16 * 1024;
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
-  enum class State : u8 { FREE = 0, HOT = 1, COOL = 2 };
+  enum class STATE : u8 { FREE = 0, HOT = 1, COOL = 2, LOADED = 3 };
   struct Header {
     struct ContentionTracker {
       u32 restarts_counter = 0;
@@ -30,9 +30,8 @@ struct BufferFrame {
     };
     // TODO: for logging
     atomic<u64> lastWrittenLSN = 0;
-    atomic<State> state = State::FREE;  // INIT:
+    atomic<STATE> state = STATE::FREE;  // INIT:
     atomic<bool> isWB = false;
-    bool isCooledBecauseOfReading = false;
     PID pid = 9999;             // INIT:
     HybridLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
@@ -65,7 +64,7 @@ struct BufferFrame {
     assert(!header.isWB);
     header.latch.assertExclusivelyLatched();
     header.lastWrittenLSN = 0;
-    header.state = State::FREE;  // INIT:
+    header.state = STATE::FREE;  // INIT:
     header.isWB = false;
     header.isCooledBecauseOfReading = false;
     header.pid = 9999;

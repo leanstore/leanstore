@@ -13,12 +13,14 @@ namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
 struct IOFrame {
-  enum class State : u8 {
+  enum class STATE : u8 {
     READING = 0,
-    UNDEFINED = 1  // for debugging
+    READY = 1,
+    UNDEFINED = 2  // for debugging
   };
   std::mutex mutex;
-  State state = State::UNDEFINED;
+  STATE state = STATE::UNDEFINED;
+  BufferFrame* bf = nullptr;
   // -------------------------------------------------------------------------------------
   // Everything in CIOFrame is protected by partition lock
   // except the following counter which is decremented outside to determine
@@ -61,11 +63,7 @@ struct Partition {
   HashTable ht;
   // -------------------------------------------------------------------------------------
   std::mutex cooling_mutex;
-  struct CoolingEntry {
-    BufferFrame* bf;
-    BufferFrame* parent_bf;
-  };
-  std::list<> cooling_queue;
+  std::list<BufferFrame*> cooling_queue;
   // -------------------------------------------------------------------------------------
   atomic<u64> cooling_bfs_counter = 0;
   const u64 free_bfs_limit;

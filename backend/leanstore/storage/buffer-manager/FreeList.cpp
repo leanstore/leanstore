@@ -12,7 +12,7 @@ namespace buffermanager
 // -------------------------------------------------------------------------------------
 void FreeList::push(BufferFrame& bf)
 {
-  assert(bf.header.state == BufferFrame::State::FREE);
+  assert(bf.header.state == BufferFrame::STATE::FREE);
   bf.header.latch.assertNotExclusivelyLatched();
   bf.header.next_free_bf = head.load();
   while (!head.compare_exchange_strong(bf.header.next_free_bf, &bf))
@@ -31,7 +31,7 @@ struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<std::mutex>>& lock)
       free_bf->header.next_free_bf = nullptr;
       counter--;
       free_bf->header.latch.assertNotExclusivelyLatched();
-      assert(free_bf->header.state == BufferFrame::State::FREE);
+      assert(free_bf->header.state == BufferFrame::STATE::FREE);
     } else {
       lock->unlock();
       jumpmu::jump();
@@ -54,7 +54,7 @@ struct BufferFrame& FreeList::pop()
       free_bf->header.next_free_bf = nullptr;
       counter--;
       free_bf->header.latch.assertNotExclusivelyLatched();
-      assert(free_bf->header.state == BufferFrame::State::FREE);
+      assert(free_bf->header.state == BufferFrame::STATE::FREE);
       return *free_bf;
     } else {
       //WorkerCounters::myCounters().dt_researchy_1[0]++;
