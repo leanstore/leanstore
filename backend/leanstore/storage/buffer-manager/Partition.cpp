@@ -44,7 +44,7 @@ u64 HashTable::hashKey(PID k)
   return h;
 }
 // -------------------------------------------------------------------------------------
-CIOFrame& HashTable::insert(PID key)
+IOFrame& HashTable::insert(PID key)
 {
   auto e = new Entry(key);
   uint64_t pos = hashKey(key) & mask;

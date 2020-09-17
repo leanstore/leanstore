@@ -163,7 +163,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
           COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
           dt_registry.iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
-            if (swip.isSwizzled()) {
+            if (swip.isHOT()) {
               r_buffer = &swip.asBufferFrame();
               r_guard.recheck();
               picked_a_child_instead = true;
@@ -206,30 +206,18 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             Partition& partition = getPartition(pid);
             // r_x_guard can only be acquired and release while the partition mutex is locked
             {
-              JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
+              JMUW<std::unique_lock<std::mutex>> g_guard(partition.cooling_mutex);
               ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
               ExclusiveGuard r_x_guard(r_guard);
               // -------------------------------------------------------------------------------------
               assert(r_buffer->header.state == BufferFrame::State::HOT);
               assert(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
               assert(parent_handler.swip.bf == r_buffer);
-              // -------------------------------------------------------------------------------------
-              if (partition.ht.has(r_buffer->header.pid)) {
-                // This means that some thread is still in reading stage (holding
-                // cio_mutex)
-                partition.cio_mutex.unlock();
-                r_buffer = &randomBufferFrame();
-                continue;
-              }
               assert(!(partition.ht.has(r_buffer->header.pid)));
-              CIOFrame& cio_frame = partition.ht.insert(pid);
-              assert((partition.ht.has(r_buffer->header.pid)));
-              cio_frame.state = CIOFrame::State::COOLING;
               partition.cooling_queue.push_back(reinterpret_cast<BufferFrame*>(r_buffer));
-              cio_frame.fifo_itr = --partition.cooling_queue.end();
-              r_buffer->header.state = BufferFrame::State::COLD;
+              r_buffer->header.state = BufferFrame::State::COOL;
               r_buffer->header.isCooledBecauseOfReading = false;
-              parent_handler.swip.unswizzle(r_buffer->header.pid);
+              parent_handler.swip.cool();
               partition.cooling_bfs_counter++;
             }
             // -------------------------------------------------------------------------------------
@@ -257,6 +245,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
       Partition& partition = partitions[p_i];
       // -------------------------------------------------------------------------------------
       // phase_2_3:
+      // TODO: lock parent
       auto evict_bf = [&](BufferFrame& bf, std::list<BufferFrame*>::iterator& bf_itr) {
         jumpmuTry()
         {
@@ -269,14 +258,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           }
           // Reclaim buffer frame
           const PID pid = bf.header.pid;
-          HashTable::Handler frame_handler = partition.ht.lookup(pid);
-          assert(frame_handler);
-          assert(frame_handler.frame().state == CIOFrame::State::COOLING);
-          assert(bf.header.state == BufferFrame::State::COLD);
+          assert(bf.header.state == BufferFrame::State::COOL);
           // -------------------------------------------------------------------------------------
           partition.cooling_queue.erase(bf_itr);
-          partition.ht.remove(frame_handler);
-          assert(!partition.ht.has(pid));
           // -------------------------------------------------------------------------------------
           reclaimBufferFrame(bf);
           // -------------------------------------------------------------------------------------
@@ -299,7 +283,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
         if (pages_to_iterate_partition > 0) {
           PPCounters::myCounters().phase_2_counter++;
           volatile u64 pages_left_to_iterate_partition = pages_to_iterate_partition;
-          JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
+          JMUW<std::unique_lock<std::mutex>> g_guard(partition.io_mutex);
           auto bf_itr = partition.cooling_queue.begin();
           while (pages_left_to_iterate_partition-- && bf_itr != partition.cooling_queue.end()) {
             BufferFrame& bf = **bf_itr;
@@ -355,7 +339,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           COUNTERS_BLOCK() { async_wb_end = std::chrono::high_resolution_clock::now(); }
           // -------------------------------------------------------------------------------------
           volatile u64 pages_left_to_iterate_partition = polled_events;
-          JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
+          JMUW<std::unique_lock<std::mutex>> g_guard(partition.io_mutex);
           // -------------------------------------------------------------------------------------
           auto bf_itr = partition.cooling_queue.begin();
           while (pages_left_to_iterate_partition-- && bf_itr != partition.cooling_queue.end()) {
@@ -493,7 +477,7 @@ void BufferManager::reclaimPage(BufferFrame& bf)
 BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
 {
   assert(swip_guard.state == GUARD_STATE::OPTIMISTIC);
-  if (swip_value.isSwizzled()) {
+  if (swip_value.isHOT()) {
     BufferFrame& bf = swip_value.asBufferFrame();
     swip_guard.recheck();
     return bf;
@@ -501,18 +485,18 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
   // -------------------------------------------------------------------------------------
   const PID pid = swip_value.asPageID();
   Partition& partition = getPartition(pid);
-  JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
+  JMUW<std::unique_lock<std::mutex>> g_guard(partition.io_mutex);
   swip_guard.recheck();
-  assert(!swip_value.isSwizzled());
+  assert(!swip_value.isHOT());
   // -------------------------------------------------------------------------------------
   auto frame_handler = partition.ht.lookup(pid);
   if (!frame_handler) {
     BufferFrame& bf = partition.dram_free_list.tryPop(g_guard);
-    CIOFrame& cio_frame = partition.ht.insert(pid);
+    IOFrame& cio_frame = partition.ht.insert(pid);
     assert(bf.header.state == BufferFrame::State::FREE);
     bf.header.latch.assertNotExclusivelyLatched();
     // -------------------------------------------------------------------------------------
-    cio_frame.state = CIOFrame::State::READING;
+    cio_frame.state = IOFrame::State::READING;
     cio_frame.readers_counter = 1;
     cio_frame.mutex.lock();
     // -------------------------------------------------------------------------------------
@@ -532,13 +516,13 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     // ATTENTION: Fill the BF
     assert(!bf.header.isWB);
     bf.header.lastWrittenLSN = bf.page.LSN;
-    bf.header.state = BufferFrame::State::COLD;
+    bf.header.state = BufferFrame::State::COOL;
     bf.header.pid = pid;
     // -------------------------------------------------------------------------------------
     jumpmuTry()
     {
       swip_guard.recheck();
-      JMUW<std::unique_lock<std::mutex>> g_guard(partition.cio_mutex);
+      JMUW<std::unique_lock<std::mutex>> g_guard(partition.io_mutex);
       ExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
       cio_frame.mutex.unlock();
       swip_value.swizzle(&bf);
@@ -559,7 +543,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     {
       // Move to cooling stage
       g_guard->lock();
-      cio_frame.state = CIOFrame::State::COOLING;
+      cio_frame.state = IOFrame::State::COOLING;
       partition.cooling_queue.push_back(&bf);
       cio_frame.fifo_itr = --partition.cooling_queue.end();
       partition.cooling_bfs_counter++;
@@ -573,9 +557,9 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     }
   }
   // -------------------------------------------------------------------------------------
-  CIOFrame& cio_frame = frame_handler.frame();
+  IOFrame& cio_frame = frame_handler.frame();
   // -------------------------------------------------------------------------------------
-  if (cio_frame.state == CIOFrame::State::READING) {
+  if (cio_frame.state == IOFrame::State::READING) {
     cio_frame.readers_counter++;
     g_guard->unlock();
     cio_frame.mutex.lock();
@@ -593,7 +577,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     jumpmu::jump();
   }
   // -------------------------------------------------------------------------------------
-  if (cio_frame.state == CIOFrame::State::COOLING) {
+  if (cio_frame.state == IOFrame::State::COOLING) {
     // -------------------------------------------------------------------------------------
     BufferFrame* bf = *cio_frame.fifo_itr;
     {
@@ -606,10 +590,10 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       // -------------------------------------------------------------------------------------
       assert(bf->header.pid == pid);
       swip_value.swizzle(bf);
-      assert(swip_value.isSwizzled());
+      assert(swip_value.isHOT());
       partition.cooling_queue.erase(cio_frame.fifo_itr);
       partition.cooling_bfs_counter--;
-      assert(bf->header.state == BufferFrame::State::COLD);
+      assert(bf->header.state == BufferFrame::State::COOL);
       bf->header.state = BufferFrame::State::HOT;  // ATTENTION: SET TO HOT AFTER
                                                    // IT IS SWIZZLED IN
       // -------------------------------------------------------------------------------------

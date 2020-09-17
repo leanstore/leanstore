@@ -1,6 +1,6 @@
 #pragma once
-#include "FreeList.hpp"
 #include "BufferFrame.hpp"
+#include "FreeList.hpp"
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -12,14 +12,12 @@ namespace leanstore
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
-struct CIOFrame {
+struct IOFrame {
   enum class State : u8 {
     READING = 0,
-    COOLING = 1,
-    UNDEFINED = 2  // for debugging
+    UNDEFINED = 1  // for debugging
   };
   std::mutex mutex;
-  std::list<BufferFrame*>::iterator fifo_itr;
   State state = State::UNDEFINED;
   // -------------------------------------------------------------------------------------
   // Everything in CIOFrame is protected by partition lock
@@ -32,17 +30,17 @@ struct HashTable {
   struct Entry {
     u64 key;
     Entry* next;
-    CIOFrame value;
+    IOFrame value;
     Entry(u64 key);
   };
   // -------------------------------------------------------------------------------------
   struct Handler {
     Entry** holder;
     operator bool() const { return holder != nullptr; }
-    CIOFrame& frame() const
+    IOFrame& frame() const
     {
       assert(holder != nullptr);
-      return *reinterpret_cast<CIOFrame*>(&((*holder)->value));
+      return *reinterpret_cast<IOFrame*>(&((*holder)->value));
     }
   };
   // -------------------------------------------------------------------------------------
@@ -50,7 +48,7 @@ struct HashTable {
   Entry** entries;
   // -------------------------------------------------------------------------------------
   u64 hashKey(u64 k);
-  CIOFrame& insert(u64 key);
+  IOFrame& insert(u64 key);
   Handler lookup(u64 key);
   void remove(Handler& handler);
   void remove(u64 key);
@@ -59,9 +57,16 @@ struct HashTable {
 };
 // -------------------------------------------------------------------------------------
 struct Partition {
-  std::mutex cio_mutex;
+  std::mutex io_mutex;
   HashTable ht;
-  std::list<BufferFrame*> cooling_queue;
+  // -------------------------------------------------------------------------------------
+  std::mutex cooling_mutex;
+  struct CoolingEntry {
+    BufferFrame* bf;
+    BufferFrame* parent_bf;
+  };
+  std::list<> cooling_queue;
+  // -------------------------------------------------------------------------------------
   atomic<u64> cooling_bfs_counter = 0;
   const u64 free_bfs_limit;
   const u64 cooling_bfs_limit;

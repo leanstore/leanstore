@@ -1,0 +1,36 @@
+Datastructures must implement copy function:
+* pre-condition: shared lateched
+* copy content with PIDs instead of swips to a *dest
+
+
+BufferFrame needs GSN
+To uniquely identify log records, we propose a global se-
+quence number (GSN) based on logical clock [24]. At run-
+time, a GSN is maintained in each page, transaction and
+log. Pages and log records also store a GSN with them
+permanently. Pinning a page in the buffer pool sets both
+page and transaction GSNs to max(tx GSN, page GSN) +
+1 if the transaction intends to modify the page; otherwise
+only the transaction GSN is set to max(tx GSN, page GSN).
+Inserting a log record will set both transaction and page
+GSNs to max(tx GSN, page GSN) + 1. The log then sets
+its GSN to max(tx GSN, page GSN, log GSN). The same
+GSN is also stored in the log record that is being inserted.
+In addition to the GSN, each log record also stores an LSN,
+which indicates the offset into an individual log that holds
+it. Although GSNs are only partially ordered, they uniquely
+identify log records and provide a total order for log records
+belonging to any one page, log, or transaction.
+
+
+
+Logs are transaction-partitioned.
+Log partition cosnists of:
+* Stage 1: chunks (circular buffer)
+* Stage 2: WAL Writer thread writes chunks to SSD
+* Stage 3: Log archive
+
+Log entry consists of: Type, PID, TID, GSN, before and after (XOR?), LSN?
+
+
+WriteBack buffer for checkpointer and pp threads

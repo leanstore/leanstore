@@ -15,7 +15,7 @@ namespace buffermanager
 const u64 PAGE_SIZE = 16 * 1024;
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
-  enum class State : u8 { FREE = 0, HOT = 1, COLD = 2 };
+  enum class State : u8 { FREE = 0, HOT = 1, COOL = 2 };
   struct Header {
     struct ContentionTracker {
       u32 restarts_counter = 0;

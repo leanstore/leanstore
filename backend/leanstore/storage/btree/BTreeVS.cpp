@@ -563,7 +563,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
   // -------------------------------------------------------------------------------------
   auto merge_left = [&]() {
     Swip<BTreeNode>& l_swip = p_guard->getChild(pos - 1);
-    if (!swizzle_sibling && !l_swip.isSwizzled()) {
+    if (!swizzle_sibling && !l_swip.isHOT()) {
       return false;
     }
     auto l_guard = HybridPageGuard(p_guard, l_swip);
@@ -589,7 +589,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
   };
   auto merge_right = [&]() {
     Swip<BTreeNode>& r_swip = p_guard->getChild(pos + 1);
-    if (!swizzle_sibling && !r_swip.isSwizzled()) {
+    if (!swizzle_sibling && !r_swip.isHOT()) {
       return false;
     }
     auto r_guard = HybridPageGuard(p_guard, r_swip);
@@ -738,7 +738,7 @@ BTree::XMergeReturnCode BTree::XMerge(HybridPageGuard<BTreeNode>& p_guard, Hybri
     return XMergeReturnCode::NOTHING;
   }
   for (max_right = pos + 1; (max_right - pos) < MAX_MERGE_PAGES && (max_right + 1) < p_guard->count; max_right++) {
-    if (!p_guard->getChild(max_right).isSwizzled()) {
+    if (!p_guard->getChild(max_right).isHOT()) {
       c_guard = std::move(guards[0]);
       return XMergeReturnCode::NOTHING;
     }
