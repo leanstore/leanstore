@@ -138,9 +138,9 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_cm_period", [&](ostream& out) { out << FLAGS_cm_period; });
   config_entries.emplace_back("c_cm_slowpath_threshold", [&](ostream& out) { out << FLAGS_cm_slowpath_threshold; });
   // -------------------------------------------------------------------------------------
-  config_entries.emplace_back("c_su_kwaymerge", [&](ostream& out) { out << FLAGS_su_kwaymerge; });
+  config_entries.emplace_back("c_xmerge_k", [&](ostream& out) { out << FLAGS_xmerge_k; });
   config_entries.emplace_back("c_xmerge", [&](ostream& out) { out << FLAGS_xmerge; });
-  config_entries.emplace_back("c_su_target_pct", [&](ostream& out) { out << FLAGS_su_target_pct; });
+  config_entries.emplace_back("c_xmerge_target_pct", [&](ostream& out) { out << FLAGS_xmerge_target_pct; });
   // -------------------------------------------------------------------------------------
   config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
   config_entries.emplace_back("c_backoff", [&](ostream& out) { out << FLAGS_backoff; });

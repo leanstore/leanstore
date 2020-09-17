@@ -721,7 +721,7 @@ BTree::XMergeReturnCode BTree::XMerge(HybridPageGuard<BTreeNode>& p_guard, Hybri
     return XMergeReturnCode::NOTHING;
   }
   // -------------------------------------------------------------------------------------
-  const u8 MAX_MERGE_PAGES = FLAGS_su_kwaymerge;
+  const u8 MAX_MERGE_PAGES = FLAGS_xmerge_k;
   s16 pos = parent_handler.pos;
   u8 pages_count = 1;
   s16 max_right;

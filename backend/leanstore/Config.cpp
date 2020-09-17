@@ -41,8 +41,8 @@ DEFINE_uint64(cm_period, 14, "as exponent of 2");
 DEFINE_uint64(cm_slowpath_threshold, 100, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(xmerge, false, "");
-DEFINE_uint64(su_kwaymerge, 5, "");
-DEFINE_double(su_target_pct, 80, "");
+DEFINE_uint64(xmerge_k, 5, "");
+DEFINE_double(xmerge_target_pct, 80, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff, 512, "");
 // -------------------------------------------------------------------------------------

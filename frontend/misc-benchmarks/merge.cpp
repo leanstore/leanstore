@@ -53,7 +53,7 @@ int main(int argc, char** argv)
   csv.seekp(0, ios::end);
   csv << std::setprecision(2) << std::fixed;
   if (csv.tellp() == 0) {
-    csv << "i,ff,flag,su_merge,tag,c_hash" << endl;
+    csv << "i,ff,flag,xmerge,tag,c_hash" << endl;
   }
   // -------------------------------------------------------------------------------------
   auto compress_bf = [&](u8* key_bytes, u16 key_length) {
@@ -92,7 +92,7 @@ int main(int argc, char** argv)
         double avg_ff = l_sum_ff * 100.0 / sample_size;
         WorkerCounters::myCounters().dt_researchy[0][5] = avg_ff;
         // -------------------------------------------------------------------------------------
-        if (avg_ff >= FLAGS_su_target_pct) {
+        if (avg_ff >= FLAGS_xmerge_target_pct) {
           stop = true;
           cout << "stop!" << endl;
           sleep(FLAGS_run_for_seconds);
@@ -117,7 +117,7 @@ int main(int argc, char** argv)
     u64 p_i = 0;
     vs_btree.iterateAllPages([&](leanstore::btree::vs::BTreeNode&) { return 0; },
                              [&](leanstore::btree::vs::BTreeNode& leaf) {
-                               csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_su_merge << "," << FLAGS_tag
+                               csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_xmerge << "," << FLAGS_tag
                                    << "," << db.getConfigHash() << endl;
                                return 0;
                              });
