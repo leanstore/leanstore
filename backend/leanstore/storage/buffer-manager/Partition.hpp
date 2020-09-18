@@ -16,7 +16,8 @@ struct IOFrame {
   enum class STATE : u8 {
     READING = 0,
     READY = 1,
-    UNDEFINED = 2  // for debugging
+    TO_DELETE = 2,
+    UNDEFINED = 3  // for debugging
   };
   std::mutex mutex;
   STATE state = STATE::UNDEFINED;

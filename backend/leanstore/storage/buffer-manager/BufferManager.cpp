@@ -149,7 +149,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           const u64 partition_i = getPartitionID(r_buffer->header.pid);
           static_cast<void>(partition_i);
           const bool is_cooling_candidate =
-              (partition_i >= p_begin && partition_i <= p_end) &&
+              //              (partition_i >= p_begin && partition_i <= p_end) &&
               (!r_buffer->header.isWB && !(r_buffer->header.latch.isExclusivelyLatched()) &&  // (partition_i) >= p_begin && (partition_i) < p_end &&
                r_buffer->header.state == BufferFrame::STATE::HOT);                            // && !rand_buffer->header.isWB
           if (!is_cooling_candidate) {
@@ -566,12 +566,10 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     }
     jumpmuCatch()
     {
-      // Move to cooling stage
+      // Change state to ready
       g_guard->lock();
       io_frame.bf = &bf;
       io_frame.state = IOFrame::STATE::READY;
-      assert(io_frame.bf->header.state == BufferFrame::STATE::LOADED);
-      assert(io_frame.bf->header.pid == pid);
       // -------------------------------------------------------------------------------------
       g_guard->unlock();
       io_frame.mutex.unlock();
@@ -587,8 +585,6 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     g_guard->unlock();
     io_frame.mutex.lock();
     io_frame.mutex.unlock();
-    // -------------------------------------------------------------------------------------
-    assert(partition.ht.has(pid));
     if (io_frame.readers_counter.fetch_add(-1) == 1) {
       g_guard->lock();
       if (io_frame.readers_counter == 0) {
@@ -607,10 +603,12 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       // We have to exclusively lock the bf because the page provider thread will
       // try to evict them when its IO is done
       bf->header.latch.assertNotExclusivelyLatched();
+      assert(bf->header.state == BufferFrame::STATE::LOADED);
       OptimisticGuard bf_guard(bf->header.latch);
       ExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
       ExclusiveGuard bf_x_guard(bf_guard);
       // -------------------------------------------------------------------------------------
+      io_frame.bf = nullptr;
       assert(bf->header.pid == pid);
       swip_value.warm(bf);
       assert(swip_value.isHOT());
@@ -620,11 +618,20 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       // -------------------------------------------------------------------------------------
       if (io_frame.readers_counter.fetch_add(-1) == 1) {
         partition.ht.remove(pid);
+      } else {
+        io_frame.state = IOFrame::STATE::TO_DELETE;
       }
       g_guard->unlock();
+      // -------------------------------------------------------------------------------------
+      return *bf;
     }
-    // -------------------------------------------------------------------------------------
-    return *bf;
+  }
+  if (io_frame.state == IOFrame::STATE::TO_DELETE) {
+    if (io_frame.readers_counter == 0) {
+      partition.ht.remove(pid);
+    }
+    g_guard->unlock();
+    jumpmu::jump();
   }
   ensure(false);
 }
