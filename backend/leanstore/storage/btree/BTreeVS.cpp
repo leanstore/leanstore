@@ -33,7 +33,7 @@ bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> pa
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> leaf;
-      findLeafForRead<0>(leaf, key, key_length);
+      findLeafForRead<OP_TYPE::POINT_READ>(leaf, key, key_length);
       // -------------------------------------------------------------------------------------
       DEBUG_BLOCK()
       {
@@ -77,7 +77,7 @@ void BTree::rangeScanAsc(u8* start_key,
     {
       HybridPageGuard<BTreeNode> leaf;
       while (true) {
-        findLeafForRead<11>(leaf, next_key, next_key_length);
+        findLeafForRead<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
         SharedPageGuard s_leaf(std::move(leaf));
         // -------------------------------------------------------------------------------------
         s16 cur = s_leaf->lowerBound<false>(start_key, key_length);
@@ -144,7 +144,7 @@ void BTree::rangeScanDesc(u8* start_key,
     {
       HybridPageGuard<BTreeNode> leaf;
       while (true) {
-        findLeafForRead<11>(leaf, next_key, next_key_length);
+        findLeafForRead<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
         SharedPageGuard s_leaf(std::move(leaf));
         s16 cur = s_leaf->lowerBound<false>(start_key, key_length);
         if (s_leaf->lowerBound<true>(start_key, key_length) == -1) {
@@ -213,7 +213,7 @@ bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)>
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> leaf;
-      findLeafForRead<11>(leaf, one_step_further_key, key_length);
+      findLeafForRead<OP_TYPE::POINT_READ>(leaf, one_step_further_key, key_length);
       const s16 cur = leaf->lowerBound<false>(one_step_further_key, key_length);
       if (cur > 0) {
         const s16 pos = cur - 1;
@@ -230,7 +230,7 @@ bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)>
           u8 lower_fence_key[lower_fence_key_length];
           std::memcpy(lower_fence_key, leaf->getLowerFenceKey(), lower_fence_key_length);
           HybridPageGuard<BTreeNode> prev;
-          findLeafForRead<11>(prev, lower_fence_key, lower_fence_key_length);
+          findLeafForRead<OP_TYPE::POINT_READ>(prev, lower_fence_key, lower_fence_key_length);
           leaf.recheck_done();
           // -------------------------------------------------------------------------------------
           ensure(prev->count >= 1);
@@ -259,7 +259,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> c_guard;
-      findLeafForRead<2>(c_guard, key, key_length);
+      findLeafForRead<OP_TYPE::POINT_INSERT>(c_guard, key, key_length);
       // -------------------------------------------------------------------------------------
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (c_x_guard->prepareInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)))) {
@@ -409,7 +409,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
     new_root.init(false);
     // -------------------------------------------------------------------------------------
     new_root->upper = c_x_guard.bf();
-    root_swip.swizzle(new_root.bf());
+    root_swip.warm(new_root.bf());
     // -------------------------------------------------------------------------------------
     c_x_guard->getSep(sep_key, sep_info);
     // -------------------------------------------------------------------------------------
@@ -450,7 +450,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
     {
       // -------------------------------------------------------------------------------------
       HybridPageGuard<BTreeNode> c_guard;
-      findLeafForRead<10>(c_guard, key, key_length);
+      findLeafForRead<OP_TYPE::POINT_UPDATE>(c_guard, key, key_length);
       u32 local_restarts_counter = c_guard.hasFacedContention();  // current implementation uses the mutex
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       s16 pos = c_x_guard->lowerBound<true>(key, key_length);
@@ -517,7 +517,7 @@ bool BTree::remove(u8* key, u16 key_length)
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> c_guard;
-      findLeafForRead<2>(c_guard, key, key_length);
+      findLeafForRead<OP_TYPE::POINT_DELETE>(c_guard, key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (!c_x_guard->remove(key, key_length)) {
         jumpmu_return false;
@@ -601,7 +601,7 @@ bool BTree::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
     auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
     auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
     // -------------------------------------------------------------------------------------
-    assert(&p_x_guard->getChild(pos).bfRef() == c_x_guard.bf());
+    assert(p_x_guard->getChild(pos).bfPtr() == c_x_guard.bf());
     if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
       p_guard = std::move(p_x_guard);
       c_guard = std::move(c_x_guard);
@@ -829,7 +829,7 @@ bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Optimisti
   return false;
 }
 // -------------------------------------------------------------------------------------
-// Should not have to swizzle any page
+// Jump if any page on the path is already evicted
 // Throws if the bf could not be found
 struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_find)
 {
@@ -850,11 +850,14 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   u8* key = c_node.getUpperFenceKey();
   // -------------------------------------------------------------------------------------
   // check if bf is the root node
-  if (c_swip->asBufferFrame() == &to_find) {
+  if (c_swip->bfPtrAsHot() == &to_find) {
     p_guard.recheck_done();
     return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = nullptr};
   }
   // -------------------------------------------------------------------------------------
+  if (btree.root_swip.isEVICTED()) {
+    jumpmu::jump();
+  }
   HybridPageGuard c_guard(p_guard, btree.root_swip);  // the parent of the bf we are looking for (to_find)
   s16 pos = -1;
   auto search_condition = [&]() {
@@ -869,15 +872,18 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
         c_swip = &(c_guard->getChild(pos));
       }
     }
-    return (c_swip->asBufferFrame() != &to_find);
+    return (c_swip->bfPtrAsHot() != &to_find);
   };
   while (!c_guard->is_leaf && search_condition()) {
     p_guard = std::move(c_guard);
+    if (c_swip->isEVICTED()) {
+      jumpmu::jump();
+    }
     c_guard = HybridPageGuard(p_guard, c_swip->cast<BTreeNode>());
     level++;
   }
   p_guard.kill();
-  const bool found = c_swip->asBufferFrame() == &to_find;
+  const bool found = c_swip->bfPtrAsHot() == &to_find;
   c_guard.recheck_done();
   if (!found) {
     jumpmu::jump();

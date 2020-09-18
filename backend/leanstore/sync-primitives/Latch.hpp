@@ -192,7 +192,6 @@ struct Guard {
         break;
       }
       case GUARD_STATE::EXCLUSIVE: {
-        ensure(dest_state == GUARD_STATE::OPTIMISTIC);
         version += LATCH_EXCLUSIVE_BIT;
         latch->ref().store(version, std::memory_order_release);
         latch->mutex.unlock();

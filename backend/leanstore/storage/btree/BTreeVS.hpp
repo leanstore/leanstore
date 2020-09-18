@@ -18,6 +18,8 @@ namespace vs
 {
 // -------------------------------------------------------------------------------------
 struct BTree {
+  enum class OP_TYPE : u8 { POINT_READ, POINT_UPDATE, POINT_INSERT, POINT_DELETE, SCAN };
+  // -------------------------------------------------------------------------------------
   DTID dtid;
   // -------------------------------------------------------------------------------------
   atomic<u16> height = 1;  // debugging
@@ -68,7 +70,7 @@ struct BTree {
   ~BTree();
   // -------------------------------------------------------------------------------------
   // Helpers
-  template <int op_type = 0>  // 0 point lookup, 1 update same size, 2 structural change, 10 updatesamesize, 11 scan // TODO better code
+  template <OP_TYPE op_type = OP_TYPE::POINT_READ>
   void findLeafForRead(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
   {
     u32 volatile mask = 1;
@@ -76,11 +78,13 @@ struct BTree {
       jumpmuTry()
       {
         HybridPageGuard<BTreeNode> p_guard(root_lock);
-        HybridPageGuard<BTreeNode> c_guard(p_guard, root_swip, FALLBACK_METHOD::SHARED);
+        HybridPageGuard<BTreeNode> c_guard(p_guard, root_swip, FALLBACK_METHOD::EXCLUSIVE);
         while (!c_guard->is_leaf) {
           Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
           p_guard = std::move(c_guard);
-          c_guard = HybridPageGuard(p_guard, c_swip, FALLBACK_METHOD::EXCLUSIVE);
+          c_guard = HybridPageGuard(
+              p_guard, c_swip,
+              (op_type == OP_TYPE::POINT_UPDATE || op_type == OP_TYPE::POINT_INSERT) ? FALLBACK_METHOD::EXCLUSIVE : FALLBACK_METHOD::EXCLUSIVE);
         }
         p_guard.kill();
         target_guard = std::move(c_guard);
@@ -90,11 +94,11 @@ struct BTree {
       {
         BACKOFF_STRATEGIES()
         // -------------------------------------------------------------------------------------
-        if (op_type == 0 || op_type == 11) {
+        if (op_type == OP_TYPE::POINT_READ || op_type == OP_TYPE::SCAN) {
           WorkerCounters::myCounters().dt_restarts_read[dtid]++;
-        } else if (op_type == 1) {
+        } else if (op_type == OP_TYPE::POINT_UPDATE) {
           WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;
-        } else if (op_type == 2) {
+        } else if (op_type == OP_TYPE::POINT_INSERT) {
           WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
         } else {
         }

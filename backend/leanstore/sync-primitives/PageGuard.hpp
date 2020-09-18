@@ -44,7 +44,11 @@ class HybridPageGuard
   }
   // -------------------------------------------------------------------------------------
   // I: Root case
-  HybridPageGuard(HybridLatch& latch) : guard(latch) { jumpmu_registerDestructor(); }
+  HybridPageGuard(HybridLatch& latch) : guard(latch)
+  {
+    guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SPIN>();
+    jumpmu_registerDestructor();
+  }
   // -------------------------------------------------------------------------------------
   // I: Lock coupling
   HybridPageGuard(HybridPageGuard& p_guard, Swip<T>& swip, const FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)

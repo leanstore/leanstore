@@ -47,8 +47,9 @@ class Swip
   bool isEVICTED() { return pid & evicted_bit; }
   // -------------------------------------------------------------------------------------
   u64 asPageID() { return pid & evicted_mask; }
-  BufferFrame& bfRef() { return *(bf & hot_mask); }
-  BufferFrame* bfPtr() { return (bf & hot_mask); }
+  BufferFrame& bfRef() { return *bf; }
+  BufferFrame* bfPtr() { return bf; }
+  BufferFrame* bfPtrAsHot() { return reinterpret_cast<BufferFrame*>(pid & hot_mask); }
   u64 raw() const { return pid; }
   // -------------------------------------------------------------------------------------
   template <typename T2>

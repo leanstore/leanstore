@@ -66,7 +66,6 @@ struct BufferFrame {
     header.lastWrittenLSN = 0;
     header.state = STATE::FREE;  // INIT:
     header.isWB = false;
-    header.isCooledBecauseOfReading = false;
     header.pid = 9999;
     header.next_free_bf = nullptr;
     header.contention_tracker.reset();
