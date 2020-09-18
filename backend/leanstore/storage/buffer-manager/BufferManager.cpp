@@ -295,7 +295,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                 if (bf.header.state == BufferFrame::STATE::COOL) {
                   pages_left_to_iterate_partition--;
                   if (bf.isDirty()) {
-                    ExclusiveGuard s_guard(o_guard);
+                    SharedGuard s_guard(o_guard);
                     if (!async_write_buffer.add(bf)) {
                       // AsyncBuffer is full, break and start with phase 3
                       o_guard.guard.transition<GUARD_STATE::OPTIMISTIC>();
