@@ -32,8 +32,8 @@ struct BufferFrame {
     atomic<u64> lastWrittenLSN = 0;
     atomic<STATE> state = STATE::FREE;  // INIT:
     atomic<bool> isWB = false;
-    PID pid = 9999;             // INIT:
-    HybridLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
+    atomic<PID> pid = 9999;  // INIT:
+    HybridLatch latch = 0;   // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;
     ContentionTracker contention_tracker;
@@ -61,6 +61,8 @@ struct BufferFrame {
   // Pre: bf is exclusively locked
   void reset()
   {
+    header.debug = header.pid;
+    // -------------------------------------------------------------------------------------
     assert(!header.isWB);
     header.latch.assertExclusivelyLatched();
     header.lastWrittenLSN = 0;

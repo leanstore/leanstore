@@ -51,7 +51,7 @@ BufferManager::BufferManager()
     const u64 cooling_bfs_upper_bound = std::ceil((FLAGS_cool_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
     partitions = reinterpret_cast<Partition*>(malloc(sizeof(Partition) * partitions_count));
     for (u64 p_i = 0; p_i < partitions_count; p_i++) {
-      new (partitions + p_i) Partition(free_bfs_limit, cooling_bfs_upper_bound);
+      new (partitions + p_i) Partition(p_i, partitions_count, free_bfs_limit, cooling_bfs_upper_bound);
     }
     // -------------------------------------------------------------------------------------
     utils::Parallelize::parallelRange(dram_pool_size, [&](u64 bf_b, u64 bf_e) {
@@ -132,6 +132,13 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
     /*
      * Phase 1: unswizzle pages (put in the cooling stage)
      */
+    // -------------------------------------------------------------------------------------
+#define repickIf(cond)               \
+  if (cond) {                        \
+    r_buffer = &randomBufferFrame(); \
+    continue;                        \
+  }
+    // -------------------------------------------------------------------------------------
     [[maybe_unused]] Time phase_1_begin, phase_1_end;
     COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
     BufferFrame* volatile r_buffer = &randomBufferFrame();  // Attention: we may set the r_buffer to a child of a bf instead of random
@@ -140,22 +147,16 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
       {
         while (phase_1_condition(randomPartition())) {
           COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
-          if (r_buffer->header.latch.isExclusivelyLatched()) {
-            r_buffer = &randomBufferFrame();
-            continue;
-          }
           OptimisticGuard r_guard(r_buffer->header.latch, true);
           // -------------------------------------------------------------------------------------
+          repickIf(r_buffer->header.isWB);
           const u64 partition_i = getPartitionID(r_buffer->header.pid);
           static_cast<void>(partition_i);
-          const bool is_cooling_candidate =
-              //              (partition_i >= p_begin && partition_i <= p_end) &&
-              (!r_buffer->header.isWB && !(r_buffer->header.latch.isExclusivelyLatched()) &&  // (partition_i) >= p_begin && (partition_i) < p_end &&
-               r_buffer->header.state == BufferFrame::STATE::HOT);                            // && !rand_buffer->header.isWB
-          if (!is_cooling_candidate) {
-            r_buffer = &randomBufferFrame();
-            continue;
-          }
+          const bool is_cooling_candidate = (!r_buffer->header.isWB &&
+                                             !(r_buffer->header.latch.isExclusivelyLatched())
+                                             //&& (partition_i) >= p_begin && (partition_i) <= p_end
+                                             && r_buffer->header.state == BufferFrame::STATE::HOT);
+          repickIf(!is_cooling_candidate);
           r_guard.recheck();
           // -------------------------------------------------------------------------------------
           COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
@@ -183,10 +184,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           if (picked_a_child_instead) {
             continue;  // restart the inner loop
           }
-          if (!all_children_evicted) {
-            r_buffer = &randomBufferFrame();
-            continue;  // restart the inner loop
-          }
+          repickIf(!all_children_evicted);
+
           // -------------------------------------------------------------------------------------
           [[maybe_unused]] Time find_parent_begin, find_parent_end;
           COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
@@ -259,6 +258,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
         assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
         ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
         guard.guard.transition<GUARD_STATE::EXCLUSIVE>();  // reclaimBufferFrame manually unlocks it
+        assert(!bf.header.isWB);
         // Reclaim buffer frame
         assert(bf.header.state == BufferFrame::STATE::COOL);
         parent_handler.swip.evict(bf.header.pid);
@@ -295,13 +295,15 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                 if (bf.header.state == BufferFrame::STATE::COOL) {
                   pages_left_to_iterate_partition--;
                   if (bf.isDirty()) {
-                    SharedGuard s_guard(o_guard);
-                    if (!async_write_buffer.add(bf)) {
-                      // AsyncBuffer is full, break and start with phase 3
+                    if (!async_write_buffer.full()) {
+                      ExclusiveGuard s_guard(o_guard);
+                      bf.header.isWB.store(true);
+                      PID new_pid = partition.nextPID();
+                      assert(getPartitionID(new_pid) == p_i);
+                      async_write_buffer.add(bf, bf.header.pid, bf.header.pid);
                       o_guard.guard.transition<GUARD_STATE::OPTIMISTIC>();
                       jumpmu_break;
                     }
-                    o_guard.guard.transition<GUARD_STATE::OPTIMISTIC>();
                   } else {
                     evict_bf(bf, o_guard, bf_itr);
                   }
@@ -324,7 +326,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
         /*
          * Phase 3:
          */
-        // phase_3:
         [[maybe_unused]] Time phase_3_begin, phase_3_end;
         COUNTERS_BLOCK() { phase_3_begin = std::chrono::high_resolution_clock::now(); }
         if (pages_to_iterate_partition > 0) {
@@ -345,13 +346,24 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           [[maybe_unused]] Time async_wb_begin, async_wb_end;
           COUNTERS_BLOCK() { async_wb_begin = std::chrono::high_resolution_clock::now(); }
           async_write_buffer.getWrittenBfs(
-              [&](BufferFrame& written_bf, u64 written_lsn) {
-                assert(written_bf.header.isWB);
-                assert(written_bf.header.lastWrittenLSN.load() < written_lsn);
-                // -------------------------------------------------------------------------------------
-                written_bf.header.lastWrittenLSN.store(written_lsn);
-                written_bf.header.isWB.store(false);
-                PPCounters::myCounters().flushed_pages_counter++;
+              [&](BufferFrame& written_bf, u64 written_lsn, PID out_of_place_pid, PID old_pid) {
+                while (true) {
+                  jumpmuTry()
+                  {
+                    OptimisticGuard o_guard(written_bf.header.latch);
+                    ExclusiveGuard guard(o_guard);
+                    assert(written_bf.header.pid == old_pid);
+                    assert(written_bf.header.isWB);
+                    assert(written_bf.header.lastWrittenLSN.load() < written_lsn);
+                    // -------------------------------------------------------------------------------------
+                    written_bf.header.lastWrittenLSN.store(written_lsn);
+                    written_bf.header.pid.store(out_of_place_pid);
+                    written_bf.header.isWB.store(false);
+                    PPCounters::myCounters().flushed_pages_counter++;
+                    jumpmu_break;
+                  }
+                  jumpmuCatch() {}
+                }
               },
               polled_events);
           COUNTERS_BLOCK() { async_wb_end = std::chrono::high_resolution_clock::now(); }
@@ -422,7 +434,11 @@ void BufferManager::restore()
 // -------------------------------------------------------------------------------------
 u64 BufferManager::consumedPages()
 {
-  return ssd_used_pages_counter - ssd_freed_pages_counter;
+  u64 total_pages = 0;
+  for (u64 p_i = 0; p_i < partitions_count; p_i++) {
+    total_pages += partitions[p_i].allocatedPages();
+  }
+  return total_pages - ssd_freed_pages_counter;
 }
 // -------------------------------------------------------------------------------------
 BufferFrame& BufferManager::getContainingBufferFrame(const u8* ptr)
@@ -451,15 +467,15 @@ BufferFrame& BufferManager::allocatePage()
   // Pick a pratition randomly
   Partition& partition = randomPartition();
   BufferFrame& free_bf = partition.dram_free_list.pop();
-  PID free_pid = ssd_used_pages_counter++;
+  PID free_pid = partition.nextPID();
   assert(free_bf.header.state == BufferFrame::STATE::FREE);
   // -------------------------------------------------------------------------------------
   // Initialize Buffer Frame
   free_bf.header.latch.assertNotExclusivelyLatched();
   free_bf.header.latch.mutex.lock();  // Exclusive lock before changing to HOT
   free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
-  free_bf.header.pid = free_pid;
-  free_bf.header.state = BufferFrame::STATE::HOT;
+  free_bf.header.pid.store(free_pid, std::memory_order_release);
+  free_bf.header.state.store(BufferFrame::STATE::HOT, std::memory_order_release);
   free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
   // -------------------------------------------------------------------------------------
   if (free_pid == dram_pool_size) {
@@ -478,12 +494,18 @@ BufferFrame& BufferManager::allocatePage()
 // ATTENTION: this function unlocks it !!
 void BufferManager::reclaimBufferFrame(BufferFrame& bf)
 {
-  assert(!bf.header.isWB);
-  Partition& partition = getPartition(bf.header.pid);
-  bf.reset();
-  bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
-  bf.header.latch.mutex.unlock();
-  partition.dram_free_list.push(bf);
+  if (bf.header.isWB) {
+    // DO NOTHING ! we have a garbage collector ;-)
+    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
+    bf.header.latch.mutex.unlock();
+    cout << "garbage collector, yeah" << endl;
+  } else {
+    Partition& partition = getPartition(bf.header.pid);
+    bf.reset();
+    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
+    bf.header.latch.mutex.unlock();
+    partition.dram_free_list.push(bf);
+  }
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::reclaimPage(BufferFrame& bf)
@@ -521,7 +543,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
   // -------------------------------------------------------------------------------------
   auto frame_handler = partition.ht.lookup(pid);
   if (!frame_handler) {
-    BufferFrame& bf = partition.dram_free_list.tryPop(g_guard);
+    BufferFrame& bf = randomPartition().dram_free_list.tryPop(g_guard);  // EXP
     IOFrame& io_frame = partition.ht.insert(pid);
     assert(bf.header.state == BufferFrame::STATE::FREE);
     bf.header.latch.assertNotExclusivelyLatched();
@@ -634,7 +656,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     jumpmu::jump();
   }
   ensure(false);
-}
+}  // namespace buffermanager
 // -------------------------------------------------------------------------------------
 // SSD management
 // -------------------------------------------------------------------------------------

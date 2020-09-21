@@ -1,9 +1,11 @@
 #include "AsyncWriteBuffer.hpp"
+
 #include "Exceptions.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
 #include <signal.h>
+
 #include <cstring>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(insistence_limit, 1, "");
@@ -28,25 +30,29 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size) : 
   }
 }
 // -------------------------------------------------------------------------------------
-bool AsyncWriteBuffer::add(BufferFrame& bf)
+bool AsyncWriteBuffer::full()
 {
-  assert(u64(&bf.page) % 512 == 0);
   if (pending_requests >= batch_max_size - 2) {
     return false;
   }
+}
+// -------------------------------------------------------------------------------------
+void AsyncWriteBuffer::add(BufferFrame& bf, PID pid, PID old_pid)
+{
+  assert(!full());
+  assert(u64(&bf.page) % 512 == 0);
   assert(pending_requests <= batch_max_size);
   // -------------------------------------------------------------------------------------
   auto slot = pending_requests++;
   write_buffer_commands[slot].bf = &bf;
-  bf.page.magic_debugging_number = bf.header.pid;
-  bf.header.isWB = true;
+  write_buffer_commands[slot].pid = pid;
+  write_buffer_commands[slot].old_pid = old_pid;
+  bf.page.magic_debugging_number = pid;
   std::memcpy(&write_buffer[slot], bf.page, page_size);
   void* write_buffer_slot_ptr = &write_buffer[slot];
-  io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size * bf.header.pid);
+  io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size * pid);
   iocbs[slot].data = write_buffer_slot_ptr;
   iocbs_ptr[slot] = &iocbs[slot];
-  // -------------------------------------------------------------------------------------
-  return true;
 }
 // -------------------------------------------------------------------------------------
 u64 AsyncWriteBuffer::submit()
@@ -74,7 +80,7 @@ u64 AsyncWriteBuffer::pollEventsSync()
   return 0;
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame&, u64)> callback, u64 n_events)
+void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame&, u64, PID, PID)> callback, u64 n_events)
 {
   for (u64 i = 0; i < n_events; i++) {
     const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
@@ -82,7 +88,7 @@ void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame&, u64)> call
     ensure(events[i].res == page_size);
     explain(events[i].res2 == 0);
     auto written_lsn = write_buffer[slot].LSN;
-    callback(*write_buffer_commands[slot].bf, written_lsn);
+    callback(*write_buffer_commands[slot].bf, written_lsn, write_buffer_commands[slot].pid, write_buffer_commands[slot].old_pid);
   }
 }
 // -------------------------------------------------------------------------------------

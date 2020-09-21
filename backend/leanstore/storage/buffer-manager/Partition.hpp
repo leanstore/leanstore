@@ -70,7 +70,18 @@ struct Partition {
   const u64 free_bfs_limit;
   const u64 cooling_bfs_limit;
   FreeList dram_free_list;
-  Partition(u64 free_bfs_limit, u64 cooling_bfs_limit);
+  // -------------------------------------------------------------------------------------
+  const u64 pid_distance;
+  // SSD Pages
+  atomic<u64> next_pid;
+  static atomic<u64> debug;
+  inline PID nextPID()
+  {
+    return next_pid.fetch_add(pid_distance);
+  }
+  u64 allocatedPages() { return next_pid / pid_distance; }
+  // -------------------------------------------------------------------------------------
+  Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 cooling_bfs_limit);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager

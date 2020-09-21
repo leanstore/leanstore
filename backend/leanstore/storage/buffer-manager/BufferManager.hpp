@@ -45,9 +45,7 @@ class BufferManager
   // Free  Pages
   const u8 safety_pages = 10;               // we reserve these extra pages to prevent segfaults
   u64 dram_pool_size;                       // total number of dram buffer frames
-  atomic<u64> ssd_used_pages_counter = 0;   // used as a hack for pid generation
   atomic<u64> ssd_freed_pages_counter = 0;  // used to track how many pages did we really allocate
-  // -------------------------------------------------------------------------------------
   // -------------------------------------------------------------------------------------
   // For cooling and inflight io
   u64 partitions_count;

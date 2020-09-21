@@ -57,10 +57,15 @@ class Swip
   {
     this->bf = bf;
   }
-  void evict(PID pid) { this->pid = pid | evicted_bit; }
+  void warm()
+  {
+    assert(isCOOL());
+    this->pid = pid & ~cool_bit;
+  }
   // -------------------------------------------------------------------------------------
   void cool() { this->pid = pid | cool_bit; }
-  void warm() { this->pid = pid & ~cool_bit; }
+  // -------------------------------------------------------------------------------------
+  void evict(PID pid) { this->pid = pid | evicted_bit; }
   // -------------------------------------------------------------------------------------
   template <typename T2>
   Swip<T2>& cast()
