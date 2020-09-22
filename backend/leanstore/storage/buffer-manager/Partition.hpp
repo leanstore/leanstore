@@ -6,6 +6,7 @@
 // -------------------------------------------------------------------------------------
 #include <list>
 #include <mutex>
+#include <unordered_set>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -65,6 +66,7 @@ struct Partition {
   // -------------------------------------------------------------------------------------
   std::mutex cooling_mutex;
   std::list<BufferFrame*> cooling_queue;
+  std::unordered_set<BufferFrame*> cooling_bfs;
   // -------------------------------------------------------------------------------------
   atomic<u64> cooling_bfs_counter = 0;
   const u64 free_bfs_limit;
@@ -74,7 +76,6 @@ struct Partition {
   const u64 pid_distance;
   // SSD Pages
   atomic<u64> next_pid;
-  static atomic<u64> debug;
   inline PID nextPID()
   {
     return next_pid.fetch_add(pid_distance);

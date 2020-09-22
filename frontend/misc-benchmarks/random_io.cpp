@@ -113,13 +113,6 @@ int main(int argc, char** argv)
         },
         t_i);
   }
-  threads.emplace_back([&]() {
-    while (true) {
-      const u64 mib = db.getBufferManager().consumedPages() * PAGE_SIZE / 1024 / 1024;
-      cout << "Inserted volume: ( MiB) = (" << mib << ")" << endl;
-      sleep(1);
-    }
-  });
   for (auto& thread : threads) {
     thread.join();
   }

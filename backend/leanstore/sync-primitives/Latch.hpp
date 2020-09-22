@@ -113,46 +113,56 @@ struct Guard {
     }
     switch (state) {
       case GUARD_STATE::UNINITIALIZED: {
-        assert(dest_state == GUARD_STATE::OPTIMISTIC);
-        for (u8 attempt = 0; attempt < 40; attempt++) {
-          version = latch->ref().load();
-          if ((version & LATCH_EXCLUSIVE_BIT) == 0) {
-            state = GUARD_STATE::OPTIMISTIC;
-            return;
-          }
-        }
-        switch (if_contended) {
-          case FALLBACK_METHOD::SPIN: {
-            volatile u32 mask = 1;
-            while ((version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
-              BACKOFF_STRATEGIES()
-              version = latch->ref().load();
-            }
-            state = GUARD_STATE::OPTIMISTIC;
-            faced_contention = true;
-            break;
-          }
-          case FALLBACK_METHOD::JUMP: {
-            jumpmu::jump();
-            break;
-          }
-          case FALLBACK_METHOD::EXCLUSIVE: {
-            latch->mutex.lock();
-            version = latch->ref().load() + LATCH_EXCLUSIVE_BIT;
-            latch->ref().store(version, std::memory_order_release);
-            state = GUARD_STATE::EXCLUSIVE;
-            faced_contention = true;
-            break;
-          }
-          case FALLBACK_METHOD::SHARED: {
-            latch->mutex.lock_shared();
+        if (dest_state == GUARD_STATE::OPTIMISTIC) {
+          for (u8 attempt = 0; attempt < 40; attempt++) {
             version = latch->ref().load();
-            state = GUARD_STATE::SHARED;
-            faced_contention = true;
-            break;
+            if ((version & LATCH_EXCLUSIVE_BIT) == 0) {
+              state = GUARD_STATE::OPTIMISTIC;
+              return;
+            }
           }
-          default:
-            ensure(false);
+          switch (if_contended) {
+            case FALLBACK_METHOD::SPIN: {
+              volatile u32 mask = 1;
+              while ((version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
+                BACKOFF_STRATEGIES()
+                version = latch->ref().load();
+              }
+              state = GUARD_STATE::OPTIMISTIC;
+              faced_contention = true;
+              break;
+            }
+            case FALLBACK_METHOD::JUMP: {
+              jumpmu::jump();
+              break;
+            }
+            case FALLBACK_METHOD::EXCLUSIVE: {
+              latch->mutex.lock();
+              version = latch->ref().load() + LATCH_EXCLUSIVE_BIT;
+              latch->ref().store(version, std::memory_order_release);
+              state = GUARD_STATE::EXCLUSIVE;
+              faced_contention = true;
+              break;
+            }
+            case FALLBACK_METHOD::SHARED: {
+              latch->mutex.lock_shared();
+              version = latch->ref().load();
+              state = GUARD_STATE::SHARED;
+              faced_contention = true;
+              break;
+            }
+            default:
+              ensure(false);
+          }
+        } else if (dest_state == GUARD_STATE::EXCLUSIVE) {
+          latch->mutex.lock();
+          version = latch->ref().load() + LATCH_EXCLUSIVE_BIT;
+          latch->ref().store(version, std::memory_order_release);
+          state = GUARD_STATE::EXCLUSIVE;
+        } else if (dest_state == GUARD_STATE::SHARED) {
+          latch->mutex.lock_shared();
+          version = latch->ref().load();
+          state = GUARD_STATE::SHARED;
         }
         break;
       }

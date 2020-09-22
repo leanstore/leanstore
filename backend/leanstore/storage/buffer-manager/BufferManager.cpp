@@ -133,29 +133,27 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
      * Phase 1: unswizzle pages (put in the cooling stage)
      */
     // -------------------------------------------------------------------------------------
-#define repickIf(cond)               \
-  if (cond) {                        \
-    r_buffer = &randomBufferFrame(); \
-    continue;                        \
-  }
     // -------------------------------------------------------------------------------------
     [[maybe_unused]] Time phase_1_begin, phase_1_end;
     COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
     BufferFrame* volatile r_buffer = &randomBufferFrame();  // Attention: we may set the r_buffer to a child of a bf instead of random
+    volatile u64 failed_attempts = 0;
+#define repickIf(cond)               \
+  if (cond) {                        \
+    r_buffer = &randomBufferFrame(); \
+    failed_attempts++;               \
+    continue;                        \
+  }
     while (true) {
       jumpmuTry()
       {
-        while (phase_1_condition(randomPartition())) {
+        while (phase_1_condition(randomPartition()) && failed_attempts < 10) {
           COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
           OptimisticGuard r_guard(r_buffer->header.latch, true);
           // -------------------------------------------------------------------------------------
-          repickIf(r_buffer->header.isWB);
-          const u64 partition_i = getPartitionID(r_buffer->header.pid);
-          static_cast<void>(partition_i);
-          const bool is_cooling_candidate = (!r_buffer->header.isWB &&
-                                             !(r_buffer->header.latch.isExclusivelyLatched())
-                                             //&& (partition_i) >= p_begin && (partition_i) <= p_end
-                                             && r_buffer->header.state == BufferFrame::STATE::HOT);
+          [[maybe_unused]] const u64 partition_i = getPartitionID(r_buffer->header.pid);
+          const bool is_cooling_candidate = (!r_buffer->header.isWB && !(r_buffer->header.latch.isExclusivelyLatched()) && (partition_i) >= p_begin &&
+                                             (partition_i) <= p_end && r_buffer->header.state == BufferFrame::STATE::HOT);
           repickIf(!is_cooling_candidate);
           r_guard.recheck();
           // -------------------------------------------------------------------------------------
@@ -215,10 +213,22 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             // r_x_guard can only be acquired and release while the partition mutex is locked
             {
               JMUW<std::unique_lock<std::mutex>> g_guard(partition.cooling_mutex);
+              // if (partition.cooling_bfs.count(reinterpret_cast<BufferFrame*>(r_buffer))) {
+              //   jumpmu::jump();
+              // }
               ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
               ExclusiveGuard r_x_guard(r_guard);
               // -------------------------------------------------------------------------------------
+              partition.cooling_bfs.insert(reinterpret_cast<BufferFrame*>(r_buffer));
+              for (auto& it : partition.cooling_queue) {
+                if ((*it).header.pid == pid || &(*it) == r_buffer) {
+                  jumpmu::jump();
+                }
+                //                assert((*it).header.pid != pid);
+              }
+              assert(r_buffer->header.pid == pid);
               assert(r_buffer->header.state == BufferFrame::STATE::HOT);
+              assert(r_buffer->header.isWB == false);
               assert(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
               assert(parent_handler.swip.bf == r_buffer);
               partition.cooling_queue.push_back(reinterpret_cast<BufferFrame*>(r_buffer));
@@ -237,6 +247,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           r_buffer = &randomBufferFrame();
           // -------------------------------------------------------------------------------------
         }
+        failed_attempts = 0;
         jumpmu_break;
       }
       jumpmuCatch() { r_buffer = &randomBufferFrame(); }
@@ -258,14 +269,16 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
         assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
         ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
         guard.guard.transition<GUARD_STATE::EXCLUSIVE>();  // reclaimBufferFrame manually unlocks it
+        // -------------------------------------------------------------------------------------
+        partition.cooling_queue.erase(bf_itr);
+        partition.cooling_bfs_counter--;
+        partition.cooling_bfs.erase(&bf);
+        // -------------------------------------------------------------------------------------
         assert(!bf.header.isWB);
         // Reclaim buffer frame
         assert(bf.header.state == BufferFrame::STATE::COOL);
         parent_handler.swip.evict(bf.header.pid);
         reclaimBufferFrame(bf);
-        // -------------------------------------------------------------------------------------
-        partition.cooling_queue.erase(bf_itr);
-        partition.cooling_bfs_counter--;
         COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; }
       };
       if (phase_2_3_condition(partition)) {
@@ -276,7 +289,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          * Iterate over all partitions, in each partition:
          * iterate over the end of FIFO queue,
          */
-        // phase_2:
         [[maybe_unused]] Time phase_2_begin, phase_2_end;
         COUNTERS_BLOCK() { phase_2_begin = std::chrono::high_resolution_clock::now(); }
         if (pages_to_iterate_partition > 0) {
@@ -291,23 +303,34 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             jumpmuTry()
             {
               OptimisticGuard o_guard(bf.header.latch, true);
+              if (getPartitionID(bf.header.pid) != p_i) {
+                jumpmu::jump();
+              }
               if (!bf.header.isWB) {
                 if (bf.header.state == BufferFrame::STATE::COOL) {
                   pages_left_to_iterate_partition--;
                   if (bf.isDirty()) {
                     if (!async_write_buffer.full()) {
-                      ExclusiveGuard s_guard(o_guard);
-                      bf.header.isWB.store(true);
-                      PID new_pid = partition.nextPID();
-                      assert(getPartitionID(new_pid) == p_i);
-                      async_write_buffer.add(bf, bf.header.pid, bf.header.pid);
-                      o_guard.guard.transition<GUARD_STATE::OPTIMISTIC>();
+                      {
+                        ExclusiveGuard ex_guard(o_guard);
+                        assert(!bf.header.isWB);
+                        bf.header.isWB.store(true);
+                      }
+                      {
+                        SharedGuard s_gurad(o_guard);
+                        PID new_pid = partitions[getPartitionID(bf.header.pid)].nextPID();
+                        assert(getPartitionID(bf.header.pid) == p_i);
+                        assert(getPartitionID(new_pid) == p_i);
+                        async_write_buffer.add(bf, new_pid, bf.header.pid);
+                      }
+                    } else {
                       jumpmu_break;
                     }
                   } else {
                     evict_bf(bf, o_guard, bf_itr);
                   }
                 } else {
+                  partition.cooling_bfs.erase(&bf);
                   partition.cooling_queue.erase(bf_itr);
                   partition.cooling_bfs_counter--;
                 }
@@ -317,6 +340,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             jumpmuCatch()
             {
               partition.cooling_queue.erase(bf_itr);
+              partition.cooling_bfs.erase(&bf);
               partition.cooling_bfs_counter--;
               bf_itr = next_bf_tr;
             }
@@ -350,9 +374,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                 while (true) {
                   jumpmuTry()
                   {
-                    OptimisticGuard o_guard(written_bf.header.latch);
-                    ExclusiveGuard guard(o_guard);
+                    Guard guard(written_bf.header.latch);
+                    guard.transition<GUARD_STATE::EXCLUSIVE, FALLBACK_METHOD::EXCLUSIVE>();
                     assert(written_bf.header.pid == old_pid);
+                    assert(getPartitionID(out_of_place_pid) == getPartitionID(old_pid));
                     assert(written_bf.header.isWB);
                     assert(written_bf.header.lastWrittenLSN.load() < written_lsn);
                     // -------------------------------------------------------------------------------------
@@ -360,6 +385,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                     written_bf.header.pid.store(out_of_place_pid);
                     written_bf.header.isWB.store(false);
                     PPCounters::myCounters().flushed_pages_counter++;
+                    // -------------------------------------------------------------------------------------
+                    guard.transition<GUARD_STATE::OPTIMISTIC>();
                     jumpmu_break;
                   }
                   jumpmuCatch() {}
@@ -379,8 +406,18 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             jumpmuTry()
             {
               OptimisticGuard o_guard(bf.header.latch, true);
+              if (getPartitionID(bf.header.pid) != p_i) {
+                jumpmu::jump();
+              }
+              if (bf.header.isWB) {
+                raise(SIGTRAP);
+              }
               if (bf.header.state == BufferFrame::STATE::COOL && !bf.header.isWB && !bf.isDirty()) {
                 evict_bf(bf, o_guard, bf_itr);
+              } else {
+                partition.cooling_queue.erase(bf_itr);
+                partition.cooling_bfs.erase(&bf);
+                partition.cooling_bfs_counter--;
               }
               // -------------------------------------------------------------------------------------
               bf_itr = next_bf_tr;
@@ -388,6 +425,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             jumpmuCatch()
             {
               partition.cooling_queue.erase(bf_itr);
+              partition.cooling_bfs.erase(&bf);
               partition.cooling_bfs_counter--;
               bf_itr = next_bf_tr;
             }
@@ -474,7 +512,7 @@ BufferFrame& BufferManager::allocatePage()
   free_bf.header.latch.assertNotExclusivelyLatched();
   free_bf.header.latch.mutex.lock();  // Exclusive lock before changing to HOT
   free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
-  free_bf.header.pid.store(free_pid, std::memory_order_release);
+  free_bf.header.pid.store(free_pid);
   free_bf.header.state.store(BufferFrame::STATE::HOT, std::memory_order_release);
   free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
   // -------------------------------------------------------------------------------------
@@ -511,6 +549,7 @@ void BufferManager::reclaimBufferFrame(BufferFrame& bf)
 void BufferManager::reclaimPage(BufferFrame& bf)
 {
   // TODO: reclaim bf pid
+  Partition& partition = getPartition(bf.header.pid);
   ssd_freed_pages_counter++;
   // -------------------------------------------------------------------------------------
   reclaimBufferFrame(bf);
@@ -543,7 +582,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
   // -------------------------------------------------------------------------------------
   auto frame_handler = partition.ht.lookup(pid);
   if (!frame_handler) {
-    BufferFrame& bf = randomPartition().dram_free_list.tryPop(g_guard);  // EXP
+    BufferFrame& bf = partition.dram_free_list.tryPop(g_guard);  // EXP
     IOFrame& io_frame = partition.ht.insert(pid);
     assert(bf.header.state == BufferFrame::STATE::FREE);
     bf.header.latch.assertNotExclusivelyLatched();
