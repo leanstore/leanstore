@@ -63,10 +63,7 @@ bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> pa
   }
 }
 // -------------------------------------------------------------------------------------
-void BTree::rangeScanAsc(u8* start_key,
-                         u16 key_length,
-                         std::function<bool(u8* payload, u16 payload_length, std::function<string()>&)> callback,
-                         function<void()> undo)
+void BTree::rangeScanAsc(u8* start_key, u16 key_length, std::function<bool(u8* key, u8* payload, u16 payload_length)> callback, function<void()> undo)
 {
   volatile u32 mask = 1;
   u8* volatile next_key = start_key;
@@ -81,17 +78,21 @@ void BTree::rangeScanAsc(u8* start_key,
         SharedPageGuard s_leaf(std::move(leaf));
         // -------------------------------------------------------------------------------------
         s16 cur = s_leaf->lowerBound<false>(start_key, key_length);
+        // -------------------------------------------------------------------------------------
+        u16 max_key_length = 0, prefix_length = s_leaf->prefix_length;
+        for (u16 t_i = 0; t_i < s_leaf->count; t_i++) {
+          if (s_leaf->getFullKeyLen(t_i) > max_key_length) {
+            max_key_length = s_leaf->getFullKeyLen(t_i);
+          }
+        }
+        u8 key[max_key_length];
+        s_leaf->copyPrefix(key);
+        // -------------------------------------------------------------------------------------
         while (cur < s_leaf->count) {
           u16 payload_length = s_leaf->getPayloadLength(cur);
           u8* payload = s_leaf->getPayload(cur);
-          std::function<string()> key_extract_fn = [&]() {
-            ensure(false);
-            u16 key_length = s_leaf->getFullKeyLen(cur);
-            string key(key_length, '0');
-            s_leaf->copyFullKey(cur, reinterpret_cast<u8*>(key.data()));
-            return key;
-          };
-          if (!callback(payload, payload_length, key_extract_fn)) {
+          s_leaf->copyKeyWithoutPrefix(cur, key + prefix_length);
+          if (!callback(key, payload, payload_length)) {
             if (!is_heap_freed) {
               delete[] next_key;
               is_heap_freed = true;
@@ -198,13 +199,13 @@ void BTree::rangeScanDesc(u8* start_key,
   }
 }
 // -------------------------------------------------------------------------------------
-bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
+bool BTree::prefixMaxOne(u8* start_key, u16 start_key_length, function<void(const u8*, const u8*, u16)> payload_callback)
 {
   volatile u32 mask = 1;
-  u8 one_step_further_key[key_length];
-  std::memcpy(one_step_further_key, key, key_length);
-  if (++one_step_further_key[key_length - 1] == 0) {
-    if (++one_step_further_key[key_length - 2] == 0) {
+  u8 one_step_further_key[start_key_length];
+  std::memcpy(one_step_further_key, start_key, start_key_length);
+  if (++one_step_further_key[start_key_length - 1] == 0) {
+    if (++one_step_further_key[start_key_length - 2] == 0) {
       ensure(false);
       // overflow is naively implemented
     }
@@ -213,13 +214,17 @@ bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)>
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> leaf;
-      findLeafForRead<OP_TYPE::POINT_READ>(leaf, one_step_further_key, key_length);
-      const s16 cur = leaf->lowerBound<false>(one_step_further_key, key_length);
+      findLeafForRead<OP_TYPE::POINT_READ>(leaf, one_step_further_key, start_key_length);
+      const s16 cur = leaf->lowerBound<false>(one_step_further_key, start_key_length);
       if (cur > 0) {
         const s16 pos = cur - 1;
         const u16 payload_length = leaf->getPayloadLength(pos);
         const u8* payload = leaf->getPayload(pos);
-        payload_callback(payload, payload_length);
+        const u16 key_length = leaf->getFullKeyLen(pos);
+        leaf.recheck();
+        u8 key[key_length];
+        leaf->copyFullKey(pos, key);
+        payload_callback(key, payload, payload_length);
         leaf.recheck_done();
         jumpmu_return true;
       } else {
@@ -231,13 +236,17 @@ bool BTree::prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, u16)>
           std::memcpy(lower_fence_key, leaf->getLowerFenceKey(), lower_fence_key_length);
           HybridPageGuard<BTreeNode> prev;
           findLeafForRead<OP_TYPE::POINT_READ>(prev, lower_fence_key, lower_fence_key_length);
-          leaf.recheck_done();
+          leaf.recheck();
           // -------------------------------------------------------------------------------------
           ensure(prev->count >= 1);
           const s16 pos = prev->count - 1;
           const u16 payload_length = prev->getPayloadLength(pos);
           const u8* payload = prev->getPayload(pos);
-          payload_callback(payload, payload_length);
+          const u16 key_length = leaf->getFullKeyLen(pos);
+          leaf.recheck();
+          u8 key[key_length];
+          leaf->copyFullKey(pos, key);
+          payload_callback(key, payload, payload_length);
           prev.recheck_done();
           jumpmu_return true;
         }

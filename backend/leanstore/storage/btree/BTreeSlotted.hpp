@@ -122,6 +122,9 @@ struct BTreeNode : public BTreeNodeHeader {
     assert(is_leaf);
     return ptr() + slot[slotId].offset + slot[slotId].len + sizeof(ValueType);
   }
+  // -------------------------------------------------------------------------------------
+  inline void copyPrefix(u8* out) { memcpy(out, getLowerFenceKey(), prefix_length); }
+  inline void copyKeyWithoutPrefix(u16 slotId, u8* out_after_prefix) { memcpy(out_after_prefix, getKey(slotId), getKeyLen(slotId)); }
   inline void copyFullKey(u16 slotId, u8* out)
   {
     memcpy(out, getLowerFenceKey(), prefix_length);

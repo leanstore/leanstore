@@ -4,7 +4,6 @@ struct warehouse_t {
     static constexpr int id = 0;
     Integer w_id;
   };
-  Integer w_id;
   Varchar<10> w_name;
   Varchar<20> w_street_1;
   Varchar<20> w_street_2;
@@ -28,7 +27,7 @@ struct warehouse_t {
     pos += unfold(in + pos, record.w_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(w_id); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::w_id); };
 };
 
 struct district_t {
@@ -38,8 +37,6 @@ struct district_t {
     Integer d_w_id;
     Integer d_id;
   };
-  Integer d_w_id;
-  Integer d_id;
   Varchar<10> d_name;
   Varchar<20> d_street_1;
   Varchar<20> d_street_2;
@@ -66,7 +63,7 @@ struct district_t {
     pos += unfold(in + pos, record.d_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(d_w_id) + sizeof(d_id); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::d_w_id) + sizeof(Key::d_id); };
 };
 
 struct customer_t {
@@ -77,9 +74,6 @@ struct customer_t {
     Integer c_d_id;
     Integer c_id;
   };
-  Integer c_w_id;
-  Integer c_d_id;
-  Integer c_id;
   Varchar<16> c_first;
   Varchar<2> c_middle;
   Varchar<16> c_last;
@@ -117,7 +111,7 @@ struct customer_t {
     pos += unfold(in + pos, record.c_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(c_w_id) + sizeof(c_d_id) + sizeof(c_id); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::c_w_id) + sizeof(Key::c_d_id) + sizeof(Key::c_id); };
 };
 
 struct customer_wdl_t {
@@ -129,10 +123,6 @@ struct customer_wdl_t {
     Varchar<16> c_last;
     Varchar<16> c_first;
   };
-  Integer c_w_id;
-  Integer c_d_id;
-  Varchar<16> c_last;
-  Varchar<16> c_first;
   Integer c_id;
 
   template <class T>
@@ -155,7 +145,7 @@ struct customer_wdl_t {
     pos += unfold(in + pos, record.c_first);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(c_w_id) + sizeof(c_d_id) + sizeof(c_last) + sizeof(c_first); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::c_w_id) + sizeof(Key::c_d_id) + sizeof(Key::c_last) + sizeof(Key::c_first); };
 };
 
 struct history_t {
@@ -165,8 +155,6 @@ struct history_t {
     Integer thread_id;
     Integer h_pk;
   };
-  Integer thread_id;
-  Integer h_pk;
   Integer h_c_id;
   Integer h_c_d_id;
   Integer h_c_w_id;
@@ -191,7 +179,7 @@ struct history_t {
     pos += unfold(in + pos, record.h_pk);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(thread_id) + sizeof(h_pk); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::thread_id) + sizeof(Key::h_pk); };
 };
 
 struct neworder_t {
@@ -202,8 +190,6 @@ struct neworder_t {
     Integer no_d_id;
     Integer no_o_id;
   };
-  Integer no_w_id;
-  Integer no_d_id;
   Integer no_o_id;
 
   template <class T>
@@ -224,7 +210,7 @@ struct neworder_t {
     pos += unfold(in + pos, record.no_o_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(no_w_id) + sizeof(no_d_id) + sizeof(no_o_id); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::no_w_id) + sizeof(Key::no_d_id) + sizeof(Key::no_o_id); };
 };
 
 struct order_t {
@@ -235,9 +221,6 @@ struct order_t {
     Integer o_d_id;
     Integer o_id;
   };
-  Integer o_w_id;
-  Integer o_d_id;
-  Integer o_id;
   Integer o_c_id;
   Timestamp o_entry_d;
   Integer o_carrier_id;
@@ -262,7 +245,7 @@ struct order_t {
     pos += unfold(in + pos, record.o_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(o_w_id) + sizeof(o_d_id) + sizeof(o_id); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::o_w_id) + sizeof(Key::o_d_id) + sizeof(Key::o_id); };
 };
 
 struct order_wdc_t {
@@ -274,10 +257,6 @@ struct order_wdc_t {
     Integer o_c_id;
     Integer o_id;
   };
-  Integer o_w_id;
-  Integer o_d_id;
-  Integer o_c_id;
-  Integer o_id;
 
   template <class T>
   static unsigned foldRecord(uint8_t* out, const T& record)
@@ -299,7 +278,7 @@ struct order_wdc_t {
     pos += unfold(in + pos, record.o_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(o_w_id) + sizeof(o_d_id) + sizeof(o_c_id) + sizeof(o_id); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::o_w_id) + sizeof(Key::o_d_id) + sizeof(Key::o_c_id) + sizeof(Key::o_id); };
 };
 
 struct orderline_t {
@@ -311,10 +290,6 @@ struct orderline_t {
     Integer ol_o_id;
     Integer ol_number;
   };
-  Integer ol_w_id;
-  Integer ol_d_id;
-  Integer ol_o_id;
-  Integer ol_number;
   Integer ol_i_id;
   Integer ol_supply_w_id;
   Timestamp ol_delivery_d;
@@ -342,7 +317,7 @@ struct orderline_t {
     pos += unfold(in + pos, record.ol_number);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(ol_w_id) + sizeof(ol_d_id) + sizeof(ol_o_id) + sizeof(ol_number); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::ol_w_id) + sizeof(Key::ol_d_id) + sizeof(Key::ol_o_id) + sizeof(Key::ol_number); };
 };
 
 struct item_t {
@@ -351,7 +326,6 @@ struct item_t {
     static constexpr int id = 9;
     Integer i_id;
   };
-  Integer i_id;
   Integer i_im_id;
   Varchar<24> i_name;
   Numeric i_price;
@@ -371,7 +345,7 @@ struct item_t {
     pos += unfold(in + pos, record.i_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(i_id); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::i_id); };
 };
 
 struct stock_t {
@@ -381,8 +355,6 @@ struct stock_t {
     Integer s_w_id;
     Integer s_i_id;
   };
-  Integer s_w_id;
-  Integer s_i_id;
   Numeric s_quantity;
   Varchar<24> s_dist_01;
   Varchar<24> s_dist_02;
@@ -415,5 +387,5 @@ struct stock_t {
     pos += unfold(in + pos, record.s_i_id);
     return pos;
   }
-  static constexpr unsigned maxFoldLength() { return 0 + sizeof(s_w_id) + sizeof(s_i_id); };
+  static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::s_w_id) + sizeof(Key::s_i_id); };
 };

@@ -397,8 +397,8 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
     Integer o_id = minInteger;
     neworder.scan(
         {w_id, d_id, minInteger},
-        [&](const neworder_t& rec) {
-          if (rec.no_w_id == w_id && rec.no_d_id == d_id) {
+        [&](const neworder_t::Key& key, const neworder_t& rec) {
+          if (key.no_w_id == w_id && key.no_d_id == d_id) {
             o_id = rec.no_o_id;
           }
           return false;
@@ -420,8 +420,8 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
     bool is_safe_to_continue = false;
     order.scan(
         {w_id, d_id, o_id},
-        [&](const order_t& rec) {
-          if (rec.o_w_id == w_id && rec.o_d_id == d_id && rec.o_id == o_id) {
+        [&](const order_t::Key& key, const order_t& rec) {
+          if (key.o_w_id == w_id && key.o_d_id == d_id && key.o_id == o_id) {
             is_safe_to_continue = true;
             ol_cnt = rec.o_ol_cnt;
             c_id = rec.o_c_id;
@@ -438,8 +438,8 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
     // First check if all orderlines have been inserted, a hack because of the missing transaction and concurrency control
     orderline.scan(
         {w_id, d_id, o_id, ol_cnt},
-        [&](const orderline_t& rec) {
-          if (rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id == o_id && rec.ol_number == ol_cnt) {
+        [&](const orderline_t::Key& key, const orderline_t& rec) {
+          if (key.ol_w_id == w_id && key.ol_d_id == d_id && key.ol_o_id == o_id && key.ol_number == ol_cnt) {
             is_safe_to_continue = true;
           } else {
             is_safe_to_continue = false;
@@ -493,8 +493,8 @@ s_i_id=ol_i_id AND s_quantity < :threshold;
   Integer min_ol_o_id = o_id - 20;
   orderline.scan(
       {w_id, d_id, min_ol_o_id, minInteger},
-      [&](const orderline_t& rec) {
-        if (rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id < o_id && rec.ol_o_id >= min_ol_o_id) {
+      [&](const orderline_t::Key& key, const orderline_t& rec) {
+        if (key.ol_w_id == w_id && key.ol_d_id == d_id && key.ol_o_id < o_id && key.ol_o_id >= min_ol_o_id) {
           items.push_back(rec.ol_i_id);
           return true;
         }
@@ -532,18 +532,18 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
   // -------------------------------------------------------------------------------------
   // latest order id desc
   if (FLAGS_order_wdc_index) {
-    order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) { o_id = rec.o_id; });
+    order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t::Key& key, const order_wdc_t&) { o_id = key.o_id; });
   } else {
     order.scanDesc(
         {w_id, d_id, std::numeric_limits<Integer>::max()},
-        [&](const order_t& rec) {
-          if (rec.o_w_id == w_id && rec.o_d_id == d_id && rec.o_c_id == c_id) {
-            o_id = rec.o_id;
+        [&](const order_t::Key& key, const order_t& rec) {
+          if (key.o_w_id == w_id && key.o_d_id == d_id && rec.o_c_id == c_id) {
+            o_id = key.o_id;
             return false;
           }
           return true;
         },
-        [&]() { });
+        [&]() {});
     ensure(o_id > -1);
   }
   // -------------------------------------------------------------------------------------
@@ -563,8 +563,8 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
     // AAA: expensive
     orderline.scan(
         {w_id, d_id, o_id, minInteger},
-        [&](const orderline_t& rec) {
-          if (rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id == o_id) {
+        [&](const orderline_t::Key& key, const orderline_t& rec) {
+          if (key.ol_w_id == w_id && key.ol_d_id == d_id && key.ol_o_id == o_id) {
             ol_i_id = rec.ol_i_id;
             ol_supply_w_id = rec.ol_supply_w_id;
             ol_delivery_d = rec.ol_delivery_d;
@@ -585,8 +585,8 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
   vector<Integer> ids;
   customerwdl.scan(
       {w_id, d_id, c_last, {}},
-      [&](const customer_wdl_t& rec) {
-        if (rec.c_w_id == w_id && rec.c_d_id == d_id && rec.c_last == c_last) {
+      [&](const customer_wdl_t::Key& key, const customer_wdl_t& rec) {
+        if (key.c_w_id == w_id && key.c_d_id == d_id && key.c_last == c_last) {
           ids.push_back(rec.c_id);
           return true;
         }
@@ -604,13 +604,13 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
   Integer o_id = -1;
   // latest order id desc
   if (FLAGS_order_wdc_index) {
-    order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t& rec) { o_id = rec.o_id; });
+    order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t::Key& key, const order_wdc_t&) { o_id = key.o_id; });
   } else {
     order.scanDesc(
         {w_id, d_id, std::numeric_limits<Integer>::max()},
-        [&](const order_t& rec) {
-          if (rec.o_w_id == w_id && rec.o_d_id == d_id && rec.o_c_id == c_id) {
-            o_id = rec.o_id;
+        [&](const order_t::Key& key, const order_t& rec) {
+          if (key.o_w_id == w_id && key.o_d_id == d_id && rec.o_c_id == c_id) {
+            o_id = key.o_id;
             return false;
           }
           return true;
@@ -622,8 +622,8 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
   Timestamp ol_delivery_d;
   orderline.scan(
       {w_id, d_id, o_id, minInteger},
-      [&](const orderline_t& rec) {
-        if (rec.ol_w_id == w_id && rec.ol_d_id == d_id && rec.ol_o_id == o_id) {
+      [&](const orderline_t::Key& key, const orderline_t& rec) {
+        if (key.ol_w_id == w_id && key.ol_d_id == d_id && key.ol_o_id == o_id) {
           ol_delivery_d = rec.ol_delivery_d;
           return true;
         }
@@ -773,7 +773,7 @@ void paymentByName(Integer w_id,
   vector<Integer> ids;
   customerwdl.scan(
       {c_w_id, c_d_id, c_last, {}},
-      [&](const customer_wdl_t& rec) {
+      [&](const customer_wdl_t::Key& key, const customer_wdl_t& rec) {
         if (rec.c_w_id == c_w_id && rec.c_d_id == c_d_id && rec.c_last == c_last) {
           ids.push_back(rec.c_id);
           return true;

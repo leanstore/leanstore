@@ -20,9 +20,7 @@ struct LeanStoreAdapter {
   }
   LeanStoreAdapter(LeanStore& db, string name) : btree(&db.registerVSBTree(name)), name(name) {}
   // -------------------------------------------------------------------------------------
-  void printTreeHeight() {
-    cout << name << " height = " << btree->height << endl;
-  }
+  void printTreeHeight() { cout << name << " height = " << btree->height << endl; }
   // -------------------------------------------------------------------------------------
   template <class T>
   static std::string getStringKey(const T& record)
@@ -38,11 +36,12 @@ struct LeanStoreAdapter {
   void prefixMax1(const typename Record::Key& key, const u64 truncate_from_end, const Fn& fn)
   {
     string key_str = getStringKey(key);
-    const bool found = btree->prefixMaxOne((u8*)key_str.data(), key_str.length() - truncate_from_end, [&](const u8* payload, u16 payload_length) {
+    const bool found = btree->prefixMaxOne((u8*)key_str.data(), key_str.length() - truncate_from_end, [&](const u8 *key, const u8* payload, u16 payload_length) {
       static_cast<void>(payload_length);
+      const typename Record::Key& typed_key = *reinterpret_cast<const typename Record::key*>(key);
       const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
       assert(payload_length == sizeof(Record));
-      fn(typed_payload);
+      fn(typed_key, typed_payload);
     });
     if (!found) {
       ensure(false);
@@ -63,9 +62,9 @@ struct LeanStoreAdapter {
         undo);
   }
   // -------------------------------------------------------------------------------------
-  void insert(const Record& record)
+  void insert(const Record::Key& rec_key, const Record& record)
   {
-    string key = getStringKey(record);
+    string key = getStringKey(key);
     btree->insert((u8*)key.data(), key.length(), sizeof(Record), (u8*)(&record));
   }
 
@@ -113,10 +112,11 @@ struct LeanStoreAdapter {
     string key_str = getStringKey(key);
     btree->rangeScanAsc(
         reinterpret_cast<u8*>(key_str.data()), u16(key_str.length()),
-        [&](u8* payload, u16 payload_length, std::function<string()>&) {
+        [&](u8* key, u8* payload, u16 payload_length) {
           static_cast<void>(payload_length);
+          const typename Record::Key& typed_key = *reinterpret_cast<typename Record::Key*>(key);
           const Record& typed_payload = *reinterpret_cast<Record*>(payload);
-          return fn(typed_payload);
+          return fn(typed_key, typed_payload);
         },
         undo);
   }
