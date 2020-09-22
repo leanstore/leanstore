@@ -8,6 +8,7 @@
 #include <list>
 #include <mutex>
 #include <unordered_set>
+#include <vector>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -73,16 +74,35 @@ struct Partition {
   const u64 cooling_bfs_limit;
   FreeList dram_free_list;
   // -------------------------------------------------------------------------------------
-  const u64 pid_distance;
   // SSD Pages
+  const u64 pid_distance;
+  std::mutex pids_mutex;  // protect free pids vector
+  std::vector<PID> freed_pids;
   atomic<u64> next_pid;
   inline PID nextPID()
   {
+    {
+      std::unique_lock<std::mutex> g_guard(pids_mutex);
+      if (freed_pids.size()) {
+        const u64 pid = freed_pids.back();
+        freed_pids.pop_back();
+        return pid;
+      }
+    }
     const u64 pid = next_pid.fetch_add(pid_distance);
     ensure((pid * PAGE_SIZE / 1024 / 1024 / 1024) <= FLAGS_ssd_gib);
     return pid;
   }
+  void freePage(PID pid) {
+    std::unique_lock<std::mutex> g_guard(pids_mutex);
+    freed_pids.push_back(pid);
+  }
   u64 allocatedPages() { return next_pid / pid_distance; }
+  u64 freedPages()
+  {
+    std::unique_lock<std::mutex> g_guard(pids_mutex);
+    return freed_pids.size();
+  }
   // -------------------------------------------------------------------------------------
   Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 cooling_bfs_limit);
 };

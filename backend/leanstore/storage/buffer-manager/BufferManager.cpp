@@ -368,6 +368,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                     assert(written_bf.header.isWB);
                     assert(written_bf.header.lastWrittenLSN < written_lsn);
                     // -------------------------------------------------------------------------------------
+                    partition.freePage(written_bf.header.pid);
                     written_bf.header.lastWrittenLSN = written_lsn;
                     written_bf.header.pid = out_of_place_pid;
                     written_bf.header.isWB = false;
@@ -451,11 +452,12 @@ void BufferManager::restore()
 // -------------------------------------------------------------------------------------
 u64 BufferManager::consumedPages()
 {
-  u64 total_pages = 0;
+  u64 total_used_pages = 0, total_freed_pages = 0;
   for (u64 p_i = 0; p_i < partitions_count; p_i++) {
-    total_pages += partitions[p_i].allocatedPages();
+    total_freed_pages += partitions[p_i].freedPages();
+    total_used_pages += partitions[p_i].allocatedPages();
   }
-  return total_pages - ssd_freed_pages_counter;
+  return total_used_pages - total_freed_pages;
 }
 // -------------------------------------------------------------------------------------
 BufferFrame& BufferManager::getContainingBufferFrame(const u8* ptr)
@@ -527,8 +529,8 @@ void BufferManager::reclaimBufferFrame(BufferFrame& bf)
 // -------------------------------------------------------------------------------------
 void BufferManager::reclaimPage(BufferFrame& bf)
 {
-  // TODO: reclaim bf pid
-  ssd_freed_pages_counter++;
+  Partition& partition = getPartition(bf.header.pid);
+  partition.freePage(bf.header.pid);
   // -------------------------------------------------------------------------------------
   reclaimBufferFrame(bf);
 }
