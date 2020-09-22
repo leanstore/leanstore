@@ -19,7 +19,6 @@ class AsyncWriteBuffer
   struct WriteCommand {
     BufferFrame* bf;
     PID pid;
-    PID old_pid; //debug
   };
   io_context_t aio_context;
   int fd;
@@ -38,10 +37,10 @@ class AsyncWriteBuffer
   AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size);
   // Caller takes care of sync
   bool full();
-  void add(BufferFrame& bf, PID pid, PID old_pid);
+  void add(BufferFrame& bf, PID pid);
   u64 submit();
   u64 pollEventsSync();
-  void getWrittenBfs(std::function<void(BufferFrame&, u64, PID, PID)> callback, u64 n_events);
+  void getWrittenBfs(std::function<void(BufferFrame&, u64, PID)> callback, u64 n_events);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager

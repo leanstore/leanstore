@@ -4,7 +4,8 @@
 // -------------------------------------------------------------------------------------
 DEFINE_string(free_pages_list_path, "leanstore_free_pages", "");
 // -------------------------------------------------------------------------------------
-DEFINE_double(dram_gib, 1, "");  // 1 GiB
+DEFINE_double(dram_gib, 1, "");
+DEFINE_double(ssd_gib, 1, "");
 DEFINE_uint32(cool_pct, 10, "Start cooling pages when <= x% are free");
 DEFINE_uint32(free_pct, 1, "pct");
 DEFINE_uint32(partition_bits, 6, "bits per partition");
@@ -55,3 +56,5 @@ DEFINE_bool(bulk_insert, false, "");
 DEFINE_int64(trace_dt_id, -1, "");
 DEFINE_int64(trace_trigger_probability, 100, "");
 DEFINE_string(tag,"","Unique identifier for this, will be appended to each line csv");
+// -------------------------------------------------------------------------------------
+DEFINE_bool(out_of_place, false, "");

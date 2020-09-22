@@ -52,7 +52,6 @@ bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> pa
         jumpmu_return true;
       } else {
         leaf.recheck_done();
-        raise(SIGTRAP);
         jumpmu_return false;
       }
     }

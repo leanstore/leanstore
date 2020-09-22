@@ -2,6 +2,7 @@
 #include "BufferFrame.hpp"
 #include "FreeList.hpp"
 #include "Units.hpp"
+#include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <list>
@@ -66,7 +67,6 @@ struct Partition {
   // -------------------------------------------------------------------------------------
   std::mutex cooling_mutex;
   std::list<BufferFrame*> cooling_queue;
-  std::unordered_set<BufferFrame*> cooling_bfs;
   // -------------------------------------------------------------------------------------
   atomic<u64> cooling_bfs_counter = 0;
   const u64 free_bfs_limit;
@@ -78,7 +78,9 @@ struct Partition {
   atomic<u64> next_pid;
   inline PID nextPID()
   {
-    return next_pid.fetch_add(pid_distance);
+    const u64 pid = next_pid.fetch_add(pid_distance);
+    ensure((pid * PAGE_SIZE / 1024 / 1024 / 1024) <= FLAGS_ssd_gib);
+    return pid;
   }
   u64 allocatedPages() { return next_pid / pid_distance; }
   // -------------------------------------------------------------------------------------

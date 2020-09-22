@@ -128,6 +128,7 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_pp_threads", [&](ostream& out) { out << FLAGS_pp_threads; });
   config_entries.emplace_back("c_partition_bits", [&](ostream& out) { out << FLAGS_partition_bits; });
   config_entries.emplace_back("c_dram_gib", [&](ostream& out) { out << FLAGS_dram_gib; });
+  config_entries.emplace_back("c_ssd_gib", [&](ostream& out) { out << FLAGS_ssd_gib; });
   config_entries.emplace_back("c_target_gib", [&](ostream& out) { out << FLAGS_target_gib; });
   config_entries.emplace_back("c_run_for_seconds", [&](ostream& out) { out << FLAGS_run_for_seconds; });
   config_entries.emplace_back("c_bulk_insert", [&](ostream& out) { out << FLAGS_bulk_insert; });
