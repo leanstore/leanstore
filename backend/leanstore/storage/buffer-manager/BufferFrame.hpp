@@ -29,10 +29,10 @@ struct BufferFrame {
       }
     };
     // TODO: for logging
-    atomic<u64> lastWrittenLSN = 0;
-    atomic<STATE> state = STATE::FREE;  // INIT:
-    atomic<bool> isWB = false;
-    atomic<PID> pid = 9999;  // INIT:
+    u64 lastWrittenLSN = 0;
+    STATE state = STATE::FREE;  // INIT:
+    bool isWB = false;
+    PID pid = 9999;  // INIT:
     HybridLatch latch = 0;   // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;

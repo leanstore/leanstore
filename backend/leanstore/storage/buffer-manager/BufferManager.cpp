@@ -302,7 +302,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                       {
                         ExclusiveGuard ex_guard(o_guard);
                         assert(!bf.header.isWB);
-                        bf.header.isWB.store(true);
+                        bf.header.isWB = true;
                       }
                       {
                         SharedGuard s_gurad(o_guard);
@@ -366,11 +366,11 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                     Guard guard(written_bf.header.latch);
                     guard.transition<GUARD_STATE::EXCLUSIVE, FALLBACK_METHOD::EXCLUSIVE>();
                     assert(written_bf.header.isWB);
-                    assert(written_bf.header.lastWrittenLSN.load() < written_lsn);
+                    assert(written_bf.header.lastWrittenLSN < written_lsn);
                     // -------------------------------------------------------------------------------------
-                    written_bf.header.lastWrittenLSN.store(written_lsn);
-                    written_bf.header.pid.store(out_of_place_pid);
-                    written_bf.header.isWB.store(false);
+                    written_bf.header.lastWrittenLSN = written_lsn;
+                    written_bf.header.pid = out_of_place_pid;
+                    written_bf.header.isWB = false;
                     PPCounters::myCounters().flushed_pages_counter++;
                     // -------------------------------------------------------------------------------------
                     guard.transition<GUARD_STATE::OPTIMISTIC>();
@@ -491,8 +491,8 @@ BufferFrame& BufferManager::allocatePage()
   free_bf.header.latch.assertNotExclusivelyLatched();
   free_bf.header.latch.mutex.lock();  // Exclusive lock before changing to HOT
   free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
-  free_bf.header.pid.store(free_pid);
-  free_bf.header.state.store(BufferFrame::STATE::HOT, std::memory_order_release);
+  free_bf.header.pid = free_pid;
+  free_bf.header.state = BufferFrame::STATE::HOT;
   free_bf.header.lastWrittenLSN = free_bf.page.LSN = 0;
   // -------------------------------------------------------------------------------------
   if (free_pid == dram_pool_size) {
