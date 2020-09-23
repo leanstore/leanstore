@@ -5,7 +5,7 @@
 DEFINE_string(free_pages_list_path, "leanstore_free_pages", "");
 // -------------------------------------------------------------------------------------
 DEFINE_double(dram_gib, 1, "");
-DEFINE_double(ssd_gib, 1, "");
+DEFINE_double(ssd_gib, 1700, "");
 DEFINE_uint32(cool_pct, 10, "Start cooling pages when <= x% are free");
 DEFINE_uint32(free_pct, 1, "pct");
 DEFINE_uint32(partition_bits, 6, "bits per partition");
