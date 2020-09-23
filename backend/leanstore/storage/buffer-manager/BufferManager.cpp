@@ -368,9 +368,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                     // -------------------------------------------------------------------------------------
                     if (FLAGS_out_of_place) {
                       partition.freePage(written_bf.header.pid);
+                      written_bf.header.pid = out_of_place_pid;
                     }
                     written_bf.header.lastWrittenGSN = written_lsn;
-                    written_bf.header.pid = out_of_place_pid;
                     written_bf.header.isWB = false;
                     PPCounters::myCounters().flushed_pages_counter++;
                     // -------------------------------------------------------------------------------------
