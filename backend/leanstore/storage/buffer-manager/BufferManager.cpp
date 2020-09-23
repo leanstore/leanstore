@@ -152,10 +152,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           OptimisticGuard r_guard(r_buffer->header.latch, true);
           // -------------------------------------------------------------------------------------
           [[maybe_unused]] const u64 partition_i = getPartitionID(r_buffer->header.pid);
-          const bool is_cooling_candidate = (!r_buffer->header.isWB &&
-                                             !(r_buffer->header.latch.isExclusivelyLatched())
-                                             // && (partition_i) >= p_begin && (partition_i) <= p_end
-                                             && r_buffer->header.state == BufferFrame::STATE::HOT);
+          const bool is_cooling_candidate = (!r_buffer->header.isWB && !(r_buffer->header.latch.isExclusivelyLatched()) && (partition_i) >= p_begin &&
+                                             (partition_i) <= p_end && r_buffer->header.state == BufferFrame::STATE::HOT);
           repickIf(!is_cooling_candidate);
           r_guard.recheck();
           // -------------------------------------------------------------------------------------
@@ -295,7 +293,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             {
               OptimisticGuard o_guard(bf.header.latch, true);
               if (!bf.header.isWB) {
-                if (bf.header.state == BufferFrame::STATE::COOL) {
+                if (bf.header.state == BufferFrame::STATE::COOL && getPartitionID(bf.header.pid) == p_i) {
                   pages_left_to_iterate_partition--;
                   if (bf.isDirty()) {
                     if (!async_write_buffer.full()) {
@@ -368,7 +366,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                     assert(written_bf.header.isWB);
                     assert(written_bf.header.lastWrittenLSN < written_lsn);
                     // -------------------------------------------------------------------------------------
-                    partition.freePage(written_bf.header.pid);
+                    if (FLAGS_out_of_place) {
+                      partition.freePage(written_bf.header.pid);
+                    }
                     written_bf.header.lastWrittenLSN = written_lsn;
                     written_bf.header.pid = out_of_place_pid;
                     written_bf.header.isWB = false;

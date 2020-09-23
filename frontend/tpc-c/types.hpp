@@ -79,22 +79,22 @@ unsigned fold(uint8_t* writer, const Varchar<len>& x)
   return x.length + 1;
 }
 
-unsigned unfold(uint8_t* input, Integer& x)
+unsigned unfold(const uint8_t* input, Integer& x)
 {
-  x = __builtin_bswap32(*reinterpret_cast<uint32_t*>(input)) ^ (1ul<<31);
+  x = __builtin_bswap32(*reinterpret_cast<const uint32_t*>(input)) ^ (1ul<<31);
   return sizeof(x);
 }
 
-unsigned unfold(uint8_t* input, Timestamp& x)
+unsigned unfold(const uint8_t* input, Timestamp& x)
 {
-  x = __builtin_bswap64(*reinterpret_cast<uint64_t*>(input)) ^ (1ul<<63);
+  x = __builtin_bswap64(*reinterpret_cast<const uint64_t*>(input)) ^ (1ul<<63);
   return sizeof(x);
 }
 
 template<int len>
-unsigned unfold(uint8_t* input, Varchar<len>& x)
+unsigned unfold(const uint8_t* input, Varchar<len>& x)
 {
-  int l = strlen(reinterpret_cast<char*>(input));
+  int l = strlen(reinterpret_cast<const char*>(input));
   memcpy(x.data, input, len);
   x.length = l;
   return l+1;

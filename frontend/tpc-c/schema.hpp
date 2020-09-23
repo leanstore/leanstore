@@ -21,7 +21,7 @@ struct warehouse_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.w_id);
@@ -56,7 +56,7 @@ struct district_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.d_w_id);
@@ -103,7 +103,7 @@ struct customer_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.c_w_id);
@@ -136,7 +136,7 @@ struct customer_wdl_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.c_w_id);
@@ -173,7 +173,7 @@ struct history_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.h_pk);
@@ -190,7 +190,6 @@ struct neworder_t {
     Integer no_d_id;
     Integer no_o_id;
   };
-  Integer no_o_id;
 
   template <class T>
   static unsigned foldRecord(uint8_t* out, const T& record)
@@ -202,7 +201,7 @@ struct neworder_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.no_w_id);
@@ -237,7 +236,7 @@ struct order_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.o_w_id);
@@ -269,7 +268,7 @@ struct order_wdc_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.o_w_id);
@@ -308,7 +307,7 @@ struct orderline_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.ol_w_id);
@@ -339,7 +338,7 @@ struct item_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.i_id);
@@ -348,7 +347,7 @@ struct item_t {
   static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::i_id); };
 };
 
-struct stock_t {
+struct stock_t{
   static constexpr int id = 10;
   struct Key {
     static constexpr int id = 10;
@@ -380,7 +379,7 @@ struct stock_t {
     return pos;
   }
   template <class T>
-  static unsigned unfoldRecord(uint8_t* in, T& record)
+  static unsigned unfoldRecord(const uint8_t* in, T& record)
   {
     unsigned pos = 0;
     pos += unfold(in + pos, record.s_w_id);

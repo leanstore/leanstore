@@ -23,10 +23,10 @@ struct LeanStoreAdapter {
   void printTreeHeight() { cout << name << " height = " << btree->height << endl; }
   // -------------------------------------------------------------------------------------
   template <class T>
-  static std::string getStringKey(const T& record)
+  static std::string getStringKey(const T& key)
   {
     uint8_t foldKey[Record::maxFoldLength()];
-    unsigned foldKeyLen = Record::foldRecord(foldKey, record);
+    unsigned foldKeyLen = Record::foldRecord(foldKey, key);
     return std::string(reinterpret_cast<char*>(foldKey), foldKeyLen);
   }
   // -------------------------------------------------------------------------------------
@@ -36,13 +36,15 @@ struct LeanStoreAdapter {
   void prefixMax1(const typename Record::Key& key, const u64 truncate_from_end, const Fn& fn)
   {
     string key_str = getStringKey(key);
-    const bool found = btree->prefixMaxOne((u8*)key_str.data(), key_str.length() - truncate_from_end, [&](const u8 *key, const u8* payload, u16 payload_length) {
-      static_cast<void>(payload_length);
-      const typename Record::Key& typed_key = *reinterpret_cast<const typename Record::key*>(key);
-      const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
-      assert(payload_length == sizeof(Record));
-      fn(typed_key, typed_payload);
-    });
+    const bool found =
+        btree->prefixMaxOne((u8*)key_str.data(), key_str.length() - truncate_from_end, [&](const u8* key, const u8* payload, u16 payload_length) {
+          static_cast<void>(payload_length);
+          typename Record::Key typed_key;
+          Record::unfoldRecord(key, typed_key);
+          const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
+          assert(payload_length == sizeof(Record));
+          fn(typed_key, typed_payload);
+        });
     if (!found) {
       ensure(false);
     }
@@ -54,17 +56,19 @@ struct LeanStoreAdapter {
     string key_str = getStringKey(key);
     btree->rangeScanDesc(
         reinterpret_cast<u8*>(key_str.data()), u16(key_str.length()),
-        [&](u8* payload, u16 payload_length, std::function<string()>&) {
-          static_cast<void>(payload_length);
+        [&](u8* key, u8* payload, [[maybe_unused]] u16 payload_length) {
+          assert(payload_length == sizeof(Record));
+          typename Record::Key typed_key;
+          Record::unfoldRecord(key, typed_key);
           const Record& typed_payload = *reinterpret_cast<Record*>(payload);
-          return fn(typed_payload);
+          return fn(typed_key, typed_payload);
         },
         undo);
   }
   // -------------------------------------------------------------------------------------
-  void insert(const Record::Key& rec_key, const Record& record)
+  void insert(const typename Record::Key& rec_key, const Record& record)
   {
-    string key = getStringKey(key);
+    string key = getStringKey(rec_key);
     btree->insert((u8*)key.data(), key.length(), sizeof(Record), (u8*)(&record));
   }
 
@@ -112,9 +116,10 @@ struct LeanStoreAdapter {
     string key_str = getStringKey(key);
     btree->rangeScanAsc(
         reinterpret_cast<u8*>(key_str.data()), u16(key_str.length()),
-        [&](u8* key, u8* payload, u16 payload_length) {
-          static_cast<void>(payload_length);
-          const typename Record::Key& typed_key = *reinterpret_cast<typename Record::Key*>(key);
+        [&](u8* key, u8* payload, [[maybe_unused]] u16 payload_length) {
+          assert(payload_length == sizeof(Record));
+          typename Record::Key typed_key;
+          Record::unfoldRecord(key, typed_key);
           const Record& typed_payload = *reinterpret_cast<Record*>(payload);
           return fn(typed_key, typed_payload);
         },
@@ -137,59 +142,4 @@ struct LeanStoreAdapter {
   }
 
   uint64_t count() { return btree->countEntries(); }
-};
-
-template <class Record>
-struct StdMap {
-  std::map<std::string, Record> map;
-  // btree::btree_map<std::string, Record> map;
-
-  template <class T>
-  static std::string getStringKey(const T& record)
-  {
-    uint8_t foldKey[Record::maxFoldLength()];
-    unsigned foldKeyLen = Record::foldRecord(foldKey, record);
-    return std::string(reinterpret_cast<char*>(foldKey), foldKeyLen);
-  }
-
-  void insert(const Record& record) { map.insert({getStringKey(record), record}); }
-
-  template <class Fn>
-  void lookup1(const typename Record::Key& key, const Fn& fn)
-  {
-    auto it = map.find(getStringKey(key));
-    if (it == map.end())
-      ensure(false);
-    fn((*it).second);
-  }
-
-  template <class Fn>
-  void update1(const typename Record::Key& key, const Fn& fn)
-  {
-    lookup1(key, fn);
-  }
-
-  void erase(const typename Record::Key& key) { map.erase(getStringKey(key)); }
-
-  template <class Fn>
-  void scan(const typename Record::Key& key, const Fn& fn)
-  {
-    auto it = map.lower_bound(getStringKey(key));
-    while (it != map.end()) {
-      if (!fn((*it).second))
-        break;
-      it++;
-    }
-  }
-
-  template <class Field>
-  auto lookupField(const typename Record::Key& key, Field f)
-  {
-    auto it = map.find(getStringKey(key));
-    if (it == map.end())
-      ensure(false);
-    return ((*it).second).*f;
-  }
-
-  uint64_t count() { return map.size(); }
 };

@@ -141,15 +141,15 @@ void loadItem()
       i_data.length = rnd(i_data.length - 8);
       i_data = i_data || Varchar<10>("ORIGINAL");
     }
-    item.insert({i, randomId(1, 10000), randomastring<24>(14, 24), randomNumeric(1.00, 100.00), i_data});
+    item.insert({i}, {randomId(1, 10000), randomastring<24>(14, 24), randomNumeric(1.00, 100.00), i_data});
   }
 }
 
 void loadWarehouse()
 {
   for (Integer i = 0; i < warehouseCount; i++) {
-    warehouse.insert({i + 1, randomastring<10>(6, 10), randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<20>(10, 20),
-                      randomastring<2>(2, 2), randomzip(), randomNumeric(0.1000, 0.2000), 3000000});
+    warehouse.insert({i + 1}, {randomastring<10>(6, 10), randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<20>(10, 20),
+                               randomastring<2>(2, 2), randomzip(), randomNumeric(0.1000, 0.2000), 3000000});
   }
 }
 
@@ -161,17 +161,17 @@ void loadStock(Integer w_id)
       s_data.length = rnd(s_data.length - 8);
       s_data = s_data || Varchar<10>("ORIGINAL");
     }
-    stock.insert({w_id, i + 1, randomNumeric(10, 100), randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24),
-                  randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24),
-                  randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24), 0, 0, 0, s_data});
+    stock.insert({w_id, i + 1}, {randomNumeric(10, 100), randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24),
+                                 randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24),
+                                 randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24), 0, 0, 0, s_data});
   }
 }
 
 void loadDistrinct(Integer w_id)
 {
   for (Integer i = 1; i < 11; i++) {
-    district.insert({w_id, i, randomastring<10>(6, 10), randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<20>(10, 20),
-                     randomastring<2>(2, 2), randomzip(), randomNumeric(0.0000, 0.2000), 3000000, 3001});
+    district.insert({w_id, i}, {randomastring<10>(6, 10), randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<20>(10, 20),
+                                randomastring<2>(2, 2), randomzip(), randomNumeric(0.0000, 0.2000), 3000000, 3001});
   }
 }
 
@@ -191,31 +191,13 @@ void loadCustomer(Integer w_id, Integer d_id)
       c_last = genName(getNonUniformRandomLastNameForLoad());
     Varchar<16> c_first = randomastring<16>(8, 16);
     Varchar<2> c_credit(rnd(10) ? "GC" : "BC");
-    customer.insert({w_id,
-                     d_id,
-                     i + 1,
-                     c_first,
-                     "OE",
-                     c_last,
-                     randomastring<20>(10, 20),
-                     randomastring<20>(10, 20),
-                     randomastring<20>(10, 20),
-                     randomastring<2>(2, 2),
-                     randomzip(),
-                     randomnstring(16, 16),
-                     now,
-                     c_credit,
-                     50000.00,
-                     randomNumeric(0.0000, 0.5000),
-                     -10.00,
-                     1,
-                     0,
-                     0,
-                     randomastring<500>(300, 500)});
-    customerwdl.insert({w_id, d_id, c_last, c_first, i + 1});
+    customer.insert({w_id, d_id, i + 1}, {c_first, "OE", c_last, randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<20>(10, 20),
+                                          randomastring<2>(2, 2), randomzip(), randomnstring(16, 16), now, c_credit, 50000.00,
+                                          randomNumeric(0.0000, 0.5000), -10.00, 1, 0, 0, randomastring<500>(300, 500)});
+    customerwdl.insert({w_id, d_id, c_last, c_first}, {i + 1});
     Integer t_id = (Integer)WorkerCounters::myCounters().t_id;
     Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
-    history.insert({t_id, h_id, i + 1, d_id, w_id, d_id, w_id, now, 10.00, randomastring<24>(12, 24)});
+    history.insert({t_id, h_id}, {i + 1, d_id, w_id, d_id, w_id, now, 10.00, randomastring<24>(12, 24)});
   }
 }
 
@@ -231,9 +213,9 @@ void loadOrders(Integer w_id, Integer d_id)
     Integer o_carrier_id = (o_id < 2101) ? rnd(10) + 1 : 0;
     Numeric o_ol_cnt = rnd(10) + 5;
 
-    order.insert({w_id, d_id, o_id, o_c_id, now, o_carrier_id, o_ol_cnt, 1});
+    order.insert({w_id, d_id, o_id}, {o_c_id, now, o_carrier_id, o_ol_cnt, 1});
     if (FLAGS_order_wdc_index) {
-      order_wdc.insert({w_id, d_id, o_c_id, o_id});
+      order_wdc.insert({w_id, d_id, o_c_id, o_id}, {});
     }
 
     for (Integer ol_number = 1; ol_number <= o_ol_cnt; ol_number++) {
@@ -242,13 +224,13 @@ void loadOrders(Integer w_id, Integer d_id)
         ol_delivery_d = now;
       Numeric ol_amount = (o_id < 2101) ? 0 : randomNumeric(0.01, 9999.99);
       const Integer ol_i_id = rnd(ITEMS_NO) + 1;
-      orderline.insert({w_id, d_id, o_id, ol_number, ol_i_id, w_id, ol_delivery_d, 5, ol_amount, randomastring<24>(24, 24)});
+      orderline.insert({w_id, d_id, o_id, ol_number}, {ol_i_id, w_id, ol_delivery_d, 5, ol_amount, randomastring<24>(24, 24)});
     }
     o_id++;
   }
 
   for (Integer i = 2100; i <= 3000; i++)
-    neworder.insert({w_id, d_id, i});
+    neworder.insert({w_id, d_id, i}, {});
 }
 
 void load()
@@ -293,11 +275,11 @@ void newOrder(Integer w_id,
       all_local = 0;
   Numeric cnt = lineNumbers.size();
   Integer carrier_id = 0; /*null*/
-  order.insert({w_id, d_id, o_id, c_id, timestamp, carrier_id, cnt, all_local});
+  order.insert({w_id, d_id, o_id}, {c_id, timestamp, carrier_id, cnt, all_local});
   if (FLAGS_order_wdc_index) {
-    order_wdc.insert({w_id, d_id, c_id, o_id});
+    order_wdc.insert({w_id, d_id, c_id, o_id}, {});
   }
-  neworder.insert({w_id, d_id, o_id});
+  neworder.insert({w_id, d_id, o_id}, {});
 
   for (unsigned i = 0; i < lineNumbers.size(); i++) {
     Integer qty = qtys[i];
@@ -357,7 +339,7 @@ void newOrder(Integer w_id,
     });
     Numeric ol_amount = qty * i_price * (1.0 + w_tax + d_tax) * (1.0 - c_discount);
     Timestamp ol_delivery_d = 0;  // NULL
-    orderline.insert({w_id, d_id, o_id, lineNumber, itemid, supware, ol_delivery_d, qty, ol_amount, s_dist});
+    orderline.insert({w_id, d_id, o_id, lineNumber}, {itemid, supware, ol_delivery_d, qty, ol_amount, s_dist});
     // TODO: i_data, s_data
   }
 }
@@ -397,9 +379,9 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
     Integer o_id = minInteger;
     neworder.scan(
         {w_id, d_id, minInteger},
-        [&](const neworder_t::Key& key, const neworder_t& rec) {
+        [&](const neworder_t::Key& key, const neworder_t&) {
           if (key.no_w_id == w_id && key.no_d_id == d_id) {
-            o_id = rec.no_o_id;
+            o_id = key.no_o_id;
           }
           return false;
         },
@@ -407,9 +389,9 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
     if (o_id == minInteger)
       continue;
 
-    if (!neworder.erase({w_id, d_id, o_id})) {
-      continue;
-    }
+    // if (!neworder.erase({w_id, d_id, o_id})) {
+    //   continue;
+    // }
 
     // Integer ol_cnt = minInteger, c_id;
     // order.scan({w_id, d_id, o_id}, [&](const order_t& rec) { ol_cnt = rec.o_ol_cnt; c_id = rec.o_c_id; return false; });
@@ -438,7 +420,7 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
     // First check if all orderlines have been inserted, a hack because of the missing transaction and concurrency control
     orderline.scan(
         {w_id, d_id, o_id, ol_cnt},
-        [&](const orderline_t::Key& key, const orderline_t& rec) {
+        [&](const orderline_t::Key& key, const orderline_t&) {
           if (key.ol_w_id == w_id && key.ol_d_id == d_id && key.ol_o_id == o_id && key.ol_number == ol_cnt) {
             is_safe_to_continue = true;
           } else {
@@ -532,7 +514,11 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
   // -------------------------------------------------------------------------------------
   // latest order id desc
   if (FLAGS_order_wdc_index) {
-    order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t::Key& key, const order_wdc_t&) { o_id = key.o_id; });
+    order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t::Key& key, const order_wdc_t&) {
+      if (key.o_id < 0)
+        raise(SIGTRAP);
+      o_id = key.o_id;
+    });
   } else {
     order.scanDesc(
         {w_id, d_id, std::numeric_limits<Integer>::max()},
@@ -721,7 +707,7 @@ void paymentById(Integer w_id, Integer d_id, Integer c_w_id, Integer c_d_id, Int
   Varchar<24> h_new_data = Varchar<24>(w_name) || Varchar<24>("    ") || d_name;
   Integer t_id = (Integer)WorkerCounters::myCounters().t_id.load();
   Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
-  history.insert({t_id, h_id, c_id, c_d_id, c_w_id, d_id, w_id, datetime, h_amount, h_new_data});
+  history.insert({t_id, h_id}, {c_id, c_d_id, c_w_id, d_id, w_id, datetime, h_amount, h_new_data});
 }
 
 void paymentByName(Integer w_id,
@@ -774,7 +760,7 @@ void paymentByName(Integer w_id,
   customerwdl.scan(
       {c_w_id, c_d_id, c_last, {}},
       [&](const customer_wdl_t::Key& key, const customer_wdl_t& rec) {
-        if (rec.c_w_id == c_w_id && rec.c_d_id == c_d_id && rec.c_last == c_last) {
+        if (key.c_w_id == c_w_id && key.c_d_id == c_d_id && key.c_last == c_last) {
           ids.push_back(rec.c_id);
           return true;
         }
@@ -829,7 +815,7 @@ void paymentByName(Integer w_id,
   Varchar<24> h_new_data = Varchar<24>(w_name) || Varchar<24>("    ") || d_name;
   Integer t_id = Integer(WorkerCounters::myCounters().t_id.load());
   Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
-  history.insert({t_id, h_id, c_id, c_d_id, c_w_id, d_id, w_id, datetime, h_amount, h_new_data});
+  history.insert({t_id, h_id}, {c_id, c_d_id, c_w_id, d_id, w_id, datetime, h_amount, h_new_data});
 }
 
 void paymentRnd(Integer w_id)
@@ -866,11 +852,11 @@ int tx(Integer w_id)
     return 1;
   }
   rnd -= 400;
-  if (rnd < 445) {
+  if (rnd < 400) {
     deliveryRnd(w_id);
     return 2;
   }
-  rnd -= 445;
+  rnd -= 400;
   if (rnd < 400) {
     stockLevelRnd(w_id);
     return 3;

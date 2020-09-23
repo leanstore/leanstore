@@ -35,7 +35,7 @@ struct BTree {
   // starts at the key >= start_key
   void rangeScanAsc(u8* start_key, u16 key_length, function<bool(u8* key, u8* payload, u16 payload_length)>, function<void()>);
   // starts at the key + 1 and downwards
-  void rangeScanDesc(u8* start_key, u16 key_length, function<bool(u8* payload, u16 payload_length, function<string()>&)>, function<void()>);
+  void rangeScanDesc(u8* start_key, u16 key_length, function<bool(u8* key, u8* payload, u16 payload_length)>, function<void()>);
   // starts at the key
   bool prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, const u8*, u16)> payload_callback);
   // -------------------------------------------------------------------------------------
@@ -92,6 +92,7 @@ struct BTree {
           }
           level++;
         }
+        // -------------------------------------------------------------------------------------
         p_guard.kill();
         target_guard = std::move(c_guard);
         jumpmu_return;

@@ -78,22 +78,23 @@ struct Partition {
   const u64 pid_distance;
   std::mutex pids_mutex;  // protect free pids vector
   std::vector<PID> freed_pids;
-  atomic<u64> next_pid;
+  u64 next_pid;
   inline PID nextPID()
   {
-    {
-      std::unique_lock<std::mutex> g_guard(pids_mutex);
-      if (freed_pids.size()) {
-        const u64 pid = freed_pids.back();
-        freed_pids.pop_back();
-        return pid;
-      }
+    std::unique_lock<std::mutex> g_guard(pids_mutex);
+    if (freed_pids.size()) {
+      const u64 pid = freed_pids.back();
+      freed_pids.pop_back();
+      return pid;
+    } else {
+      const u64 pid = next_pid;
+      next_pid += pid_distance;
+      ensure((pid * PAGE_SIZE / 1024 / 1024 / 1024) <= FLAGS_ssd_gib);
+      return pid;
     }
-    const u64 pid = next_pid.fetch_add(pid_distance);
-    ensure((pid * PAGE_SIZE / 1024 / 1024 / 1024) <= FLAGS_ssd_gib);
-    return pid;
   }
-  void freePage(PID pid) {
+  void freePage(PID pid)
+  {
     std::unique_lock<std::mutex> g_guard(pids_mutex);
     freed_pids.push_back(pid);
   }

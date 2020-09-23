@@ -62,6 +62,18 @@ class HybridPageGuard
       guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SHARED>();
     }
     jumpmu_registerDestructor();
+    // -------------------------------------------------------------------------------------
+    [[maybe_unused]] DTID p_dt_id, dt_id;
+    DEBUG_BLOCK()
+    {
+      if (p_guard.hasBf()) {
+        [[maybe_unused]] DTID p_dt_id = p_guard.bf->page.dt_id, dt_id = bf->page.dt_id;
+        p_guard.recheck();
+        recheck();
+        assert(p_dt_id == dt_id);
+      }
+    }
+    // -------------------------------------------------------------------------------------
     p_guard.recheck();
   }
   // I: Downgrade exclusive
