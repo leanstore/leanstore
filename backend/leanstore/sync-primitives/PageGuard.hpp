@@ -150,7 +150,7 @@ class ExclusivePageGuard
   {
     ref_guard.guard.template transition<GUARD_STATE::EXCLUSIVE>();
     if (ref_guard.hasBf()) {
-      ref_guard.bf->page.LSN++;
+      ref_guard.bf->page.GSN++;
     }
   }
   // -------------------------------------------------------------------------------------

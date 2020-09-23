@@ -29,7 +29,7 @@ struct BufferFrame {
       }
     };
     // TODO: for logging
-    u64 lastWrittenLSN = 0;
+    u64 lastWrittenGSN = 0;
     STATE state = STATE::FREE;  // INIT:
     bool isWB = false;
     PID pid = 9999;  // INIT:
@@ -41,10 +41,10 @@ struct BufferFrame {
     u64 debug;
   };
   struct alignas(512) Page {
-    u64 LSN = 0;
+    u64 GSN = 0;
     u64 dt_id = 9999;                                                                 // INIT: datastructure id
     u64 magic_debugging_number;                                                       // ATTENTION
-    u8 dt[PAGE_SIZE - sizeof(LSN) - sizeof(dt_id) - sizeof(magic_debugging_number)];  // Datastruture BE CAREFUL HERE !!!!!
+    u8 dt[PAGE_SIZE - sizeof(GSN) - sizeof(dt_id) - sizeof(magic_debugging_number)];  // Datastruture BE CAREFUL HERE !!!!!
     // -------------------------------------------------------------------------------------
     operator u8*() { return reinterpret_cast<u8*>(this); }
     // -------------------------------------------------------------------------------------
@@ -56,7 +56,7 @@ struct BufferFrame {
   // -------------------------------------------------------------------------------------
   bool operator==(const BufferFrame& other) { return this == &other; }
   // -------------------------------------------------------------------------------------
-  inline bool isDirty() const { return header.lastWrittenLSN != page.LSN; }
+  inline bool isDirty() const { return header.lastWrittenGSN != page.GSN; }
   // -------------------------------------------------------------------------------------
   // Pre: bf is exclusively locked
   void reset()
@@ -65,7 +65,7 @@ struct BufferFrame {
     // -------------------------------------------------------------------------------------
     assert(!header.isWB);
     header.latch.assertExclusivelyLatched();
-    header.lastWrittenLSN = 0;
+    header.lastWrittenGSN = 0;
     header.state = STATE::FREE;  // INIT:
     header.isWB = false;
     header.pid = 9999;
