@@ -74,5 +74,5 @@ target_link_libraries(ut leanstore Threads::Threads)
 target_include_directories(ut PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
 add_executable(wal misc-benchmarks/wal.cpp)
-target_link_libraries(wal gflags Threads::Threads)
+target_link_libraries(wal leanstore Threads::Threads)
 target_include_directories(wal PRIVATE ${SHARED_INCLUDE_DIRECTORY})
