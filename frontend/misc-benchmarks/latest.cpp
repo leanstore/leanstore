@@ -38,7 +38,7 @@ int main(int argc, char** argv)
   // LeanStore DB
   LeanStore db;
   unique_ptr<BTreeInterface<Key, Payload>> adapter;
-  auto& vs_btree = db.registerVSBTree("latest");
+  auto& vs_btree = db.registerBTree("latest");
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
   // -------------------------------------------------------------------------------------

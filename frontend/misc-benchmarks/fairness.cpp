@@ -41,7 +41,7 @@ int main(int argc, char** argv)
   using Key = u64;
   using Payload = u64;
   LeanStore db;
-  auto& vs_btree = db.registerVSBTree("fairness");
+  auto& vs_btree = db.registerBTree("fairness");
   BTreeVSAdapter<Key, Payload> table(vs_btree);
   db.startDebuggingThread();
   // -------------------------------------------------------------------------------------

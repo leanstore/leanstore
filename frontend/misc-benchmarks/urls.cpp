@@ -30,7 +30,7 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   // LeanStore DB
   LeanStore db;
-  auto& vs_btree = db.registerVSBTree("urls");
+  auto& vs_btree = db.registerBTree("urls");
   // -------------------------------------------------------------------------------------
   utils::FVector<std::string_view> input_strings(FLAGS_in.c_str());
   const u64 tuple_count = input_strings.size();

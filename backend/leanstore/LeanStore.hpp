@@ -23,7 +23,7 @@ class LeanStore
   // -------------------------------------------------------------------------------------
  private:
   // Poor man catalog
-  std::unordered_map<string, btree::vs::BTree> vs_btrees;
+  std::unordered_map<string, btree::vs::BTree> btrees;
   buffermanager::BufferManager buffer_manager;
   // -------------------------------------------------------------------------------------
   std::mutex debugging_mutex; // protect all counters
@@ -42,8 +42,8 @@ class LeanStore
   GlobalStats getGlobalStats();
   void registerThread(string name);
   // -------------------------------------------------------------------------------------
-  btree::vs::BTree& registerVSBTree(string name);
-  btree::vs::BTree& retrieveVSBTree(string name);
+  btree::vs::BTree& registerBTree(string name);
+  btree::vs::BTree& retrieveBTree(string name);
   // -------------------------------------------------------------------------------------
   BufferManager& getBufferManager() { return buffer_manager; }
   // -------------------------------------------------------------------------------------

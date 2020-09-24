@@ -18,7 +18,7 @@ struct LeanStoreAdapter {
   {
     // hack
   }
-  LeanStoreAdapter(LeanStore& db, string name) : btree(&db.registerVSBTree(name)), name(name) {}
+  LeanStoreAdapter(LeanStore& db, string name) : btree(&db.registerBTree(name)), name(name) {}
   // -------------------------------------------------------------------------------------
   void printTreeHeight() { cout << name << " height = " << btree->height << endl; }
   // -------------------------------------------------------------------------------------

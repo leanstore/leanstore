@@ -31,8 +31,8 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   // LeanStore DB
   LeanStore db;
-  auto& vs_btree = db.registerVSBTree("scan");
-  BTreeVSAdapter<Key, Payload> table(vs_btree);
+  auto& btree = db.registerBTree("scan");
+  BTreeVSAdapter<Key, Payload> table(btree);
   // -------------------------------------------------------------------------------------
   const u64 target_pages = FLAGS_target_gib * 1024 * 1024 * 1024 / PAGE_SIZE;
   Payload dummy_payload;
@@ -69,7 +69,7 @@ int main(int argc, char** argv)
     };
     x = 0ul;
     counter = 0;
-    vs_btree.rangeScanAsc(
+    btree.rangeScanAsc(
         key_start, sizeof(x),
         [&](u8*, u8* payload, u16) {
           ensure(memcmp(payload, reinterpret_cast<u8*>(&dummy_payload), sizeof(Payload)) == 0);

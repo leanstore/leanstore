@@ -31,7 +31,7 @@ int main(int argc, char** argv)
   tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
   unique_ptr<BTreeInterface<Key, Payload>> adapter;
-  auto& vs_btree = db.registerVSBTree("rio");
+  auto& vs_btree = db.registerBTree("rio");
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
   // -------------------------------------------------------------------------------------
