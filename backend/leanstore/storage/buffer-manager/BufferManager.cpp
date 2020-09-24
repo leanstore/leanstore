@@ -137,7 +137,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
     [[maybe_unused]] Time phase_1_begin, phase_1_end;
     COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
     BufferFrame* volatile r_buffer = &randomBufferFrame();  // Attention: we may set the r_buffer to a child of a bf instead of random
-    volatile u64 failed_attempts = 0;
+    volatile u64 failed_attempts = 0; // [corner cases]: prevent starving when free list is empty and cooling to the required level can not be achieved
 #define repickIf(cond)               \
   if (cond) {                        \
     r_buffer = &randomBufferFrame(); \
@@ -151,9 +151,12 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
           COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
           OptimisticGuard r_guard(r_buffer->header.latch, true);
           // -------------------------------------------------------------------------------------
+          // Performance crticial: we should cross cool (unswizzle), otherwise write performance will drop
           [[maybe_unused]] const u64 partition_i = getPartitionID(r_buffer->header.pid);
-          const bool is_cooling_candidate = (!r_buffer->header.isWB && !(r_buffer->header.latch.isExclusivelyLatched()) && (partition_i) >= p_begin &&
-                                             (partition_i) <= p_end && r_buffer->header.state == BufferFrame::STATE::HOT);
+          const bool is_cooling_candidate = (!r_buffer->header.isWB &&
+                                             !(r_buffer->header.latch.isExclusivelyLatched())
+                                             // && (partition_i) >= p_begin && (partition_i) <= p_end
+                                             && r_buffer->header.state == BufferFrame::STATE::HOT);
           repickIf(!is_cooling_candidate);
           r_guard.recheck();
           // -------------------------------------------------------------------------------------
@@ -303,7 +306,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                         bf.header.isWB = true;
                       }
                       {
-                        SharedGuard s_gurad(o_guard);
+                        SharedGuard s_guard(o_guard);
                         PID wb_pid = bf.header.pid;
                         if (FLAGS_out_of_place) {
                           wb_pid = partitions[p_i].nextPID();
