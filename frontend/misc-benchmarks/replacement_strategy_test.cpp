@@ -2,7 +2,7 @@
 #include "leanstore/BTreeAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
-#include "leanstore/counters/ThreadCounters.hpp"
+#include "leanstore/counters/CPUCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
@@ -63,14 +63,14 @@ int main(int argc, char** argv)
   const u64 max_key = FLAGS_window_gib * 1024 * 1024 * 1024 * 1.0 / (sizeof(Key) + sizeof(Payload));
   for (unsigned t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&](u64 t_i) {
-      const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
+      const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
       Payload local_payload;
       while (true) {
         Key rand_k = utils::RandomGenerator::getRandU64(0, max_key);
         ensure(table.lookup(rand_k, local_payload));
         WorkerCounters::myCounters().tx++;
       }
-      ThreadCounters::removeThread(r_id);
+      CPUCounters::removeThread(r_id);
     }, t_i);
   }
   db.startDebuggingThread();

@@ -1,5 +1,5 @@
 #include "adapter.hpp"
-#include "leanstore/counters/ThreadCounters.hpp"
+#include "leanstore/counters/CPUCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
@@ -102,14 +102,14 @@ int main(int argc, char** argv)
       threads.emplace_back([&, t_i, w_begin, w_end]() {
         running_threads_counter++;
         pthread_setname_np(pthread_self(), "worker");
-        const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
+        const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
           utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
         while (keep_running) {
           tx(urand(w_begin, w_end));
           WorkerCounters::myCounters().tx++;
         }
-        ThreadCounters::removeThread(r_id);
+        CPUCounters::removeThread(r_id);
         running_threads_counter--;
       });
     }
@@ -118,7 +118,7 @@ int main(int argc, char** argv)
       threads.emplace_back([&, t_i]() {
         running_threads_counter++;
         pthread_setname_np(pthread_self(), "worker");
-        const u64 r_id = ThreadCounters::registerThread("worker_" + std::to_string(t_i));
+        const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
           utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
         while (keep_running) {
@@ -131,7 +131,7 @@ int main(int argc, char** argv)
           tx(w_id);
           WorkerCounters::myCounters().tx++;
         }
-        ThreadCounters::removeThread(r_id);
+        CPUCounters::removeThread(r_id);
         running_threads_counter--;
       });
     }

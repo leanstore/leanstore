@@ -5,7 +5,7 @@
 #include "Exceptions.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/counters/PPCounters.hpp"
-#include "leanstore/counters/ThreadCounters.hpp"
+#include "leanstore/counters/CPUCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
@@ -95,7 +95,7 @@ BufferManager::BufferManager()
     for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
       pp_threads.emplace_back(
           [&](u64 t_i, u64 p_begin, u64 p_end) {
-            ThreadCounters::registerThread("pp_" + std::to_string(t_i));
+            CPUCounters::registerThread("pp_" + std::to_string(t_i));
             // https://linux.die.net/man/2/setpriority
             if (FLAGS_root) {
               posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);

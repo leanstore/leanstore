@@ -1,7 +1,7 @@
 #include "LeanStore.hpp"
 
 #include "leanstore/counters/PPCounters.hpp"
-#include "leanstore/counters/ThreadCounters.hpp"
+#include "leanstore/counters/CPUCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
@@ -242,8 +242,8 @@ void LeanStore::debuggingThread()
     stats_csv << endl;
     // -------------------------------------------------------------------------------------
     {
-      std::unique_lock guard(ThreadCounters::mutex);
-      for (auto& counter : ThreadCounters::thread_counters) {
+      std::unique_lock guard(CPUCounters::mutex);
+      for (auto& counter : CPUCounters::thread_counters) {
         threads_csv << time << "," << counter.second.name << "," << config_hash;
         counter.second.e->stopCounters();
         counter.second.e->printCSVData(threads_csv, 1);

@@ -2,7 +2,7 @@
 #include "leanstore/BTreeAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
-#include "leanstore/counters/ThreadCounters.hpp"
+#include "leanstore/counters/CPUCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/storage/btree/BTreeSlotted.hpp"
 #include "leanstore/utils/FVector.hpp"
@@ -198,7 +198,7 @@ int main(int argc, char** argv)
   for (u64 i = 0; i < 1; i++)
     threads.emplace_back([&]() {
       running_threads_counter++;
-      ThreadCounters::registerThread("merge");
+      CPUCounters::registerThread("merge");
       if (FLAGS_dataset == "integers") {
         while (keep_running) {
           Key k = utils::RandomGenerator::getRandU64(0, tuple_count);
