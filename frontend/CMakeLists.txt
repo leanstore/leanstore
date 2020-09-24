@@ -1,4 +1,3 @@
-
 add_executable(frontend frontend.cpp)
 add_dependencies(frontend leanstore)
 target_link_libraries(frontend leanstore)
@@ -73,3 +72,7 @@ target_include_directories(scheduler PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(ut misc-benchmarks/ut.cpp)
 target_link_libraries(ut leanstore Threads::Threads)
 target_include_directories(ut PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(wal misc-benchmarks/wal.cpp)
+target_link_libraries(wal gflags Threads::Threads)
+target_include_directories(wal PRIVATE ${SHARED_INCLUDE_DIRECTORY})
