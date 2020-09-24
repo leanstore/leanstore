@@ -71,7 +71,7 @@ int main(int argc, char** argv)
     counter = 0;
     vs_btree.rangeScanAsc(
         key_start, sizeof(x),
-        [&](u8* payload, u16, std::function<string()>&) {
+        [&](u8*, u8* payload, u16) {
           ensure(memcmp(payload, reinterpret_cast<u8*>(&dummy_payload), sizeof(Payload)) == 0);
           counter++;
           return true;
