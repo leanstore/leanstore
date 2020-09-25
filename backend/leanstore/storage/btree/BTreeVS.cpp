@@ -90,7 +90,7 @@ void BTree::rangeScanAsc(u8* start_key, u16 key_length, std::function<bool(u8* k
         }
         // -------------------------------------------------------------------------------------
         u16 prefix_length = s_leaf->prefix_length;
-        u8 key[PAGE_SIZE]; // TODO
+        u8 key[PAGE_SIZE];  // TODO
         s_leaf->copyPrefix(key);
         // -------------------------------------------------------------------------------------
         while (cur < s_leaf->count) {
@@ -173,7 +173,7 @@ void BTree::rangeScanDesc(u8* start_key,
         }
         // -------------------------------------------------------------------------------------
         u16 prefix_length = s_leaf->prefix_length;
-        u8 key[PAGE_SIZE]; // TODO
+        u8 key[PAGE_SIZE];  // TODO
         s_leaf->copyPrefix(key);
         // -------------------------------------------------------------------------------------
         while (cur >= 0) {

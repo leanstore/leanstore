@@ -133,7 +133,21 @@ struct BTreeNode : public BTreeNodeHeader {
   // -------------------------------------------------------------------------------------
   static u16 spaceNeededAsInner(u16 keyLength, u16 prefixLength);
   static s32 cmpKeys(u8* a, u8* b, u16 aLength, u16 bLength);
-  static HeadType head(u8*& key, u16& keyLength);
+  static inline HeadType head(u8*& key, u16& keyLength)
+  {
+    switch (keyLength) {
+      case 0:
+        return 0;
+      case 1:
+        return static_cast<u32>(key[0]) << 24;
+      case 2:
+        return static_cast<u32>(__builtin_bswap16(*reinterpret_cast<u16*>(key))) << 16;
+      case 3:
+        return (static_cast<u32>(__builtin_bswap16(*reinterpret_cast<u16*>(key))) << 16) | (static_cast<u32>(key[2]) << 8);
+      default:
+        return __builtin_bswap32(*reinterpret_cast<u32*>(key));
+    }
+  }
   void makeHint();
   // -------------------------------------------------------------------------------------
   s32 sanityCheck(u8* key, u16 keyLength);
