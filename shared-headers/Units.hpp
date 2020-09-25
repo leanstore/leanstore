@@ -31,7 +31,8 @@ using s64 = int64_t;
 // -------------------------------------------------------------------------------------
 using SIZE = size_t;
 using PID = u64;
-using DTID = u64;  // Datastructure ID
+using LID = u64; // Log ID
+using DTID = s64;  // Datastructure ID
 // -------------------------------------------------------------------------------------
 using TINYINT = s8;
 using SMALLINT = s16;

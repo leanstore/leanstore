@@ -1,13 +1,15 @@
 #pragma once
-
+#include "types.hpp"
+// -------------------------------------------------------------------------------------
+#include "leanstore/LeanStore.hpp"
+#include "leanstore/storage/btree/WALMacros.hpp"
+// -------------------------------------------------------------------------------------
 #include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <map>
 #include <string>
 
-#include "leanstore/LeanStore.hpp"
-#include "types.hpp"
 using namespace leanstore;
 template <class Record>
 struct LeanStoreAdapter {
@@ -88,15 +90,17 @@ struct LeanStoreAdapter {
   }
 
   template <class Fn>
-  void update1(const typename Record::Key& key, const Fn& fn)
+  void update1(const typename Record::Key& key, const Fn& fn, btree::vs::BTree::WALUpdateGenerator wal_update_generator)
   {
     string key_str = getStringKey(key);
-    btree->updateSameSize((u8*)key_str.data(), key_str.length(), [&](u8* payload, u16 payload_length) {
-      static_cast<void>(payload_length);
-      assert(payload_length == sizeof(Record));
-      Record& typed_payload = *reinterpret_cast<Record*>(payload);
-      fn(typed_payload);
-    });
+    btree->updateSameSize((u8*)key_str.data(), key_str.length(),
+                          [&](u8* payload, u16 payload_length) {
+                            static_cast<void>(payload_length);
+                            assert(payload_length == sizeof(Record));
+                            Record& typed_payload = *reinterpret_cast<Record*>(payload);
+                            fn(typed_payload);
+                          },
+                          wal_update_generator);
   }
 
   bool erase(const typename Record::Key& key)

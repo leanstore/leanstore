@@ -1,5 +1,6 @@
 #include "BTreeVS.hpp"
 
+#include "leanstore/tx/TXMG.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
@@ -19,7 +20,7 @@ BTree::BTree() {}
 // -------------------------------------------------------------------------------------
 void BTree::init(DTID dtid)
 {
-  this->dtid = dtid;
+  this->dt_id = dtid;
   auto root_write_guard_h = HybridPageGuard<BTreeNode>(dtid);
   auto root_write_guard = ExclusivePageGuard<BTreeNode>(std::move(root_write_guard_h));
   root_write_guard.init(true);
@@ -59,7 +60,7 @@ bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> pa
     jumpmuCatch()
     {
       BACKOFF_STRATEGIES()
-      WorkerCounters::myCounters().dt_restarts_read[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
     }
   }
 }
@@ -78,7 +79,7 @@ void BTree::rangeScanAsc(u8* start_key, u16 key_length, std::function<bool(u8* k
         findLeafForRead<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
         SharedPageGuard s_leaf(std::move(leaf));
         // -------------------------------------------------------------------------------------
-        if(s_leaf->count == 0) {
+        if (s_leaf->count == 0) {
           jumpmu_return;
         }
         s16 cur;
@@ -142,7 +143,7 @@ void BTree::rangeScanAsc(u8* start_key, u16 key_length, std::function<bool(u8* k
       }
       undo();
       BACKOFF_STRATEGIES()
-      WorkerCounters::myCounters().dt_restarts_read[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
     }
   }
 }
@@ -164,7 +165,7 @@ void BTree::rangeScanDesc(u8* start_key,
         findLeafForRead<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
         SharedPageGuard s_leaf(std::move(leaf));
         // -------------------------------------------------------------------------------------
-        if(s_leaf->count == 0) {
+        if (s_leaf->count == 0) {
           jumpmu_return;
         }
         s16 cur;
@@ -223,7 +224,7 @@ void BTree::rangeScanDesc(u8* start_key,
       }
       undo();
       BACKOFF_STRATEGIES()
-      WorkerCounters::myCounters().dt_restarts_read[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
     }
   }
 }
@@ -286,12 +287,12 @@ bool BTree::prefixMaxOne(u8* start_key, u16 start_key_length, function<void(cons
     jumpmuCatch()
     {
       BACKOFF_STRATEGIES()
-      WorkerCounters::myCounters().dt_restarts_read[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
     }
   }
 }
 // -------------------------------------------------------------------------------------
-void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
+void BTree::insert(u8* key, u16 key_length, u64 value_length, u8* value)
 {
   volatile u32 mask = 1;
   volatile u32 local_restarts_counter = 0;
@@ -302,8 +303,17 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
       findLeafForRead<OP_TYPE::POINT_INSERT>(c_guard, key, key_length);
       // -------------------------------------------------------------------------------------
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-      if (c_x_guard->prepareInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)))) {
-        c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(payloadLength)), payload);
+      if (c_x_guard->prepareInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(value_length)))) {
+        c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(value_length)), value);
+        if (FLAGS_wal) {
+          auto& entry = *reinterpret_cast<WALInsert*>(txmg::TXMG::reserveEntry(dt_id, sizeof(WALInsert) + key_length + value_length));
+          entry.pid = c_x_guard.bf()->header.pid;
+          entry.gsn = 0;  // TODO
+          entry.key_length = key_length;
+          entry.value_length = value_length;
+          std::memcpy(entry.payload, key, key_length);
+          std::memcpy(entry.payload + key_length, value, value_length);
+        }
         jumpmu_return;
       }
       // -------------------------------------------------------------------------------------
@@ -318,7 +328,7 @@ void BTree::insert(u8* key, u16 key_length, u64 payloadLength, u8* payload)
     jumpmuCatch()
     {
       BACKOFF_STRATEGIES()
-      WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_structural_change[dt_id]++;
       local_restarts_counter++;
     }
   }
@@ -440,9 +450,9 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
     assert(height == 1 || !c_x_guard->is_leaf);
     assert(root_swip.bf == c_x_guard.bf());
     // create new root
-    auto new_root_h = HybridPageGuard<BTreeNode>(dtid, false);
+    auto new_root_h = HybridPageGuard<BTreeNode>(dt_id, false);
     auto new_root = ExclusivePageGuard<BTreeNode>(std::move(new_root_h));
-    auto new_left_node_h = HybridPageGuard<BTreeNode>(dtid);
+    auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
     auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
     new_root.keepAlive();
     new_left_node.init(c_x_guard->is_leaf);
@@ -467,7 +477,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
     assert(p_x_guard.hasBf());
     assert(!p_x_guard->is_leaf);
     // -------------------------------------------------------------------------------------
-    auto new_left_node_h = HybridPageGuard<BTreeNode>(dtid);
+    auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
     auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
     new_left_node.init(c_x_guard->is_leaf);
     // -------------------------------------------------------------------------------------
@@ -482,7 +492,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
   }
 }
 // -------------------------------------------------------------------------------------
-void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback)
+void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback, WALUpdateGenerator wal_update_generator)
 {
   volatile u32 mask = 1;
   while (true) {
@@ -496,7 +506,19 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       s16 pos = c_x_guard->lowerBound<true>(key, key_length);
       assert(pos != -1);
       u16 payload_length = c_x_guard->getPayloadLength(pos);
+      // -------------------------------------------------------------------------------------
+      [[maybe_unused]] u8* wal_entry;
+      if (FLAGS_wal) {
+        // if it is a secondary index, then we can not use updateSameSize
+        ensure(wal_update_generator.entry_size > 0);
+        wal_entry = txmg::TXMG::reserveEntry(dt_id, wal_update_generator.entry_size);
+        wal_update_generator.before(c_x_guard->getPayload(pos), wal_entry);
+      }
+      // The actual update by the client
       callback(c_x_guard->getPayload(pos), payload_length);
+      if (FLAGS_wal) {
+        wal_update_generator.after(c_x_guard->getPayload(pos), wal_entry);
+      }
       // -------------------------------------------------------------------------------------
       if (FLAGS_contention_split && local_restarts_counter > 0) {
         const u64 random_number = utils::RandomGenerator::getRandU64();
@@ -519,9 +541,9 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
               jumpmuTry()
               {
                 trySplit(*c_guard.bf, split_pos);
-                WorkerCounters::myCounters().contention_split_succ_counter[dtid]++;
+                WorkerCounters::myCounters().contention_split_succ_counter[dt_id]++;
               }
-              jumpmuCatch() { WorkerCounters::myCounters().contention_split_fail_counter[dtid]++; }
+              jumpmuCatch() { WorkerCounters::myCounters().contention_split_fail_counter[dt_id]++; }
             }
           }
         }
@@ -533,7 +555,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
     jumpmuCatch()
     {
       BACKOFF_STRATEGIES()
-      WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_update_same_size[dt_id]++;
     }
   }
 }
@@ -559,7 +581,15 @@ bool BTree::remove(u8* key, u16 key_length)
       HybridPageGuard<BTreeNode> c_guard;
       findLeafForRead<OP_TYPE::POINT_DELETE>(c_guard, key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-      if (!c_x_guard->remove(key, key_length)) {
+      if (c_x_guard->remove(key, key_length)) {
+        if (FLAGS_wal) {
+          auto& entry = *reinterpret_cast<WALInsert*>(txmg::TXMG::reserveEntry(dt_id, sizeof(WALRemove) + key_length));
+          entry.pid = c_x_guard.bf()->header.pid;
+          entry.gsn = 0;  // TODO
+          entry.key_length = key_length;
+          std::memcpy(entry.payload, key, key_length);
+        }
+      } else {
         jumpmu_return false;
       }
       if (c_x_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
@@ -576,7 +606,7 @@ bool BTree::remove(u8* key, u16 key_length)
     jumpmuCatch()
     {
       BACKOFF_STRATEGIES()
-      WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
+      WorkerCounters::myCounters().dt_restarts_structural_change[dt_id]++;
     }
   }
 }
@@ -822,11 +852,11 @@ BTree::XMergeReturnCode BTree::XMerge(HybridPageGuard<BTreeNode>& p_guard, Hybri
       // we unlock only the left page, the right one should not be touched again
       if (ret == 1) {
         fully_merged[left_hand - pos] = true;
-        WorkerCounters::myCounters().xmerge_full_counter[dtid]++;
+        WorkerCounters::myCounters().xmerge_full_counter[dt_id]++;
         ret_code = XMergeReturnCode::FULL_MERGE;
       } else if (ret == 2) {
         guards[left_hand - pos] = std::move(left_x_guard);
-        WorkerCounters::myCounters().xmerge_partial_counter[dtid]++;
+        WorkerCounters::myCounters().xmerge_partial_counter[dt_id]++;
       } else if (ret == 0) {
         break;
       } else {
@@ -877,7 +907,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
   auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
   auto& btree = *reinterpret_cast<BTree*>(btree_object);
   // -------------------------------------------------------------------------------------
-  if (btree.dtid != to_find.page.dt_id)
+  if (btree.dt_id != to_find.page.dt_id)
     jumpmu::jump();
   // -------------------------------------------------------------------------------------
   Swip<BTreeNode>* c_swip = &btree.root_swip;

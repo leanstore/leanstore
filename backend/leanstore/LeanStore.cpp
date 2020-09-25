@@ -146,6 +146,8 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });
   config_entries.emplace_back("c_backoff", [&](ostream& out) { out << FLAGS_backoff; });
   // -------------------------------------------------------------------------------------
+  config_entries.emplace_back("c_wal", [&](ostream& out) { out << FLAGS_wal; });
+  // -------------------------------------------------------------------------------------
   std::stringstream config_concatenation;
   for (const auto& stat : config_entries) {
     stat.callback(config_concatenation);

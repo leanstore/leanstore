@@ -1,6 +1,7 @@
 #include "adapter.hpp"
 #include "leanstore/counters/CPUCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
+#include "leanstore/tx/TXMG.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
@@ -121,7 +122,10 @@ int main(int argc, char** argv)
         const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
           utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
+        txmg::TXMG::registerThread();
+        // -------------------------------------------------------------------------------------
         while (keep_running) {
+          txmg::TXMG::startTX();
           Integer w_id;
           if (FLAGS_zipf_factor == 0) {
             w_id = urand(1, FLAGS_tpcc_warehouse_count);
@@ -130,6 +134,7 @@ int main(int argc, char** argv)
           }
           tx(w_id);
           WorkerCounters::myCounters().tx++;
+          txmg::TXMG::commitTX();
         }
         CPUCounters::removeThread(r_id);
         running_threads_counter--;

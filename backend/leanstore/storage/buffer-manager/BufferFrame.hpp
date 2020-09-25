@@ -32,8 +32,8 @@ struct BufferFrame {
     u64 lastWrittenGSN = 0;
     STATE state = STATE::FREE;  // INIT:
     bool isWB = false;
-    PID pid = 9999;  // INIT:
-    HybridLatch latch = 0;   // INIT: // ATTENTION: NEVER DECREMENT
+    PID pid = 9999;         // INIT:
+    HybridLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
     // -------------------------------------------------------------------------------------
     BufferFrame* next_free_bf = nullptr;
     ContentionTracker contention_tracker;
@@ -42,7 +42,7 @@ struct BufferFrame {
   };
   struct alignas(512) Page {
     u64 GSN = 0;
-    u64 dt_id = 9999;                                                                 // INIT: datastructure id
+    DTID dt_id = 9999;                                                                // INIT: datastructure id
     u64 magic_debugging_number;                                                       // ATTENTION
     u8 dt[PAGE_SIZE - sizeof(GSN) - sizeof(dt_id) - sizeof(magic_debugging_number)];  // Datastruture BE CAREFUL HERE !!!!!
     // -------------------------------------------------------------------------------------

@@ -18,9 +18,28 @@ namespace vs
 {
 // -------------------------------------------------------------------------------------
 struct BTree {
+  struct WALInsert {
+    PID pid;
+    LID gsn;
+    u16 key_length;
+    u16 value_length;
+    u8 payload[];
+  };
+  struct WALRemove {
+    PID pid;
+    LID gsn;
+    u16 key_length;
+    u8 payload;
+  };
+  struct WALUpdateGenerator {
+    void (*before)(u8* tuple, u8* entry);
+    void (*after)(u8* tuple, u8* entry);
+    u16 entry_size;
+  };
+  // -------------------------------------------------------------------------------------
   enum class OP_TYPE : u8 { POINT_READ, POINT_UPDATE, POINT_INSERT, POINT_DELETE, SCAN };
   // -------------------------------------------------------------------------------------
-  DTID dtid;
+  DTID dt_id;
   // -------------------------------------------------------------------------------------
   atomic<u16> height = 1;  // debugging
   HybridLatch root_lock = 0;
@@ -33,17 +52,17 @@ struct BTree {
   bool lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
   // -------------------------------------------------------------------------------------
   // starts at the key >= start_key
-  void rangeScanAsc(u8* start_key, u16 key_length, function<bool(u8* key, u8* payload, u16 payload_length)>, function<void()>);
+  void rangeScanAsc(u8* start_key, u16 key_length, function<bool(u8* key, u8* value, u16 value_length)>, function<void()>);
   // starts at the key + 1 and downwards
-  void rangeScanDesc(u8* start_key, u16 key_length, function<bool(u8* key, u8* payload, u16 payload_length)>, function<void()>);
+  void rangeScanDesc(u8* start_key, u16 key_length, function<bool(u8* key, u8* value, u16 value_length)>, function<void()>);
   // starts at the key
-  bool prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, const u8*, u16)> payload_callback);
+  bool prefixMaxOne(u8* key, u16 key_length, function<void(const u8*, const u8*, u16)> value_callback);
   // -------------------------------------------------------------------------------------
-  void insert(u8* key, u16 key_length, u64 payloadLength, u8* payload);
+  void insert(u8* key, u16 key_length, u64 valueLength, u8* value);
   void trySplit(BufferFrame& to_split, s16 pos = -1);
   // -------------------------------------------------------------------------------------
-  void updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)>);
-  void update(u8* key, u16 key_length, u64 payloadLength, u8* payload);
+  void updateSameSize(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
+  void update(u8* key, u16 key_length, u64 valueLength, u8* value);
   // -------------------------------------------------------------------------------------
   bool remove(u8* key, u16 key_length);
   bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
@@ -102,11 +121,11 @@ struct BTree {
         BACKOFF_STRATEGIES()
         // -------------------------------------------------------------------------------------
         if (op_type == OP_TYPE::POINT_READ || op_type == OP_TYPE::SCAN) {
-          WorkerCounters::myCounters().dt_restarts_read[dtid]++;
+          WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
         } else if (op_type == OP_TYPE::POINT_UPDATE) {
-          WorkerCounters::myCounters().dt_restarts_update_same_size[dtid]++;
+          WorkerCounters::myCounters().dt_restarts_update_same_size[dt_id]++;
         } else if (op_type == OP_TYPE::POINT_INSERT) {
-          WorkerCounters::myCounters().dt_restarts_structural_change[dtid]++;
+          WorkerCounters::myCounters().dt_restarts_structural_change[dt_id]++;
         } else {
         }
       }
