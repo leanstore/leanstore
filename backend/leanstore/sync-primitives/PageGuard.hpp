@@ -46,7 +46,7 @@ class HybridPageGuard
   // I: Root case
   HybridPageGuard(HybridLatch& latch) : guard(latch)
   {
-    guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SPIN>();
+    guard.toOptimisticSpin();
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
@@ -55,11 +55,11 @@ class HybridPageGuard
       : bf(&BMC::global_bf->resolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
   {
     if (if_contended == FALLBACK_METHOD::SPIN) {
-      guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SPIN>();
+      guard.toOptimisticSpin();
     } else if (if_contended == FALLBACK_METHOD::EXCLUSIVE) {
-      guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::EXCLUSIVE>();
+      guard.toOptimisticOrExclusive();
     } else if (if_contended == FALLBACK_METHOD::SHARED) {
-      guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SHARED>();
+      guard.toOptimisticOrShared();
     }
     jumpmu_registerDestructor();
     // -------------------------------------------------------------------------------------
@@ -80,14 +80,14 @@ class HybridPageGuard
   HybridPageGuard(ExclusivePageGuard<T>&&) = delete;
   HybridPageGuard& operator=(ExclusivePageGuard<T>&&)
   {
-    guard.transition<GUARD_STATE::OPTIMISTIC>();
+    guard.toOptimisticSpin();
     return *this;
   }
   // I: Downgrade shared
   HybridPageGuard(SharedPageGuard<T>&&) = delete;
   HybridPageGuard& operator=(SharedPageGuard<T>&&)
   {
-    guard.transition<GUARD_STATE::OPTIMISTIC>();
+    guard.toOptimisticSpin();
     return *this;
   }
   // -------------------------------------------------------------------------------------
@@ -103,7 +103,7 @@ class HybridPageGuard
   }
   // -------------------------------------------------------------------------------------
   inline bool hasFacedContention() { return guard.faced_contention; }
-  inline void kill() { guard.transition<GUARD_STATE::OPTIMISTIC>(); }
+  inline void kill() { guard.toOptimisticSpin(); }
   inline void recheck() { guard.recheck(); }
   inline void recheck_done()
   {
@@ -132,7 +132,7 @@ class HybridPageGuard
         reclaim();
       }
     }
-    guard.transition<GUARD_STATE::OPTIMISTIC>();
+    guard.toOptimisticSpin();
     jumpmu::clearLastDestructor();
   }
 };

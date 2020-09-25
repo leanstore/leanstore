@@ -82,7 +82,7 @@ struct Guard {
   }
   Guard& operator=(Guard&& other)
   {
-    transition<GUARD_STATE::OPTIMISTIC>();
+    toOptimisticSpin();
     // -------------------------------------------------------------------------------------
     latch = other.latch;
     state = other.state;
@@ -101,6 +101,125 @@ struct Guard {
       if (version != latch->ref().load()) {
         jumpmu::jump();
       }
+    }
+  }
+  // -------------------------------------------------------------------------------------
+  inline void toOptimisticSpin()
+  {
+    if (state == GUARD_STATE::OPTIMISTIC || state == GUARD_STATE::MOVED || latch == nullptr) {
+      return;
+    }
+    if (state == GUARD_STATE::UNINITIALIZED) {
+      volatile u32 mask = 1;
+      version = latch->ref().load();
+      while ((version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
+        for (u64 i = utils::RandomGenerator::getRandU64(0, mask); i; --i) {
+          MYPAUSE();
+        }
+        if (mask < MAX_BACKOFF) {
+          mask = mask << 1;
+        } else {
+          mask = MAX_BACKOFF;
+          faced_contention = true;
+        }
+        version = latch->ref().load();
+      }
+    } else if (state == GUARD_STATE::EXCLUSIVE) {
+      version += LATCH_EXCLUSIVE_BIT;
+      latch->ref().store(version, std::memory_order_release);
+      latch->mutex.unlock();
+    } else if (state == GUARD_STATE::SHARED) {
+      latch->mutex.unlock_shared();
+    }
+    state = GUARD_STATE::OPTIMISTIC;
+  }
+  inline void toOptimisticOrJump()
+  {
+    if (state == GUARD_STATE::OPTIMISTIC || state == GUARD_STATE::MOVED || latch == nullptr) {
+      return;
+    }
+    for (u8 attempt = 0; attempt < 40; attempt++) {
+      version = latch->ref().load();
+      if ((version & LATCH_EXCLUSIVE_BIT) == 0) {
+        state = GUARD_STATE::OPTIMISTIC;
+        return;
+      }
+    }
+    jumpmu::jump();
+  }
+  inline void toOptimisticOrShared()
+  {
+    if (state == GUARD_STATE::OPTIMISTIC || state == GUARD_STATE::MOVED || latch == nullptr) {
+      return;
+    }
+    for (u8 attempt = 0; attempt < 40; attempt++) {
+      version = latch->ref().load();
+      if ((version & LATCH_EXCLUSIVE_BIT) == 0) {
+        state = GUARD_STATE::OPTIMISTIC;
+        return;
+      }
+    }
+    latch->mutex.lock_shared();
+    version = latch->ref().load();
+    state = GUARD_STATE::SHARED;
+    faced_contention = true;
+  }
+  inline void toOptimisticOrExclusive()
+  {
+    if (state == GUARD_STATE::OPTIMISTIC || state == GUARD_STATE::MOVED || latch == nullptr) {
+      return;
+    }
+    for (u8 attempt = 0; attempt < 40; attempt++) {
+      version = latch->ref().load();
+      if ((version & LATCH_EXCLUSIVE_BIT) == 0) {
+        state = GUARD_STATE::OPTIMISTIC;
+        return;
+      }
+    }
+    latch->mutex.lock();
+    version = latch->ref().load() + LATCH_EXCLUSIVE_BIT;
+    latch->ref().store(version, std::memory_order_release);
+    state = GUARD_STATE::EXCLUSIVE;
+    faced_contention = true;
+  }
+  inline void toExclusive()
+  {
+    if (state == GUARD_STATE::SHARED || state == GUARD_STATE::MOVED || latch == nullptr) {
+      return;
+    }
+    if (state == GUARD_STATE::OPTIMISTIC) {
+      const u64 new_version = version + LATCH_EXCLUSIVE_BIT;
+      u64 expected = version;
+      latch->mutex.lock();  // changed from try_lock because of possible retries b/c lots of readers
+      if (!latch->ref().compare_exchange_strong(expected, new_version)) {
+        latch->mutex.unlock();
+        jumpmu::jump();
+      }
+      version = new_version;
+      state = GUARD_STATE::EXCLUSIVE;
+    } else {
+      latch->mutex.lock();
+      version = latch->ref().load() + LATCH_EXCLUSIVE_BIT;
+      latch->ref().store(version, std::memory_order_release);
+      state = GUARD_STATE::EXCLUSIVE;
+    }
+  }
+  inline void toShared()
+  {
+    if (state == GUARD_STATE::SHARED || state == GUARD_STATE::MOVED || latch == nullptr) {
+      return;
+    }
+    if (state == GUARD_STATE::OPTIMISTIC) {
+      if (!latch->mutex.try_lock_shared()) {
+        jumpmu::jump();
+      }
+      if (latch->ref().load() != version) {
+        latch->mutex.unlock_shared();
+        jumpmu::jump();
+      }
+      state = GUARD_STATE::SHARED;
+    } else {
+      assert(false);
     }
   }
   // -------------------------------------------------------------------------------------

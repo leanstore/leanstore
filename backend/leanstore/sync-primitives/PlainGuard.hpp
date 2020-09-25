@@ -29,11 +29,11 @@ class OptimisticGuard
   OptimisticGuard(HybridLatch& lock) : guard(lock)
   {
     // assert(if_contended != FALLBACK_METHOD::EXCLUSIVE && if_contended != FALLBACK_METHOD::SHARED);
-    guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::SPIN>();
+    guard.toOptimisticSpin();
   }
   OptimisticGuard(HybridLatch& lock, bool) : guard(lock)  // TODO: temporary hack
   {
-    guard.transition<GUARD_STATE::OPTIMISTIC, FALLBACK_METHOD::JUMP>();
+    guard.toOptimisticOrJump();
   }
   // -------------------------------------------------------------------------------------
   OptimisticGuard() = delete;
@@ -67,7 +67,7 @@ class ExclusiveGuard
       // -------------------------------------------------------------------------------------
       ~ExclusiveGuard()
   {
-    optimistic_guard.guard.transition<GUARD_STATE::OPTIMISTIC>();
+    optimistic_guard.guard.toOptimisticSpin();
     jumpmu::clearLastDestructor();
   }
 };
@@ -81,7 +81,7 @@ class ExclusiveUpgradeIfNeeded
  public:
   ExclusiveUpgradeIfNeeded(Guard& guard) : guard(guard), was_exclusive(guard.state == GUARD_STATE::EXCLUSIVE)
   {
-    guard.transition<GUARD_STATE::EXCLUSIVE>();
+    guard.toExclusive();
     jumpmu_registerDestructor();
   }
   jumpmu_defineCustomDestructor(ExclusiveUpgradeIfNeeded)
@@ -89,7 +89,7 @@ class ExclusiveUpgradeIfNeeded
       ~ExclusiveUpgradeIfNeeded()
   {
     if (!was_exclusive) {
-      guard.transition<GUARD_STATE::OPTIMISTIC>();
+      guard.toOptimisticSpin();
     }
     jumpmu::clearLastDestructor();
   }
@@ -103,7 +103,7 @@ class SharedGuard
  public:
   SharedGuard(OptimisticGuard& o_lock) : optimistic_guard(o_lock)
   {
-    optimistic_guard.guard.transition<GUARD_STATE::SHARED>();
+    optimistic_guard.guard.toShared();
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------
@@ -111,7 +111,7 @@ class SharedGuard
       // -------------------------------------------------------------------------------------
       ~SharedGuard()
   {
-    optimistic_guard.guard.transition<GUARD_STATE::OPTIMISTIC>();
+    optimistic_guard.guard.toOptimisticSpin();
     jumpmu::clearLastDestructor();
   }
 };

@@ -4,8 +4,8 @@
 #include "BufferFrame.hpp"
 #include "Exceptions.hpp"
 #include "leanstore/Config.hpp"
-#include "leanstore/counters/PPCounters.hpp"
 #include "leanstore/counters/CPUCounters.hpp"
+#include "leanstore/counters/PPCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
@@ -137,7 +137,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
     [[maybe_unused]] Time phase_1_begin, phase_1_end;
     COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
     BufferFrame* volatile r_buffer = &randomBufferFrame();  // Attention: we may set the r_buffer to a child of a bf instead of random
-    volatile u64 failed_attempts = 0; // [corner cases]: prevent starving when free list is empty and cooling to the required level can not be achieved
+    volatile u64 failed_attempts =
+        0;  // [corner cases]: prevent starving when free list is empty and cooling to the required level can not be achieved
 #define repickIf(cond)               \
   if (cond) {                        \
     r_buffer = &randomBufferFrame(); \
@@ -261,7 +262,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
         ParentSwipHandler parent_handler = dt_registry.findParent(dt_id, bf);
         assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
         ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
-        guard.guard.transition<GUARD_STATE::EXCLUSIVE>();  // reclaimBufferFrame manually unlocks it
+        guard.guard.toExclusive();
         // -------------------------------------------------------------------------------------
         partition.cooling_queue.erase(bf_itr);
         partition.cooling_bfs_counter--;
@@ -365,7 +366,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                   jumpmuTry()
                   {
                     Guard guard(written_bf.header.latch);
-                    guard.transition<GUARD_STATE::EXCLUSIVE, FALLBACK_METHOD::EXCLUSIVE>();
+                    guard.toExclusive();
                     assert(written_bf.header.isWB);
                     assert(written_bf.header.lastWrittenGSN < written_lsn);
                     // -------------------------------------------------------------------------------------
@@ -377,7 +378,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                     written_bf.header.isWB = false;
                     PPCounters::myCounters().flushed_pages_counter++;
                     // -------------------------------------------------------------------------------------
-                    guard.transition<GUARD_STATE::OPTIMISTIC>();
+                    guard.toOptimisticSpin();
                     jumpmu_break;
                   }
                   jumpmuCatch() {}
@@ -556,7 +557,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     return swip_value.bfRef();
   }
   // -------------------------------------------------------------------------------------
-  swip_guard.transition<GUARD_STATE::OPTIMISTIC>();  // otherwise we would get a deadlock, P->G, G->P
+  swip_guard.toOptimisticSpin();  // otherwise we would get a deadlock, P->G, G->P
   const PID pid = swip_value.asPageID();
   Partition& partition = getPartition(pid);
   JMUW<std::unique_lock<std::mutex>> g_guard(partition.io_mutex);
