@@ -63,7 +63,6 @@ class HybridPageGuard
     }
     jumpmu_registerDestructor();
     // -------------------------------------------------------------------------------------
-    [[maybe_unused]] DTID p_dt_id, dt_id;
     DEBUG_BLOCK()
     {
       if (p_guard.hasBf()) {

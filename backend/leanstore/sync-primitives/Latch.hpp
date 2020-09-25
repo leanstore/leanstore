@@ -121,10 +121,10 @@ struct Guard {
     version = latch->ref().load();
     if ((version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
       faced_contention = true;
+      do {
+        version = latch->ref().load();
+      } while ((version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
     }
-    do {
-      version = latch->ref().load();
-    } while ((version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT);
     state = GUARD_STATE::OPTIMISTIC;
   }
   inline void toOptimisticOrJump()
