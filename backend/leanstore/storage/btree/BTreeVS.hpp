@@ -90,7 +90,7 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   // Helpers
   template <OP_TYPE op_type = OP_TYPE::POINT_READ>
-  void findLeafForRead(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
+  void findLeaf(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
   {
     u32 volatile mask = 1;
     u16 volatile level = 0;
@@ -98,22 +98,21 @@ struct BTree {
       jumpmuTry()
       {
         HybridPageGuard<BTreeNode> p_guard(root_lock);
-        HybridPageGuard<BTreeNode> c_guard(p_guard, root_swip);
-        while (!c_guard->is_leaf) {
-          Swip<BTreeNode>& c_swip = c_guard->lookupInner(key, key_length);
-          p_guard = std::move(c_guard);
+        target_guard = HybridPageGuard<BTreeNode>(p_guard, root_swip);
+        while (!target_guard->is_leaf) {
+          Swip<BTreeNode>& c_swip = target_guard->lookupInner(key, key_length);
+          p_guard = std::move(target_guard);
           if (level == height - 1) {
-            c_guard = HybridPageGuard(
+            target_guard = HybridPageGuard(
                 p_guard, c_swip,
                 (op_type == OP_TYPE::POINT_UPDATE || op_type == OP_TYPE::POINT_INSERT) ? FALLBACK_METHOD::EXCLUSIVE : FALLBACK_METHOD::SHARED);
           } else {
-            c_guard = HybridPageGuard(p_guard, c_swip);
+            target_guard = HybridPageGuard(p_guard, c_swip);
           }
           level++;
         }
         // -------------------------------------------------------------------------------------
         p_guard.kill();
-        target_guard = std::move(c_guard);
         jumpmu_return;
       }
       jumpmuCatch()

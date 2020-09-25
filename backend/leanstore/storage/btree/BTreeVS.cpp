@@ -34,7 +34,7 @@ bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> pa
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> leaf;
-      findLeafForRead<OP_TYPE::POINT_READ>(leaf, key, key_length);
+      findLeaf<OP_TYPE::POINT_READ>(leaf, key, key_length);
       // -------------------------------------------------------------------------------------
       DEBUG_BLOCK()
       {
@@ -76,7 +76,7 @@ void BTree::rangeScanAsc(u8* start_key, u16 key_length, std::function<bool(u8* k
     {
       HybridPageGuard<BTreeNode> leaf;
       while (true) {
-        findLeafForRead<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
+        findLeaf<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
         SharedPageGuard s_leaf(std::move(leaf));
         // -------------------------------------------------------------------------------------
         if (s_leaf->count == 0) {
@@ -156,7 +156,7 @@ void BTree::rangeScanDesc(u8* start_key,
     {
       HybridPageGuard<BTreeNode> leaf;
       while (true) {
-        findLeafForRead<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
+        findLeaf<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
         SharedPageGuard s_leaf(std::move(leaf));
         // -------------------------------------------------------------------------------------
         if (s_leaf->count == 0) {
@@ -233,7 +233,7 @@ bool BTree::prefixMaxOne(u8* start_key, u16 start_key_length, function<void(cons
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> leaf;
-      findLeafForRead<OP_TYPE::POINT_READ>(leaf, one_step_further_key, start_key_length);
+      findLeaf<OP_TYPE::POINT_READ>(leaf, one_step_further_key, start_key_length);
       const s16 cur = leaf->lowerBound<false>(one_step_further_key, start_key_length);
       if (cur > 0) {
         const s16 pos = cur - 1;
@@ -255,7 +255,7 @@ bool BTree::prefixMaxOne(u8* start_key, u16 start_key_length, function<void(cons
           leaf.recheck();
           std::memcpy(lower_fence_key, leaf->getLowerFenceKey(), lower_fence_key_length);
           HybridPageGuard<BTreeNode> prev;
-          findLeafForRead<OP_TYPE::POINT_READ>(prev, lower_fence_key, lower_fence_key_length);
+          findLeaf<OP_TYPE::POINT_READ>(prev, lower_fence_key, lower_fence_key_length);
           leaf.recheck_done();
           // -------------------------------------------------------------------------------------
           ensure(prev->count >= 1);
@@ -289,7 +289,7 @@ void BTree::insert(u8* key, u16 key_length, u64 value_length, u8* value)
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> c_guard;
-      findLeafForRead<OP_TYPE::POINT_INSERT>(c_guard, key, key_length);
+      findLeaf<OP_TYPE::POINT_INSERT>(c_guard, key, key_length);
       // -------------------------------------------------------------------------------------
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (c_x_guard->prepareInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(value_length)))) {
@@ -489,7 +489,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
     {
       // -------------------------------------------------------------------------------------
       HybridPageGuard<BTreeNode> c_guard;
-      findLeafForRead<OP_TYPE::POINT_UPDATE>(c_guard, key, key_length);
+      findLeaf<OP_TYPE::POINT_UPDATE>(c_guard, key, key_length);
       u32 local_restarts_counter = c_guard.hasFacedContention();  // current implementation uses the mutex
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       s16 pos = c_x_guard->lowerBound<true>(key, key_length);
@@ -568,7 +568,7 @@ bool BTree::remove(u8* key, u16 key_length)
     jumpmuTry()
     {
       HybridPageGuard<BTreeNode> c_guard;
-      findLeafForRead<OP_TYPE::POINT_DELETE>(c_guard, key, key_length);
+      findLeaf<OP_TYPE::POINT_DELETE>(c_guard, key, key_length);
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (c_x_guard->remove(key, key_length)) {
         if (FLAGS_wal) {
