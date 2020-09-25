@@ -76,7 +76,7 @@ void BTree::rangeScanAsc(u8* start_key, u16 key_length, std::function<bool(u8* k
     {
       HybridPageGuard<BTreeNode> leaf;
       while (true) {
-        findLeaf<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
+        findLeafCanJump<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
         SharedPageGuard s_leaf(std::move(leaf));
         // -------------------------------------------------------------------------------------
         if (s_leaf->count == 0) {
@@ -156,7 +156,7 @@ void BTree::rangeScanDesc(u8* start_key,
     {
       HybridPageGuard<BTreeNode> leaf;
       while (true) {
-        findLeaf<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
+        findLeafCanJump<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
         SharedPageGuard s_leaf(std::move(leaf));
         // -------------------------------------------------------------------------------------
         if (s_leaf->count == 0) {
