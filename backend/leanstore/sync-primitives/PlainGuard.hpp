@@ -59,7 +59,7 @@ class ExclusiveGuard
  public:
   ExclusiveGuard(OptimisticGuard& o_lock) : optimistic_guard(o_lock)
   {
-    optimistic_guard.guard.transition<GUARD_STATE::EXCLUSIVE>();
+    optimistic_guard.guard.toExclusive();
     jumpmu_registerDestructor();
   }
   // -------------------------------------------------------------------------------------

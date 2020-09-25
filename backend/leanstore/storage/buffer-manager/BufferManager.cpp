@@ -378,7 +378,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                     written_bf.header.isWB = false;
                     PPCounters::myCounters().flushed_pages_counter++;
                     // -------------------------------------------------------------------------------------
-                    guard.toOptimisticSpin();
+                    guard.unlock();
                     jumpmu_break;
                   }
                   jumpmuCatch() {}
@@ -557,7 +557,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
     return swip_value.bfRef();
   }
   // -------------------------------------------------------------------------------------
-  swip_guard.toOptimisticSpin();  // otherwise we would get a deadlock, P->G, G->P
+  swip_guard.unlock();  // otherwise we would get a deadlock, P->G, G->P
   const PID pid = swip_value.asPageID();
   Partition& partition = getPartition(pid);
   JMUW<std::unique_lock<std::mutex>> g_guard(partition.io_mutex);

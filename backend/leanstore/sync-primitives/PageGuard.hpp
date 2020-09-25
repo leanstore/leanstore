@@ -80,14 +80,14 @@ class HybridPageGuard
   HybridPageGuard(ExclusivePageGuard<T>&&) = delete;
   HybridPageGuard& operator=(ExclusivePageGuard<T>&&)
   {
-    guard.toOptimisticSpin();
+    guard.unlock();
     return *this;
   }
   // I: Downgrade shared
   HybridPageGuard(SharedPageGuard<T>&&) = delete;
   HybridPageGuard& operator=(SharedPageGuard<T>&&)
   {
-    guard.toOptimisticSpin();
+    guard.unlock();
     return *this;
   }
   // -------------------------------------------------------------------------------------
@@ -103,7 +103,7 @@ class HybridPageGuard
   }
   // -------------------------------------------------------------------------------------
   inline bool hasFacedContention() { return guard.faced_contention; }
-  inline void kill() { guard.toOptimisticSpin(); }
+  inline void kill() { guard.unlock(); }
   inline void recheck() { guard.recheck(); }
   inline void recheck_done()
   {
@@ -132,7 +132,7 @@ class HybridPageGuard
         reclaim();
       }
     }
-    guard.toOptimisticSpin();
+    guard.unlock();
     jumpmu::clearLastDestructor();
   }
 };
@@ -148,7 +148,7 @@ class ExclusivePageGuard
   // I: Upgrade
   ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard)
   {
-    ref_guard.guard.template transition<GUARD_STATE::EXCLUSIVE>();
+    ref_guard.guard.toExclusive();
     if (ref_guard.hasBf()) {
       ref_guard.bf->page.GSN++;
     }
@@ -167,7 +167,7 @@ class ExclusivePageGuard
     if (!ref_guard.keep_alive && ref_guard.guard.state == GUARD_STATE::EXCLUSIVE) {
       ref_guard.reclaim();
     } else {
-      ref_guard.guard.template transition<GUARD_STATE::OPTIMISTIC>();
+      ref_guard.guard.unlock();
     }
   }
   // -------------------------------------------------------------------------------------
@@ -186,9 +186,9 @@ class SharedPageGuard
  public:
   HybridPageGuard<T>& ref_guard;
   // I: Upgrade
-  SharedPageGuard(HybridPageGuard<T>&& h_guard) : ref_guard(h_guard) { ref_guard.guard.template transition<GUARD_STATE::SHARED>(); }
+  SharedPageGuard(HybridPageGuard<T>&& h_guard) : ref_guard(h_guard) { ref_guard.guard.toShared(); }
   // -------------------------------------------------------------------------------------
-  ~SharedPageGuard() { ref_guard.guard.template transition<GUARD_STATE::OPTIMISTIC>(); }
+  ~SharedPageGuard() { ref_guard.guard.unlock(); }
   // -------------------------------------------------------------------------------------
   inline T& ref() { return *reinterpret_cast<T*>(ref_guard.bf->page.dt); }
   inline T* ptr() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }

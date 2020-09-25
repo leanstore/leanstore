@@ -89,6 +89,7 @@ int main(int argc, char** argv)
   auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
   db.startDebuggingThread();
   if (FLAGS_tpcc_warehouse_affinity) {
+    ensure(!FLAGS_wal);
     if (FLAGS_tpcc_warehouse_count < FLAGS_worker_threads) {
       cerr << "There must be more warehouses than threads in affinity mode" << endl;
       exit(1);
@@ -115,6 +116,12 @@ int main(int argc, char** argv)
       });
     }
   } else {
+    ensure(FLAGS_zipf_factor == 0);
+    // if (FLAGS_zipf_factor == 0) {
+    //   w_id = urand(1, FLAGS_tpcc_warehouse_count);
+    // } else {
+    //   w_id = 1 + (random->rand() % (FLAGS_tpcc_warehouse_count));
+    // }
     for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       threads.emplace_back([&, t_i]() {
         running_threads_counter++;
@@ -122,19 +129,22 @@ int main(int argc, char** argv)
         const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
           utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
-        txmg::TXMG::registerThread();
-        // -------------------------------------------------------------------------------------
-        while (keep_running) {
-          txmg::TXMG::startTX();
-          Integer w_id;
-          if (FLAGS_zipf_factor == 0) {
+        Integer w_id;
+        if (FLAGS_wal) {
+          txmg::TXMG::registerThread();
+          while (keep_running) {
+            txmg::TXMG::startTX();
             w_id = urand(1, FLAGS_tpcc_warehouse_count);
-          } else {
-            w_id = 1 + (random->rand() % (FLAGS_tpcc_warehouse_count));
+            tx(w_id);
+            WorkerCounters::myCounters().tx++;
+            txmg::TXMG::commitTX();
           }
-          tx(w_id);
-          WorkerCounters::myCounters().tx++;
-          txmg::TXMG::commitTX();
+        } else {
+          while (keep_running) {
+            w_id = urand(1, FLAGS_tpcc_warehouse_count);
+            tx(w_id);
+            WorkerCounters::myCounters().tx++;
+          }
         }
         CPUCounters::removeThread(r_id);
         running_threads_counter--;
