@@ -89,14 +89,8 @@ void BTree::rangeScanAsc(u8* start_key, u16 key_length, std::function<bool(u8* k
           cur = 0;
         }
         // -------------------------------------------------------------------------------------
-        u16 max_key_length = 0, prefix_length = s_leaf->prefix_length;
-        for (u16 t_i = 0; t_i < s_leaf->count; t_i++) {
-          ensure(s_leaf->getFullKeyLen(t_i) < 100);
-          if (s_leaf->getFullKeyLen(t_i) > max_key_length) {
-            max_key_length = s_leaf->getFullKeyLen(t_i);
-          }
-        }
-        u8 key[max_key_length];
+        u16 prefix_length = s_leaf->prefix_length;
+        u8 key[PAGE_SIZE]; // TODO
         s_leaf->copyPrefix(key);
         // -------------------------------------------------------------------------------------
         while (cur < s_leaf->count) {
@@ -178,13 +172,8 @@ void BTree::rangeScanDesc(u8* start_key,
           cur = s_leaf->count - 1;
         }
         // -------------------------------------------------------------------------------------
-        u16 max_key_length = 0, prefix_length = s_leaf->prefix_length;
-        for (u16 t_i = 0; t_i < s_leaf->count; t_i++) {
-          if (s_leaf->getFullKeyLen(t_i) > max_key_length) {
-            max_key_length = s_leaf->getFullKeyLen(t_i);
-          }
-        }
-        u8 key[max_key_length];
+        u16 prefix_length = s_leaf->prefix_length;
+        u8 key[PAGE_SIZE]; // TODO
         s_leaf->copyPrefix(key);
         // -------------------------------------------------------------------------------------
         while (cur >= 0) {

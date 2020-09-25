@@ -74,6 +74,16 @@ class BufferManager
   ~BufferManager();
   // -------------------------------------------------------------------------------------
   BufferFrame& allocatePage();
+  inline BufferFrame& tryFastResolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
+  {
+    if (swip_value.isHOT()) {
+      BufferFrame& bf = swip_value.bfRef();
+      swip_guard.recheck();
+      return bf;
+    } else {
+      return resolveSwip(swip_guard, swip_value);
+    }
+  }
   BufferFrame& resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value);
   void reclaimPage(BufferFrame& bf);
   void reclaimBufferFrame(BufferFrame& bf);
@@ -102,7 +112,7 @@ class BufferManager
   // -------------------------------------------------------------------------------------
   u64 consumedPages();
   BufferFrame& getContainingBufferFrame(const u8*);  // get the buffer frame containing the given ptr address
-};
+};                                                   // namespace buffermanager
 // -------------------------------------------------------------------------------------
 class BMC
 {

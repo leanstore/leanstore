@@ -52,7 +52,7 @@ class HybridPageGuard
   // -------------------------------------------------------------------------------------
   // I: Lock coupling
   HybridPageGuard(HybridPageGuard& p_guard, Swip<T>& swip, const FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
-      : bf(&BMC::global_bf->resolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
+      : bf(&BMC::global_bf->tryFastResolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
   {
     if (if_contended == FALLBACK_METHOD::SPIN) {
       guard.toOptimisticSpin();
