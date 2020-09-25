@@ -90,29 +90,35 @@ struct BTree {
   // -------------------------------------------------------------------------------------
   // Helpers
   template <OP_TYPE op_type = OP_TYPE::POINT_READ>
+  inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
+  {
+    u16 volatile level = 0;
+    HybridPageGuard<BTreeNode> p_guard(root_lock);
+    target_guard = HybridPageGuard<BTreeNode>(p_guard, root_swip);
+    while (!target_guard->is_leaf) {
+      Swip<BTreeNode>& c_swip = target_guard->lookupInner(key, key_length);
+      p_guard = std::move(target_guard);
+      if (level == height - 1) {
+        target_guard = HybridPageGuard(
+            p_guard, c_swip,
+            (op_type == OP_TYPE::POINT_UPDATE || op_type == OP_TYPE::POINT_INSERT) ? FALLBACK_METHOD::EXCLUSIVE : FALLBACK_METHOD::SHARED);
+      } else {
+        target_guard = HybridPageGuard(p_guard, c_swip);
+      }
+      level++;
+    }
+    // -------------------------------------------------------------------------------------
+    p_guard.kill();
+  }
+  // -------------------------------------------------------------------------------------
+  template <OP_TYPE op_type = OP_TYPE::POINT_READ>
   void findLeaf(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
   {
     u32 volatile mask = 1;
-    u16 volatile level = 0;
     while (true) {
       jumpmuTry()
       {
-        HybridPageGuard<BTreeNode> p_guard(root_lock);
-        target_guard = HybridPageGuard<BTreeNode>(p_guard, root_swip);
-        while (!target_guard->is_leaf) {
-          Swip<BTreeNode>& c_swip = target_guard->lookupInner(key, key_length);
-          p_guard = std::move(target_guard);
-          if (level == height - 1) {
-            target_guard = HybridPageGuard(
-                p_guard, c_swip,
-                (op_type == OP_TYPE::POINT_UPDATE || op_type == OP_TYPE::POINT_INSERT) ? FALLBACK_METHOD::EXCLUSIVE : FALLBACK_METHOD::SHARED);
-          } else {
-            target_guard = HybridPageGuard(p_guard, c_swip);
-          }
-          level++;
-        }
-        // -------------------------------------------------------------------------------------
-        p_guard.kill();
+        findLeafCanJump<op_type>(target_guard, key, key_length);
         jumpmu_return;
       }
       jumpmuCatch()
