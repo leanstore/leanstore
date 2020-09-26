@@ -24,29 +24,21 @@ struct LeanStoreAdapter {
   // -------------------------------------------------------------------------------------
   void printTreeHeight() { cout << name << " height = " << btree->height << endl; }
   // -------------------------------------------------------------------------------------
-  template <class T>
-  static std::string getStringKey(const T& key)
-  {
-    uint8_t foldKey[Record::maxFoldLength()];
-    unsigned foldKeyLen = Record::foldRecord(foldKey, key);
-    return std::string(reinterpret_cast<char*>(foldKey), foldKeyLen);
-  }
-  // -------------------------------------------------------------------------------------
   // key_length - truncate_from_end  gives us the length of the prefix
   // it gives us the maximum tuple with this prefix
   template <class Fn>
   void prefixMax1(const typename Record::Key& key, const u64 truncate_from_end, const Fn& fn)
   {
-    string key_str = getStringKey(key);
-    const bool found =
-        btree->prefixMaxOne((u8*)key_str.data(), key_str.length() - truncate_from_end, [&](const u8* key, const u8* payload, u16 payload_length) {
-          static_cast<void>(payload_length);
-          typename Record::Key typed_key;
-          Record::unfoldRecord(key, typed_key);
-          const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
-          assert(payload_length == sizeof(Record));
-          fn(typed_key, typed_payload);
-        });
+    u8 folded_key[Record::maxFoldLength()];
+    u16 folded_key_len = Record::foldRecord(folded_key, key);
+    const bool found = btree->prefixMaxOne(folded_key, folded_key_len - truncate_from_end, [&](const u8* key, const u8* payload, u16 payload_length) {
+      static_cast<void>(payload_length);
+      typename Record::Key typed_key;
+      Record::unfoldRecord(key, typed_key);
+      const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
+      assert(payload_length == sizeof(Record));
+      fn(typed_key, typed_payload);
+    });
     if (!found) {
       ensure(false);
     }
@@ -55,9 +47,10 @@ struct LeanStoreAdapter {
   template <class Fn>
   void scanDesc(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
   {
-    string key_str = getStringKey(key);
+    u8 folded_key[Record::maxFoldLength()];
+    u16 folded_key_len = Record::foldRecord(folded_key, key);
     btree->rangeScanDesc(
-        reinterpret_cast<u8*>(key_str.data()), u16(key_str.length()),
+        folded_key, folded_key_len,
         [&](u8* key, u8* payload, [[maybe_unused]] u16 payload_length) {
           assert(payload_length == sizeof(Record));
           typename Record::Key typed_key;
@@ -70,15 +63,17 @@ struct LeanStoreAdapter {
   // -------------------------------------------------------------------------------------
   void insert(const typename Record::Key& rec_key, const Record& record)
   {
-    string key = getStringKey(rec_key);
-    btree->insert((u8*)key.data(), key.length(), sizeof(Record), (u8*)(&record));
+    u8 folded_key[Record::maxFoldLength()];
+    u16 folded_key_len = Record::foldRecord(folded_key, rec_key);
+    btree->insert(folded_key, folded_key_len, sizeof(Record), (u8*)(&record));
   }
 
   template <class Fn>
   void lookup1(const typename Record::Key& key, const Fn& fn)
   {
-    string key_str = getStringKey(key);
-    const bool found = btree->lookupOne((u8*)key_str.data(), key_str.length(), [&](const u8* payload, u16 payload_length) {
+    u8 folded_key[Record::maxFoldLength()];
+    u16 folded_key_len = Record::foldRecord(folded_key, key);
+    const bool found = btree->lookupOne(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
       static_cast<void>(payload_length);
       const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
       assert(payload_length == sizeof(Record));
@@ -92,22 +87,25 @@ struct LeanStoreAdapter {
   template <class Fn>
   void update1(const typename Record::Key& key, const Fn& fn, btree::vs::BTree::WALUpdateGenerator wal_update_generator)
   {
-    string key_str = getStringKey(key);
-    btree->updateSameSize((u8*)key_str.data(), key_str.length(),
-                          [&](u8* payload, u16 payload_length) {
-                            static_cast<void>(payload_length);
-                            assert(payload_length == sizeof(Record));
-                            Record& typed_payload = *reinterpret_cast<Record*>(payload);
-                            fn(typed_payload);
-                          },
-                          wal_update_generator);
+    u8 folded_key[Record::maxFoldLength()];
+    u16 folded_key_len = Record::foldRecord(folded_key, key);
+    btree->updateSameSize(
+        folded_key, folded_key_len,
+        [&](u8* payload, u16 payload_length) {
+          static_cast<void>(payload_length);
+          assert(payload_length == sizeof(Record));
+          Record& typed_payload = *reinterpret_cast<Record*>(payload);
+          fn(typed_payload);
+        },
+        wal_update_generator);
   }
 
   bool erase(const typename Record::Key& key)
   {
-    string key_str = getStringKey(key);
-    if (btree->lookupOne((u8*)key_str.data(), key_str.length(), [](const u8*, u16) {})) {
-      if (!btree->remove((u8*)key_str.data(), key_str.length())) {
+    u8 folded_key[Record::maxFoldLength()];
+    u16 folded_key_len = Record::foldRecord(folded_key, key);
+    if (btree->lookupOne(folded_key, folded_key_len, [](const u8*, u16) {})) {
+      if (!btree->remove(folded_key, folded_key_len)) {
         return false;
       }
     }
@@ -117,9 +115,10 @@ struct LeanStoreAdapter {
   template <class Fn>
   void scan(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
   {
-    string key_str = getStringKey(key);
+    u8 folded_key[Record::maxFoldLength()];
+    u16 folded_key_len = Record::foldRecord(folded_key, key);
     btree->rangeScanAsc(
-        reinterpret_cast<u8*>(key_str.data()), u16(key_str.length()),
+        folded_key, folded_key_len,
         [&](u8* key, u8* payload, [[maybe_unused]] u16 payload_length) {
           assert(payload_length == sizeof(Record));
           typename Record::Key typed_key;
@@ -133,9 +132,10 @@ struct LeanStoreAdapter {
   template <class Field>
   auto lookupField(const typename Record::Key& key, Field Record::*f)
   {
-    string key_str = getStringKey(key);
+    u8 folded_key[Record::maxFoldLength()];
+    u16 folded_key_len = Record::foldRecord(folded_key, key);
     Field local_f;
-    const bool found = btree->lookupOne((u8*)key_str.data(), key_str.length(), [&](const u8* payload, u16 payload_length) {
+    const bool found = btree->lookupOne(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
       static_cast<void>(payload_length);
       assert(payload_length == sizeof(Record));
       Record& typed_payload = *const_cast<Record*>(reinterpret_cast<const Record*>(payload));
