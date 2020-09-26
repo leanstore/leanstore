@@ -132,7 +132,22 @@ struct BTreeNode : public BTreeNodeHeader {
   }
   // -------------------------------------------------------------------------------------
   static u16 spaceNeededAsInner(u16 keyLength, u16 prefixLength);
-  static s32 cmpKeys(u8* a, u8* b, u16 aLength, u16 bLength);
+  static inline s32 cmpKeys(u8* a, u8* b, u16 aLength, u16 bLength)
+  {
+    u16 length = min(aLength, bLength);
+    if (length < 4) {
+      while (length-- > 0) {
+        if (*a++ != *b++)
+          return a[-1] < b[-1] ? -1 : 1;
+      }
+      return (aLength - bLength);
+    } else {
+      int c = memcmp(a, b, length);
+      if (c)
+        return c;
+      return (aLength - bLength);
+    }
+  }
   static inline HeadType head(u8*& key, u16& keyLength)
   {
     switch (keyLength) {

@@ -19,14 +19,6 @@ u16 BTreeNode::spaceNeededAsInner(u16 key_length, u16 prefix_length)
   return sizeof(Slot) + sizeof(ValueType) + (key_length - prefix_length);
 }
 // -------------------------------------------------------------------------------------
-int BTreeNode::cmpKeys(u8* a, u8* b, u16 aLength, u16 bLength)
-{
-  int c = memcmp(a, b, min(aLength, bLength));
-  if (c)
-    return c;
-  return (aLength - bLength);
-}
-// -------------------------------------------------------------------------------------
 void BTreeNode::makeHint()
 {
   u16 dist = count / (hint_count + 1);

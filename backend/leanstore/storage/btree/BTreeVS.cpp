@@ -496,17 +496,17 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       assert(pos != -1);
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       // -------------------------------------------------------------------------------------
-      [[maybe_unused]] u8* wal_entry;
       if (FLAGS_wal) {
+        u8* wal_entry;
         // if it is a secondary index, then we can not use updateSameSize
         ensure(wal_update_generator.entry_size > 0);
         wal_entry = txmg::TXMG::reserveEntry(dt_id, wal_update_generator.entry_size);
         wal_update_generator.before(c_x_guard->getPayload(pos), wal_entry);
-      }
-      // The actual update by the client
-      callback(c_x_guard->getPayload(pos), payload_length);
-      if (FLAGS_wal) {
+        // The actual update by the client
+        callback(c_x_guard->getPayload(pos), payload_length);
         wal_update_generator.after(c_x_guard->getPayload(pos), wal_entry);
+      } else {
+        callback(c_x_guard->getPayload(pos), payload_length);
       }
       // -------------------------------------------------------------------------------------
       if (FLAGS_contention_split && local_restarts_counter > 0) {
