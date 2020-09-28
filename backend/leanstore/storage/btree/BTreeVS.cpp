@@ -1,6 +1,6 @@
 #include "BTreeVS.hpp"
 
-#include "leanstore/tx/TXMG.hpp"
+#include "leanstore/concurrency-recovery/CRMG.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
@@ -295,9 +295,7 @@ void BTree::insert(u8* key, u16 key_length, u64 value_length, u8* value)
       if (c_x_guard->prepareInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(value_length)))) {
         c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(value_length)), value);
         if (FLAGS_wal) {
-          auto& entry = *reinterpret_cast<WALInsert*>(txmg::TXMG::reserveEntry(dt_id, sizeof(WALInsert) + key_length + value_length));
-          entry.pid = c_x_guard.bf()->header.pid;
-          entry.gsn = 0;  // TODO
+          auto& entry = *reinterpret_cast<WALInsert*>(c_x_guard.reserveWALEntry(sizeof(WALInsert) + key_length + value_length));
           entry.key_length = key_length;
           entry.value_length = value_length;
           std::memcpy(entry.payload, key, key_length);
@@ -497,10 +495,10 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       // -------------------------------------------------------------------------------------
       if (FLAGS_wal) {
-        u8* wal_entry;
         // if it is a secondary index, then we can not use updateSameSize
         ensure(wal_update_generator.entry_size > 0);
-        wal_entry = txmg::TXMG::reserveEntry(dt_id, wal_update_generator.entry_size);
+        // -------------------------------------------------------------------------------------
+        u8* wal_entry = c_x_guard.reserveWALEntry(wal_update_generator.entry_size);
         wal_update_generator.before(c_x_guard->getPayload(pos), wal_entry);
         // The actual update by the client
         callback(c_x_guard->getPayload(pos), payload_length);
@@ -572,9 +570,7 @@ bool BTree::remove(u8* key, u16 key_length)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (c_x_guard->remove(key, key_length)) {
         if (FLAGS_wal) {
-          auto& entry = *reinterpret_cast<WALInsert*>(txmg::TXMG::reserveEntry(dt_id, sizeof(WALRemove) + key_length));
-          entry.pid = c_x_guard.bf()->header.pid;
-          entry.gsn = 0;  // TODO
+          auto& entry = *reinterpret_cast<WALRemove*>(c_x_guard.reserveWALEntry(sizeof(WALRemove) + key_length));
           entry.key_length = key_length;
           std::memcpy(entry.payload, key, key_length);
         }

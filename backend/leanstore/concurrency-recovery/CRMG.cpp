@@ -1,17 +1,18 @@
-#include "TXMG.hpp"
+#include "CRMG.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace txmg
+namespace cr
 {
 // -------------------------------------------------------------------------------------
-thread_local ThreadData* TXMG::thread_data = nullptr;
-std::mutex TXMG::mutex;
-std::set<ThreadData*> TXMG::all_threads;
+thread_local Partition* CRMG::user_partition = nullptr;
+thread_local Partition* CRMG::system_partition = nullptr;
+std::mutex CRMG::mutex;
+std::set<Partition*> CRMG::all_threads;
 // -------------------------------------------------------------------------------------
-TXMG::TXMG() {}
-TXMG::~TXMG()
+CRMG::CRMG() {}
+CRMG::~CRMG()
 {
   std::unique_lock guard(mutex);
   for (auto& t : all_threads) {
@@ -20,70 +21,55 @@ TXMG::~TXMG()
   all_threads.clear();
 }
 // -------------------------------------------------------------------------------------
-void TXMG::registerThread()
+void CRMG::registerThread()
 {
   std::unique_lock guard(mutex);
   assert(thread_data == nullptr);
-  thread_data = new ThreadData();
-  all_threads.insert(thread_data);
+  system_partition = new Partition(Partition::TYPE::SYSTEM);
+  user_partition = new Partition(Partition::TYPE::USER);
+  all_threads.insert(user_partition);
+  all_threads.insert(system_partition);
 }
 // -------------------------------------------------------------------------------------
-void TXMG::removeThread()
+void CRMG::removeThread()
 {
   std::unique_lock guard(mutex);
-  all_threads.erase(thread_data);
-  delete thread_data;
+  all_threads.erase(user_partition);
+  all_threads.erase(system_partition);
+  delete user_partition;
+  delete system_partition;
 }
 // -------------------------------------------------------------------------------------
-void TXMG::startTX()
+void Partition::startTX()
 {
-  WALPartition& wal = my().wal;
-  Transaction& tx = my().tx;
-  // -------------------------------------------------------------------------------------
   tx.state = Transaction::STATE::STARTED;
   WALEntry& entry = wal.current_chunk->entry(0);
   entry.type = WALEntry::Type::TX_START;
   entry.lsn = wal.lsn_counter++;
 }
 // -------------------------------------------------------------------------------------
-u8* TXMG::reserveEntry(DTID dt_id, u64 requested_size)
+u8* Partition::reserveEntry(PID pid, DTID dt_id, LID gsn, u64 requested_size)
 {
-  WALPartition& wal = my().wal;
-  Transaction& tx = my().tx;
-  // -------------------------------------------------------------------------------------
-  if (tx.current_dt_id != dt_id) {
-    tx.current_dt_id = dt_id;
-    WALEntry& entry = wal.current_chunk->entry(sizeof(u64));
-    entry.type = WALEntry::Type::DT_CHANGE;
-    entry.lsn = wal.lsn_counter++;
-    *reinterpret_cast<u64*>(entry.payload) = dt_id;
-  }
-  // -------------------------------------------------------------------------------------
+
   WALEntry& entry = wal.current_chunk->entry(requested_size);
   return entry.payload;
 }
 // -------------------------------------------------------------------------------------
-void TXMG::commitTX()
+void Partition::commitTX()
 {
-  WALPartition& wal = my().wal;
-  Transaction& tx = my().tx;
-  // -------------------------------------------------------------------------------------
   tx.state = Transaction::STATE::COMMITED;
   WALEntry& entry = wal.current_chunk->entry(0);
   entry.type = WALEntry::Type::TX_COMMIT;
   entry.lsn = wal.lsn_counter++;
 }
 // -------------------------------------------------------------------------------------
-void TXMG::abortTX()
+void Partition::abortTX()
 {
-  WALPartition& wal = my().wal;
-  Transaction& tx = my().tx;
-  // -------------------------------------------------------------------------------------
   tx.state = Transaction::STATE::ABORTED;
   WALEntry& entry = wal.current_chunk->entry(0);
   entry.type = WALEntry::Type::TX_ABORT;
   entry.lsn = wal.lsn_counter++;
 }
 // -------------------------------------------------------------------------------------
-}  // namespace txmg
+}  // namespace cr
 }  // namespace leanstore

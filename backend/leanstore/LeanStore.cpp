@@ -1,15 +1,16 @@
 #include "LeanStore.hpp"
 
-#include "leanstore/counters/PPCounters.hpp"
 #include "leanstore/counters/CPUCounters.hpp"
+#include "leanstore/counters/PPCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
+#include <linux/fs.h>
+
 #include <sstream>
-// -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -17,8 +18,30 @@ namespace leanstore
 LeanStore::LeanStore()
 {
   // Set the default logger to file logger
-  BMC::global_bf = &buffer_manager;
-  buffer_manager.registerDatastructureType(99, btree::vs::BTree::getMeta());
+  // Init SSD pool
+  int flags = O_RDWR | O_DIRECT;
+  if (FLAGS_trunc) {
+    flags |= O_TRUNC | O_CREAT;
+  }
+  ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
+  posix_check(ssd_fd > -1);
+  if (FLAGS_falloc > 0) {
+    const u64 gib_size = 1024ull * 1024ull * 1024ull;
+    auto dummy_data = (u8*)aligned_alloc(512, gib_size);
+    for (u64 i = 0; i < FLAGS_falloc; i++) {
+      const int ret = pwrite(ssd_fd, dummy_data, gib_size, gib_size * i);
+      posix_check(ret == gib_size);
+    }
+    free(dummy_data);
+    fsync(ssd_fd);
+  }
+  ensure(fcntl(ssd_fd, F_GETFL) != -1);
+  // -------------------------------------------------------------------------------------
+  buffer_manager = make_unique<buffermanager::BufferManager>(ssd_fd);
+  BMC::global_bf = buffer_manager.get();
+  buffer_manager->registerDatastructureType(99, btree::vs::BTree::getMeta());
+  // -------------------------------------------------------------------------------------
+  wal_writer = make_unique<cr::WALWriter>(ssd_fd);
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::startDebuggingThread()
@@ -32,7 +55,7 @@ btree::vs::BTree& LeanStore::registerBTree(string name)
 {
   assert(btrees.find(name) == btrees.end());
   auto& btree = btrees[name];
-  DTID dtid = buffer_manager.registerDatastructureInstance(99, reinterpret_cast<void*>(&btree), name);
+  DTID dtid = buffer_manager->registerDatastructureInstance(99, reinterpret_cast<void*>(&btree), name);
   btree.init(dtid);
   return btree;
 }
@@ -77,10 +100,10 @@ void LeanStore::debuggingThread()
   u64 local_tx, local_total_free, local_total_cool;
   // -------------------------------------------------------------------------------------
   stat_entries.emplace_back("space_usage_gib", [&](ostream& out) {
-    const double gib = buffer_manager.consumedPages() * 1.0 * PAGE_SIZE / 1024.0 / 1024.0 / 1024.0;
+    const double gib = buffer_manager->consumedPages() * 1.0 * PAGE_SIZE / 1024.0 / 1024.0 / 1024.0;
     out << gib;
   });
-  stat_entries.emplace_back("consumed_pages", [&](ostream& out) { out << buffer_manager.consumedPages(); });
+  stat_entries.emplace_back("consumed_pages", [&](ostream& out) { out << buffer_manager->consumedPages(); });
   stat_entries.emplace_back("p1_pct", [&](ostream& out) { out << (local_phase_1_ms * 100.0 / total); });
   stat_entries.emplace_back("p2_pct", [&](ostream& out) { out << (local_phase_2_ms * 100.0 / total); });
   stat_entries.emplace_back("p3_pct", [&](ostream& out) { out << (local_phase_3_ms * 100.0 / total); });
@@ -92,11 +115,11 @@ void LeanStore::debuggingThread()
   stat_entries.emplace_back("pc1", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_1_counter); });
   stat_entries.emplace_back("pc2", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_2_counter); });
   stat_entries.emplace_back("pc3", [&](ostream& out) { out << sum(PPCounters::pp_counters, &PPCounters::phase_3_counter); });
-  stat_entries.emplace_back("free_pct", [&](ostream& out) { out << (local_total_free * 100.0 / buffer_manager.dram_pool_size); });
-  stat_entries.emplace_back("cool_pct", [&](ostream& out) { out << (local_total_cool * 100.0 / buffer_manager.dram_pool_size); });
+  stat_entries.emplace_back("free_pct", [&](ostream& out) { out << (local_total_free * 100.0 / buffer_manager->dram_pool_size); });
+  stat_entries.emplace_back("cool_pct", [&](ostream& out) { out << (local_total_cool * 100.0 / buffer_manager->dram_pool_size); });
   stat_entries.emplace_back("cool_pct_should", [&](ostream& out) {
-    out << std::max<s64>(0,
-                         ((FLAGS_cool_pct * 1.0 * buffer_manager.dram_pool_size / 100.0) - local_total_free) * 100.0 / buffer_manager.dram_pool_size);
+    out << std::max<s64>(
+        0, ((FLAGS_cool_pct * 1.0 * buffer_manager->dram_pool_size / 100.0) - local_total_free) * 100.0 / buffer_manager->dram_pool_size);
   });
   stat_entries.emplace_back("evicted_mib", [&](ostream& out) {
     out << (sum(PPCounters::pp_counters, &PPCounters::evicted_pages) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
@@ -227,9 +250,9 @@ void LeanStore::debuggingThread()
     global_stats.accumulated_tx_counter += local_tx;
     local_total_free = 0;
     local_total_cool = 0;
-    for (u64 p_i = 0; p_i < buffer_manager.partitions_count; p_i++) {
-      local_total_free += buffer_manager.partitions[p_i].dram_free_list.counter.load();
-      local_total_cool += buffer_manager.partitions[p_i].cooling_bfs_counter.load();
+    for (u64 p_i = 0; p_i < buffer_manager->partitions_count; p_i++) {
+      local_total_free += buffer_manager->partitions[p_i].dram_free_list.counter.load();
+      local_total_cool += buffer_manager->partitions[p_i].cooling_bfs_counter.load();
     }
     // -------------------------------------------------------------------------------------
     stats_csv << time;
@@ -254,7 +277,7 @@ void LeanStore::debuggingThread()
       }
     }
     // -------------------------------------------------------------------------------------
-    for (const auto& dt : buffer_manager.dt_registry.dt_instances_ht) {
+    for (const auto& dt : buffer_manager->dt_registry.dt_instances_ht) {
       dt_id = dt.first;
       dt_name = std::get<2>(dt.second);
       // -------------------------------------------------------------------------------------

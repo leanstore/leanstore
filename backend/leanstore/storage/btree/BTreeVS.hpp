@@ -19,17 +19,13 @@ namespace vs
 // -------------------------------------------------------------------------------------
 struct BTree {
   struct WALInsert {
-    PID pid;
-    LID gsn;
     u16 key_length;
     u16 value_length;
     u8 payload[];
   };
   struct WALRemove {
-    PID pid;
-    LID gsn;
     u16 key_length;
-    u8 payload;
+    u8 payload[];
   };
   struct WALUpdateGenerator {
     void (*before)(u8* tuple, u8* entry);

@@ -2,6 +2,7 @@
 #include "Config.hpp"
 #include "storage/btree/BTreeVS.hpp"
 #include "storage/buffer-manager/BufferManager.hpp"
+#include "concurrency-recovery/WALWriter.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <unordered_map>
@@ -24,7 +25,9 @@ class LeanStore
  private:
   // Poor man catalog
   std::unordered_map<string, btree::vs::BTree> btrees;
-  buffermanager::BufferManager buffer_manager;
+  s32 ssd_fd;
+  unique_ptr<buffermanager::BufferManager> buffer_manager;
+  unique_ptr<cr::WALWriter> wal_writer;
   // -------------------------------------------------------------------------------------
   std::mutex debugging_mutex; // protect all counters
   void debuggingThread();
@@ -45,7 +48,7 @@ class LeanStore
   btree::vs::BTree& registerBTree(string name);
   btree::vs::BTree& retrieveBTree(string name);
   // -------------------------------------------------------------------------------------
-  BufferManager& getBufferManager() { return buffer_manager; }
+  BufferManager& getBufferManager() { return *buffer_manager; }
   // -------------------------------------------------------------------------------------
   void startDebuggingThread();
   void persist();

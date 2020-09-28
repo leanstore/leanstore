@@ -60,3 +60,4 @@ DEFINE_string(tag,"","Unique identifier for this, will be appended to each line 
 DEFINE_bool(out_of_place, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(wal, false, "");
+DEFINE_uint64(wal_writer_threads, 1, "");

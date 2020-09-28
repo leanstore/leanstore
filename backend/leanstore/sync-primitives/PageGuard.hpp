@@ -1,6 +1,7 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "Latch.hpp"
+#include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
@@ -61,6 +62,14 @@ class HybridPageGuard
     } else if (if_contended == FALLBACK_METHOD::SHARED) {
       guard.toOptimisticOrShared();
     }
+    // -------------------------------------------------------------------------------------
+    if (FLAGS_wal) {
+      auto current_gsn = cr::CRMG::getCurrentGSN();
+      LID gsn = std::max<LID>(bf->page.GSN, current_gsn);
+      guard.recheck();
+      cr::CRMG::setCurrentGSN(gsn);
+    }
+    // -------------------------------------------------------------------------------------
     jumpmu_registerDestructor();
     // -------------------------------------------------------------------------------------
     DEBUG_BLOCK()
@@ -148,8 +157,32 @@ class ExclusivePageGuard
   ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard)
   {
     ref_guard.guard.toExclusive();
-    if (ref_guard.hasBf()) {
+    if (!FLAGS_wal && ref_guard.hasBf()) {
       ref_guard.bf->page.GSN++;
+    }
+  }
+  // -------------------------------------------------------------------------------------
+  template <bool userTransaction = true>
+  u8* reserveWALEntry(u16 requested_size)
+  {
+    assert(FLAGS_wal && hasBf());
+    if (userTransaction) {
+      LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRMG::user().getCurrentGSN()) + 1;
+      ref_guard.bf->page.GSN = gsn;
+      cr::CRMG::user().setCurrentGSN(gsn);
+      return cr::CRMG::user().reserveEntry(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, requested_size);
+    } else {
+      LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRMG::system().getCurrentGSN()) + 1;
+      ref_guard.bf->page.GSN = gsn;
+      cr::CRMG::system().setCurrentGSN(gsn);
+      return cr::CRMG::system().reserveEntry(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, requested_size);
+    }
+  }
+  // -------------------------------------------------------------------------------------
+  template <bool userTransaction = true>
+  void submitWALEntry()
+  {
+    if (userTransaction) {
     }
   }
   // -------------------------------------------------------------------------------------

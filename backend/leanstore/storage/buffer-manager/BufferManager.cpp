@@ -32,7 +32,7 @@ namespace leanstore
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
-BufferManager::BufferManager()
+BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
 {
   // -------------------------------------------------------------------------------------
   // Init DRAM pool
@@ -64,25 +64,6 @@ BufferManager::BufferManager()
     });
     // -------------------------------------------------------------------------------------
   }
-  // -------------------------------------------------------------------------------------
-  // Init SSD pool
-  int flags = O_RDWR | O_DIRECT;
-  if (FLAGS_trunc) {
-    flags |= O_TRUNC | O_CREAT;
-  }
-  ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
-  posix_check(ssd_fd > -1);
-  if (FLAGS_falloc > 0) {
-    const u64 gib_size = 1024ull * 1024ull * 1024ull;
-    auto dummy_data = (u8*)aligned_alloc(512, gib_size);
-    for (u64 i = 0; i < FLAGS_falloc; i++) {
-      const int ret = pwrite(ssd_fd, dummy_data, gib_size, gib_size * i);
-      posix_check(ret == gib_size);
-    }
-    free(dummy_data);
-    fsync(ssd_fd);
-  }
-  ensure(fcntl(ssd_fd, F_GETFL) != -1);
   // -------------------------------------------------------------------------------------
   // Background threads
   // -------------------------------------------------------------------------------------
@@ -753,7 +734,6 @@ BufferManager::~BufferManager()
   // -------------------------------------------------------------------------------------
   const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
   close(ssd_fd);
-  ssd_fd = -1;
   munmap(bfs, dram_total_size);
 }
 // -------------------------------------------------------------------------------------

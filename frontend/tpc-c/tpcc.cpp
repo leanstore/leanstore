@@ -1,7 +1,7 @@
 #include "adapter.hpp"
 #include "leanstore/counters/CPUCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
-#include "leanstore/tx/TXMG.hpp"
+#include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
@@ -131,13 +131,13 @@ int main(int argc, char** argv)
           utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
         Integer w_id;
         if (FLAGS_wal) {
-          txmg::TXMG::registerThread();
+          cr::CRMG::registerThread();
           while (keep_running) {
-            txmg::TXMG::startTX();
+            cr::CRMG::startTX();
             w_id = urand(1, FLAGS_tpcc_warehouse_count);
             tx(w_id);
             WorkerCounters::myCounters().tx++;
-            txmg::TXMG::commitTX();
+            cr::CRMG::commitTX();
           }
         } else {
           while (keep_running) {
