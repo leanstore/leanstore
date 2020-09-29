@@ -6,10 +6,10 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-thread_local Partition* CRMG::user_partition = nullptr;
-thread_local Partition* CRMG::system_partition = nullptr;
+thread_local CRMG::TLSHandler CRMG::tls_handler;
 std::mutex CRMG::mutex;
 std::set<Partition*> CRMG::all_threads;
+u64 CRMG::partitions_counter = 0;
 // -------------------------------------------------------------------------------------
 CRMG::CRMG() {}
 CRMG::~CRMG()
@@ -21,54 +21,60 @@ CRMG::~CRMG()
   all_threads.clear();
 }
 // -------------------------------------------------------------------------------------
-void CRMG::registerThread()
+Partition* CRMG::registerThread()
 {
+  Partition* p = new Partition(partitions_counter++);
   std::unique_lock guard(mutex);
-  assert(thread_data == nullptr);
-  system_partition = new Partition(Partition::TYPE::SYSTEM);
-  user_partition = new Partition(Partition::TYPE::USER);
-  all_threads.insert(user_partition);
-  all_threads.insert(system_partition);
+  all_threads.insert(p);
+  return p;
 }
 // -------------------------------------------------------------------------------------
-void CRMG::removeThread()
+void CRMG::removeThread(Partition* p)
 {
   std::unique_lock guard(mutex);
-  all_threads.erase(user_partition);
-  all_threads.erase(system_partition);
-  delete user_partition;
-  delete system_partition;
+  all_threads.erase(p);
+  delete p;
 }
 // -------------------------------------------------------------------------------------
-void Partition::startTX()
+void Partition::startTX(Transaction::TYPE tx_type)
 {
-  tx.state = Transaction::STATE::STARTED;
-  WALEntry& entry = wal.current_chunk->entry(0);
-  entry.type = WALEntry::Type::TX_START;
+  WALEntry& entry = wal.reserve(0);
+  if (tx_type == Transaction::TYPE::USER) {
+    entry.type = WALEntry::TYPE::USER_TX_START;
+    active_tx = &user_tx;
+  } else {
+    entry.type = WALEntry::TYPE::SYSTEM_TX_START;
+    active_tx = &system_tx;
+  }
   entry.lsn = wal.lsn_counter++;
-}
-// -------------------------------------------------------------------------------------
-u8* Partition::reserveEntry(PID pid, DTID dt_id, LID gsn, u64 requested_size)
-{
-
-  WALEntry& entry = wal.current_chunk->entry(requested_size);
-  return entry.payload;
+  wal.submit(0);
+  assert(tx().state != Transaction::STATE::STARTED);
+  tx().state = Transaction::STATE::STARTED;
 }
 // -------------------------------------------------------------------------------------
 void Partition::commitTX()
 {
-  tx.state = Transaction::STATE::COMMITED;
-  WALEntry& entry = wal.current_chunk->entry(0);
-  entry.type = WALEntry::Type::TX_COMMIT;
+  assert(tx().state == Transaction::STATE::STARTED);
+  assert(tx().current_gsn > 0);
+  WALEntry& entry = wal.reserve(0);
+  entry.size = sizeof(WALEntry) + 0;
+  entry.type = WALEntry::TYPE::TX_COMMIT;
   entry.lsn = wal.lsn_counter++;
+  entry.gsn = tx().current_gsn++;
+  wal.submit(0);
+  // -------------------------------------------------------------------------------------
+  if (active_tx == &system_tx) {
+    active_tx = &user_tx;
+  }
+  // -------------------------------------------------------------------------------------
+  // TODO:
+  // -------------------------------------------------------------------------------------
+  tx().state = Transaction::STATE::COMMITED;
 }
 // -------------------------------------------------------------------------------------
 void Partition::abortTX()
 {
-  tx.state = Transaction::STATE::ABORTED;
-  WALEntry& entry = wal.current_chunk->entry(0);
-  entry.type = WALEntry::Type::TX_ABORT;
-  entry.lsn = wal.lsn_counter++;
+  assert(false);
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

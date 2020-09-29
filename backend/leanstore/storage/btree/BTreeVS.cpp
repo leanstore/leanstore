@@ -295,11 +295,13 @@ void BTree::insert(u8* key, u16 key_length, u64 value_length, u8* value)
       if (c_x_guard->prepareInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(value_length)))) {
         c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(value_length)), value);
         if (FLAGS_wal) {
-          auto& entry = *reinterpret_cast<WALInsert*>(c_x_guard.reserveWALEntry(sizeof(WALInsert) + key_length + value_length));
-          entry.key_length = key_length;
-          entry.value_length = value_length;
-          std::memcpy(entry.payload, key, key_length);
-          std::memcpy(entry.payload + key_length, value, value_length);
+          auto wal_entry = c_x_guard.reserveWALEntry<WALInsert>(key_length + value_length);
+          wal_entry->type = WAL_LOG_TYPE::WALInsert;
+          wal_entry->key_length = key_length;
+          wal_entry->value_length = value_length;
+          std::memcpy(wal_entry->payload, key, key_length);
+          std::memcpy(wal_entry->payload + key_length, value, value_length);
+          wal_entry.submit();
         }
         jumpmu_return;
       }
@@ -436,21 +438,46 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
     auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
     assert(height == 1 || !c_x_guard->is_leaf);
     assert(root_swip.bf == c_x_guard.bf());
+    // -------------------------------------------------------------------------------------
     // create new root
     auto new_root_h = HybridPageGuard<BTreeNode>(dt_id, false);
     auto new_root = ExclusivePageGuard<BTreeNode>(std::move(new_root_h));
     auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
     auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
-    new_root.keepAlive();
-    new_left_node.init(c_x_guard->is_leaf);
-    new_root.init(false);
     // -------------------------------------------------------------------------------------
-    new_root->upper = c_x_guard.bf();
-    root_swip.warm(new_root.bf());
-    // -------------------------------------------------------------------------------------
-    c_x_guard->getSep(sep_key, sep_info);
-    // -------------------------------------------------------------------------------------
-    c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
+    auto exec = [&]() {
+      new_root.keepAlive();
+      new_root.init(false);
+      new_root->upper = c_x_guard.bf();
+      root_swip.warm(new_root.bf());
+      // -------------------------------------------------------------------------------------
+      new_left_node.init(c_x_guard->is_leaf);
+      c_x_guard->getSep(sep_key, sep_info);
+      // -------------------------------------------------------------------------------------
+      c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
+    };
+    if (FLAGS_wal) {
+      auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
+      std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+      current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
+      // -------------------------------------------------------------------------------------
+      exec();
+      // -------------------------------------------------------------------------------------
+      auto root_wal = new_root.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
+      root_wal->image_size = EFFECTIVE_PAGE_SIZE;
+      std::memcpy(root_wal->payload, new_root.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+      root_wal.submit();
+      // -------------------------------------------------------------------------------------
+      auto left_wal = new_left_node.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
+      left_wal->image_size = EFFECTIVE_PAGE_SIZE;
+      std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+      left_wal.submit();
+      // -------------------------------------------------------------------------------------
+      std::memcpy(current_right_wal->payload + EFFECTIVE_PAGE_SIZE, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+      current_right_wal.submit();
+    } else {
+      exec();
+    }
     // -------------------------------------------------------------------------------------
     height++;
     return;
@@ -466,12 +493,35 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
     // -------------------------------------------------------------------------------------
     auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
     auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
-    new_left_node.init(c_x_guard->is_leaf);
     // -------------------------------------------------------------------------------------
-    c_x_guard->getSep(sep_key, sep_info);
+    auto exec = [&]() {
+      new_left_node.init(c_x_guard->is_leaf);
+      c_x_guard->getSep(sep_key, sep_info);
+      c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
+    };
     // -------------------------------------------------------------------------------------
-    c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
-    // -------------------------------------------------------------------------------------
+    if (FLAGS_wal) {
+      auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
+      std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+      current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
+      // -------------------------------------------------------------------------------------
+      exec();
+      // -------------------------------------------------------------------------------------
+      auto parent_wal = p_x_guard.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
+      parent_wal->image_size = EFFECTIVE_PAGE_SIZE;
+      std::memcpy(parent_wal->payload, p_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+      parent_wal.submit();
+      // -------------------------------------------------------------------------------------
+      auto left_wal = new_left_node.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
+      left_wal->image_size = EFFECTIVE_PAGE_SIZE;
+      std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+      left_wal.submit();
+      // -------------------------------------------------------------------------------------
+      std::memcpy(current_right_wal->payload + EFFECTIVE_PAGE_SIZE, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+      current_right_wal.submit();
+    } else {
+      exec();
+    }
   } else {
     p_guard.kill();
     c_guard.kill();
@@ -496,13 +546,17 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       // -------------------------------------------------------------------------------------
       if (FLAGS_wal) {
         // if it is a secondary index, then we can not use updateSameSize
-        ensure(wal_update_generator.entry_size > 0);
+        assert(wal_update_generator.entry_size > 0);
         // -------------------------------------------------------------------------------------
-        u8* wal_entry = c_x_guard.reserveWALEntry(wal_update_generator.entry_size);
-        wal_update_generator.before(c_x_guard->getPayload(pos), wal_entry);
+        auto wal_entry = c_x_guard.reserveWALEntry<WALUpdate>(key_length + wal_update_generator.entry_size);
+        wal_entry->type = WAL_LOG_TYPE::WALUpdate;
+        wal_entry->key_length = key_length;
+        std::memcpy(wal_entry->payload, key, key_length);
+        wal_update_generator.before(c_x_guard->getPayload(pos), wal_entry->payload + key_length);
         // The actual update by the client
         callback(c_x_guard->getPayload(pos), payload_length);
-        wal_update_generator.after(c_x_guard->getPayload(pos), wal_entry);
+        wal_update_generator.after(c_x_guard->getPayload(pos), wal_entry->payload + key_length);
+        wal_entry.submit();
       } else {
         callback(c_x_guard->getPayload(pos), payload_length);
       }
@@ -570,9 +624,11 @@ bool BTree::remove(u8* key, u16 key_length)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       if (c_x_guard->remove(key, key_length)) {
         if (FLAGS_wal) {
-          auto& entry = *reinterpret_cast<WALRemove*>(c_x_guard.reserveWALEntry(sizeof(WALRemove) + key_length));
-          entry.key_length = key_length;
-          std::memcpy(entry.payload, key, key_length);
+          auto wal_entry = c_x_guard.reserveWALEntry<WALRemove>(key_length);
+          wal_entry->type = WAL_LOG_TYPE::WALRemove;
+          wal_entry->key_length = key_length;
+          std::memcpy(wal_entry->payload, key, key_length);
+          wal_entry.submit();
         }
       } else {
         jumpmu_return false;

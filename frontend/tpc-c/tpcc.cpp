@@ -1,7 +1,7 @@
 #include "adapter.hpp"
+#include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/counters/CPUCounters.hpp"
 #include "leanstore/counters/WorkerCounters.hpp"
-#include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
@@ -77,7 +77,6 @@ int main(int argc, char** argv)
   tbb::task_scheduler_init task_scheduler(thread::hardware_concurrency());
   load();
   task_scheduler.terminate();
-  task_scheduler.initialize(FLAGS_worker_threads);
   // -------------------------------------------------------------------------------------
   double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
   cout << "data loaded - consumed space in GiB = " << gib << endl;
@@ -133,11 +132,11 @@ int main(int argc, char** argv)
         if (FLAGS_wal) {
           cr::CRMG::registerThread();
           while (keep_running) {
-            cr::CRMG::startTX();
+            cr::CRMG::my().startTX();
             w_id = urand(1, FLAGS_tpcc_warehouse_count);
             tx(w_id);
             WorkerCounters::myCounters().tx++;
-            cr::CRMG::commitTX();
+            cr::CRMG::my().commitTX();
           }
         } else {
           while (keep_running) {

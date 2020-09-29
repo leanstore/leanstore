@@ -1,8 +1,11 @@
 #include "WALWriter.hpp"
 
-#include "TXMG.hpp"
+#include "CRMG.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <linux/fs.h>
+#include <sys/ioctl.h>
+
 #include <thread>
 #include <vector>
 // -------------------------------------------------------------------------------------
@@ -10,15 +13,19 @@ namespace leanstore
 {
 namespace cr
 {
-void WALWriter::writeAndFlush() {
+// -------------------------------------------------------------------------------------
+void WALWriter::writeAndFlush()
+{
+  constexpr u64 CHUNK_SIZE = 1024ull * 1024 * 4;
+  u8 chunk[CHUNK_SIZE];
 }
 // -------------------------------------------------------------------------------------
-WALWriter(s32 ssd_fd) : ssd_fd(ssd_fd)
+WALWriter::WALWriter(s32 ssd_fd) : ssd_fd(ssd_fd)
 {
   ioctl(ssd_fd, BLKGETSIZE64, &ssd_end_offset);
   // -------------------------------------------------------------------------------------
   assert(FLAGS_wal_writer_threads == 1);
-  thread ww_thread([&]() {
+  std::thread ww_thread([&]() {
     while (ww_threads_keep_running) {
       writeAndFlush();
     }
@@ -32,7 +39,7 @@ WALWriter(s32 ssd_fd) : ssd_fd(ssd_fd)
   ww_thread.detach();
 }
 // -------------------------------------------------------------------------------------
-~WALWriter()
+WALWriter::~WALWriter()
 {
   ww_threads_keep_running = false;
   while (ww_threads_counter) {

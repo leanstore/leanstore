@@ -64,10 +64,10 @@ class HybridPageGuard
     }
     // -------------------------------------------------------------------------------------
     if (FLAGS_wal) {
-      auto current_gsn = cr::CRMG::getCurrentGSN();
-      LID gsn = std::max<LID>(bf->page.GSN, current_gsn);
-      guard.recheck();
-      cr::CRMG::setCurrentGSN(gsn);
+      auto current_gsn = cr::CRMG::my().getCurrentGSN();
+      if (current_gsn < bf->page.GSN) {
+        cr::CRMG::my().setCurrentGSN(bf->page.GSN);
+      }
     }
     // -------------------------------------------------------------------------------------
     jumpmu_registerDestructor();
@@ -162,29 +162,17 @@ class ExclusivePageGuard
     }
   }
   // -------------------------------------------------------------------------------------
-  template <bool userTransaction = true>
-  u8* reserveWALEntry(u16 requested_size)
+  template<typename WT>
+  cr::Partition::WALEntryHandler<WT> reserveWALEntry(u16 requested_size)
   {
     assert(FLAGS_wal && hasBf());
-    if (userTransaction) {
-      LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRMG::user().getCurrentGSN()) + 1;
-      ref_guard.bf->page.GSN = gsn;
-      cr::CRMG::user().setCurrentGSN(gsn);
-      return cr::CRMG::user().reserveEntry(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, requested_size);
-    } else {
-      LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRMG::system().getCurrentGSN()) + 1;
-      ref_guard.bf->page.GSN = gsn;
-      cr::CRMG::system().setCurrentGSN(gsn);
-      return cr::CRMG::system().reserveEntry(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, requested_size);
-    }
+    LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRMG::my().getCurrentGSN()) + 1;
+    ref_guard.bf->page.GSN = gsn;
+    cr::CRMG::my().setCurrentGSN(gsn);
+    return cr::CRMG::my().reserveDTEntry<WT>(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, sizeof(WT) + requested_size);
   }
   // -------------------------------------------------------------------------------------
-  template <bool userTransaction = true>
-  void submitWALEntry()
-  {
-    if (userTransaction) {
-    }
-  }
+  inline void submitWALEntry(u16 requested_size) { cr::CRMG::my().submitDTEntry(requested_size); }
   // -------------------------------------------------------------------------------------
   template <typename... Args>
   void init(Args&&... args)

@@ -142,7 +142,7 @@ int main(int argc, char** argv)
     sleep(FLAGS_run_for_seconds);
     keep_running = false;
     while (running_threads_counter) {
-      _mm_pause();
+      MYPAUSE();
     }
     for (auto& thread : threads) {
       thread.join();

@@ -18,12 +18,30 @@ namespace vs
 {
 // -------------------------------------------------------------------------------------
 struct BTree {
+  enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage };
+  struct WALBeforeAfterImage {
+    WAL_LOG_TYPE type;
+    u16 image_size;
+    u8 payload[];
+  };
+  struct WALAfterImage {
+    WAL_LOG_TYPE type;
+    u16 image_size;
+    u8 payload[];
+  };
   struct WALInsert {
+    WAL_LOG_TYPE type;
     u16 key_length;
     u16 value_length;
     u8 payload[];
   };
+  struct WALUpdate {
+    WAL_LOG_TYPE type;
+    u16 key_length;
+    u8 payload[];
+  };
   struct WALRemove {
+    WAL_LOG_TYPE type;
     u16 key_length;
     u8 payload[];
   };
