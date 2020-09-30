@@ -457,11 +457,15 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
       c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
     };
     if (FLAGS_wal) {
+      cr::CRMG::my().startTX(cr::Transaction::TYPE::SYSTEM);
       auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
       std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
       current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
       // -------------------------------------------------------------------------------------
       exec();
+      // -------------------------------------------------------------------------------------
+      std::memcpy(current_right_wal->payload + EFFECTIVE_PAGE_SIZE, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+      current_right_wal.submit();
       // -------------------------------------------------------------------------------------
       auto root_wal = new_root.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
       root_wal->image_size = EFFECTIVE_PAGE_SIZE;
@@ -473,59 +477,63 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
       std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
       left_wal.submit();
       // -------------------------------------------------------------------------------------
-      std::memcpy(current_right_wal->payload + EFFECTIVE_PAGE_SIZE, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
-      current_right_wal.submit();
+      cr::CRMG::my().commitTX();
     } else {
       exec();
     }
     // -------------------------------------------------------------------------------------
     height++;
     return;
-  }
-  u16 spaced_need_for_separator = BTreeNode::spaceNeededAsInner(sep_info.length, p_guard->prefix_length);
-  if (p_guard->hasEnoughSpaceFor(spaced_need_for_separator)) {  // Is there enough space in the parent
-                                                                // for the separator?
-    auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
-    auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-    p_x_guard->requestSpaceFor(spaced_need_for_separator);
-    assert(p_x_guard.hasBf());
-    assert(!p_x_guard->is_leaf);
-    // -------------------------------------------------------------------------------------
-    auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
-    auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
-    // -------------------------------------------------------------------------------------
-    auto exec = [&]() {
-      new_left_node.init(c_x_guard->is_leaf);
-      c_x_guard->getSep(sep_key, sep_info);
-      c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
-    };
-    // -------------------------------------------------------------------------------------
-    if (FLAGS_wal) {
-      auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
-      std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
-      current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
-      // -------------------------------------------------------------------------------------
-      exec();
-      // -------------------------------------------------------------------------------------
-      auto parent_wal = p_x_guard.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
-      parent_wal->image_size = EFFECTIVE_PAGE_SIZE;
-      std::memcpy(parent_wal->payload, p_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
-      parent_wal.submit();
-      // -------------------------------------------------------------------------------------
-      auto left_wal = new_left_node.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
-      left_wal->image_size = EFFECTIVE_PAGE_SIZE;
-      std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
-      left_wal.submit();
-      // -------------------------------------------------------------------------------------
-      std::memcpy(current_right_wal->payload + EFFECTIVE_PAGE_SIZE, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
-      current_right_wal.submit();
-    } else {
-      exec();
-    }
   } else {
-    p_guard.kill();
-    c_guard.kill();
-    trySplit(*p_guard.bf);  // Must split parent head to make space for separator
+    // Parent is not root
+    u16 spaced_need_for_separator = BTreeNode::spaceNeededAsInner(sep_info.length, p_guard->prefix_length);
+    if (p_guard->hasEnoughSpaceFor(spaced_need_for_separator)) {  // Is there enough space in the parent
+                                                                  // for the separator?
+      auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
+      auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+      p_x_guard->requestSpaceFor(spaced_need_for_separator);
+      assert(p_x_guard.hasBf());
+      assert(!p_x_guard->is_leaf);
+      // -------------------------------------------------------------------------------------
+      auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
+      auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
+      // -------------------------------------------------------------------------------------
+      auto exec = [&]() {
+        new_left_node.init(c_x_guard->is_leaf);
+        c_x_guard->getSep(sep_key, sep_info);
+        c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
+      };
+      // -------------------------------------------------------------------------------------
+      if (FLAGS_wal) {
+        cr::CRMG::my().startTX(cr::Transaction::TYPE::SYSTEM);
+        auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
+        std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+        current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
+        // -------------------------------------------------------------------------------------
+        exec();
+        // -------------------------------------------------------------------------------------
+        std::memcpy(current_right_wal->payload + EFFECTIVE_PAGE_SIZE, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+        current_right_wal.submit();
+        // -------------------------------------------------------------------------------------
+        auto parent_wal = p_x_guard.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
+        parent_wal->image_size = EFFECTIVE_PAGE_SIZE;
+        std::memcpy(parent_wal->payload, p_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+        parent_wal.submit();
+        // -------------------------------------------------------------------------------------
+        auto left_wal = new_left_node.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
+        left_wal->image_size = EFFECTIVE_PAGE_SIZE;
+        std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+        left_wal.submit();
+        // -------------------------------------------------------------------------------------
+        cr::CRMG::my().commitTX();
+      } else {
+        exec();
+      }
+    } else {
+      p_guard.kill();
+      c_guard.kill();
+      trySplit(*p_guard.bf);  // Must split parent head to make space for separator
+    }
   }
 }
 // -------------------------------------------------------------------------------------

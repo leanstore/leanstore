@@ -36,46 +36,5 @@ void CRMG::removeThread(Partition* p)
   delete p;
 }
 // -------------------------------------------------------------------------------------
-void Partition::startTX(Transaction::TYPE tx_type)
-{
-  WALEntry& entry = wal.reserve(0);
-  if (tx_type == Transaction::TYPE::USER) {
-    entry.type = WALEntry::TYPE::USER_TX_START;
-    active_tx = &user_tx;
-  } else {
-    entry.type = WALEntry::TYPE::SYSTEM_TX_START;
-    active_tx = &system_tx;
-  }
-  entry.lsn = wal.lsn_counter++;
-  wal.submit(0);
-  assert(tx().state != Transaction::STATE::STARTED);
-  tx().state = Transaction::STATE::STARTED;
-}
-// -------------------------------------------------------------------------------------
-void Partition::commitTX()
-{
-  assert(tx().state == Transaction::STATE::STARTED);
-  assert(tx().current_gsn > 0);
-  WALEntry& entry = wal.reserve(0);
-  entry.size = sizeof(WALEntry) + 0;
-  entry.type = WALEntry::TYPE::TX_COMMIT;
-  entry.lsn = wal.lsn_counter++;
-  entry.gsn = tx().current_gsn++;
-  wal.submit(0);
-  // -------------------------------------------------------------------------------------
-  if (active_tx == &system_tx) {
-    active_tx = &user_tx;
-  }
-  // -------------------------------------------------------------------------------------
-  // TODO:
-  // -------------------------------------------------------------------------------------
-  tx().state = Transaction::STATE::COMMITED;
-}
-// -------------------------------------------------------------------------------------
-void Partition::abortTX()
-{
-  assert(false);
-}
-// -------------------------------------------------------------------------------------
 }  // namespace cr
 }  // namespace leanstore

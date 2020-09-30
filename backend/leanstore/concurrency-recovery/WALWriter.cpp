@@ -3,47 +3,28 @@
 #include "CRMG.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-#include <linux/fs.h>
-#include <sys/ioctl.h>
-
-#include <thread>
-#include <vector>
+#include <unistd.h>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-void WALWriter::writeAndFlush()
+s32 WALWriter::ssd_fd = -1;
+atomic<u64> WALWriter::ssd_offset;
+// -------------------------------------------------------------------------------------
+void WALWriter::init(s32 ssd_fd, u64 ssd_offset)
 {
-  constexpr u64 CHUNK_SIZE = 1024ull * 1024 * 4;
-  u8 chunk[CHUNK_SIZE];
+  WALWriter::ssd_fd = ssd_fd;
+  WALWriter::ssd_offset = ssd_offset;
 }
 // -------------------------------------------------------------------------------------
-WALWriter::WALWriter(s32 ssd_fd) : ssd_fd(ssd_fd)
+void WALWriter::write(u8* src, u64 size)
 {
-  ioctl(ssd_fd, BLKGETSIZE64, &ssd_end_offset);
-  // -------------------------------------------------------------------------------------
-  assert(FLAGS_wal_writer_threads == 1);
-  std::thread ww_thread([&]() {
-    while (ww_threads_keep_running) {
-      writeAndFlush();
-    }
-    ww_threads_counter--;
-  });
-  ww_threads_counter++;
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(FLAGS_pp_threads + 0, &cpuset);
-  posix_check(pthread_setaffinity_np(ww_thread.native_handle(), sizeof(cpu_set_t), &cpuset) == 0);
-  ww_thread.detach();
+  u64 offset = ssd_offset.fetch_add(-size) - size;
+  s64 ret = pwrite(ssd_fd, src, size, offset);
+  posix_check(ret != -1);
 }
 // -------------------------------------------------------------------------------------
-WALWriter::~WALWriter()
-{
-  ww_threads_keep_running = false;
-  while (ww_threads_counter) {
-  }
-}
 }  // namespace cr
 }  // namespace leanstore

@@ -8,6 +8,9 @@
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
+#include <linux/fs.h>
+#include <sys/ioctl.h>
+
 #include <sstream>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -39,7 +42,9 @@ LeanStore::LeanStore()
   BMC::global_bf = buffer_manager.get();
   buffer_manager->registerDatastructureType(99, btree::vs::BTree::getMeta());
   // -------------------------------------------------------------------------------------
-  wal_writer = make_unique<cr::WALWriter>(ssd_fd);
+  u64 end_of_block_device;
+  ioctl(ssd_fd, BLKGETSIZE64, &end_of_block_device);
+  cr::WALWriter::init(ssd_fd, end_of_block_device);
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::startDebuggingThread()

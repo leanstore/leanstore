@@ -163,7 +163,7 @@ class ExclusivePageGuard
   }
   // -------------------------------------------------------------------------------------
   template<typename WT>
-  cr::Partition::WALEntryHandler<WT> reserveWALEntry(u16 requested_size)
+  cr::Partition::WALEntryHandler<WT> reserveWALEntry(u64 requested_size)
   {
     assert(FLAGS_wal && hasBf());
     LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRMG::my().getCurrentGSN()) + 1;
@@ -172,7 +172,7 @@ class ExclusivePageGuard
     return cr::CRMG::my().reserveDTEntry<WT>(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, sizeof(WT) + requested_size);
   }
   // -------------------------------------------------------------------------------------
-  inline void submitWALEntry(u16 requested_size) { cr::CRMG::my().submitDTEntry(requested_size); }
+  inline void submitWALEntry(u64 requested_size) { cr::CRMG::my().submitDTEntry(requested_size); }
   // -------------------------------------------------------------------------------------
   template <typename... Args>
   void init(Args&&... args)

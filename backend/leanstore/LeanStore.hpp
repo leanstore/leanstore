@@ -27,7 +27,6 @@ class LeanStore
   std::unordered_map<string, btree::vs::BTree> btrees;
   s32 ssd_fd;
   unique_ptr<buffermanager::BufferManager> buffer_manager;
-  unique_ptr<cr::WALWriter> wal_writer;
   // -------------------------------------------------------------------------------------
   std::mutex debugging_mutex; // protect all counters
   void debuggingThread();
