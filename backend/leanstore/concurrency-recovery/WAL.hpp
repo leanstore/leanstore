@@ -5,6 +5,8 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -51,23 +53,27 @@ struct WAL {
   u64 partition_id;
 
  public:
-  static constexpr u64 CHUNKS_PER_WAL = 10;
+  static constexpr u64 CHUNKS_PER_WAL = 5;
   WALChunk chunks[CHUNKS_PER_WAL];
   WALChunk* current_chunk = chunks + 0;
   // -------------------------------------------------------------------------------------
-  atomic<u64> wt_cursor = 0;  // Worker thread cursor
-  atomic<u64> ww_cursor = 0;  // WAL Writer cursor
+  std::mutex mutex;
+  std::condition_variable cv;
+  u64 wt_cursor = 0;  // Worker thread cursor
+  u64 ww_cursor = 0;  // WAL Writer cursor
   // -------------------------------------------------------------------------------------
   LID lsn_counter = 0;
   LID max_gsn = 0;
   // -------------------------------------------------------------------------------------
   void nextChunk()
   {
+    std::unique_lock<std::mutex> guard(mutex);
     u64 next_chunk = (wt_cursor + 1) % CHUNKS_PER_WAL;
-    while (next_chunk == ww_cursor) {
-    }
-    wt_cursor.store(next_chunk, std::memory_order_release);
+    cv.wait(guard, [&] { return next_chunk != ww_cursor; });
+    wt_cursor = next_chunk;
     current_chunk = chunks + next_chunk;
+    guard.unlock();
+    cv.notify_one();
   }
   // -------------------------------------------------------------------------------------
   inline u8* reserve(u64 requested_size)

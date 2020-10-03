@@ -47,6 +47,15 @@ LeanStore::LeanStore()
   cr::WALWriter::init(ssd_fd, end_of_block_device);
 }
 // -------------------------------------------------------------------------------------
+LeanStore::~LeanStore()
+{
+  bg_threads_keep_running = false;
+  while (bg_threads_counter) {
+    MYPAUSE();
+  }
+  //  close(ssd_fd);
+}
+// -------------------------------------------------------------------------------------
 void LeanStore::startDebuggingThread()
 {
   std::thread debugging_thread([&]() { debuggingThread(); });
@@ -208,6 +217,7 @@ void LeanStore::debuggingThread()
   dt_entries.emplace_back("xmerge_full_counter",
                           [&](ostream& out) { out << sum(WorkerCounters::worker_counters, &WorkerCounters::xmerge_full_counter, dt_id); });
   // -------------------------------------------------------------------------------------
+  // Console entries
   // -------------------------------------------------------------------------------------
   // Print header
   if (stats_csv.tellp() == 0) {
@@ -223,7 +233,10 @@ void LeanStore::debuggingThread()
     threads_csv << "t,name,c_hash";
     {
       PerfEvent e;
-      e.printCSVHeaders(threads_csv);
+      auto threads_csv_header = e.getEventsName();
+      for (const auto& name : threads_csv_header) {
+        threads_csv << "," << name;
+      }
     }
     threads_csv << endl;
     // -------------------------------------------------------------------------------------
@@ -320,14 +333,6 @@ void LeanStore::persist()
 void LeanStore::restore()
 {
   // TODO
-}
-// -------------------------------------------------------------------------------------
-LeanStore::~LeanStore()
-{
-  bg_threads_keep_running = false;
-  while (bg_threads_counter) {
-    MYPAUSE();
-  }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore

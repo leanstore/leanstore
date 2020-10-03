@@ -29,7 +29,6 @@ void Partition::startTX(Transaction::TYPE tx_type)
 void Partition::commitTX()
 {
   assert(tx().state == Transaction::STATE::STARTED);
-  assert(current_gsn > 0);
   WALEntry& entry = *reinterpret_cast<WALEntry*>(wal.reserve(sizeof(WALEntry)));
   entry.size = sizeof(WALEntry) + 0;
   entry.type = WALEntry::TYPE::TX_COMMIT;

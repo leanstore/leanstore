@@ -733,7 +733,6 @@ BufferManager::~BufferManager()
   free(partitions);
   // -------------------------------------------------------------------------------------
   const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
-  close(ssd_fd);
   munmap(bfs, dram_total_size);
 }
 // -------------------------------------------------------------------------------------

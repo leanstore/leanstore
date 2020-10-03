@@ -35,6 +35,7 @@ class CRMG
   // -------------------------------------------------------------------------------------
   static Partition* registerThread();
   static void removeThread(Partition*);
+  static void removeAllThreads();
   // -------------------------------------------------------------------------------------
   inline static Partition& my()
   {

@@ -31,6 +31,10 @@ struct Partition {
   Transaction* active_tx = &user_tx;
   WAL wal;
   // -------------------------------------------------------------------------------------
+  std::mutex commit_mutex;
+  atomic<bool> waiting_for_commit_signal = false;
+  atomic<bool> _signal = false;
+  // -------------------------------------------------------------------------------------
   Partition(u64 partition_id);
   ~Partition();
   // -------------------------------------------------------------------------------------

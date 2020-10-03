@@ -245,6 +245,33 @@ struct PerfEvent {
     dataOut << "," << getGHz();
   }
   // -------------------------------------------------------------------------------------
+  std::vector<std::string> getEventsName()
+  {
+    std::vector<std::string> extendedNames;
+    for (auto& name : names) {
+      extendedNames.push_back(name);
+    }
+    extendedNames.push_back("IPC");
+    extendedNames.push_back("CPU");
+    extendedNames.push_back("GHz");
+    return extendedNames;
+  }
+  std::vector<double> printAsVector()
+  {
+    assert(!events.size());
+    std::vector<double> res;
+
+    // print all metrics
+    for (unsigned i = 0; i < events.size(); i++) {
+      res.push_back(events[i].readCounter());
+    }
+    // derived metrics
+    res.push_back(getIPC());
+    res.push_back(getCPUs());
+    res.push_back(getGHz());
+    return res;
+  }
+  // -------------------------------------------------------------------------------------
   void setParam(const std::string& name, const std::string& value) { params[name] = value; }
 
   void setParam(const std::string& name, const char* value) { params[name] = value; }

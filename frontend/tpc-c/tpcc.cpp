@@ -23,6 +23,7 @@
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
 DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
+DEFINE_bool(tpcc_load_with_hw_threads, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -73,8 +74,8 @@ int main(int argc, char** argv)
   db.registerConfigEntry("tpcc_warehouse_affinity", [&](ostream& out) { out << FLAGS_tpcc_warehouse_affinity; });
   db.registerConfigEntry("run_until_tx", [&](ostream& out) { out << FLAGS_run_until_tx; });
   // -------------------------------------------------------------------------------------
-  // tbb::task_scheduler_init task_scheduler(FLAGS_worker_threads);
-  tbb::task_scheduler_init task_scheduler(thread::hardware_concurrency());
+  const u64 load_threads = (FLAGS_tpcc_load_with_hw_threads) ? thread::hardware_concurrency() : FLAGS_worker_threads;
+  tbb::task_scheduler_init task_scheduler(load_threads);
   load();
   task_scheduler.terminate();
   // -------------------------------------------------------------------------------------
