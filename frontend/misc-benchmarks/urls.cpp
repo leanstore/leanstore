@@ -2,7 +2,7 @@
 #include "leanstore/BTreeAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
-#include "leanstore/counters/WorkerCounters.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/btree/BTreeSlotted.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Files.hpp"

@@ -1,7 +1,7 @@
 #include "FreeList.hpp"
 
 #include "Exceptions.hpp"
-#include "leanstore/counters/WorkerCounters.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------

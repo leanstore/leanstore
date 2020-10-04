@@ -2,7 +2,7 @@
 #include "Exceptions.hpp"
 #include "Latch.hpp"
 #include "leanstore/concurrency-recovery/CRMG.hpp"
-#include "leanstore/counters/WorkerCounters.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 namespace leanstore

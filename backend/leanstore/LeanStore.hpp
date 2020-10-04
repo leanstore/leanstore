@@ -51,6 +51,7 @@ class LeanStore
   BufferManager& getBufferManager() { return *buffer_manager; }
   // -------------------------------------------------------------------------------------
   void startDebuggingThread();
+  void startProfilingThread();
   void persist();
   void restore();
   // -------------------------------------------------------------------------------------

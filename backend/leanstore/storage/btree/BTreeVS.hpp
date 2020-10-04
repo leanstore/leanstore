@@ -1,7 +1,7 @@
 #pragma once
 #include "BTreeSlotted.hpp"
 #include "leanstore/Config.hpp"
-#include "leanstore/counters/WorkerCounters.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "leanstore/sync-primitives/PageGuard.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"

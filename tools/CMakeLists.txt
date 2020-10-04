@@ -50,3 +50,7 @@ target_include_directories(aio_mb PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(morsel morsel/morsel.cpp)
 target_link_libraries(morsel Threads::Threads gflags)
 target_include_directories(morsel PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(cli cli.cpp)
+target_link_libraries(cli Threads::Threads gflags)
+target_include_directories(cli PRIVATE ${SHARED_INCLUDE_DIRECTORY})

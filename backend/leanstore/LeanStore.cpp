@@ -1,18 +1,21 @@
 #include "LeanStore.hpp"
 
-#include "leanstore/counters/CPUCounters.hpp"
-#include "leanstore/counters/PPCounters.hpp"
-#include "leanstore/counters/WorkerCounters.hpp"
+#include "leanstore/profiling/counters/CPUCounters.hpp"
+#include "leanstore/profiling/counters/PPCounters.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
+#include "leanstore/profiling/tables/ConfigsTable.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
+#include "tabulate/table.hpp"
 // -------------------------------------------------------------------------------------
 #include <linux/fs.h>
 #include <sys/ioctl.h>
 
 #include <sstream>
 // -------------------------------------------------------------------------------------
+using namespace tabulate;
 namespace leanstore
 {
 // -------------------------------------------------------------------------------------
@@ -54,6 +57,36 @@ LeanStore::~LeanStore()
     MYPAUSE();
   }
   //  close(ssd_fd);
+}
+// -------------------------------------------------------------------------------------
+void LeanStore::startProfilingThread()
+{
+  std::thread profiling_thread([&]() {
+    profiling::ConfigsTable table;
+    table.open();
+    Table movies;
+    Table col;
+    std::vector<variant<std::string, const char*, Table>> row;
+    for (auto& c : table.getColumns()) {
+      row.push_back(c.name);
+    }
+    movies.add_row(row);
+    row.clear();
+    for (auto& c : table.getColumns()) {
+      row.push_back(c.values[0]);
+    }
+    movies.add_row(row);
+    row.clear();
+    movies[0][0].format().width(20);
+    while (bg_threads_keep_running) {
+      std::cout << movies << std::endl;
+      table.next();
+      sleep(1);
+    }
+    bg_threads_counter--;
+  });
+  bg_threads_counter++;
+  profiling_thread.detach();
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::startDebuggingThread()

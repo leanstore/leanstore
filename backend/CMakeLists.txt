@@ -15,7 +15,7 @@ endif ()
 # Library
 # ---------------------------------------------------------------------------
 add_library(leanstore STATIC ${LEANSTORE_CC})
-target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic) #tbb
+target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic tabluate) #tbb
 #if (CMAKE_BUILD_TYPE MATCHES Debug)
 #    target_compile_options(leanstore PUBLIC -fsanitize=address)
 #    target_link_libraries(leanstore asan)

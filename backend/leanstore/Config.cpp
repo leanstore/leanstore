@@ -21,6 +21,7 @@ DEFINE_uint32(falloc, 0, "Preallocate GiB");
 DEFINE_bool(print_debug, true, "");
 DEFINE_bool(print_tx_console, false, "");
 DEFINE_uint32(print_debug_interval_s, 1, "");
+DEFINE_bool(profiling, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(worker_threads, 20, "");
 DEFINE_bool(pin_threads, false, "Responsibility of the driver");

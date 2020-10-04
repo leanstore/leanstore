@@ -23,6 +23,7 @@ DECLARE_bool(fs);
 DECLARE_bool(root);
 DECLARE_bool(print_debug);
 DECLARE_bool(print_tx_console);
+DECLARE_bool(profiling);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(contention_split);
