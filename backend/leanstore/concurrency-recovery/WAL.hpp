@@ -2,6 +2,7 @@
 #include "Exceptions.hpp"
 #include "Units.hpp"
 #include "WALWriter.hpp"
+#include "leanstore/profiling/counters/CRCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
@@ -49,7 +50,7 @@ struct WALChunk {
 struct WAL {
  private:
   atomic<bool> ww_thread_keep_running = true;
-  atomic<bool> ww_thread_running = true;
+  atomic<bool> ww_thread_running = false;
   u64 partition_id;
 
  public:
@@ -69,6 +70,11 @@ struct WAL {
   {
     std::unique_lock<std::mutex> guard(mutex);
     u64 next_chunk = (wt_cursor + 1) % CHUNKS_PER_WAL;
+    if (next_chunk == ww_cursor) {
+      CRCounters::myCounters().wal_reserve_blocked++;
+    } else {
+      CRCounters::myCounters().wal_reserve_immediate++;
+    }
     cv.wait(guard, [&] { return next_chunk != ww_cursor; });
     wt_cursor = next_chunk;
     current_chunk = chunks + next_chunk;

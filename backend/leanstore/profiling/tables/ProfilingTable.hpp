@@ -1,6 +1,6 @@
 #pragma once
-#include "Units.hpp"
 #include "Exceptions.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <functional>
@@ -75,6 +75,7 @@ class ProfilingTable
     }
     ensure(false);
   }
+  double getDouble(std::string key, std::string column) { return std::stod(get(key, column)); }
   virtual std::string getName() { return "null"; };
   virtual void open(){};
   virtual void next(){};

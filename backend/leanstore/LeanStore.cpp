@@ -5,6 +5,7 @@
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/profiling/tables/BMTable.hpp"
 #include "leanstore/profiling/tables/CPUTable.hpp"
+#include "leanstore/profiling/tables/CRTable.hpp"
 #include "leanstore/profiling/tables/DTTable.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
@@ -70,7 +71,8 @@ void LeanStore::startProfilingThread()
     profiling::BMTable bm_table(*buffer_manager.get());
     profiling::DTTable dt_table(*buffer_manager.get());
     profiling::CPUTable cpu_table;
-    std::vector<profiling::ProfilingTable*> tables = {&configs_table, &bm_table, &dt_table, &cpu_table};
+    profiling::CRTable cr_table;
+    std::vector<profiling::ProfilingTable*> tables = {&configs_table, &bm_table, &dt_table, &cpu_table, &cr_table};
     // -------------------------------------------------------------------------------------
     std::vector<std::ofstream> csvs;
     std::ofstream::openmode open_flags;
@@ -124,11 +126,13 @@ void LeanStore::startProfilingThread()
       // -------------------------------------------------------------------------------------
       // Console
       const double instr_per_tx = cpu_table.workers_agg_events["instr"] / tx;
+      using RowType = std::vector<variant<std::string, const char*, Table>>;
       tabulate::Table table;
-      table.add_row({"t", "TX", "w_mib", "r_mib", "instr_tx", "ww_cpus", "workers_cpus"});
+      table.add_row({"t", "TX", "w_mib", "r_mib", "instr_tx", "written_log_gib", "workers_cpus", "wal_blocked", "wal_immediate"});
       table.add_row({std::to_string(seconds), bm_table.get("0", "tx"), bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"),
-                     std::to_string(instr_per_tx), std::to_string(cpu_table.ww_agg_events["CPU"]),
-                     std::to_string(cpu_table.workers_agg_events["CPU"])});
+                     std::to_string(instr_per_tx), std::to_string(cr_table.getDouble("0", "written_log_bytes") / 1024.0 / 1024.0 / 1024.0),
+                     std::to_string(cpu_table.workers_agg_events["CPU"]), cr_table.get("0", "wal_reserve_blocked"),
+                     cr_table.get("0", "wal_reserve_immediate")});
       table[0].format().hide_border_bottom();
       table[1].format().hide_border_top();
       cout << table << endl;

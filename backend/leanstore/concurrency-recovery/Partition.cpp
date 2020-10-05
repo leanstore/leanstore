@@ -1,11 +1,16 @@
 #include "Partition.hpp"
+
+#include "leanstore/profiling/counters/CRCounters.hpp"
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-Partition::Partition(u64 partition_id) : partition_id(partition_id), wal(partition_id) {}
+Partition::Partition(u64 partition_id) : partition_id(partition_id), wal(partition_id)
+{
+  CRCounters::myCounters().partition_id = partition_id;
+}
 Partition::~Partition() {}
 // -------------------------------------------------------------------------------------
 void Partition::startTX(Transaction::TYPE tx_type)
