@@ -67,7 +67,7 @@ class ExclusiveGuard
       // -------------------------------------------------------------------------------------
       ~ExclusiveGuard()
   {
-    optimistic_guard.guard.toOptimisticSpin();
+    optimistic_guard.guard.unlock();
     jumpmu::clearLastDestructor();
   }
 };
@@ -89,7 +89,7 @@ class ExclusiveUpgradeIfNeeded
       ~ExclusiveUpgradeIfNeeded()
   {
     if (!was_exclusive) {
-      guard.toOptimisticSpin();
+      guard.unlock();
     }
     jumpmu::clearLastDestructor();
   }
@@ -111,7 +111,7 @@ class SharedGuard
       // -------------------------------------------------------------------------------------
       ~SharedGuard()
   {
-    optimistic_guard.guard.toOptimisticSpin();
+    optimistic_guard.guard.unlock();
     jumpmu::clearLastDestructor();
   }
 };

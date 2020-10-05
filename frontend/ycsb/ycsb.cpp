@@ -52,9 +52,9 @@ int main(int argc, char** argv)
   unique_ptr<BTreeInterface<YCSBKey, YCSBPayload>> adapter;
   auto& vs_btree = db.registerBTree("ycsb");
   adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
-  db.registerConfigEntry("ycsb_read_ratio", [&](ostream& out) { out << FLAGS_ycsb_read_ratio; });
-  db.registerConfigEntry("ycsb_target_gib", [&](ostream& out) { out << FLAGS_target_gib; });
-  db.startDebuggingThread();
+  db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
+  db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);
+  db.startProfilingThread();
   // -------------------------------------------------------------------------------------
   auto& table = *adapter;
   const u64 ycsb_tuple_count =

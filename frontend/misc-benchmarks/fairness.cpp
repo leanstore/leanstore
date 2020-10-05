@@ -43,7 +43,7 @@ int main(int argc, char** argv)
   LeanStore db;
   auto& vs_btree = db.registerBTree("fairness");
   BTreeVSAdapter<Key, Payload> table(vs_btree);
-  db.startDebuggingThread();
+  db.startProfilingThread();
   // -------------------------------------------------------------------------------------
   Payload dummy_payload;
   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&dummy_payload), sizeof(Payload));

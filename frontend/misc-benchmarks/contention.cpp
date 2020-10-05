@@ -36,7 +36,7 @@ int main(int argc, char** argv)
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
   // -------------------------------------------------------------------------------------
-  db.registerConfigEntry("cm_threads_pro_page", [&](ostream& out) {out << FLAGS_cm_threads_pro_page;});
+  db.registerConfigEntry("cm_threads_pro_page", FLAGS_cm_threads_pro_page);
   // -------------------------------------------------------------------------------------
   Payload payload;
   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
@@ -61,7 +61,7 @@ int main(int argc, char** argv)
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
-  db.startDebuggingThread();
+  db.startProfilingThread();
   // -------------------------------------------------------------------------------------
   auto spawn_update_thread = [&](u64 k) {
     threads.emplace_back(

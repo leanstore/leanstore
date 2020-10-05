@@ -44,7 +44,7 @@ int main(int argc, char** argv)
   atomic<bool> keep_running = true;
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
-  db.startDebuggingThread();
+  db.startProfilingThread();
   // -------------------------------------------------------------------------------------
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++)
     threads.emplace_back([&]() {

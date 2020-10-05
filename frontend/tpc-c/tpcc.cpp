@@ -70,9 +70,9 @@ int main(int argc, char** argv)
   item = LeanStoreAdapter<item_t>(db, "item");
   stock = LeanStoreAdapter<stock_t>(db, "stock");
   // -------------------------------------------------------------------------------------
-  db.registerConfigEntry("tpcc_warehouse_count", [&](ostream& out) { out << FLAGS_tpcc_warehouse_count; });
-  db.registerConfigEntry("tpcc_warehouse_affinity", [&](ostream& out) { out << FLAGS_tpcc_warehouse_affinity; });
-  db.registerConfigEntry("run_until_tx", [&](ostream& out) { out << FLAGS_run_until_tx; });
+  db.registerConfigEntry("tpcc_warehouse_count", FLAGS_tpcc_warehouse_count);
+  db.registerConfigEntry("tpcc_warehouse_affinity", FLAGS_tpcc_warehouse_affinity);
+  db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
   // -------------------------------------------------------------------------------------
   const u64 load_threads = (FLAGS_tpcc_load_with_hw_threads) ? thread::hardware_concurrency() : FLAGS_worker_threads;
   tbb::task_scheduler_init task_scheduler(load_threads);
@@ -87,7 +87,7 @@ int main(int argc, char** argv)
   atomic<u64> running_threads_counter = 0;
   vector<thread> threads;
   auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
-  db.startDebuggingThread();
+  db.startProfilingThread();
   if (FLAGS_tpcc_warehouse_affinity) {
     ensure(!FLAGS_wal);
     if (FLAGS_tpcc_warehouse_count < FLAGS_worker_threads) {

@@ -37,7 +37,7 @@ int main(int argc, char** argv)
   auto& vs_btree = db.registerBTree("scheduler");
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
-  db.startDebuggingThread();
+  db.startProfilingThread();
   // -------------------------------------------------------------------------------------
   const u64 target_pages = FLAGS_target_gib * 1024 * 1024 * 1024 / PAGE_SIZE;
   Payload dummy_payload;

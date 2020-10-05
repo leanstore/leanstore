@@ -1,5 +1,6 @@
 #pragma once
 #include "ProfilingTable.hpp"
+#include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -7,14 +8,20 @@ namespace leanstore
 {
 namespace profiling
 {
-class ConfigsTable : public ProfilingTable
+using namespace buffermanager;
+class DTTable : public ProfilingTable
 {
-public:
+ private:
+  string dt_name;
+  u64 dt_id;
+  BufferManager& bm;
+
+ public:
+  DTTable(BufferManager& bm);
+  // -------------------------------------------------------------------------------------
   virtual std::string getName();
   virtual void open();
   virtual void next();
-  u64 hash();
-  void add(string name, string value);
 };
 }  // namespace profiling
 }  // namespace leanstore

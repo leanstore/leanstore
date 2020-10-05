@@ -15,7 +15,7 @@ struct CPUCounters {
   string name;
   // -------------------------------------------------------------------------------------
   static u64 id;
-  static std::unordered_map<u64, CPUCounters> thread_counters;
+  static std::unordered_map<u64, CPUCounters> threads;
   static std::mutex mutex;
   static u64 registerThread(string name);
   static void removeThread(u64 id);

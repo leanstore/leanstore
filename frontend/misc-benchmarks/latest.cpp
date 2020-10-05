@@ -42,10 +42,10 @@ int main(int argc, char** argv)
   adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
   auto& table = *adapter;
   // -------------------------------------------------------------------------------------
-  db.registerConfigEntry("latest_read_ratio", [&](ostream& out) { out << FLAGS_latest_read_ratio; });
-  db.registerConfigEntry("latest_window_gib", [&](ostream& out) { out << FLAGS_latest_window_gib; });
-  db.registerConfigEntry("latest_window_ms", [&](ostream& out) { out << FLAGS_latest_window_ms; });
-  db.registerConfigEntry("latest_window_offset_gib", [&](ostream& out) { out << FLAGS_latest_window_offset_gib; });
+  db.registerConfigEntry("latest_read_ratio", FLAGS_latest_read_ratio);
+  db.registerConfigEntry("latest_window_gib", FLAGS_latest_window_gib);
+  db.registerConfigEntry("latest_window_ms", FLAGS_latest_window_ms);
+  db.registerConfigEntry("latest_window_offset_gib", FLAGS_latest_window_offset_gib);
   // -------------------------------------------------------------------------------------
   Payload payload;
   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
@@ -105,7 +105,7 @@ int main(int argc, char** argv)
   keep_running = true;
   // -------------------------------------------------------------------------------------
   const u64 size_after_warmup = db.getBufferManager().consumedPages();
-  db.startDebuggingThread();
+  db.startProfilingThread();
   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
     threads.emplace_back([&]() {
       running_threads_counter++;

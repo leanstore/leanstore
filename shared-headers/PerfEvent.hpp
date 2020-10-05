@@ -37,6 +37,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -256,19 +257,17 @@ struct PerfEvent {
     extendedNames.push_back("GHz");
     return extendedNames;
   }
-  std::vector<double> printAsVector()
+  std::unordered_map<string, double> getCountersMap()
   {
-    assert(!events.size());
-    std::vector<double> res;
-
+    std::unordered_map<string, double> res;
     // print all metrics
     for (unsigned i = 0; i < events.size(); i++) {
-      res.push_back(events[i].readCounter());
+      res[names[i]] = events[i].readCounter();
     }
     // derived metrics
-    res.push_back(getIPC());
-    res.push_back(getCPUs());
-    res.push_back(getGHz());
+    res["IPC"] = getIPC();
+    res["CPU"] = getCPUs();
+    res["GHz"] = getGHz();
     return res;
   }
   // -------------------------------------------------------------------------------------

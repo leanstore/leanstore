@@ -21,6 +21,10 @@
 namespace leanstore
 {
 class LeanStore;
+namespace profiling
+{
+class BMTable;
+}
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
@@ -37,6 +41,7 @@ class BufferManager
 {
  private:
   friend class leanstore::LeanStore;
+  friend class leanstore::profiling::BMTable;
   // -------------------------------------------------------------------------------------
   BufferFrame* bfs;
   // -------------------------------------------------------------------------------------
@@ -110,6 +115,8 @@ class BufferManager
   void restore();
   void persist();
   // -------------------------------------------------------------------------------------
+  u64 getPoolSize() { return dram_pool_size; }
+  DTRegistry& getDTRegistry() { return dt_registry; }
   u64 consumedPages();
   BufferFrame& getContainingBufferFrame(const u8*);  // get the buffer frame containing the given ptr address
 };                                                   // namespace buffermanager

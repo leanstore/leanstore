@@ -73,7 +73,7 @@ int main(int argc, char** argv)
       CPUCounters::removeThread(r_id);
     }, t_i);
   }
-  db.startDebuggingThread();
+  db.startProfilingThread();
   for (auto& thread : threads) {
     thread.join();
   }
