@@ -49,17 +49,14 @@ void CPUTable::next()
       thread.second.e->stopCounters();
       auto events_map = thread.second.e->getCountersMap();
       columns.at("key") << thread.second.name;
-      if (thread.second.name.rfind("worker", 0) == 0) {
-        for (auto& counter : events_map)
-          workers_agg_events[counter.first] += counter.second;
-      } else if (thread.second.name.rfind("pp", 0) == 0) {
-        for (auto& counter : events_map)
-          pp_agg_events[counter.first] += counter.second;
-      } else if (thread.second.name.rfind("ww") == 0) {
-        for (auto& counter : events_map)
-          ww_agg_events[counter.first] += counter.second;
-      }
       for (auto& event : events_map) {
+        if (thread.second.name.rfind("worker", 0) == 0) {
+          workers_agg_events[event.first] += event.second;
+        } else if (thread.second.name.rfind("pp", 0) == 0) {
+          pp_agg_events[event.first] += event.second;
+        } else if (thread.second.name.rfind("ww") == 0) {
+          ww_agg_events[event.first] += event.second;
+        }
         columns.at(event.first) << event.second;
       }
       thread.second.e->startCounters();

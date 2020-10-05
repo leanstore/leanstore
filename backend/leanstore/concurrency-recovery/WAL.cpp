@@ -1,4 +1,5 @@
 #include "WAL.hpp"
+#include "leanstore/profiling/counters/CPUCounters.hpp"
 
 #include "WALWriter.hpp"
 // -------------------------------------------------------------------------------------
@@ -14,7 +15,8 @@ namespace cr
 WAL::WAL(u64 partition_id) : partition_id(partition_id)
 {
   std::thread ww_thread([&, partition_id]() {
-    pthread_setname_np(pthread_self(), "wal");
+    pthread_setname_np(pthread_self(), "ww");
+    CPUCounters::registerThread("ww_" + partition_id);
     ww_thread_running = true;
     while (ww_thread_keep_running) {
       std::unique_lock<std::mutex> guard(mutex);

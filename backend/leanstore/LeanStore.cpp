@@ -125,9 +125,10 @@ void LeanStore::startProfilingThread()
       // Console
       const double instr_per_tx = cpu_table.workers_agg_events["instr"] / tx;
       tabulate::Table table;
-      table.add_row({"t", "TX", "w_mib", "r_mib", "instr_tx"});
-      table.add_row(
-          {std::to_string(seconds), bm_table.get("0", "tx"), bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), std::to_string(instr_per_tx)});
+      table.add_row({"t", "TX", "w_mib", "r_mib", "instr_tx", "ww_cpus", "workers_cpus"});
+      table.add_row({std::to_string(seconds), bm_table.get("0", "tx"), bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"),
+                     std::to_string(instr_per_tx), std::to_string(cpu_table.ww_agg_events["CPU"]),
+                     std::to_string(cpu_table.workers_agg_events["CPU"])});
       table[0].format().hide_border_bottom();
       table[1].format().hide_border_top();
       cout << table << endl;
