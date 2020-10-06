@@ -176,5 +176,8 @@ int main(int argc, char** argv)
   gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
   cout << "consumed space in GiB = " << gib << endl;
   // -------------------------------------------------------------------------------------
+  if (FLAGS_persist) {
+    db.getBufferManager().writeAllBufferFrames();
+  }
   return 0;
 }

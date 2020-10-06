@@ -360,6 +360,9 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
   }
   nodeLeft->makeHint();
   nodeRight->makeHint();
+  // -------------------------------------------------------------------------------------
+  // std::memset((nodeRight->slot + nodeRight->count), 0, nodeRight->freeSpace());
+  // -------------------------------------------------------------------------------------
   memcpy(reinterpret_cast<char*>(this), nodeRight, sizeof(BTreeNode));
 }
 // -------------------------------------------------------------------------------------

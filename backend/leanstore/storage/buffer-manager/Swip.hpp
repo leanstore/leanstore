@@ -50,6 +50,7 @@ class Swip
   BufferFrame& bfRef() { return *bf; }
   BufferFrame* bfPtr() { return bf; }
   BufferFrame* bfPtrAsHot() { return reinterpret_cast<BufferFrame*>(pid & hot_mask); }
+  BufferFrame& bfRefAsHot() { return *bfPtrAsHot(); }
   u64 raw() const { return pid; }
   // -------------------------------------------------------------------------------------
   template <typename T2>

@@ -1,11 +1,12 @@
 #include "Parallelize.hpp"
-#include "Units.hpp"
+
 #include "Exceptions.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <functional>
 #include <thread>
 #include <vector>
-#include <functional>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -28,6 +29,6 @@ void Parallelize::parallelRange(u64 n, std::function<void(u64 begin, u64 end)> c
   for (auto& thread : threads) {
     thread.join();
   }
-    }
-  }
 }
+}  // namespace utils
+}  // namespace leanstore

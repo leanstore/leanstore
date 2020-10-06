@@ -93,7 +93,6 @@ class BufferManager
   void reclaimPage(BufferFrame& bf);
   void reclaimBufferFrame(BufferFrame& bf);
   // -------------------------------------------------------------------------------------
-  void flushDropAllPages();
   void stopBackgroundThreads();
   /*
    * Life cycle of a fix:
@@ -113,7 +112,7 @@ class BufferManager
   // -------------------------------------------------------------------------------------
   void clearSSD();
   void restore();
-  void persist();
+  void writeAllBufferFrames();
   // -------------------------------------------------------------------------------------
   u64 getPoolSize() { return dram_pool_size; }
   DTRegistry& getDTRegistry() { return dt_registry; }

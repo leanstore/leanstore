@@ -162,7 +162,7 @@ class ExclusivePageGuard
     }
   }
   // -------------------------------------------------------------------------------------
-  template<typename WT>
+  template <typename WT>
   cr::Partition::WALEntryHandler<WT> reserveWALEntry(u64 requested_size)
   {
     assert(FLAGS_wal && hasBf());

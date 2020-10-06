@@ -70,16 +70,28 @@ struct WAL {
   {
     std::unique_lock<std::mutex> guard(mutex);
     u64 next_chunk = (wt_cursor + 1) % CHUNKS_PER_WAL;
-    if (next_chunk == ww_cursor) {
-      CRCounters::myCounters().wal_reserve_blocked++;
-    } else {
-      CRCounters::myCounters().wal_reserve_immediate++;
-    }
+    ensure(next_chunk != ww_cursor);
+    CRCounters::myCounters().wal_reserve_immediate++;
     cv.wait(guard, [&] { return next_chunk != ww_cursor; });
     wt_cursor = next_chunk;
     current_chunk = chunks + next_chunk;
     guard.unlock();
     cv.notify_one();
+  }
+  // -------------------------------------------------------------------------------------
+  void ensureEnoughSpace(u64 requested_size)
+  {
+    if (current_chunk->free_space >= requested_size) {
+      return;
+    } else {
+      std::unique_lock<std::mutex> guard(mutex);
+      u64 next_chunk = (wt_cursor + 1) % CHUNKS_PER_WAL;
+      if (next_chunk == ww_cursor) {
+        CRCounters::myCounters().wal_reserve_blocked++;
+      }
+      cv.wait(guard, [&] { return next_chunk != ww_cursor; });
+      return;
+    }
   }
   // -------------------------------------------------------------------------------------
   inline u8* reserve(u64 requested_size)

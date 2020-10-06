@@ -117,7 +117,7 @@ struct PerfEvent {
     pe.size = sizeof(struct perf_event_attr);
     pe.config = eventID;
     pe.disabled = true;
-    pe.inherit = 1;
+    pe.inherit = 0;
     pe.inherit_stat = 0;
     pe.exclude_user = exclude_user;
     pe.exclude_kernel = false;

@@ -283,6 +283,7 @@ bool BTree::prefixMaxOne(u8* start_key, u16 start_key_length, function<void(cons
 // -------------------------------------------------------------------------------------
 void BTree::insert(u8* key, u16 key_length, u64 value_length, u8* value)
 {
+  cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 1);
   volatile u32 mask = 1;
   volatile u32 local_restarts_counter = 0;
   while (true) {
@@ -414,6 +415,7 @@ bool BTree::tryBalanceRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<
 // -------------------------------------------------------------------------------------
 void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
+  cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 4);
   auto parent_handler = findParent(this, to_split);
   HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
@@ -539,6 +541,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 // -------------------------------------------------------------------------------------
 void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback, WALUpdateGenerator wal_update_generator)
 {
+  cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 1);
   volatile u32 mask = 1;
   while (true) {
     jumpmuTry()
@@ -617,12 +620,7 @@ void BTree::update(u8*, u16, u64, u8*)
 // -------------------------------------------------------------------------------------
 bool BTree::remove(u8* key, u16 key_length)
 {
-  /*
-   * Plan:
-   * check the right (only one) node if it is under filled
-   * if yes, then lock exclusively
-   * if there was not, and after deletion we got an empty
-   * */
+  cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 1);
   volatile u32 mask = 1;
   while (true) {
     jumpmuTry()
@@ -924,8 +922,10 @@ BTree::~BTree() {}
 // -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTree::getMeta()
 {
-  DTRegistry::DTMeta btree_meta = {
-      .iterate_children = iterateChildrenSwips, .find_parent = findParent, .check_space_utilization = checkSpaceUtilization};
+  DTRegistry::DTMeta btree_meta = {.iterate_children = iterateChildrenSwips,
+                                   .find_parent = findParent,
+                                   .check_space_utilization = checkSpaceUtilization,
+                                   .checkpoint = checkpoint};
   return btree_meta;
 }
 // -------------------------------------------------------------------------------------
@@ -946,6 +946,25 @@ bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Optimisti
     return (return_code != XMergeReturnCode::NOTHING);
   }
   return false;
+}
+// -------------------------------------------------------------------------------------
+void BTree::checkpoint(void*, BufferFrame& bf, u8* dest)
+{
+  std::memcpy(dest, bf.page.dt, EFFECTIVE_PAGE_SIZE);
+  auto node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
+  auto dest_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
+  if (!node.is_leaf) {
+    for (u64 t_i = 0; t_i < dest_node.count; t_i++) {
+      if (!dest_node.getChild(t_i).isEVICTED()) {
+        auto& bf = dest_node.getChild(t_i).bfRefAsHot();
+        dest_node.getChild(t_i).evict(bf.header.pid);
+      }
+    }
+    if (!dest_node.upper.isEVICTED()) {
+      auto& bf = dest_node.upper.bfRefAsHot();
+      dest_node.upper.evict(bf.header.pid);
+    }
+  }
 }
 // -------------------------------------------------------------------------------------
 // Jump if any page on the path is already evicted

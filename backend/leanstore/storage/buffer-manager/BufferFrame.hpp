@@ -5,6 +5,7 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
+#include <cstring>
 #include <vector>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -71,6 +72,7 @@ struct BufferFrame {
     header.pid = 9999;
     header.next_free_bf = nullptr;
     header.contention_tracker.reset();
+    // std::memset(reinterpret_cast<u8*>(&page), 0, PAGE_SIZE);
   }
   // -------------------------------------------------------------------------------------
   BufferFrame() { header.latch->store(0ul); }

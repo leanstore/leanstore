@@ -424,11 +424,19 @@ void BufferManager::clearSSD()
   // TODO
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::persist()
+void BufferManager::writeAllBufferFrames()
 {
-  // TODO
   stopBackgroundThreads();
-  flushDropAllPages();
+  ensure(!FLAGS_out_of_place);
+  utils::Parallelize::parallelRange(dram_pool_size, [&](u64 bf_b, u64 bf_e) {
+    for (u64 bf_i = bf_b; bf_i < bf_e; bf_i++) {
+      auto& bf = bfs[bf_i];
+      bf.header.latch.mutex.lock();
+      s64 ret = pwrite(ssd_fd, bf.page, PAGE_SIZE, bf.header.pid * PAGE_SIZE);
+      ensure(ret == PAGE_SIZE);
+      bf.header.latch.mutex.unlock();
+    }
+  });
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::restore()
@@ -698,13 +706,6 @@ DTID BufferManager::registerDatastructureInstance(DTType type, void* root_object
   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_misses_counter[new_instance_id] = 0; }
   // -------------------------------------------------------------------------------------
   return new_instance_id;
-}
-// -------------------------------------------------------------------------------------
-// Make sure all worker threads are off
-void BufferManager::flushDropAllPages()
-{
-  // TODO
-  // -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------
 u64 BufferManager::getPartitionID(PID pid)
