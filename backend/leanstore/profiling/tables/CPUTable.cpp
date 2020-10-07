@@ -50,12 +50,18 @@ void CPUTable::next()
       auto events_map = thread.second.e->getCountersMap();
       columns.at("key") << thread.second.name;
       for (auto& event : events_map) {
+        double event_value;
+        if (std::isnan(event.second)) {
+          event_value = 0;
+        } else {
+          event_value = event.second;
+        }
         if (thread.second.name.rfind("worker", 0) == 0) {
-          workers_agg_events[event.first] += event.second;
+          workers_agg_events[event.first] += event_value;
         } else if (thread.second.name.rfind("pp", 0) == 0) {
-          pp_agg_events[event.first] += event.second;
+          pp_agg_events[event.first] += event_value;
         } else if (thread.second.name.rfind("ww") == 0) {
-          ww_agg_events[event.first] += event.second;
+          ww_agg_events[event.first] += event_value;
         }
         columns.at(event.first) << event.second;
       }

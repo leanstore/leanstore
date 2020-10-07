@@ -415,7 +415,7 @@ bool BTree::tryBalanceRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<
 // -------------------------------------------------------------------------------------
 void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
-  cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 4);
+  cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 5);
   auto parent_handler = findParent(this, to_split);
   HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());

@@ -37,8 +37,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <iomanip>
 #include <iostream>
 #include <map>
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct PerfEvent {
@@ -67,6 +67,7 @@ struct PerfEvent {
   std::chrono::time_point<std::chrono::steady_clock> startTime;
   std::chrono::time_point<std::chrono::steady_clock> stopTime;
   std::map<std::string, std::string> params;
+  const bool inherit;
   bool printHeader;
 
   bool isIntel()
@@ -81,7 +82,7 @@ struct PerfEvent {
     return false;
 #endif
   }
-  PerfEvent() : printHeader(true)
+  PerfEvent(bool inherit = true) : inherit(inherit), printHeader(true)
   {
     registerCounter("cycle", PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES);
     registerCounter("cycle-kernel", PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES, 1);
@@ -117,7 +118,7 @@ struct PerfEvent {
     pe.size = sizeof(struct perf_event_attr);
     pe.config = eventID;
     pe.disabled = true;
-    pe.inherit = 0;
+    pe.inherit = inherit;
     pe.inherit_stat = 0;
     pe.exclude_user = exclude_user;
     pe.exclude_kernel = false;

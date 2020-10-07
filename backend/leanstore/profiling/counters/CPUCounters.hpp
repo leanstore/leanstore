@@ -17,7 +17,7 @@ struct CPUCounters {
   static u64 id;
   static std::unordered_map<u64, CPUCounters> threads;
   static std::mutex mutex;
-  static u64 registerThread(string name);
+  static u64 registerThread(string name, bool perf_inherit = false);
   static void removeThread(u64 id);
 };
 }  // namespace leanstore

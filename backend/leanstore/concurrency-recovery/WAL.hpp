@@ -28,7 +28,7 @@ struct WALEntry {
 };
 // -------------------------------------------------------------------------------------
 struct WALChunk {
-  static constexpr u64 CHUNK_SIZE = (1024ull * 1024 * 100);  // 100 MiB
+  static constexpr u64 CHUNK_SIZE = (1024ull * 1024 * 50);  // 100 MiB
   static constexpr u64 CHUNK_SIZE_PURE = CHUNK_SIZE - (8 + 8 + 8);
   struct alignas(512) DiskImage {
     u64 partition_id;
@@ -54,7 +54,7 @@ struct WAL {
   u64 partition_id;
 
  public:
-  static constexpr u64 CHUNKS_PER_WAL = 5;
+  static constexpr u64 CHUNKS_PER_WAL = 10;
   WALChunk chunks[CHUNKS_PER_WAL];
   WALChunk* current_chunk = chunks + 0;
   // -------------------------------------------------------------------------------------
