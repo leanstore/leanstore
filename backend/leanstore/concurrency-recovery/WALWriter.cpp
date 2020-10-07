@@ -28,5 +28,10 @@ void WALWriter::write(u8* src, u64 size)
   posix_check(ret != -1);
 }
 // -------------------------------------------------------------------------------------
+void WALWriter::flush()
+{
+  fdatasync(ssd_fd);
+}
+// -------------------------------------------------------------------------------------
 }  // namespace cr
 }  // namespace leanstore

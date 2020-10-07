@@ -18,7 +18,8 @@ WAL::WAL(u64 partition_id) : partition_id(partition_id)
 {
   if (FLAGS_wal) {
     std::thread ww_thread([&, partition_id]() {
-      pthread_setname_np(pthread_self(), "ww");
+      std::string thread_name("ww_" + std::to_string(partition_id));
+      pthread_setname_np(pthread_self(), thread_name.c_str());
       // const u64 t_i = CPUCounters::registerThread("ww_" + std::to_string(partition_id));
       ww_thread_running = true;
       while (ww_thread_keep_running) {
@@ -29,6 +30,8 @@ WAL::WAL(u64 partition_id) : partition_id(partition_id)
         chunks[ww_cursor].disk_image.chunk_size = WALChunk::CHUNK_SIZE - chunks[ww_cursor].free_space;
         chunks[ww_cursor].disk_image.partition_next_chunk_offset = 0;  // TODO:
         WALWriter::write(reinterpret_cast<u8*>(&chunks[ww_cursor].disk_image), WALChunk::CHUNK_SIZE);
+        // -------------------------------------------------------------------------------------
+        max_written_gsn.store(std::max<LID>(chunks[ww_cursor].disk_image.max_gsn, max_written_gsn), std::memory_order_release);
         // -------------------------------------------------------------------------------------
         CRCounters::myCounters().written_log_bytes += WALChunk::CHUNK_SIZE;
         // -------------------------------------------------------------------------------------
@@ -52,6 +55,7 @@ WAL::~WAL()
   while (ww_thread_running) {
     cv.notify_all();
   }
+  ensure(ww_thread_running == false);
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

@@ -29,6 +29,7 @@ struct Partition {
   LID current_gsn;   // Clock
   Transaction user_tx, system_tx;
   Transaction* active_tx = &user_tx;
+  WALEntry* active_entry;
   WAL wal;
   // -------------------------------------------------------------------------------------
   std::mutex commit_mutex;
@@ -46,16 +47,20 @@ struct Partition {
   template <typename T>
   WALEntryHandler<T> reserveDTEntry(PID pid, DTID dt_id, LID gsn, u64 requested_size)
   {
-    WALEntry& entry = *reinterpret_cast<WALEntry*>(wal.reserve(sizeof(WALEntry) + requested_size));
-    entry.size = sizeof(WALEntry) + requested_size;
-    entry.lsn = wal.lsn_counter++;
-    entry.dt_id = dt_id;
-    entry.pid = pid;
-    entry.gsn = gsn;
-    entry.type = WALEntry::TYPE::DT_SPECIFIC;
-    return {*this, entry.payload, requested_size};
+    active_entry = reinterpret_cast<WALEntry*>(wal.reserve(sizeof(WALEntry) + requested_size));
+    active_entry->size = sizeof(WALEntry) + requested_size;
+    active_entry->lsn = wal.lsn_counter++;
+    active_entry->dt_id = dt_id;
+    active_entry->pid = pid;
+    active_entry->gsn = gsn;
+    active_entry->type = WALEntry::TYPE::DT_SPECIFIC;
+    return {*this, active_entry->payload, requested_size};
   }
-  inline void submitDTEntry(u64 requested_size) { wal.submit(requested_size); }
+  inline void submitDTEntry(u64 requested_size)
+  {
+    wal.submit(requested_size);
+    wal.advanceGSN(active_entry->gsn);
+  }
   // -------------------------------------------------------------------------------------
   void startTX(Transaction::TYPE tx_type = Transaction::TYPE::USER);
   void commitTX();

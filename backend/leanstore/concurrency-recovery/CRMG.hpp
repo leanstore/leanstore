@@ -18,11 +18,17 @@ namespace cr
 // Static class
 class CRMG
 {
-  struct TLSHandler {
-    Partition* p;
+  class TLSHandler
+  {
+   public:
+    Partition* p = nullptr;
     TLSHandler() { p = CRMG::registerThread(); }
     ~TLSHandler() { CRMG::removeThread(p); }
   };
+
+ private:
+  friend class TLSHandler;
+  static Partition* registerThread();
 
  public:
   static thread_local TLSHandler tls_handler;
@@ -30,12 +36,12 @@ class CRMG
   static std::set<Partition*> all_threads;
   static u64 partitions_counter;
   // -------------------------------------------------------------------------------------
+  static CRMG global_manager;
+  // -------------------------------------------------------------------------------------
   CRMG();
   ~CRMG();
   // -------------------------------------------------------------------------------------
-  static Partition* registerThread();
   static void removeThread(Partition*);
-  static void removeAllThreads();
   // -------------------------------------------------------------------------------------
   inline static Partition& my()
   {

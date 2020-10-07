@@ -17,6 +17,7 @@ class WALWriter
  public:
   static void init(s32 ssd_fd, u64 ssd_offset);
   static void write(u8* src, u64 size);
+  static void flush();
 };
 }  // namespace cr
 }  // namespace leanstore

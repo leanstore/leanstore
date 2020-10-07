@@ -29,11 +29,12 @@ struct WALEntry {
 // -------------------------------------------------------------------------------------
 struct WALChunk {
   static constexpr u64 CHUNK_SIZE = (1024ull * 1024 * 50);  // 100 MiB
-  static constexpr u64 CHUNK_SIZE_PURE = CHUNK_SIZE - (8 + 8 + 8);
+  static constexpr u64 CHUNK_SIZE_PURE = CHUNK_SIZE - (8 + 8 + 8 + 8);
   struct alignas(512) DiskImage {
     u64 partition_id;
     u64 partition_next_chunk_offset;
     u64 chunk_size;
+    LID max_gsn;
     u8 buffer[CHUNK_SIZE_PURE];
   };
   static_assert(sizeof(DiskImage) == CHUNK_SIZE, "chunk size problem");
@@ -64,7 +65,7 @@ struct WAL {
   u64 ww_cursor = 0;  // WAL Writer cursor
   // -------------------------------------------------------------------------------------
   LID lsn_counter = 0;
-  LID max_gsn = 0;
+  atomic<LID> max_written_gsn = 0;
   // -------------------------------------------------------------------------------------
   void nextChunk()
   {
@@ -111,6 +112,10 @@ struct WAL {
     current_chunk->write_ptr += reserved_size;
     current_chunk->free_space -= reserved_size;
   };
+  // -------------------------------------------------------------------------------------
+  inline void advanceGSN(LID gsn) {
+    current_chunk->disk_image.max_gsn = std::max<LID>(current_chunk->disk_image.max_gsn, gsn);
+  }
   // -------------------------------------------------------------------------------------
   WAL(u64 partition_id);
   ~WAL();

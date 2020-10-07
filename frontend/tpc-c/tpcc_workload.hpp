@@ -233,14 +233,14 @@ void loadOrders(Integer w_id, Integer d_id)
     neworder.insert({w_id, d_id, i}, {});
 }
 
-void load()
+void load(u64 threads_count)
 {
   cr::CRMG::my().startTX();
   loadItem();
   loadWarehouse();
   cr::CRMG::my().commitTX();
-  tbb::parallel_for(tbb::blocked_range<u64>(1, warehouseCount + 1), [&](const tbb::blocked_range<u64>& range) {
-    for (u64 w_id = range.begin(); w_id < range.end(); w_id++) {
+  utils::Parallelize::parallelRange(1, warehouseCount, threads_count, [&](u64 begin, u64 end) {
+    for (u64 w_id = begin; w_id <= end; w_id++) {
       cr::CRMG::my().startTX();
       loadStock(w_id);
       loadDistrinct(w_id);

@@ -4,12 +4,12 @@
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/utils/Parallelize.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
 #include "schema.hpp"
 #include "types.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
-#include <tbb/tbb.h>
 
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
@@ -23,7 +23,7 @@
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
 DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
-DEFINE_bool(tpcc_load_with_hw_threads, false, "");
+DEFINE_bool(tpcc_fast_load, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -56,7 +56,6 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   LeanStore db;
   // -------------------------------------------------------------------------------------
-  // -------------------------------------------------------------------------------------
   warehouseCount = FLAGS_tpcc_warehouse_count;
   warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
   district = LeanStoreAdapter<district_t>(db, "district");
@@ -74,10 +73,8 @@ int main(int argc, char** argv)
   db.registerConfigEntry("tpcc_warehouse_affinity", FLAGS_tpcc_warehouse_affinity);
   db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
   // -------------------------------------------------------------------------------------
-  const u64 load_threads = (FLAGS_tpcc_load_with_hw_threads) ? thread::hardware_concurrency() : FLAGS_worker_threads;
-  tbb::task_scheduler_init task_scheduler(load_threads);
-  load();
-  task_scheduler.terminate();
+  const u64 load_threads = (FLAGS_tpcc_fast_load) ? thread::hardware_concurrency() : FLAGS_worker_threads;
+  load(load_threads);
   // -------------------------------------------------------------------------------------
   double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
   cout << "data loaded - consumed space in GiB = " << gib << endl;
@@ -103,8 +100,7 @@ int main(int argc, char** argv)
       }
       threads.emplace_back([&, t_i, w_begin, w_end]() {
         running_threads_counter++;
-        pthread_setname_np(pthread_self(), "worker");
-        const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
+        const u64 r_id = CPUCounters::registerThread("tpcc_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
           utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
         while (keep_running) {
@@ -125,13 +121,12 @@ int main(int argc, char** argv)
     for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       threads.emplace_back([&, t_i]() {
         running_threads_counter++;
-        pthread_setname_np(pthread_self(), "worker");
-        const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
+        const u64 r_id = CPUCounters::registerThread("tpcc_" + std::to_string(t_i));
         if (FLAGS_pin_threads)
           utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
         Integer w_id;
         if (FLAGS_wal) {
-          cr::CRMG::registerThread();
+          // cr::CRMG::registerThread();
           while (keep_running) {
             cr::CRMG::my().startTX();
             w_id = urand(1, FLAGS_tpcc_warehouse_count);
