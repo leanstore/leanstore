@@ -19,10 +19,10 @@ extern __thread bool in_jump;
 void jump();
 inline void clearLastDestructor()
 {
-  de_stack_obj[de_stack_counter - 1] = nullptr;
-  de_stack_arr[de_stack_counter - 1] = nullptr;
-  de_stack_counter--;
-  assert(de_stack_counter >= 0);
+   de_stack_obj[de_stack_counter - 1] = nullptr;
+   de_stack_arr[de_stack_counter - 1] = nullptr;
+   de_stack_counter--;
+   assert(de_stack_counter >= 0);
 }
 
 }  // namespace jumpmu
@@ -54,14 +54,14 @@ inline void clearLastDestructor()
 template <typename T>
 class JMUW
 {
- public:
-  T obj;
-  template <typename... Args>
-  JMUW(Args&&... args) : obj(std::forward<Args>(args)...)
-  {
-    jumpmu_registerDestructor();
-  }
-  static void des(void* t) { reinterpret_cast<JMUW<T>*>(t)->~JMUW<T>(); }
-  ~JMUW() { jumpmu::clearLastDestructor(); }
-  T* operator->() { return reinterpret_cast<T*>(&obj); }
+  public:
+   T obj;
+   template <typename... Args>
+   JMUW(Args&&... args) : obj(std::forward<Args>(args)...)
+   {
+      jumpmu_registerDestructor();
+   }
+   static void des(void* t) { reinterpret_cast<JMUW<T>*>(t)->~JMUW<T>(); }
+   ~JMUW() { jumpmu::clearLastDestructor(); }
+   T* operator->() { return reinterpret_cast<T*>(&obj); }
 };

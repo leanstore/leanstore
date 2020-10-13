@@ -11,17 +11,17 @@ namespace profiling
 using namespace buffermanager;
 class DTTable : public ProfilingTable
 {
- private:
-  string dt_name;
-  u64 dt_id;
-  BufferManager& bm;
+  private:
+   string dt_name;
+   u64 dt_id;
+   BufferManager& bm;
 
- public:
-  DTTable(BufferManager& bm);
-  // -------------------------------------------------------------------------------------
-  virtual std::string getName();
-  virtual void open();
-  virtual void next();
+  public:
+   DTTable(BufferManager& bm);
+   // -------------------------------------------------------------------------------------
+   virtual std::string getName();
+   virtual void open();
+   virtual void next();
 };
 }  // namespace profiling
 }  // namespace leanstore

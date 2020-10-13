@@ -3,4 +3,5 @@ BasedOnStyle: Chromium
 BreakBeforeBraces: Linux
 SpaceInEmptyParentheses: 'false'
 ColumnLimit: 150
+IndentWidth: 3
 ...

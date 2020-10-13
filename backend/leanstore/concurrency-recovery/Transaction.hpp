@@ -1,6 +1,6 @@
 #pragma once
-#include "Units.hpp"
 #include "Exceptions.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -10,11 +10,11 @@ namespace cr
 {
 // -------------------------------------------------------------------------------------
 struct Transaction {
-  enum class TYPE : u8 { USER, SYSTEM };
-  enum class STATE { IDLE, STARTED, COMMITED, ABORTED };
-  STATE state = STATE::IDLE;
-  u64 tx_id = 0;
-  LID start_gsn = 0;
+   enum class TYPE : u8 { USER, SYSTEM };
+   enum class STATE { IDLE, STARTED, COMMITED, ABORTED };
+   STATE state = STATE::IDLE;
+   u64 tx_id = 0;
+   LID start_gsn = 0;
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr

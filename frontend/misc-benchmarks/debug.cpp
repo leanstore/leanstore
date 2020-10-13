@@ -15,14 +15,14 @@ using namespace leanstore;
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  // -------------------------------------------------------------------------------------
-  utils::Parallelize::parallelRange(1, 13, 1, [&](u64 begin, u64 end) { cout << begin << "," << end << endl; });
-  // -------------------------------------------------------------------------------------
-  tabulate::Table table;
-  table.add_row({"TX", "CPU", "Instructions", "sd"});
-  table.add_row({"0", "1", "2", "3"});
-  table.format().width(20);
-  cout << table << endl;
-  return 0;
+   gflags::ParseCommandLineFlags(&argc, &argv, true);
+   // -------------------------------------------------------------------------------------
+   utils::Parallelize::parallelRange(1, 13, 1, [&](u64 begin, u64 end) { cout << begin << "," << end << endl; });
+   // -------------------------------------------------------------------------------------
+   tabulate::Table table;
+   table.add_row({"TX", "CPU", "Instructions", "sd"});
+   table.add_row({"0", "1", "2", "3"});
+   table.format().width(20);
+   cout << table << endl;
+   return 0;
 }

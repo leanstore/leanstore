@@ -11,10 +11,10 @@ namespace profiling
 using namespace buffermanager;
 class CRTable : public ProfilingTable
 {
- public:
-  virtual std::string getName();
-  virtual void open();
-  virtual void next();
+  public:
+   virtual std::string getName();
+   virtual void open();
+   virtual void next();
 };
 }  // namespace profiling
 }  // namespace leanstore

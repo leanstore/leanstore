@@ -15,22 +15,22 @@ atomic<u64> WALWriter::ssd_offset;
 // -------------------------------------------------------------------------------------
 void WALWriter::init(s32 ssd_fd, u64 ssd_offset)
 {
-  WALWriter::ssd_fd = ssd_fd;
-  WALWriter::ssd_offset = ssd_offset;
+   WALWriter::ssd_fd = ssd_fd;
+   WALWriter::ssd_offset = ssd_offset;
 }
 // -------------------------------------------------------------------------------------
 void WALWriter::write(u8* src, u64 size)
 {
-  while (ssd_fd == -1) {
-  }
-  u64 offset = ssd_offset.fetch_add(-size) - size;
-  s64 ret = pwrite(ssd_fd, src, size, offset);
-  posix_check(ret != -1);
+   while (ssd_fd == -1) {
+   }
+   u64 offset = ssd_offset.fetch_add(-size) - size;
+   s64 ret = pwrite(ssd_fd, src, size, offset);
+   posix_check(ret != -1);
 }
 // -------------------------------------------------------------------------------------
 void WALWriter::flush()
 {
-  fdatasync(ssd_fd);
+   fdatasync(ssd_fd);
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

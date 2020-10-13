@@ -34,23 +34,23 @@ namespace leanstore
 namespace threads
 {
 struct UserThread {
-  bool init = false;
-  ucontext_t context;
-  unique_ptr<u8[]> stack;
-  std::function<void()> run;
-  s64 worker_id = -1;
+   bool init = false;
+   ucontext_t context;
+   unique_ptr<u8[]> stack;
+   std::function<void()> run;
+   s64 worker_id = -1;
 };
 struct UserThreadManager {
-  static atomic<bool> keep_running;
-  static atomic<u64> running_threads;
-  static std::mutex utm_mutex;
-  static std::vector<UserThread> uts;
-  static std::vector<u64> uts_ready, uts_blocked;
-  static std::vector<std::thread> worker_threads;
-  static void init(u64);
-  static void destroy();
-  static void addThread(std::function<void()> run);
-  static void sleepThenCall(std::function<void(std::function<void()>)> work);
+   static atomic<bool> keep_running;
+   static atomic<u64> running_threads;
+   static std::mutex utm_mutex;
+   static std::vector<UserThread> uts;
+   static std::vector<u64> uts_ready, uts_blocked;
+   static std::vector<std::thread> worker_threads;
+   static void init(u64);
+   static void destroy();
+   static void addThread(std::function<void()> run);
+   static void sleepThenCall(std::function<void(std::function<void()>)> work);
 };
 using UT = UserThread;
 using UTM = UserThreadManager;

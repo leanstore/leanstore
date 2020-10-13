@@ -56,7 +56,7 @@ DEFINE_bool(bulk_insert, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_int64(trace_dt_id, -1, "");
 DEFINE_int64(trace_trigger_probability, 100, "");
-DEFINE_string(tag,"","Unique identifier for this, will be appended to each line csv");
+DEFINE_string(tag, "", "Unique identifier for this, will be appended to each line csv");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(out_of_place, false, "");
 // -------------------------------------------------------------------------------------

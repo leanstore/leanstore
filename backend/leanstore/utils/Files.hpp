@@ -1,6 +1,7 @@
 #pragma once
 // -------------------------------------------------------------------------------------
 #include <stdint.h>
+
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -48,8 +49,8 @@ std::string LoadFileToMemory(const std::string& fileName);
 // -------------------------------------------------------------------------------------
 inline uint64_t FieldOffset(void* base, void* field)
 {
-  assert(base <= field);
-  return (uintptr_t)field - (uintptr_t)base;
+   assert(base <= field);
+   return (uintptr_t)field - (uintptr_t)base;
 }
 // -------------------------------------------------------------------------------------
 // Converts the given time in ns into a usable unit depending on its size
@@ -59,7 +60,7 @@ std::string FormatTime(std::chrono::nanoseconds ns, uint32_t precision);
 template <uint32_t byteCount>
 bool IsAlignedAt(const void* ptr)
 {
-  return ((uint64_t)ptr) % byteCount == 0;
+   return ((uint64_t)ptr) % byteCount == 0;
 }
 uint8_t* AlignedAlloc(uint64_t alignment, uint64_t size);
 // -------------------------------------------------------------------------------------
@@ -88,17 +89,17 @@ uint64_t TimeSinceEpoch();
 template <class T>
 std::vector<T> GenerateNonUniformDistribution(uint32_t locality, uint32_t count, T repeat, std::function<T(void)> generator)
 {
-  assert(0 <= locality && locality <= 100);
-  uint32_t sameTupleCount = count / 100 * locality;
-  std::vector<T> result(count);
-  for (uint32_t i = 0; i < count - sameTupleCount; ++i) {
-    result[i] = generator();
-  }
-  for (uint32_t i = count - sameTupleCount; i < count; ++i) {
-    result[i] = repeat;
-  }
-  std::random_shuffle(result.begin(), result.end());
-  return result;
+   assert(0 <= locality && locality <= 100);
+   uint32_t sameTupleCount = count / 100 * locality;
+   std::vector<T> result(count);
+   for (uint32_t i = 0; i < count - sameTupleCount; ++i) {
+      result[i] = generator();
+   }
+   for (uint32_t i = count - sameTupleCount; i < count; ++i) {
+      result[i] = repeat;
+   }
+   std::random_shuffle(result.begin(), result.end());
+   return result;
 }
 // -------------------------------------------------------------------------------------
 }  // namespace utils
