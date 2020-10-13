@@ -34,6 +34,7 @@ DEFINE_bool(cond_futex, false, "");
 DEFINE_bool(cond_std, false, "");
 DEFINE_bool(exchange, false, "");
 DEFINE_bool(release_cycles, false, "");
+DEFINE_bool(mutex, false, "");
 // -------------------------------------------------------------------------------------
 struct alignas(64) CountersLine {
   std::atomic<u64> counter[8];
@@ -54,6 +55,7 @@ int main(int argc, char** argv)
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   // -------------------------------------------------------------------------------------
   vector<thread> threads;
+
   // -------------------------------------------------------------------------------------
   if (FLAGS_exchange) {
     CountersLine cl;
@@ -64,7 +66,33 @@ int main(int argc, char** argv)
         while (true) {
           cl.counter[0].exchange(t_i);
           tl_counters.counter[t_i]++;
-          //usleep(1);
+          // usleep(1);
+        }
+      });
+    }
+    threads.emplace_back([&]() {
+      while (true) {
+        u64 counter = 0;
+        for (u64 t_i = 0; t_i < FLAGS_threads; t_i++) {
+          counter += tl_counters.counter[t_i].exchange(0);
+        }
+        cout << counter << endl;
+        sleep(1);
+      }
+    });
+  }
+  // -------------------------------------------------------------------------------------
+  if (FLAGS_mutex) {
+    std::mutex mutex;
+    CountersLine tl_counters;
+    for (u64 t_i = 0; t_i < FLAGS_threads; t_i++) {
+      threads.emplace_back([&, t_i]() {
+        tl_counters.counter[t_i] = 0;
+        while (true) {
+          mutex.lock();
+          mutex.unlock();
+          tl_counters.counter[t_i]++;
+          // usleep(1);
         }
       });
     }
