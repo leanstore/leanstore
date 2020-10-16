@@ -166,6 +166,7 @@ struct Guard {
    }
    inline void toExclusive()
    {
+      assert(state != GUARD_STATE::SHARED);
       if (state == GUARD_STATE::EXCLUSIVE)
          return;
       if (state == GUARD_STATE::OPTIMISTIC) {

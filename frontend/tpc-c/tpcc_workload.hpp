@@ -239,17 +239,15 @@ void load(u64 threads_count)
    loadItem();
    loadWarehouse();
    cr::CRMG::my().commitTX();
-   utils::Parallelize::parallelRange(1, warehouseCount, threads_count, [&](u64 begin, u64 end) {
-      for (u64 w_id = begin; w_id <= end; w_id++) {
-         cr::CRMG::my().startTX();
-         loadStock(w_id);
-         loadDistrinct(w_id);
-         for (Integer d_id = 1; d_id <= 10; d_id++) {
-            loadCustomer(w_id, d_id);
-            loadOrders(w_id, d_id);
-         }
-         cr::CRMG::my().commitTX();
+   utils::Parallelize::parallelRange(1, warehouseCount, threads_count, [&](u64 w_id) {
+      cr::CRMG::my().startTX();
+      loadStock(w_id);
+      loadDistrinct(w_id);
+      for (Integer d_id = 1; d_id <= 10; d_id++) {
+         loadCustomer(w_id, d_id);
+         loadOrders(w_id, d_id);
       }
+      cr::CRMG::my().commitTX();
    });
 }
 

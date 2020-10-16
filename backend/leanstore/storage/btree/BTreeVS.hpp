@@ -114,6 +114,7 @@ struct BTree {
          Swip<BTreeNode>& c_swip = target_guard->lookupInner(key, key_length);
          p_guard = std::move(target_guard);
          if (level == height - 1) {
+            // target_guard = HybridPageGuard(p_guard, c_swip, FALLBACK_METHOD::RESEARCHY);
             target_guard = HybridPageGuard(
                 p_guard, c_swip,
                 (op_type == OP_TYPE::POINT_UPDATE || op_type == OP_TYPE::POINT_INSERT) ? FALLBACK_METHOD::EXCLUSIVE : FALLBACK_METHOD::SHARED);

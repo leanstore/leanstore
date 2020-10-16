@@ -14,20 +14,19 @@ CRMG CRMG::global_manager;
 // -------------------------------------------------------------------------------------
 CRMG::CRMG()
 {
-   std::thread group_commiter([&]() {
-      while (true) {
-         LID min_written_gsn = std::numeric_limits<LID>::max();
-         {
-            std::unique_lock guard(mutex);
-            for (auto& t : all_threads) {
-               min_written_gsn = std::min<LID>(min_written_gsn, t->wal.max_written_gsn);
-            }
-         }
-         cout << endl << "min gsn = " << min_written_gsn << endl;
-         sleep(1);
-      }
-   });
-   group_commiter.detach();
+   // std::thread group_commiter([&]() {
+   //    while (true) {
+   //       LID min_written_gsn = std::numeric_limits<LID>::max();
+   //       {
+   //          std::unique_lock guard(mutex);
+   //          for (auto& t : all_threads) {
+   //             min_written_gsn = std::min<LID>(min_written_gsn, t->wal.max_written_gsn);
+   //          }
+   //       }
+   //       sleep(1);
+   //    }
+   // });
+   // group_commiter.detach();
 }
 CRMG::~CRMG()
 {
