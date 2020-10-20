@@ -100,7 +100,7 @@ int main(int argc, char** argv)
          }
          threads.emplace_back([&, t_i, w_begin, w_end]() {
             running_threads_counter++;
-            const u64 r_id = CPUCounters::registerThread("tpcc_" + std::to_string(t_i));
+            const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
             if (FLAGS_pin_threads)
                utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
             while (keep_running) {
@@ -121,7 +121,7 @@ int main(int argc, char** argv)
       for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
          threads.emplace_back([&, t_i]() {
             running_threads_counter++;
-            const u64 r_id = CPUCounters::registerThread("tpcc_" + std::to_string(t_i));
+            const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
             if (FLAGS_pin_threads)
                utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
             Integer w_id;
