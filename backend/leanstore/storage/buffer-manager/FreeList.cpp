@@ -10,6 +10,14 @@ namespace leanstore
 namespace buffermanager
 {
 // -------------------------------------------------------------------------------------
+void FreeList::batchPush(BufferFrame* batch_head, BufferFrame* batch_tail, u64 batch_counter)
+{
+   batch_tail->header.next_free_bf = head.load();
+   while (!head.compare_exchange_strong(batch_tail->header.next_free_bf, batch_head))
+      ;
+   counter += batch_counter;
+}
+// -------------------------------------------------------------------------------------
 void FreeList::push(BufferFrame& bf)
 {
    assert(bf.header.state == BufferFrame::STATE::FREE);
