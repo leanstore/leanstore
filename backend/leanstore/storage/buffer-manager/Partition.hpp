@@ -64,7 +64,7 @@ struct HashTable {
 // -------------------------------------------------------------------------------------
 struct Partition {
    std::mutex io_mutex;
-   HashTable ht;
+   HashTable io_ht;
    // -------------------------------------------------------------------------------------
    std::mutex cooling_mutex;
    std::list<BufferFrame*> cooling_queue;
