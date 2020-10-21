@@ -115,7 +115,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                }
                r_guard.recheck();
                // -------------------------------------------------------------------------------------
-               // Suitable page founds, lets unswizzle
+               // Suitable page founds, lets cool
                {
                   const PID pid = r_buffer->header.pid;
                   Partition& partition = getPartition(pid);
@@ -255,6 +255,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                         {
                            JMUW<std::unique_lock<std::mutex>> io_guard(partition.io_mutex);
                            if (partition.io_ht.lookup(bf.header.pid)) {
+                              partition.cooling_queue.erase(bf_itr);
+                              partition.cooling_bfs_counter--;
                               jumpmu::jump();
                            }
                         }
