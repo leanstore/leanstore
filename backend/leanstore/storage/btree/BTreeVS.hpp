@@ -53,15 +53,14 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    enum class OP_TYPE : u8 { POINT_READ, POINT_UPDATE, POINT_INSERT, POINT_DELETE, SCAN };
    // -------------------------------------------------------------------------------------
-   DTID dt_id;
+   BufferFrame* meta_node_bf;  // kept in memory
    // -------------------------------------------------------------------------------------
-   atomic<u16> height = 1;  // debugging
-   HybridLatch root_lock = 0;
-   Swip<BTreeNode> root_swip;
+   atomic<u64> height = 1;
+   DTID dt_id;
    // -------------------------------------------------------------------------------------
    BTree();
    // -------------------------------------------------------------------------------------
-   void init(DTID dtid);
+   void create(DTID dtid, BufferFrame* meta_bf);
    // No side effects allowed!
    bool lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
    // -------------------------------------------------------------------------------------
@@ -107,14 +106,15 @@ struct BTree {
    template <OP_TYPE op_type = OP_TYPE::POINT_READ>
    inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
    {
+      HybridPageGuard<BTreeNode> p_guard(meta_node_bf);
+      target_guard = HybridPageGuard<BTreeNode>(p_guard, p_guard->upper);
+      // -------------------------------------------------------------------------------------
       u16 volatile level = 0;
-      HybridPageGuard<BTreeNode> p_guard(root_lock);
-      target_guard = HybridPageGuard<BTreeNode>(p_guard, root_swip);
+      // -------------------------------------------------------------------------------------
       while (!target_guard->is_leaf) {
          Swip<BTreeNode>& c_swip = target_guard->lookupInner(key, key_length);
          p_guard = std::move(target_guard);
          if (level == height - 1) {
-            // target_guard = HybridPageGuard(p_guard, c_swip, FALLBACK_METHOD::RESEARCHY);
             target_guard = HybridPageGuard(
                 p_guard, c_swip,
                 (op_type == OP_TYPE::POINT_UPDATE || op_type == OP_TYPE::POINT_INSERT) ? FALLBACK_METHOD::EXCLUSIVE : FALLBACK_METHOD::SHARED);
@@ -152,7 +152,10 @@ struct BTree {
          }
       }
    }
+   // Helpers
    // -------------------------------------------------------------------------------------
+   inline bool isMetaNode(HybridPageGuard<BTreeNode>& guard) { return meta_node_bf == guard.bf; }
+   inline bool isMetaNode(ExclusivePageGuard<BTreeNode>& guard) { return meta_node_bf == guard.bf(); }
    s64 iterateAllPages(std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
    s64 iterateAllPagesRec(HybridPageGuard<BTreeNode>& node_guard, std::function<s64(BTreeNode&)> inner, std::function<s64(BTreeNode&)> leaf);
    unsigned countInner();

@@ -37,7 +37,7 @@ class HybridPageGuard
    // -------------------------------------------------------------------------------------
    // I: Allocate a new page
    HybridPageGuard(DTID dt_id, bool keep_alive = true)
-       : bf(&BMC::global_bf->allocatePage()), guard(bf->header.latch, GUARD_STATE::EXCLUSIVE, bf->header.latch.ref().load()), keep_alive(keep_alive)
+       : bf(&BMC::global_bf->allocatePage()), guard(bf->header.latch, GUARD_STATE::EXCLUSIVE), keep_alive(keep_alive)
    {
       assert(BMC::global_bf != nullptr);
       bf->page.dt_id = dt_id;
@@ -45,14 +45,16 @@ class HybridPageGuard
    }
    // -------------------------------------------------------------------------------------
    // I: Root case
-   HybridPageGuard(HybridLatch& latch) : guard(latch)
+   HybridPageGuard(BufferFrame* bf) : bf(bf), guard(bf->header.latch)
    {
       guard.toOptimisticSpin();
+      syncGSN();
       jumpmu_registerDestructor();
    }
    // -------------------------------------------------------------------------------------
    // I: Lock coupling
-   HybridPageGuard(HybridPageGuard& p_guard, Swip<T>& swip, const FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
+   template <typename T2>
+   HybridPageGuard(HybridPageGuard<T2>& p_guard, Swip<T>& swip, const FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
        : bf(&BMC::global_bf->tryFastResolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
    {
       if (if_contended == FALLBACK_METHOD::SPIN) {
@@ -62,24 +64,15 @@ class HybridPageGuard
       } else if (if_contended == FALLBACK_METHOD::SHARED) {
          guard.toOptimisticOrShared();
       }
-      // -------------------------------------------------------------------------------------
-      if (FLAGS_wal) {
-         auto current_gsn = cr::CRMG::my().getCurrentGSN();
-         if (current_gsn < bf->page.GSN) {
-            cr::CRMG::my().setCurrentGSN(bf->page.GSN);
-         }
-      }
-      // -------------------------------------------------------------------------------------
+      syncGSN();
       jumpmu_registerDestructor();
       // -------------------------------------------------------------------------------------
       DEBUG_BLOCK()
       {
-         if (p_guard.hasBf()) {
-            [[maybe_unused]] DTID p_dt_id = p_guard.bf->page.dt_id, dt_id = bf->page.dt_id;
-            p_guard.recheck();
-            recheck();
-            assert(p_dt_id == dt_id);
-         }
+         [[maybe_unused]] DTID p_dt_id = p_guard.bf->page.dt_id, dt_id = bf->page.dt_id;
+         p_guard.recheck();
+         recheck();
+         assert(p_dt_id == dt_id);
       }
       // -------------------------------------------------------------------------------------
       p_guard.recheck();
@@ -101,13 +94,24 @@ class HybridPageGuard
    // -------------------------------------------------------------------------------------
    // Assignment operator
    constexpr HybridPageGuard& operator=(HybridPageGuard& other) = delete;
-   constexpr HybridPageGuard& operator=(HybridPageGuard&& other)
+   template <typename T2>
+   constexpr HybridPageGuard& operator=(HybridPageGuard<T2>&& other)
    {
       bf = other.bf;
       guard = std::move(other.guard);
       keep_alive = other.keep_alive;
       manually_checked = other.manually_checked;
       return *this;
+   }
+   // -------------------------------------------------------------------------------------
+   inline void syncGSN()
+   {
+      if (FLAGS_wal) {
+         auto current_gsn = cr::CRMG::my().getCurrentGSN();
+         if (current_gsn < bf->page.GSN) {
+            cr::CRMG::my().setCurrentGSN(bf->page.GSN);
+         }
+      }
    }
    // -------------------------------------------------------------------------------------
    inline bool hasFacedContention() { return guard.faced_contention; }
@@ -123,7 +127,6 @@ class HybridPageGuard
    inline T* ptr() { return reinterpret_cast<T*>(bf->page.dt); }
    inline Swip<T> swip() { return Swip<T>(bf); }
    inline T* operator->() { return reinterpret_cast<T*>(bf->page.dt); }
-   inline bool hasBf() const { return bf != nullptr; }
    // -------------------------------------------------------------------------------------
    void reclaim()
    {
@@ -157,7 +160,7 @@ class ExclusivePageGuard
    ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard)
    {
       ref_guard.guard.toExclusive();
-      if (!FLAGS_wal && ref_guard.hasBf()) {
+      if (!FLAGS_wal) {
          ref_guard.bf->page.GSN++;
       }
    }
@@ -165,7 +168,7 @@ class ExclusivePageGuard
    template <typename WT>
    cr::Partition::WALEntryHandler<WT> reserveWALEntry(u64 requested_size)
    {
-      assert(FLAGS_wal && hasBf());
+      assert(FLAGS_wal);
       LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRMG::my().getCurrentGSN()) + 1;
       ref_guard.bf->page.GSN = gsn;
       cr::CRMG::my().setCurrentGSN(gsn);
@@ -195,7 +198,6 @@ class ExclusivePageGuard
    inline T* ptr() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }
    inline Swip<T> swip() { return Swip<T>(ref_guard.bf); }
    inline T* operator->() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }
-   inline bool hasBf() const { return ref_guard.bf != nullptr; }
    inline BufferFrame* bf() { return ref_guard.bf; }
    inline void reclaim() { ref_guard.reclaim(); }
 };
@@ -214,7 +216,6 @@ class SharedPageGuard
    inline T* ptr() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }
    inline Swip<T> swip() { return Swip<T>(ref_guard.bf); }
    inline T* operator->() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }
-   inline bool hasBf() const { return ref_guard.bf != nullptr; }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace buffermanager

@@ -59,7 +59,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                // -------------------------------------------------------------------------------------
                // Performance crticial: we should cross cool (unswizzle), otherwise write performance will drop
                [[maybe_unused]] const u64 partition_i = getPartitionID(r_buffer->header.pid);
-               const bool is_cooling_candidate = (!r_buffer->header.isWB &&
+               const bool is_cooling_candidate = (!r_buffer->header.keep_in_memory && !r_buffer->header.isWB &&
                                                   !(r_buffer->header.latch.isExclusivelyLatched())
                                                   // && (partition_i) >= p_begin && (partition_i) <= p_end
                                                   && r_buffer->header.state == BufferFrame::STATE::HOT);

@@ -73,7 +73,7 @@ struct Guard {
    Guard(HybridLatch& latch) : latch(&latch) {}
    Guard(HybridLatch* latch) : latch(latch) {}
    // -------------------------------------------------------------------------------------
-   Guard(HybridLatch& latch, GUARD_STATE state, u64 version) : latch(&latch), state(state), version(version) {}
+   Guard(HybridLatch& latch, GUARD_STATE state) : latch(&latch), state(state), version(latch.ref().load()) {}
    // -------------------------------------------------------------------------------------
    // Move
    Guard(Guard&& other) : latch(other.latch), state(other.state), version(other.version), faced_contention(other.faced_contention)

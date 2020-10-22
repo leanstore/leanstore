@@ -175,7 +175,12 @@ btree::vs::BTree& LeanStore::registerBTree(string name)
    assert(btrees.find(name) == btrees.end());
    auto& btree = btrees[name];
    DTID dtid = buffer_manager->registerDatastructureInstance(99, reinterpret_cast<void*>(&btree), name);
-   btree.init(dtid);
+   auto& bf = buffer_manager->allocatePage();
+   Guard guard(bf.header.latch, GUARD_STATE::EXCLUSIVE);
+   bf.header.keep_in_memory = true;
+   bf.page.dt_id = dtid;
+   guard.unlock();
+   btree.create(dtid, &bf);
    return btree;
 }
 // -------------------------------------------------------------------------------------
