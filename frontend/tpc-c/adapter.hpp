@@ -13,7 +13,7 @@
 using namespace leanstore;
 template <class Record>
 struct LeanStoreAdapter {
-   btree::vs::BTree* btree;
+   storage::btree::BTree* btree;
    std::map<std::string, Record> map;
    string name;
    LeanStoreAdapter()
@@ -86,7 +86,7 @@ struct LeanStoreAdapter {
    }
 
    template <class Fn>
-   void update1(const typename Record::Key& key, const Fn& fn, btree::vs::BTree::WALUpdateGenerator wal_update_generator)
+   void update1(const typename Record::Key& key, const Fn& fn, storage::btree::BTree::WALUpdateGenerator wal_update_generator)
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);

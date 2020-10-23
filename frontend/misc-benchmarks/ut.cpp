@@ -35,8 +35,8 @@
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 using namespace leanstore::threads;
-using namespace leanstore::buffermanager;
-using leanstore::buffermanager::PAGE_SIZE;
+using namespace leanstore::storage;
+using leanstore::storage::PAGE_SIZE;
 // -------------------------------------------------------------------------------------
 struct SIO {
    int ssd_fd = -1;

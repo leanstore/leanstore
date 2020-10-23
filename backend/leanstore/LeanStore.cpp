@@ -47,14 +47,16 @@ LeanStore::LeanStore()
    }
    ensure(fcntl(ssd_fd, F_GETFL) != -1);
    // -------------------------------------------------------------------------------------
-   buffer_manager = make_unique<buffermanager::BufferManager>(ssd_fd);
+   buffer_manager = make_unique<storage::BufferManager>(ssd_fd);
    BMC::global_bf = buffer_manager.get();
-   buffer_manager->registerDatastructureType(99, btree::vs::BTree::getMeta());
+   buffer_manager->registerDatastructureType(99, storage::btree::BTree::getMeta());
+   // -------------------------------------------------------------------------------------
+   cr_manager = make_unique<cr::CRManager>();
    // -------------------------------------------------------------------------------------
    u64 end_of_block_device;
    ioctl(ssd_fd, BLKGETSIZE64, &end_of_block_device);
    cr::WALWriter::init(ssd_fd, end_of_block_device);
-}  // namespace leanstore
+}
 // -------------------------------------------------------------------------------------
 LeanStore::~LeanStore()
 {
@@ -170,7 +172,7 @@ void LeanStore::startProfilingThread()
    profiling_thread.detach();
 }
 // -------------------------------------------------------------------------------------
-btree::vs::BTree& LeanStore::registerBTree(string name)
+storage::btree::BTree& LeanStore::registerBTree(string name)
 {
    assert(btrees.find(name) == btrees.end());
    auto& btree = btrees[name];
@@ -184,7 +186,7 @@ btree::vs::BTree& LeanStore::registerBTree(string name)
    return btree;
 }
 // -------------------------------------------------------------------------------------
-btree::vs::BTree& LeanStore::retrieveBTree(string name)
+storage::btree::BTree& LeanStore::retrieveBTree(string name)
 {
    return btrees[name];
 }

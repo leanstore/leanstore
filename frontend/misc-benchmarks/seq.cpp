@@ -26,7 +26,7 @@ DEFINE_bool(ticket_shared_cl, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
-using namespace leanstore::buffermanager;
+using namespace leanstore::storage;
 int main(int argc, char** argv)
 {
    // -------------------------------------------------------------------------------------
@@ -44,7 +44,7 @@ int main(int argc, char** argv)
    std::array<u8, 128> dump = {1};
    // -------------------------------------------------------------------------------------
    struct alignas(64) BF {
-      buffermanager::HybridLatch version;
+      storage::HybridLatch version;
       std::mutex lock;
       u64 seq_id = 0;
       // -------------------------------------------------------------------------------------

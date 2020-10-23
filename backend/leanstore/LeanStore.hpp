@@ -20,9 +20,11 @@ class LeanStore
    // -------------------------------------------------------------------------------------
   private:
    // Poor man catalog
-   std::unordered_map<string, btree::vs::BTree> btrees;
+   std::unordered_map<string, storage::btree::BTree> btrees;
    s32 ssd_fd;
-   unique_ptr<buffermanager::BufferManager> buffer_manager;
+   // -------------------------------------------------------------------------------------
+   unique_ptr<cr::CRManager> cr_manager;
+   unique_ptr<storage::BufferManager> buffer_manager;
    // -------------------------------------------------------------------------------------
    atomic<u64> bg_threads_counter = 0;
    atomic<bool> bg_threads_keep_running = true;
@@ -42,8 +44,8 @@ class LeanStore
    GlobalStats getGlobalStats();
    void registerThread(string name);
    // -------------------------------------------------------------------------------------
-   btree::vs::BTree& registerBTree(string name);
-   btree::vs::BTree& retrieveBTree(string name);
+   storage::btree::BTree& registerBTree(string name);
+   storage::btree::BTree& retrieveBTree(string name);
    // -------------------------------------------------------------------------------------
    BufferManager& getBufferManager() { return *buffer_manager; }
    // -------------------------------------------------------------------------------------

@@ -29,7 +29,7 @@
 using std::thread;
 namespace leanstore
 {
-namespace buffermanager
+namespace storage
 {
 // -------------------------------------------------------------------------------------
 BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
@@ -343,7 +343,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       jumpmu::jump();
    }
    ensure(false);
-}  // namespace buffermanager
+}  // namespace storage
 // -------------------------------------------------------------------------------------
 // SSD management
 // -------------------------------------------------------------------------------------
@@ -412,6 +412,6 @@ BufferManager::~BufferManager()
 }
 // -------------------------------------------------------------------------------------
 BufferManager* BMC::global_bf(nullptr);
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------

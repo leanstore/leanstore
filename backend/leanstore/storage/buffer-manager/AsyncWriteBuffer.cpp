@@ -12,7 +12,7 @@ DEFINE_uint32(insistence_limit, 1, "");
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace buffermanager
+namespace storage
 {
 // -------------------------------------------------------------------------------------
 AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size) : fd(fd), page_size(page_size), batch_max_size(batch_max_size)
@@ -93,6 +93,6 @@ void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame&, u64, PID)>
    }
 }
 // -------------------------------------------------------------------------------------
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore
    // -------------------------------------------------------------------------------------

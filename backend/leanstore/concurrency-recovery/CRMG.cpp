@@ -6,13 +6,12 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-thread_local CRMG::TLSHandler CRMG::tls_handler;
-std::mutex CRMG::mutex;
-std::set<Partition*> CRMG::all_threads;
-u64 CRMG::partitions_counter = 0;
-CRMG CRMG::global_manager;
+thread_local CRManager::TLSHandler CRManager::tls_handler;
+std::mutex CRManager::mutex;
+std::set<Partition*> CRManager::all_threads;
+u64 CRManager::partitions_counter = 0;
 // -------------------------------------------------------------------------------------
-CRMG::CRMG()
+CRManager::CRManager()
 {
    // std::thread group_commiter([&]() {
    //    while (true) {
@@ -28,7 +27,7 @@ CRMG::CRMG()
    // });
    // group_commiter.detach();
 }
-CRMG::~CRMG()
+CRManager::~CRManager()
 {
    std::unique_lock guard(mutex);
    for (auto& t : all_threads) {
@@ -37,7 +36,7 @@ CRMG::~CRMG()
    all_threads.clear();
 }
 // -------------------------------------------------------------------------------------
-Partition* CRMG::registerThread()
+Partition* CRManager::registerThread()
 {
    u64 partition_id = partitions_counter++;
    Partition* p = new Partition(partition_id);
@@ -50,7 +49,7 @@ Partition* CRMG::registerThread()
    return p;
 }
 // -------------------------------------------------------------------------------------
-void CRMG::removeThread(Partition* p)
+void CRManager::removeThread(Partition* p)
 {
    std::unique_lock guard(mutex);
    all_threads.erase(p);

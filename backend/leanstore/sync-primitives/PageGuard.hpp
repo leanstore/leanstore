@@ -7,7 +7,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace buffermanager
+namespace storage
 {
 // -------------------------------------------------------------------------------------
 // Objects of this class must be thread local !
@@ -107,9 +107,9 @@ class HybridPageGuard
    inline void syncGSN()
    {
       if (FLAGS_wal) {
-         auto current_gsn = cr::CRMG::my().getCurrentGSN();
+         auto current_gsn = cr::CRManager::my().getCurrentGSN();
          if (current_gsn < bf->page.GSN) {
-            cr::CRMG::my().setCurrentGSN(bf->page.GSN);
+            cr::CRManager::my().setCurrentGSN(bf->page.GSN);
          }
       }
    }
@@ -169,13 +169,13 @@ class ExclusivePageGuard
    cr::Partition::WALEntryHandler<WT> reserveWALEntry(u64 requested_size)
    {
       assert(FLAGS_wal);
-      LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRMG::my().getCurrentGSN()) + 1;
+      LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRManager::my().getCurrentGSN()) + 1;
       ref_guard.bf->page.GSN = gsn;
-      cr::CRMG::my().setCurrentGSN(gsn);
-      return cr::CRMG::my().reserveDTEntry<WT>(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, sizeof(WT) + requested_size);
+      cr::CRManager::my().setCurrentGSN(gsn);
+      return cr::CRManager::my().reserveDTEntry<WT>(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, sizeof(WT) + requested_size);
    }
    // -------------------------------------------------------------------------------------
-   inline void submitWALEntry(u64 requested_size) { cr::CRMG::my().submitDTEntry(requested_size); }
+   inline void submitWALEntry(u64 requested_size) { cr::CRManager::my().submitDTEntry(requested_size); }
    // -------------------------------------------------------------------------------------
    template <typename... Args>
    void init(Args&&... args)
@@ -218,6 +218,6 @@ class SharedPageGuard
    inline T* operator->() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }
 };
 // -------------------------------------------------------------------------------------
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------

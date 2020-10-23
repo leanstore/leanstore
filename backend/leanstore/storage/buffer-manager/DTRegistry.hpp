@@ -10,7 +10,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace buffermanager
+namespace storage
 {
 // -------------------------------------------------------------------------------------
 struct ParentSwipHandler {
@@ -45,6 +45,6 @@ struct DTRegistry {
    void checkpoint(DTID dt_id, BufferFrame& bf, u8*);
 };
 // -------------------------------------------------------------------------------------
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------

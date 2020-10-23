@@ -30,7 +30,7 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    for (unsigned i = 0; i < FLAGS_worker_threads; i++) {
       threads.emplace_back([&]() {
-         leanstore::buffermanager::BufferFrame::Page local_page;
+         leanstore::storage::BufferFrame::Page local_page;
          while (true) {
             const u64 pid = leanstore::utils::RandomGenerator::getRandU64(0, pages);
             const int bytes_read = pread(ssd_fd, local_page, PAGE_SIZE, pid * PAGE_SIZE);

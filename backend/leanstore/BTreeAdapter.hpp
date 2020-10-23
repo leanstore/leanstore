@@ -37,9 +37,9 @@ struct BTreeInterface {
 // -------------------------------------------------------------------------------------
 template <typename Key, typename Payload>
 struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
-   leanstore::btree::vs::BTree& btree;
+   leanstore::storage::btree::BTree& btree;
 
-   BTreeVSAdapter(leanstore::btree::vs::BTree& btree) : btree(btree) {}
+   BTreeVSAdapter(leanstore::storage::btree::BTree& btree) : btree(btree) {}
 
    bool lookup(Key k, Payload& v) override
    {

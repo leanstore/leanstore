@@ -7,13 +7,13 @@
 #include <signal.h>
 // -------------------------------------------------------------------------------------
 using namespace std;
-using namespace leanstore::buffermanager;
+using namespace leanstore::storage;
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace btree
+namespace storage
 {
-namespace vs
+namespace btree
 {
 // -------------------------------------------------------------------------------------
 BTree::BTree() {}
@@ -27,7 +27,7 @@ void BTree::create(DTID dtid, BufferFrame* meta_bf)
    this->meta_node_bf = meta_bf;
    HybridPageGuard<BTreeNode> meta_guard(meta_bf);
    ExclusivePageGuard meta_page(std::move(meta_guard));
-   meta_page->upper = root_write_guard.bf();  // HACK: use upper of meta node as a swip to the btree root
+   meta_page->upper = root_write_guard.bf();  // HACK: use upper of meta node as a swip to the storage root
    this->dt_id = dtid;
 }
 // -------------------------------------------------------------------------------------
@@ -287,7 +287,7 @@ bool BTree::prefixMaxOne(u8* start_key, u16 start_key_length, function<void(cons
 // -------------------------------------------------------------------------------------
 void BTree::insert(u8* key, u16 key_length, u64 value_length, u8* value)
 {
-   cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 1);
+   cr::CRManager::my().wal.ensureEnoughSpace(PAGE_SIZE * 1);
    volatile u32 mask = 1;
    volatile u32 local_restarts_counter = 0;
    while (true) {
@@ -419,7 +419,7 @@ bool BTree::tryBalanceRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<
 // -------------------------------------------------------------------------------------
 void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
-   cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 5);
+   cr::CRManager::my().wal.ensureEnoughSpace(PAGE_SIZE * 5);
    auto parent_handler = findParent(this, to_split);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
@@ -462,7 +462,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
       };
       if (FLAGS_wal) {
-         cr::CRMG::my().startTX(cr::Transaction::TYPE::SYSTEM);
+         cr::CRManager::my().startTX(cr::Transaction::TYPE::SYSTEM);
          auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
          std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
          current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
@@ -482,7 +482,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
          left_wal.submit();
          // -------------------------------------------------------------------------------------
-         cr::CRMG::my().commitTX();
+         cr::CRManager::my().commitTX();
       } else {
          exec();
       }
@@ -510,7 +510,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          };
          // -------------------------------------------------------------------------------------
          if (FLAGS_wal) {
-            cr::CRMG::my().startTX(cr::Transaction::TYPE::SYSTEM);
+            cr::CRManager::my().startTX(cr::Transaction::TYPE::SYSTEM);
             auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
             std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
             current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
@@ -530,7 +530,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
             std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
             left_wal.submit();
             // -------------------------------------------------------------------------------------
-            cr::CRMG::my().commitTX();
+            cr::CRManager::my().commitTX();
          } else {
             exec();
          }
@@ -544,7 +544,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 // -------------------------------------------------------------------------------------
 void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u16 payload_size)> callback, WALUpdateGenerator wal_update_generator)
 {
-   cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 1);
+   cr::CRManager::my().wal.ensureEnoughSpace(PAGE_SIZE * 1);
    volatile u32 mask = 1;
    while (true) {
       jumpmuTry()
@@ -623,7 +623,7 @@ void BTree::update(u8*, u16, u64, u8*)
 // -------------------------------------------------------------------------------------
 bool BTree::remove(u8* key, u16 key_length)
 {
-   cr::CRMG::my().wal.ensureEnoughSpace(PAGE_SIZE * 1);
+   cr::CRManager::my().wal.ensureEnoughSpace(PAGE_SIZE * 1);
    volatile u32 mask = 1;
    while (true) {
       jumpmuTry()
@@ -1115,6 +1115,6 @@ void BTree::printInfos(uint64_t totalSize)
         << " rootCnt:" << r_guard->count << " bytesFree:" << bytesFree() << endl;
 }
 // -------------------------------------------------------------------------------------
-}  // namespace vs
 }  // namespace btree
+}  // namespace storage
 }  // namespace leanstore

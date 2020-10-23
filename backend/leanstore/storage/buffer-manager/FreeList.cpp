@@ -7,7 +7,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace buffermanager
+namespace storage
 {
 // -------------------------------------------------------------------------------------
 void FreeList::batchPush(BufferFrame* batch_head, BufferFrame* batch_tail, u64 batch_counter)
@@ -79,5 +79,5 @@ struct BufferFrame& FreeList::pop()
    return *free_bf;  // unreachable
 }
 // -------------------------------------------------------------------------------------
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore

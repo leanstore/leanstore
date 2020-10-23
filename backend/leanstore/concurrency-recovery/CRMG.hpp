@@ -16,14 +16,14 @@ namespace cr
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // Static class
-class CRMG
+class CRManager
 {
    class TLSHandler
    {
      public:
       Partition* p = nullptr;
-      TLSHandler() { p = CRMG::registerThread(); }
-      ~TLSHandler() { CRMG::removeThread(p); }
+      TLSHandler() { p = CRManager::registerThread(); }
+      ~TLSHandler() { CRManager::removeThread(p); }
    };
 
   private:
@@ -36,10 +36,8 @@ class CRMG
    static std::set<Partition*> all_threads;
    static u64 partitions_counter;
    // -------------------------------------------------------------------------------------
-   static CRMG global_manager;
-   // -------------------------------------------------------------------------------------
-   CRMG();
-   ~CRMG();
+   CRManager();
+   ~CRManager();
    // -------------------------------------------------------------------------------------
    static void removeThread(Partition*);
    // -------------------------------------------------------------------------------------

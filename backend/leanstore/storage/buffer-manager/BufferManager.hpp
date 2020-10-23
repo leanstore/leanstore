@@ -25,7 +25,7 @@ namespace profiling
 {
 class BMTable;
 }
-namespace buffermanager
+namespace storage
 {
 // -------------------------------------------------------------------------------------
 /*
@@ -117,13 +117,13 @@ class BufferManager
    DTRegistry& getDTRegistry() { return dt_registry; }
    u64 consumedPages();
    BufferFrame& getContainingBufferFrame(const u8*);  // get the buffer frame containing the given ptr address
-};                                                    // namespace buffermanager
+};                                                    // namespace storage
 // -------------------------------------------------------------------------------------
 class BMC
 {
   public:
    static BufferManager* global_bf;
 };
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------

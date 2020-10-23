@@ -8,9 +8,9 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace btree
+namespace storage
 {
-namespace vs
+namespace btree
 {
 // -------------------------------------------------------------------------------------
 // calculate space needed for keys in inner nodes.
@@ -384,6 +384,6 @@ bool BTreeNode::remove(u8* key, u16 keyLength)
    return removeSlot(slotId);
 }
 // -------------------------------------------------------------------------------------
-}  // namespace vs
 }  // namespace btree
+}  // namespace storage
 }  // namespace leanstore

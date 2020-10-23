@@ -73,15 +73,15 @@ int main(int argc, char** argv)
       OptimisticGuard o_guard = OptimisticGuard(bf->header.latch);
       auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
       // -------------------------------------------------------------------------------------
-      auto p_guard = parent_handler.getParentReadPageGuard<leanstore::btree::vs::BTreeNode>();
-      auto c_guard = HybridPageGuard<leanstore::btree::vs::BTreeNode>();
+      auto p_guard = parent_handler.getParentReadPageGuard<leanstore::storage::btree::BTreeNode>();
+      auto c_guard = HybridPageGuard<leanstore::storage::btree::BTreeNode>();
       c_guard.guard = std::move(o_guard.guard);
       c_guard.bf = bf;
       if (FLAGS_aggressive) {
          auto ret_code = vs_btree.XMerge(p_guard, c_guard, parent_handler);
       } else {
          auto ret_code = vs_btree.XMerge(p_guard, c_guard, parent_handler);
-         if (ret_code == leanstore::btree::vs::BTree::XMergeReturnCode::FULL_MERGE) {
+         if (ret_code == leanstore::storage::btree::BTree::XMergeReturnCode::FULL_MERGE) {
          }
          sum_ff += c_guard->fillFactorAfterCompaction();
          try_counter++;
@@ -116,8 +116,8 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    auto print_fill_factors = [&](std::ofstream& csv, s32 flag) {
       u64 p_i = 0;
-      vs_btree.iterateAllPages([&](leanstore::btree::vs::BTreeNode&) { return 0; },
-                               [&](leanstore::btree::vs::BTreeNode& leaf) {
+      vs_btree.iterateAllPages([&](leanstore::storage::btree::BTreeNode&) { return 0; },
+                               [&](leanstore::storage::btree::BTreeNode& leaf) {
                                   csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_xmerge << "," << FLAGS_tag
                                       << "," << db.getConfigHash() << endl;
                                   return 0;

@@ -20,7 +20,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace buffermanager
+namespace storage
 {
 #define MAX_BACKOFF FLAGS_backoff  // FLAGS_x
 #define BACKOFF_STRATEGIES()                                              \
@@ -208,5 +208,5 @@ struct Guard {
    }
 };
 // -------------------------------------------------------------------------------------
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore

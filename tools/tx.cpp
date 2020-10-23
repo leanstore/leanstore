@@ -39,7 +39,7 @@ void tx() {}
 // -------------------------------------------------------------------------------------
 using namespace std;
 using leanstore::utils::RandomGenerator;
-using namespace leanstore::buffermanager;
+using namespace leanstore::storage;
 
 struct alignas(64) BF {
    HybridLatch latch;

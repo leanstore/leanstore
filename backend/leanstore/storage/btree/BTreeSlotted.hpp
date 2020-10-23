@@ -16,13 +16,13 @@
 #include <string>
 // -------------------------------------------------------------------------------------
 using namespace std;
-using namespace leanstore::buffermanager;
+using namespace leanstore::storage;
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace btree
+namespace storage
 {
-namespace vs
+namespace btree
 {
 // -------------------------------------------------------------------------------------
 struct BTreeNode;
@@ -274,6 +274,6 @@ struct BTreeNode : public BTreeNodeHeader {
 // -------------------------------------------------------------------------------------
 static_assert(sizeof(BTreeNode) == EFFECTIVE_PAGE_SIZE, "page size problem");
 // -------------------------------------------------------------------------------------
-}  // namespace vs
 }  // namespace btree
+}  // namespace storage
 }  // namespace leanstore

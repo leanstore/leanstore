@@ -24,7 +24,7 @@ DEFINE_bool(mixed, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
-using namespace leanstore::buffermanager;
+using namespace leanstore::storage;
 int main(int argc, char** argv)
 {
    gflags::SetUsageMessage("");

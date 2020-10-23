@@ -11,7 +11,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace buffermanager
+namespace storage
 {
 // -------------------------------------------------------------------------------------
 class AsyncWriteBuffer
@@ -44,6 +44,6 @@ class AsyncWriteBuffer
    void getWrittenBfs(std::function<void(BufferFrame&, u64, PID)> callback, u64 n_events);
 };
 // -------------------------------------------------------------------------------------
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------

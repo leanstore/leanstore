@@ -8,13 +8,13 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-using namespace leanstore::buffermanager;
+using namespace leanstore::storage;
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace btree
+namespace storage
 {
-namespace vs
+namespace btree
 {
 // -------------------------------------------------------------------------------------
 struct BTree {
@@ -59,7 +59,7 @@ struct BTree {
    DTID dt_id;
    // -------------------------------------------------------------------------------------
    BTree();
-   // -------------------------------------------------------------------------------------
+   // -------------paper/.gitignore------------------------------------------------------------------------
    void create(DTID dtid, BufferFrame* meta_bf);
    // No side effects allowed!
    bool lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
@@ -166,6 +166,6 @@ struct BTree {
    void printInfos(uint64_t totalSize);
 };
 // -------------------------------------------------------------------------------------
-}  // namespace vs
 }  // namespace btree
+}  // namespace storage
 }  // namespace leanstore

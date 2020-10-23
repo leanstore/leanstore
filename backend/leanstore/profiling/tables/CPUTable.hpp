@@ -8,7 +8,7 @@ namespace leanstore
 {
 namespace profiling
 {
-using namespace buffermanager;
+using namespace storage;
 class CPUTable : public ProfilingTable
 {
   public:

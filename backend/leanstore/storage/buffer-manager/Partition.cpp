@@ -9,7 +9,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace buffermanager
+namespace storage
 {
 // -------------------------------------------------------------------------------------
 void* malloc_huge(size_t size)
@@ -101,5 +101,5 @@ Partition::Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 co
    next_pid = first_pid;
 }
 // -------------------------------------------------------------------------------------
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore

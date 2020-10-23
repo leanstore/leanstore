@@ -2,7 +2,7 @@
 #pragma once
 namespace leanstore
 {
-namespace buffermanager
+namespace storage
 {
 // -------------------------------------------------------------------------------------
 using DTType = u8;
@@ -11,5 +11,5 @@ using DTType = u8;
 //   LSM
 //};
 // -------------------------------------------------------------------------------------
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore

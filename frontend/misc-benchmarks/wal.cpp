@@ -175,7 +175,7 @@ int main(int argc, char** argv)
    cout << t.a3 << endl;
    cout << t.a4 << endl;
    /* Target
-   btree.update(
+   storage.update(
                 key,
                 t,
                 [&](Tuple &t) {
