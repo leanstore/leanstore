@@ -9,7 +9,7 @@
 namespace leanstore
 {
 struct CRCounters {
-   atomic<s64> partition_id = -1;
+   atomic<s64> worker_id = -1;
    atomic<u64> written_log_bytes = 0;
    atomic<u64> wal_reserve_blocked = 0;
    atomic<u64> wal_reserve_immediate = 0;

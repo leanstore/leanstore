@@ -128,11 +128,11 @@ int main(int argc, char** argv)
             if (FLAGS_wal) {
                // cr::CRMG::registerThread();
                while (keep_running) {
-                  cr::CRManager::my().startTX();
+                  cr::Worker::my().startTX();
                   w_id = urand(1, FLAGS_tpcc_warehouse_count);
                   tx(w_id);
                   WorkerCounters::myCounters().tx++;
-                  cr::CRManager::my().commitTX();
+                  cr::Worker::my().commitTX();
                }
             } else {
                while (keep_running) {

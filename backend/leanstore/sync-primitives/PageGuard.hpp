@@ -107,9 +107,9 @@ class HybridPageGuard
    inline void syncGSN()
    {
       if (FLAGS_wal) {
-         auto current_gsn = cr::CRManager::my().getCurrentGSN();
+         auto current_gsn = cr::Worker::my().getCurrentGSN();
          if (current_gsn < bf->page.GSN) {
-            cr::CRManager::my().setCurrentGSN(bf->page.GSN);
+            cr::Worker::my().setCurrentGSN(bf->page.GSN);
          }
       }
    }
@@ -166,16 +166,16 @@ class ExclusivePageGuard
    }
    // -------------------------------------------------------------------------------------
    template <typename WT>
-   cr::Partition::WALEntryHandler<WT> reserveWALEntry(u64 requested_size)
+   cr::Worker::WALEntryHandler<WT> reserveWALEntry(u64 requested_size)
    {
       assert(FLAGS_wal);
-      LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::CRManager::my().getCurrentGSN()) + 1;
+      LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
       ref_guard.bf->page.GSN = gsn;
-      cr::CRManager::my().setCurrentGSN(gsn);
-      return cr::CRManager::my().reserveDTEntry<WT>(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, sizeof(WT) + requested_size);
+      cr::Worker::my().setCurrentGSN(gsn);
+      return cr::Worker::my().reserveDTEntry<WT>(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, sizeof(WT) + requested_size);
    }
    // -------------------------------------------------------------------------------------
-   inline void submitWALEntry(u64 requested_size) { cr::CRManager::my().submitDTEntry(requested_size); }
+   inline void submitWALEntry(u64 requested_size) { cr::Worker::my().submitDTEntry(requested_size); }
    // -------------------------------------------------------------------------------------
    template <typename... Args>
    void init(Args&&... args)

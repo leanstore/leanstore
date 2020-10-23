@@ -1,4 +1,4 @@
-#include "Partition.hpp"
+#include "Worker.hpp"
 
 #include "leanstore/profiling/counters/CRCounters.hpp"
 // -------------------------------------------------------------------------------------
@@ -7,14 +7,20 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-Partition::Partition(u64 partition_id) : partition_id(partition_id), wal(partition_id)
-{
-   CRCounters::myCounters().partition_id = partition_id;
-}
-Partition::~Partition() {}
+atomic<u64> Worker::transaction_timestamps = 0;
+thread_local Worker* Worker::tls_ptr = nullptr;
 // -------------------------------------------------------------------------------------
-void Partition::startTX(Transaction::TYPE tx_type)
+Worker::Worker(u64 worker_id, Worker** all_workers) : worker_id(worker_id), all_workers(all_workers), wal(worker_id)
 {
+   Worker::tls_ptr = this;
+   CRCounters::myCounters().worker_id = worker_id;
+}
+Worker::~Worker() {}
+// -------------------------------------------------------------------------------------
+void Worker::startTX(Transaction::TYPE tx_type)
+{
+   const u64 TTS = transaction_timestamps.fetch_add(256) + worker_id;  // Transaction TimeStamp
+   // -------------------------------------------------------------------------------------
    WALEntry& entry = *reinterpret_cast<WALEntry*>(wal.reserve(sizeof(WALEntry)));
    entry.size = sizeof(WALEntry);
    if (tx_type == Transaction::TYPE::USER) {
@@ -31,7 +37,7 @@ void Partition::startTX(Transaction::TYPE tx_type)
    tx().start_gsn = current_gsn;
 }
 // -------------------------------------------------------------------------------------
-void Partition::commitTX()
+void Worker::commitTX()
 {
    assert(tx().state == Transaction::STATE::STARTED);
    WALEntry& entry = *reinterpret_cast<WALEntry*>(wal.reserve(sizeof(WALEntry)));
@@ -49,7 +55,7 @@ void Partition::commitTX()
    }
 }
 // -------------------------------------------------------------------------------------
-void Partition::abortTX()
+void Worker::abortTX()
 {
    assert(false);
 }

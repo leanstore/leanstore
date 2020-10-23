@@ -18,7 +18,7 @@ class LeanStore
       u64 accumulated_tx_counter = 0;
    };
    // -------------------------------------------------------------------------------------
-  private:
+  public:
    // Poor man catalog
    std::unordered_map<string, storage::btree::BTree> btrees;
    s32 ssd_fd;
@@ -42,12 +42,12 @@ class LeanStore
    }
    u64 getConfigHash();
    GlobalStats getGlobalStats();
-   void registerThread(string name);
    // -------------------------------------------------------------------------------------
    storage::btree::BTree& registerBTree(string name);
    storage::btree::BTree& retrieveBTree(string name);
    // -------------------------------------------------------------------------------------
-   BufferManager& getBufferManager() { return *buffer_manager; }
+  storage::BufferManager& getBufferManager() { return *buffer_manager; }
+   cr::CRManager& getCRManager() { return *cr_manager; }
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
    void persist();

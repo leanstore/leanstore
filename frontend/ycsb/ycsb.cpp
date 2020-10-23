@@ -49,9 +49,9 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    // LeanStore DB
    LeanStore db;
-   unique_ptr<BTreeInterface<YCSBKey, YCSBPayload>> adapter;
+   unique_ptr<BTreeInterface<Key, YCSBPayload>> adapter;
    auto& vs_btree = db.registerBTree("ycsb");
-   adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
+   adapter.reset(new BTreeVSAdapter<Key, YCSBPayload>(vs_btree));
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);
    db.startProfilingThread();
@@ -59,7 +59,7 @@ int main(int argc, char** argv)
    auto& table = *adapter;
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
-                                    : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
+                                    : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(Key) + sizeof(YCSBPayload));
    // Insert values
    {
       const u64 n = ycsb_tuple_count;
@@ -72,8 +72,8 @@ int main(int argc, char** argv)
             // std::iota(keys.begin(), keys.end(), range.begin());
             // std::random_shuffle(keys.begin(), keys.end());
             for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-               YCSBPayload payload;
-               utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
+               Payload payload;
+               utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
                auto& key = t_i;
                table.insert(key, payload);
             }
@@ -101,7 +101,7 @@ int main(int argc, char** argv)
          begin = chrono::high_resolution_clock::now();
          tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
             for (u64 i = range.begin(); i < range.end(); i++) {
-               YCSBPayload result;
+               Payload result;
                table.lookup(i, result);
             }
          });
@@ -123,14 +123,14 @@ int main(int argc, char** argv)
       threads.emplace_back([&]() {
          running_threads_counter++;
          while (keep_running) {
-            YCSBKey key = zipf_random->rand();
+            Key key = zipf_random->rand();
             assert(key < ycsb_tuple_count);
-            YCSBPayload result;
+            Payload result;
             if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
                table.lookup(key, result);
             } else {
-               YCSBPayload payload;
-               utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
+               Payload payload;
+               utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(Payload));
                table.update(key, payload);
             }
             WorkerCounters::myCounters().tx++;
