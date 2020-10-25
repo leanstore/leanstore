@@ -48,8 +48,8 @@ struct Worker {
    atomic<u64> wal_wt_cursor;  // W->GCT
    atomic<LID> wal_max_gsn;    // W->GCT, under mutex
    // -------------------------------------------------------------------------------------
-   atomic<u64> wal_ww_cursor;  // GCT->W
-   u8 wal_buffer[1024];        // W->GCT
+   atomic<u64> wal_ww_cursor;       // GCT->W
+   u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
    LID wal_lsn_counter = 0;
    // -------------------------------------------------------------------------------------
    u32 walFreeSpace();

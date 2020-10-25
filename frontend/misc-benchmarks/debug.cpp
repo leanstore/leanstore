@@ -25,13 +25,22 @@ int main(int argc, char** argv)
    leanstore::LeanStore db;
    auto& crm = db.getCRManager();
    unique_ptr<BTreeInterface<Key, Payload>> adapter;
-   auto& vs_btree = db.registerBTree("debug");
+   crm.scheduleJobSync(0, [&]() { db.registerBTree("debug"); });
+   auto& vs_btree = db.retrieveBTree("debug");
    adapter.reset(new BTreeVSAdapter<Key, Payload>(vs_btree));
    auto& table = *adapter;
    db.startProfilingThread();
    // -------------------------------------------------------------------------------------
-   crm.scheduleJobSync(0, [&]() {
+   crm.scheduleJobAsync(0, [&]() {
       for (u64 i = 0; i < 100; i++) {
+         cr::Worker::my().startTX();
+         u64 x = 100;
+         table.insert(i, x);
+         cr::Worker::my().commitTX();
+      }
+   });
+   crm.scheduleJobAsync(1, [&]() {
+      for (u64 i = 200; i < 300; i++) {
          cr::Worker::my().startTX();
          u64 x = 100;
          table.insert(i, x);
