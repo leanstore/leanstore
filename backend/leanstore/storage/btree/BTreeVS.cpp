@@ -462,7 +462,6 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
       };
       if (FLAGS_wal) {
-         cr::Worker::my().startTX();
          auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
          std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
          current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
@@ -481,8 +480,6 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          left_wal->image_size = EFFECTIVE_PAGE_SIZE;
          std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
          left_wal.submit();
-         // -------------------------------------------------------------------------------------
-         cr::Worker::my().commitTX();
       } else {
          exec();
       }
@@ -510,7 +507,6 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          };
          // -------------------------------------------------------------------------------------
          if (FLAGS_wal) {
-            cr::Worker::my().startTX();
             auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
             std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
             current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
@@ -529,8 +525,6 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
             left_wal->image_size = EFFECTIVE_PAGE_SIZE;
             std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
             left_wal.submit();
-            // -------------------------------------------------------------------------------------
-            cr::Worker::my().commitTX();
          } else {
             exec();
          }

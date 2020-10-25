@@ -28,8 +28,8 @@ void CRManager::groupCommiter()
    // -------------------------------------------------------------------------------------
    CPUCounters::registerThread(thread_name, false);
    // -------------------------------------------------------------------------------------
-   unique_ptr<u8[]> buffer = make_unique<u8[]>((Worker::WORKER_WAL_SIZE * workers_count) + sizeof(WALChunk));
-   auto& chunk = *reinterpret_cast<WALChunk*>(buffer.get());
+   auto buffer = reinterpret_cast<u8*>(aligned_alloc(512, (Worker::WORKER_WAL_SIZE * workers_count) + sizeof(WALChunk)));
+   auto& chunk = *reinterpret_cast<WALChunk*>(buffer);
    auto index = reinterpret_cast<u64*>(chunk.data);
    u64 ssd_offset = end_of_block_device;
    const auto log_begin = reinterpret_cast<u8*>(index + workers_count);
@@ -46,17 +46,23 @@ void CRManager::groupCommiter()
             worker.group_commit_data.wt_cursor_to_flush = worker.wal_wt_cursor;
          }
          {
-            index[w_i] = log_ptr - buffer.get();
-            {
+            index[w_i] = log_ptr - buffer;
+            if (worker.group_commit_data.wt_cursor_to_flush > worker.wal_ww_cursor) {
                const u32 size = worker.group_commit_data.wt_cursor_to_flush - worker.wal_ww_cursor;
                std::memcpy(log_ptr, worker.wal_buffer + worker.wal_ww_cursor, size);
                log_ptr += size;
-            }
-            if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_ww_cursor) {
-               // copy the rest
-               const u32 size = worker.group_commit_data.wt_cursor_to_flush;
-               std::memcpy(log_ptr, worker.wal_buffer, size);
-               log_ptr += size;
+            } else if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_ww_cursor) {
+               {
+                  const u32 size = Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor;
+                  std::memcpy(log_ptr, worker.wal_buffer + worker.wal_ww_cursor, size);
+                  log_ptr += size;
+               }
+               {
+                  // copy the rest
+                  const u32 size = worker.group_commit_data.wt_cursor_to_flush;
+                  std::memcpy(log_ptr, worker.wal_buffer, size);
+                  log_ptr += size;
+               }
             }
          }
          for (s32 p_w_i = w_i - 1; p_w_i >= 0; p_w_i--) {
@@ -68,9 +74,12 @@ void CRManager::groupCommiter()
          }
       }
       if (log_ptr != log_begin) {
-         const u32 size = log_ptr - buffer.get();
+         u32 size = log_ptr - buffer;
+         size = (size + 511) & ~511ul;
+         ensure(ssd_offset > size);
          ssd_offset -= size;
-         pwrite(ssd_fd, buffer.get(), size, ssd_offset);
+         s32 ret = pwrite(ssd_fd, buffer, size, ssd_offset);
+         posix_check(ret == s32(size));
          fdatasync(ssd_fd);
       }
       // Phase 2, commit
@@ -83,7 +92,8 @@ void CRManager::groupCommiter()
             while (tx_i < worker.group_commit_data.ready_to_commit_cut) {
                if (worker.ready_to_commit_queue[tx_i].max_gsn < worker.group_commit_data.max_safe_gsn_to_commit) {
                   worker.ready_to_commit_queue[tx_i].state = Transaction::STATE::COMMITED;
-                  cout << "Committing: " << worker.ready_to_commit_queue[tx_i].tx_id << " - " << worker.ready_to_commit_queue[tx_i].max_gsn << endl;
+                  // cout << "Committing: " << worker.ready_to_commit_queue[tx_i].tx_id << " - " << worker.ready_to_commit_queue[tx_i].max_gsn <<
+                  // endl;
                   // TODO: commit for real
                   tx_i++;
                } else {
@@ -95,6 +105,7 @@ void CRManager::groupCommiter()
       }
       //   std::this_thread::sleep_for(1s);
    }
+   free(buffer);
    running_threads--;
 }
 // -------------------------------------------------------------------------------------

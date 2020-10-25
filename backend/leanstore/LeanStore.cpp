@@ -14,6 +14,7 @@
 #include "tabulate/table.hpp"
 // -------------------------------------------------------------------------------------
 #include <linux/fs.h>
+#include <stdio.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -53,6 +54,10 @@ LeanStore::LeanStore()
    // -------------------------------------------------------------------------------------
    u64 end_of_block_device;
    ioctl(ssd_fd, BLKGETSIZE64, &end_of_block_device);
+   if (end_of_block_device == 0) {
+     ensure(FLAGS_falloc > 0);
+     end_of_block_device = FLAGS_falloc * 1024 * 1024 * 1024;
+   }
    cr_manager = make_unique<cr::CRManager>(ssd_fd, end_of_block_device);
 }
 // -------------------------------------------------------------------------------------

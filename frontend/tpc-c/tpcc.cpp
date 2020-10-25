@@ -55,96 +55,71 @@ int main(int argc, char** argv)
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
    LeanStore db;
+   auto& crm = db.getCRManager();
    // -------------------------------------------------------------------------------------
    warehouseCount = FLAGS_tpcc_warehouse_count;
-   warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
-   district = LeanStoreAdapter<district_t>(db, "district");
-   customer = LeanStoreAdapter<customer_t>(db, "customer");
-   customerwdl = LeanStoreAdapter<customer_wdl_t>(db, "customerwdl");
-   history = LeanStoreAdapter<history_t>(db, "history");
-   neworder = LeanStoreAdapter<neworder_t>(db, "neworder");
-   order = LeanStoreAdapter<order_t>(db, "order");
-   order_wdc = LeanStoreAdapter<order_wdc_t>(db, "order_wdc");
-   orderline = LeanStoreAdapter<orderline_t>(db, "orderline");
-   item = LeanStoreAdapter<item_t>(db, "item");
-   stock = LeanStoreAdapter<stock_t>(db, "stock");
+   ensure(FLAGS_tpcc_warehouse_count == FLAGS_worker_threads);
+   crm.scheduleJobSync(0, [&]() {
+      warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
+      district = LeanStoreAdapter<district_t>(db, "district");
+      customer = LeanStoreAdapter<customer_t>(db, "customer");
+      customerwdl = LeanStoreAdapter<customer_wdl_t>(db, "customerwdl");
+      history = LeanStoreAdapter<history_t>(db, "history");
+      neworder = LeanStoreAdapter<neworder_t>(db, "neworder");
+      order = LeanStoreAdapter<order_t>(db, "order");
+      order_wdc = LeanStoreAdapter<order_wdc_t>(db, "order_wdc");
+      orderline = LeanStoreAdapter<orderline_t>(db, "orderline");
+      item = LeanStoreAdapter<item_t>(db, "item");
+      stock = LeanStoreAdapter<stock_t>(db, "stock");
+   });
    // -------------------------------------------------------------------------------------
    db.registerConfigEntry("tpcc_warehouse_count", FLAGS_tpcc_warehouse_count);
    db.registerConfigEntry("tpcc_warehouse_affinity", FLAGS_tpcc_warehouse_affinity);
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
    // -------------------------------------------------------------------------------------
-   const u64 load_threads = (FLAGS_tpcc_fast_load) ? thread::hardware_concurrency() : FLAGS_worker_threads;
-   load(load_threads);
+   // const u64 load_threads = (FLAGS_tpcc_fast_load) ? thread::hardware_concurrency() : FLAGS_worker_threads;
+   {
+      crm.scheduleJobSync(0, [&]() {
+         cr::Worker::my().startTX();
+         loadItem();
+         loadWarehouse();
+         cr::Worker::my().commitTX();
+      });
+      for (u32 w_id = 1; w_id <= FLAGS_worker_threads; w_id++) {
+         crm.scheduleJobAsync(w_id - 1, [&, w_id]() {
+            cr::Worker::my().startTX();
+            loadStock(w_id);
+            loadDistrinct(w_id);
+            for (Integer d_id = 1; d_id <= 10; d_id++) {
+               loadCustomer(w_id, d_id);
+               loadOrders(w_id, d_id);
+            }
+            cr::Worker::my().commitTX();
+         });
+      }
+      crm.joinAll();
+   }
    // -------------------------------------------------------------------------------------
    double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << "data loaded - consumed space in GiB = " << gib << endl;
-   cout << "Warehouse pages = " << warehouse.btree->countPages() << endl;
+   crm.scheduleJobSync(0, [&]() { cout << "Warehouse pages = " << warehouse.btree->countPages() << endl; });
    // -------------------------------------------------------------------------------------
    atomic<u64> keep_running = true;
    atomic<u64> running_threads_counter = 0;
    vector<thread> threads;
    auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
    db.startProfilingThread();
-   if (FLAGS_tpcc_warehouse_affinity) {
-      ensure(!FLAGS_wal);
-      if (FLAGS_tpcc_warehouse_count < FLAGS_worker_threads) {
-         cerr << "There must be more warehouses than threads in affinity mode" << endl;
-         exit(1);
-      }
-      const u64 warehouses_pro_thread = FLAGS_tpcc_warehouse_count / FLAGS_worker_threads;
-      for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-         u64 w_begin = 1 + (t_i * warehouses_pro_thread);
-         u64 w_end = w_begin + (warehouses_pro_thread - 1);
-         if (t_i == FLAGS_worker_threads - 1) {
-            w_end = FLAGS_tpcc_warehouse_count;
+   for (u64 w_id = 1; w_id <= FLAGS_worker_threads; w_id++) {
+      crm.scheduleJobAsync(w_id - 1, [&, w_id]() {
+         running_threads_counter++;
+         while (keep_running) {
+            cr::Worker::my().startTX();
+            tx(w_id);
+            cr::Worker::my().commitTX();
+            WorkerCounters::myCounters().tx++;
          }
-         threads.emplace_back([&, t_i, w_begin, w_end]() {
-            running_threads_counter++;
-            const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
-            if (FLAGS_pin_threads)
-               utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
-            while (keep_running) {
-               tx(urand(w_begin, w_end));
-               WorkerCounters::myCounters().tx++;
-            }
-            CPUCounters::removeThread(r_id);
-            running_threads_counter--;
-         });
-      }
-   } else {
-      ensure(FLAGS_zipf_factor == 0);
-      // if (FLAGS_zipf_factor == 0) {
-      //   w_id = urand(1, FLAGS_tpcc_warehouse_count);
-      // } else {
-      //   w_id = 1 + (random->rand() % (FLAGS_tpcc_warehouse_count));
-      // }
-      for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-         threads.emplace_back([&, t_i]() {
-            running_threads_counter++;
-            const u64 r_id = CPUCounters::registerThread("worker_" + std::to_string(t_i));
-            if (FLAGS_pin_threads)
-               utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
-            Integer w_id;
-            if (FLAGS_wal) {
-               // cr::CRMG::registerThread();
-               while (keep_running) {
-                  cr::Worker::my().startTX();
-                  w_id = urand(1, FLAGS_tpcc_warehouse_count);
-                  tx(w_id);
-                  WorkerCounters::myCounters().tx++;
-                  cr::Worker::my().commitTX();
-               }
-            } else {
-               while (keep_running) {
-                  w_id = urand(1, FLAGS_tpcc_warehouse_count);
-                  tx(w_id);
-                  WorkerCounters::myCounters().tx++;
-               }
-            }
-            CPUCounters::removeThread(r_id);
-            running_threads_counter--;
-         });
-      }
+         running_threads_counter--;
+      });
    }
    {
       if (FLAGS_run_until_tx) {
@@ -163,9 +138,7 @@ int main(int argc, char** argv)
       while (running_threads_counter) {
          MYPAUSE();
       }
-      for (auto& thread : threads) {
-         thread.join();
-      }
+      crm.joinAll();
    }
    // -------------------------------------------------------------------------------------
    gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
