@@ -1,6 +1,5 @@
 #pragma once
 #include "Config.hpp"
-#include "concurrency-recovery/WALWriter.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
 #include "storage/btree/BTreeVS.hpp"
 #include "storage/buffer-manager/BufferManager.hpp"

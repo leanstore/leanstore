@@ -1,6 +1,6 @@
 #pragma once
-#include "Exceptions.hpp"
 #include "Units.hpp"
+#include "Worker.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -9,12 +9,16 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-struct Transaction {
-   enum class TYPE : u8 { USER, SYSTEM };
-   enum class STATE { IDLE, STARTED, READY_TO_COMMIT, COMMITED, ABORTED };
-   STATE state = STATE::IDLE;
-   u64 tx_id = 0;
-   LID min_gsn, max_gsn;
+struct WALEntry {
+   enum class TYPE : u8 { USER_TX_START, SYSTEM_TX_START, DT_SPECIFIC, TX_COMMIT, TX_ABORT, CARRIAGE_RETURN };
+   // -------------------------------------------------------------------------------------
+   u16 size;
+   TYPE type;
+   DTID dt_id;
+   LID lsn;
+   LID gsn;
+   PID pid;
+   u8 payload[];
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr

@@ -51,11 +51,9 @@ LeanStore::LeanStore()
    BMC::global_bf = buffer_manager.get();
    buffer_manager->registerDatastructureType(99, storage::btree::BTree::getMeta());
    // -------------------------------------------------------------------------------------
-   cr_manager = make_unique<cr::CRManager>();
-   // -------------------------------------------------------------------------------------
    u64 end_of_block_device;
    ioctl(ssd_fd, BLKGETSIZE64, &end_of_block_device);
-   cr::WALWriter::init(ssd_fd, end_of_block_device);
+   cr_manager = make_unique<cr::CRManager>(ssd_fd, end_of_block_device);
 }
 // -------------------------------------------------------------------------------------
 LeanStore::~LeanStore()

@@ -1,15 +1,15 @@
 #pragma once
-#include "Worker.hpp"
 #include "Exceptions.hpp"
 #include "Units.hpp"
+#include "Worker.hpp"
 #include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <condition_variable>
-#include <mutex>
 #include <thread>
 #include <vector>
+#include <functional>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -39,10 +39,15 @@ class CRManager
    };
    std::vector<std::thread> worker_threads;
    WorkerThread worker_threads_meta[MAX_WORKER_THREADS];
-   u64 wt_counter;
+   u32 workers_count;
    // -------------------------------------------------------------------------------------
-   CRManager();
+   const s32 ssd_fd;
+   const u64 end_of_block_device;
+   // -------------------------------------------------------------------------------------
+   CRManager(s32 ssd_fd, u64 end_of_block_device);
    ~CRManager();
+   // -------------------------------------------------------------------------------------
+   void groupCommiter();
    // -------------------------------------------------------------------------------------
    void scheduleJobAsync(u64 t_i, std::function<void()> job);
    void scheduleJobSync(u64 t_i, std::function<void()> job);
