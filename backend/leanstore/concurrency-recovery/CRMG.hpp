@@ -7,9 +7,9 @@
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <thread>
 #include <vector>
-#include <functional>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {

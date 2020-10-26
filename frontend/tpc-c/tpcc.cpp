@@ -58,7 +58,6 @@ int main(int argc, char** argv)
    auto& crm = db.getCRManager();
    // -------------------------------------------------------------------------------------
    warehouseCount = FLAGS_tpcc_warehouse_count;
-   ensure(FLAGS_tpcc_warehouse_count == FLAGS_worker_threads);
    crm.scheduleJobSync(0, [&]() {
       warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
       district = LeanStoreAdapter<district_t>(db, "district");
@@ -85,16 +84,23 @@ int main(int argc, char** argv)
          loadWarehouse();
          cr::Worker::my().commitTX();
       });
-      for (u32 w_id = 1; w_id <= FLAGS_worker_threads; w_id++) {
-         crm.scheduleJobAsync(w_id - 1, [&, w_id]() {
-            cr::Worker::my().startTX();
-            loadStock(w_id);
-            loadDistrinct(w_id);
-            for (Integer d_id = 1; d_id <= 10; d_id++) {
-               loadCustomer(w_id, d_id);
-               loadOrders(w_id, d_id);
+      std::atomic<u32> g_w_id = 1;
+      for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+         crm.scheduleJobAsync(t_i, [&]() {
+            while (true) {
+               u32 w_id = g_w_id++;
+               if (w_id > FLAGS_tpcc_warehouse_count) {
+                  return;
+               }
+               cr::Worker::my().startTX();
+               loadStock(w_id);
+               loadDistrinct(w_id);
+               for (Integer d_id = 1; d_id <= 10; d_id++) {
+                  loadCustomer(w_id, d_id);
+                  loadOrders(w_id, d_id);
+               }
+               cr::Worker::my().commitTX();
             }
-            cr::Worker::my().commitTX();
          });
       }
       crm.joinAll();
@@ -109,11 +115,12 @@ int main(int argc, char** argv)
    vector<thread> threads;
    auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
    db.startProfilingThread();
-   for (u64 w_id = 1; w_id <= FLAGS_worker_threads; w_id++) {
-      crm.scheduleJobAsync(w_id - 1, [&, w_id]() {
+   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+      crm.scheduleJobAsync(t_i, [&]() {
          running_threads_counter++;
          while (keep_running) {
             cr::Worker::my().startTX();
+            u32 w_id = urand(1, FLAGS_tpcc_warehouse_count);
             tx(w_id);
             cr::Worker::my().commitTX();
             if (!FLAGS_tmp)
