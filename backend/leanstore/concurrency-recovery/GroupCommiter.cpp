@@ -75,19 +75,26 @@ void CRManager::groupCommiter()
          }
       }
       if (log_ptr != log_begin) {
-         u32 size = log_ptr - buffer;
+         u64 size = log_ptr - buffer;
          size = (size + 511) & ~511ul;
          ensure(ssd_offset > size);
          ssd_offset -= size;
-         s32 ret = pwrite(ssd_fd, buffer, size, ssd_offset);
-         posix_check(ret == s32(size));
+         u64 ret = pwrite(ssd_fd, buffer, size, ssd_offset);
+         u64 rest = size - ret;
+         while (rest > 0) {
+            cout << rest << endl;
+            ret = pwrite(ssd_fd, buffer + rest, rest, ssd_offset + (size - rest));
+            rest = rest - ret;
+         }
          fdatasync(ssd_fd);
       }
       // Phase 2, commit
       u64 committed_tx = 0;
+      u64 cut_sum = 0;
       for (s32 w_i = 0; w_i < s32(workers_count); w_i++) {
          Worker& worker = *workers[w_i];
          {
+            cut_sum += worker.group_commit_data.ready_to_commit_cut;
             std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
             worker.wal_ww_cursor = worker.group_commit_data.wt_cursor_to_flush;
             u64 tx_i = 0;
@@ -95,19 +102,18 @@ void CRManager::groupCommiter()
                if (worker.ready_to_commit_queue[tx_i].max_gsn < worker.group_commit_data.max_safe_gsn_to_commit) {
                   worker.ready_to_commit_queue[tx_i].state = Transaction::STATE::COMMITED;
                   committed_tx++;
-                  // cout << "Committing: " << worker.ready_to_commit_queue[tx_i].tx_id << " - " << worker.ready_to_commit_queue[tx_i].max_gsn <<
-                  // endl;
-                  // TODO: commit for real
                   tx_i++;
                } else {
                   break;
                }
             }
             worker.ready_to_commit_queue.erase(worker.ready_to_commit_queue.begin(), worker.ready_to_commit_queue.begin() + tx_i);
+            worker.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
          }
       }
-      if (FLAGS_tmp)
+      if (FLAGS_tmp) {
          WorkerCounters::myCounters().tx += committed_tx;
+      }
    }
    free(buffer);
    running_threads--;

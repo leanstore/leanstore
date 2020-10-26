@@ -17,7 +17,6 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
    worker_threads.reserve(workers_count);
    for (u64 t_i = 0; t_i < workers_count; t_i++) {
       worker_threads.emplace_back([&, t_i]() {
-         running_threads++;
          std::string thread_name("worker_" + std::to_string(t_i));
          pthread_setname_np(pthread_self(), thread_name.c_str());
          // -------------------------------------------------------------------------------------
@@ -26,6 +25,7 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
          workers[t_i] = new Worker(t_i, workers, workers_count);
          Worker::tls_ptr = workers[t_i];
          // -------------------------------------------------------------------------------------
+         running_threads++;
          auto& meta = worker_threads_meta[t_i];
          while (keep_running) {
             std::unique_lock guard(meta.mutex);
@@ -47,7 +47,15 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
       t.detach();
    }
    // -------------------------------------------------------------------------------------
+   // Wait until all worker threads are initialized
+   while (running_threads < workers_count) {
+   }
+   // -------------------------------------------------------------------------------------
    std::thread group_commiter([&]() { groupCommiter(); });
+   cpu_set_t cpuset;
+   CPU_ZERO(&cpuset);
+   CPU_SET(FLAGS_pp_threads, &cpuset);
+   posix_check(pthread_setaffinity_np(group_commiter.native_handle(), sizeof(cpu_set_t), &cpuset) == 0);
    group_commiter.detach();
 }
 // -------------------------------------------------------------------------------------

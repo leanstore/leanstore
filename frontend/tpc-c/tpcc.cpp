@@ -116,15 +116,21 @@ int main(int argc, char** argv)
    auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
    db.startProfilingThread();
    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-      crm.scheduleJobAsync(t_i, [&]() {
+      crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
          while (keep_running) {
             cr::Worker::my().startTX();
-            u32 w_id = urand(1, FLAGS_tpcc_warehouse_count);
+            u32 w_id;
+            if (FLAGS_tpcc_warehouse_affinity) {
+               w_id = t_i + 1;
+            } else {
+               w_id = urand(1, FLAGS_tpcc_warehouse_count);
+            }
             tx(w_id);
             cr::Worker::my().commitTX();
-            if (!FLAGS_tmp)
+            if (!FLAGS_tmp) {
                WorkerCounters::myCounters().tx++;
+            }
          }
          running_threads_counter--;
       });
