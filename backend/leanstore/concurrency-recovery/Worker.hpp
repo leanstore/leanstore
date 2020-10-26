@@ -30,7 +30,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    // Accessible only by the group commit thread
    struct GroupCommitData {
-      u64 ready_to_commit_cut = 0;
+      u64 ready_to_commit_cut = 0;  // Exclusive ) == size
       u64 max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
       LID gsn_to_flush;
       u64 wt_cursor_to_flush;
@@ -88,12 +88,26 @@ struct Worker {
       u8* entry;
       u64 total_size;
       inline T* operator->() { return reinterpret_cast<T*>(entry); }
+      inline T& operator*() { return *reinterpret_cast<T*>(entry); }
       WALEntryHandler() = default;
       WALEntryHandler(u8* entry, u64 size) : entry(entry), total_size(size) {}
       void submit() { cr::Worker::my().submitDTEntry(total_size); }
    };
    // -------------------------------------------------------------------------------------
-   WALEntryHandler<void> reserveDTEntry(PID pid, DTID dt_id, LID gsn, u64 requested_size);
+   template <typename T>
+   WALEntryHandler<T> reserveDTEntry(PID pid, DTID dt_id, LID gsn, u64 requested_size)
+   {
+      const u64 total_size = sizeof(WALEntry) + requested_size;
+      ensure(walContiguousFreeSpace() >= total_size);
+      active_entry = reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
+      active_entry->size = sizeof(WALEntry) + requested_size;
+      active_entry->lsn = wal_lsn_counter++;
+      active_entry->dt_id = dt_id;
+      active_entry->pid = pid;
+      active_entry->gsn = gsn;
+      active_entry->type = WALEntry::TYPE::DT_SPECIFIC;
+      return {active_entry->payload, total_size};
+   }
    void submitDTEntry(u64 requested_size);
 };
 // -------------------------------------------------------------------------------------

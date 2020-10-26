@@ -337,6 +337,7 @@ Swip<BTreeNode>& BTreeNode::lookupInner(u8* key, u16 keyLength)
    return getChild(pos);
 }
 // -------------------------------------------------------------------------------------
+// This = right
 void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& nodeLeft, u16 sepSlot, u8* sepKey, u16 sepLength)
 {
    // PRE: current, parent and nodeLeft are x locked
@@ -360,8 +361,6 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
    }
    nodeLeft->makeHint();
    nodeRight->makeHint();
-   // -------------------------------------------------------------------------------------
-   // std::memset((nodeRight->slot + nodeRight->count), 0, nodeRight->freeSpace());
    // -------------------------------------------------------------------------------------
    memcpy(reinterpret_cast<char*>(this), nodeRight, sizeof(BTreeNode));
 }

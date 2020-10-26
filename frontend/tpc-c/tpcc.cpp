@@ -116,7 +116,8 @@ int main(int argc, char** argv)
             cr::Worker::my().startTX();
             tx(w_id);
             cr::Worker::my().commitTX();
-            WorkerCounters::myCounters().tx++;
+            if (!FLAGS_tmp)
+               WorkerCounters::myCounters().tx++;
          }
          running_threads_counter--;
       });

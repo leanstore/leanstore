@@ -18,7 +18,7 @@ namespace btree
 {
 // -------------------------------------------------------------------------------------
 struct BTree {
-   enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage };
+   enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit };
    struct WALBeforeAfterImage {
       WAL_LOG_TYPE type;
       u16 image_size;
@@ -28,6 +28,13 @@ struct BTree {
       WAL_LOG_TYPE type;
       u16 image_size;
       u8 payload[];
+   };
+   struct WALLogicalSplit {
+      WAL_LOG_TYPE type;
+      PID parent_pid = -1;
+      PID left_pid = -1;
+      PID right_pid = -1;
+      s32 right_pos = -1;
    };
    struct WALInsert {
       WAL_LOG_TYPE type;

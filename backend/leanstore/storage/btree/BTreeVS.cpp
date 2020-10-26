@@ -419,7 +419,7 @@ bool BTree::tryBalanceRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<
 // -------------------------------------------------------------------------------------
 void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
-   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 5);
+   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    auto parent_handler = findParent(this, to_split);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
@@ -462,23 +462,23 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
       };
       if (FLAGS_wal) {
-         auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
-         std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
-         current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
+         WALLogicalSplit logical_split_entry;
+         logical_split_entry.right_pid = c_x_guard.bf()->header.pid;
+         logical_split_entry.parent_pid = new_root.bf()->header.pid;
+         logical_split_entry.left_pid = new_left_node.bf()->header.pid;
+         // -------------------------------------------------------------------------------------
+         auto current_right_wal = c_x_guard.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+         *current_right_wal = logical_split_entry;
+         current_right_wal.submit();
          // -------------------------------------------------------------------------------------
          exec();
          // -------------------------------------------------------------------------------------
-         std::memcpy(current_right_wal->payload + EFFECTIVE_PAGE_SIZE, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
-         current_right_wal.submit();
-         // -------------------------------------------------------------------------------------
-         auto root_wal = new_root.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
-         root_wal->image_size = EFFECTIVE_PAGE_SIZE;
-         std::memcpy(root_wal->payload, new_root.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+         auto root_wal = new_root.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+         *root_wal = logical_split_entry;
          root_wal.submit();
          // -------------------------------------------------------------------------------------
-         auto left_wal = new_left_node.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
-         left_wal->image_size = EFFECTIVE_PAGE_SIZE;
-         std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+         auto left_wal = new_left_node.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+         *left_wal = logical_split_entry;
          left_wal.submit();
       } else {
          exec();
@@ -507,23 +507,23 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          };
          // -------------------------------------------------------------------------------------
          if (FLAGS_wal) {
-            auto current_right_wal = c_x_guard.reserveWALEntry<WALBeforeAfterImage>(EFFECTIVE_PAGE_SIZE * 2);
-            std::memcpy(current_right_wal->payload, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
-            current_right_wal->image_size = EFFECTIVE_PAGE_SIZE;
+            WALLogicalSplit logical_split_entry;
+            logical_split_entry.right_pid = c_x_guard.bf()->header.pid;
+            logical_split_entry.parent_pid = p_x_guard.bf()->header.pid;
+            logical_split_entry.left_pid = new_left_node.bf()->header.pid;
+            // -------------------------------------------------------------------------------------
+            auto current_right_wal = c_x_guard.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+            *current_right_wal = logical_split_entry;
+            current_right_wal.submit();
             // -------------------------------------------------------------------------------------
             exec();
             // -------------------------------------------------------------------------------------
-            std::memcpy(current_right_wal->payload + EFFECTIVE_PAGE_SIZE, c_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
-            current_right_wal.submit();
-            // -------------------------------------------------------------------------------------
-            auto parent_wal = p_x_guard.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
-            parent_wal->image_size = EFFECTIVE_PAGE_SIZE;
-            std::memcpy(parent_wal->payload, p_x_guard.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+            auto parent_wal = p_x_guard.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+            *parent_wal = logical_split_entry;
             parent_wal.submit();
             // -------------------------------------------------------------------------------------
-            auto left_wal = new_left_node.reserveWALEntry<WALAfterImage>(EFFECTIVE_PAGE_SIZE);
-            left_wal->image_size = EFFECTIVE_PAGE_SIZE;
-            std::memcpy(left_wal->payload, new_left_node.bf()->page.dt, EFFECTIVE_PAGE_SIZE);
+            auto left_wal = new_left_node.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+            *left_wal = logical_split_entry;
             left_wal.submit();
          } else {
             exec();
@@ -965,6 +965,7 @@ void BTree::checkpoint(void*, BufferFrame& bf, u8* dest)
    }
 }
 // -------------------------------------------------------------------------------------
+// TODO: Refactor
 // Jump if any page on the path is already evicted
 // Throws if the bf could not be found
 struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_find)
@@ -982,7 +983,7 @@ struct ParentSwipHandler BTree::findParent(void* btree_object, BufferFrame& to_f
    }
    // -------------------------------------------------------------------------------------
    const bool infinity = c_node.upper_fence.offset == 0;
-   u16 key_length = c_node.upper_fence.length;
+   const u16 key_length = c_node.upper_fence.length;
    u8* key = c_node.getUpperFenceKey();
    // -------------------------------------------------------------------------------------
    // check if bf is the root node

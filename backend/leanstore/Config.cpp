@@ -61,6 +61,7 @@ DEFINE_string(tag, "", "Unique identifier for this, will be appended to each lin
 DEFINE_bool(out_of_place, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(wal, false, "");
-DEFINE_uint64(wal_writer_threads, 1, "");
+DEFINE_uint64(wal_offset, 1, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
+DEFINE_bool(tmp, false, "");

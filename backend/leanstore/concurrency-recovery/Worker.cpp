@@ -60,29 +60,17 @@ WALEntry& Worker::reserveWALEntry()
 // -------------------------------------------------------------------------------------
 void Worker::submitWALEntry()
 {
-   wal_wt_cursor += sizeof(WALEntry);
-}
-// -------------------------------------------------------------------------------------
-Worker::WALEntryHandler<void> Worker::reserveDTEntry(PID pid, DTID dt_id, LID gsn, u64 requested_size)
-{
-   const u64 total_size = sizeof(WALEntry) + requested_size;
-   ensure(walContiguousFreeSpace() >= total_size);
-   active_entry = reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
-   active_entry->size = sizeof(WALEntry) + requested_size;
-   active_entry->lsn = wal_lsn_counter++;
-   active_entry->dt_id = dt_id;
-   active_entry->pid = pid;
-   active_entry->gsn = gsn;
-   active_entry->type = WALEntry::TYPE::DT_SPECIFIC;
-   return {active_entry->payload, total_size};
+   const u64 next_wal_wt_cursor = wal_wt_cursor + sizeof(WALEntry);
+   wal_wt_cursor.store(next_wal_wt_cursor, std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::submitDTEntry(u64 requested_size)
 {
    ensure(clock_gsn == active_entry->gsn);
    std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
-   wal_wt_cursor += requested_size + sizeof(WALEntry);
-   wal_max_gsn = clock_gsn;
+   const u64 next_wt_cursor = wal_wt_cursor + requested_size + sizeof(WALEntry);
+   wal_wt_cursor.store(next_wt_cursor, std::memory_order_relaxed);
+   wal_max_gsn.store(clock_gsn, std::memory_order_relaxed);
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX()

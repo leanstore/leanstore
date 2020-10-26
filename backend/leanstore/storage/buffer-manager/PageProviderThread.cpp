@@ -3,6 +3,7 @@
 #include "BufferManager.hpp"
 #include "Exceptions.hpp"
 #include "leanstore/Config.hpp"
+#include "leanstore/concurrency-recovery/Worker.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/PPCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -27,6 +28,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
 {
    pthread_setname_np(pthread_self(), "page_provider");
    using Time = decltype(std::chrono::high_resolution_clock::now());
+   // -------------------------------------------------------------------------------------
+   // TODO: register as special worker
+   cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0);
    // -------------------------------------------------------------------------------------
    // Init AIO Context
    AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_async_batch_size);
@@ -392,5 +396,5 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    bg_threads_counter--;
 }
 // -------------------------------------------------------------------------------------
-}  // namespace buffermanager
+}  // namespace storage
 }  // namespace leanstore

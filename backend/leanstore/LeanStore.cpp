@@ -53,10 +53,10 @@ LeanStore::LeanStore()
    buffer_manager->registerDatastructureType(99, storage::btree::BTree::getMeta());
    // -------------------------------------------------------------------------------------
    u64 end_of_block_device;
-   ioctl(ssd_fd, BLKGETSIZE64, &end_of_block_device);
-   if (end_of_block_device == 0) {
-     ensure(FLAGS_falloc > 0);
-     end_of_block_device = FLAGS_falloc * 1024 * 1024 * 1024;
+   if (FLAGS_wal_offset == 0) {
+      ioctl(ssd_fd, BLKGETSIZE64, &end_of_block_device);
+   } else {
+      end_of_block_device = FLAGS_wal_offset * 1024 * 1024 * 1024;
    }
    cr_manager = make_unique<cr::CRManager>(ssd_fd, end_of_block_device);
 }
