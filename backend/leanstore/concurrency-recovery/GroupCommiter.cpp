@@ -1,5 +1,6 @@
 #include "CRMG.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
+#include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -23,6 +24,9 @@ struct WALChunk {
 // -------------------------------------------------------------------------------------
 void CRManager::groupCommiter()
 {
+   using Time = decltype(std::chrono::high_resolution_clock::now());
+   [[maybe_unused]] Time phase_1_begin, phase_1_end, phase_2_begin, phase_2_end, write_begin, write_end;
+   // -------------------------------------------------------------------------------------
    running_threads++;
    std::string thread_name("group_committer");
    pthread_setname_np(pthread_self(), thread_name.c_str());
@@ -35,6 +39,7 @@ void CRManager::groupCommiter()
    u64 ssd_offset = end_of_block_device;
    const auto log_begin = reinterpret_cast<u8*>(index + workers_count);
    while (keep_running) {
+      COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
       auto log_ptr = log_begin;
       // -------------------------------------------------------------------------------------
       // Phase 1
@@ -74,6 +79,11 @@ void CRManager::groupCommiter()
             }
          }
       }
+      COUNTERS_BLOCK()
+      {
+         phase_1_end = std::chrono::high_resolution_clock::now();
+         write_begin = phase_1_end;
+      }
       if (log_ptr != log_begin) {
          u64 size = log_ptr - buffer;
          size = (size + 511) & ~511ul;
@@ -87,6 +97,12 @@ void CRManager::groupCommiter()
             rest = rest - ret;
          }
          fdatasync(ssd_fd);
+         COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size; }
+      }
+      COUNTERS_BLOCK()
+      {
+         write_end = std::chrono::high_resolution_clock::now();
+         phase_2_begin = write_end;
       }
       // Phase 2, commit
       u64 committed_tx = 0;
@@ -113,6 +129,13 @@ void CRManager::groupCommiter()
       }
       if (FLAGS_tmp) {
          WorkerCounters::myCounters().tx += committed_tx;
+      }
+      COUNTERS_BLOCK()
+      {
+         phase_2_end = std::chrono::high_resolution_clock::now();
+         CRCounters::myCounters().gct_phase_1_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_1_end - phase_1_begin).count());
+         CRCounters::myCounters().gct_phase_2_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_2_end - phase_2_begin).count());
+         CRCounters::myCounters().gct_write_ms += (std::chrono::duration_cast<std::chrono::microseconds>(write_end - write_begin).count());
       }
    }
    free(buffer);

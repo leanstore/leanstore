@@ -11,6 +11,9 @@ namespace profiling
 using namespace storage;
 class CRTable : public ProfilingTable
 {
+  private:
+  double p1, p2, total,write;
+
   public:
    virtual std::string getName();
    virtual void open();
