@@ -83,6 +83,7 @@ void CRManager::groupCommiter()
                ssd_offset -= size_aligned;
                const u64 ret = pwrite(ssd_fd, worker.wal_buffer + worker.wal_ww_cursor, size_aligned, ssd_offset);
                ensure(ret == size_aligned);
+               COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                chunk.total_size += size_aligned;
                {
                   chunk.slot[w_i].offset = ssd_offset + worker.group_commit_data.bytes_to_ignore_in_the_next_round;
@@ -100,6 +101,7 @@ void CRManager::groupCommiter()
                   ssd_offset -= size;
                   const u64 ret = pwrite(ssd_fd, worker.wal_buffer + worker.wal_ww_cursor, size, ssd_offset);
                   ensure(ret == size);
+                  COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size; }
                   chunk.total_size += size;
                }
                {
@@ -110,6 +112,7 @@ void CRManager::groupCommiter()
                   ssd_offset -= size_aligned;
                   const u64 ret = pwrite(ssd_fd, worker.wal_buffer, size_aligned, ssd_offset);
                   ensure(ret == size_aligned);
+                  COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                   chunk.total_size += size_aligned;
                }
                {
@@ -134,7 +137,6 @@ void CRManager::groupCommiter()
       }
       COUNTERS_BLOCK()
       {
-         CRCounters::myCounters().gct_write_bytes += chunk.total_size;
          phase_1_end = std::chrono::high_resolution_clock::now();
          write_begin = phase_1_end;
       }
