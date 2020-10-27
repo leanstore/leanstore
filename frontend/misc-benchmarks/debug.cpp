@@ -22,6 +22,13 @@ int main(int argc, char** argv)
 {
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
+   int x;
+   while (true) {
+      cin >> x;
+      x = x - (x & 511);
+      cout << x << endl;
+   }
+   // -------------------------------------------------------------------------------------
    leanstore::LeanStore db;
    auto& crm = db.getCRManager();
    unique_ptr<BTreeInterface<Key, Payload>> adapter;

@@ -28,6 +28,8 @@ void CRTable::open()
    columns.emplace("gct_write_pct", [&](Column& col) { col << 100.0 * write / total; });
    columns.emplace("gct_write_gib",
                    [&](Column& col) { col << (sum(CRCounters::cr_counters, &CRCounters::gct_write_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0; });
+   columns.emplace("gct_committed_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::gct_committed_tx); });
+   columns.emplace("gct_rounds", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::gct_rounds); });
 }
 // -------------------------------------------------------------------------------------
 void CRTable::next()

@@ -467,17 +467,17 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          logical_split_entry.parent_pid = new_root.bf()->header.pid;
          logical_split_entry.left_pid = new_left_node.bf()->header.pid;
          // -------------------------------------------------------------------------------------
-         auto current_right_wal = c_x_guard.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+         auto current_right_wal = c_x_guard.reserveWALEntry<WALLogicalSplit>(0);
          *current_right_wal = logical_split_entry;
          current_right_wal.submit();
          // -------------------------------------------------------------------------------------
          exec();
          // -------------------------------------------------------------------------------------
-         auto root_wal = new_root.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+         auto root_wal = new_root.reserveWALEntry<WALLogicalSplit>(0);
          *root_wal = logical_split_entry;
          root_wal.submit();
          // -------------------------------------------------------------------------------------
-         auto left_wal = new_left_node.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+         auto left_wal = new_left_node.reserveWALEntry<WALLogicalSplit>(0);
          *left_wal = logical_split_entry;
          left_wal.submit();
       } else {
@@ -512,17 +512,17 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
             logical_split_entry.parent_pid = p_x_guard.bf()->header.pid;
             logical_split_entry.left_pid = new_left_node.bf()->header.pid;
             // -------------------------------------------------------------------------------------
-            auto current_right_wal = c_x_guard.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+            auto current_right_wal = c_x_guard.reserveWALEntry<WALLogicalSplit>(0);
             *current_right_wal = logical_split_entry;
             current_right_wal.submit();
             // -------------------------------------------------------------------------------------
             exec();
             // -------------------------------------------------------------------------------------
-            auto parent_wal = p_x_guard.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+            auto parent_wal = p_x_guard.reserveWALEntry<WALLogicalSplit>(0);
             *parent_wal = logical_split_entry;
             parent_wal.submit();
             // -------------------------------------------------------------------------------------
-            auto left_wal = new_left_node.reserveWALEntry<WALLogicalSplit>(sizeof(WALLogicalSplit));
+            auto left_wal = new_left_node.reserveWALEntry<WALLogicalSplit>(0);
             *left_wal = logical_split_entry;
             left_wal.submit();
          } else {

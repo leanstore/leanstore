@@ -20,6 +20,9 @@ struct CRCounters {
    atomic<u64> gct_write_ms = 0;
    atomic<u64> gct_write_bytes = 0;
    // -------------------------------------------------------------------------------------
+   atomic<u64> gct_rounds = 0;
+   atomic<u64> gct_committed_tx = 0;
+   // -------------------------------------------------------------------------------------
    CRCounters() {}
    // -------------------------------------------------------------------------------------
    static tbb::enumerable_thread_specific<CRCounters> cr_counters;

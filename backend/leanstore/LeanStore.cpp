@@ -135,10 +135,11 @@ void LeanStore::startProfilingThread()
          // using RowType = std::vector<variant<std::string, const char*, Table>>;
          {
             tabulate::Table table;
-            table.add_row({"t", "TX", "w_mib", "r_mib", "instr_tx", "workers_cpus", "GCT W%", "GCT 1%", "GCT 2%", "GCT GiB"});
-            table.add_row({std::to_string(seconds), bm_table.get("0", "tx"), bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"),
-                           std::to_string(instr_per_tx), std::to_string(cpu_table.workers_agg_events["CPU"]), cr_table.get("0", "gct_write_pct"),
-                           cr_table.get("0", "gct_phase_1_pct"), cr_table.get("0", "gct_phase_2_pct"), cr_table.get("0", "gct_write_gib")});
+            table.add_row({"t", "TX P", "TX C", "w_mib", "r_mib", "instr_tx", "workers_cpus", "GCT W%", "GCT 1%", "GCT 2%", "GCT GiB", "GCT Rounds"});
+            table.add_row({std::to_string(seconds), bm_table.get("0", "tx"), cr_table.get("0", "gct_committed_tx"), bm_table.get("0", "w_mib"),
+                           bm_table.get("0", "r_mib"), std::to_string(instr_per_tx), std::to_string(cpu_table.workers_agg_events["CPU"]),
+                           cr_table.get("0", "gct_write_pct"), cr_table.get("0", "gct_phase_1_pct"), cr_table.get("0", "gct_phase_2_pct"),
+                  cr_table.get("0", "gct_write_gib"), cr_table.get("0", "gct_rounds")});
             // -------------------------------------------------------------------------------------
             table.format().width(10);
             table.column(0).format().width(5);
