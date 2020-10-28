@@ -1,6 +1,5 @@
 #pragma once
 #include "ProfilingTable.hpp"
-#include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -8,7 +7,6 @@ namespace leanstore
 {
 namespace profiling
 {
-using namespace storage;
 class CRTable : public ProfilingTable
 {
   private:

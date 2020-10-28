@@ -1,7 +1,6 @@
 #include "CRTable.hpp"
 
 #include "leanstore/Config.hpp"
-#include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
 // -------------------------------------------------------------------------------------
