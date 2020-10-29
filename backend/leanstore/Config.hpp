@@ -60,6 +60,7 @@ DECLARE_bool(out_of_place);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(wal);
 DECLARE_uint64(wal_offset);
+DECLARE_bool(wal_io_hack);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
 DECLARE_bool(tmp);
