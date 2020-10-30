@@ -169,7 +169,7 @@ class ExclusivePageGuard
    cr::Worker::WALEntryHandler<WT> reserveWALEntry(u64 extra_size)
    {
       assert(FLAGS_wal);
-      LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
+      const LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
       ref_guard.bf->page.GSN = gsn;
       cr::Worker::my().setCurrentGSN(gsn);
       auto handler = cr::Worker::my().reserveDTEntry<WT>(sizeof(WT) + extra_size);

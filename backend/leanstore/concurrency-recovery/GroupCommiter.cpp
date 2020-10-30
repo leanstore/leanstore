@@ -63,13 +63,17 @@ void CRManager::groupCommiter()
    u64* index = reinterpret_cast<u64*>(chunk.data);
    u64 ssd_offset = end_of_block_device - sizeof(SSDMeta);
    // -------------------------------------------------------------------------------------
+   LID max_safe_gsn;
+   // -------------------------------------------------------------------------------------
    while (keep_running) {
       round_i = 0;
       CRCounters::myCounters().gct_rounds++;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
       // -------------------------------------------------------------------------------------
+      max_safe_gsn = std::numeric_limits<LID>::max();
+      // -------------------------------------------------------------------------------------
       // Phase 1
-      for (s32 w_i = 0; w_i < s32(workers_count); w_i++) {
+      for (u32 w_i = 0; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
          {
             std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
@@ -133,15 +137,19 @@ void CRManager::groupCommiter()
          }
          // -------------------------------------------------------------------------------------
          index[w_i] = ssd_offset;
-         // -------------------------------------------------------------------------------------
-         for (s32 p_w_i = w_i - 1; p_w_i >= 0; p_w_i--) {
-            Worker& p_worker = *workers[p_w_i];
-            if (p_worker.wal_max_gsn > p_worker.group_commit_data.gsn_to_flush) {
-               worker.group_commit_data.max_safe_gsn_to_commit =
-                   std::min(p_worker.group_commit_data.gsn_to_flush, worker.group_commit_data.max_safe_gsn_to_commit);
-            }
+      }
+      // -------------------------------------------------------------------------------------
+      if (workers[0]->wal_max_gsn > workers[0]->group_commit_data.max_safe_gsn_to_commit) {
+         max_safe_gsn = std::min<LID>(workers[0]->group_commit_data.gsn_to_flush, max_safe_gsn);
+      }
+      for (u32 w_i = 1; w_i < workers_count; w_i++) {
+         Worker& worker = *workers[w_i];
+         worker.group_commit_data.max_safe_gsn_to_commit = std::min<LID>(worker.group_commit_data.max_safe_gsn_to_commit, max_safe_gsn);
+         if (worker.wal_max_gsn > worker.group_commit_data.gsn_to_flush) {
+            max_safe_gsn = std::min<LID>(max_safe_gsn, worker.group_commit_data.gsn_to_flush);
          }
       }
+      // -------------------------------------------------------------------------------------
       COUNTERS_BLOCK()
       {
          phase_1_end = std::chrono::high_resolution_clock::now();
