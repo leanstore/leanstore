@@ -522,6 +522,9 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
             *parent_wal = logical_split_entry;
             parent_wal.submit();
             // -------------------------------------------------------------------------------------
+            auto left_init_wal = new_left_node.reserveWALEntry<WALInitPage>(0);
+            left_init_wal->dt_id = dt_id;
+            left_init_wal.submit();
             auto left_wal = new_left_node.reserveWALEntry<WALLogicalSplit>(0);
             *left_wal = logical_split_entry;
             left_wal.submit();

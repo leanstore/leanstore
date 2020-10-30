@@ -65,4 +65,4 @@ DEFINE_uint64(wal_offset, 1, "");
 DEFINE_bool(wal_io_hack, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
-DEFINE_bool(tmp, false, "");
+DEFINE_uint64(tmp, false, "");

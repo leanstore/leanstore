@@ -172,7 +172,10 @@ class ExclusivePageGuard
       LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
       ref_guard.bf->page.GSN = gsn;
       cr::Worker::my().setCurrentGSN(gsn);
-      return cr::Worker::my().reserveDTEntry<WT>(ref_guard.bf->header.pid, ref_guard.bf->page.dt_id, gsn, sizeof(WT) + extra_size);
+      auto handler = cr::Worker::my().reserveDTEntry<WT>(sizeof(WT) + extra_size);
+      handler->pid = ref_guard.bf->header.pid;
+      handler->gsn = gsn;
+      return handler;
    }
    // -------------------------------------------------------------------------------------
    inline void submitWALEntry(u64 requested_size) { cr::Worker::my().submitDTEntry(requested_size); }

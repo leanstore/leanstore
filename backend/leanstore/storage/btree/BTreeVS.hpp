@@ -18,36 +18,44 @@ namespace btree
 {
 // -------------------------------------------------------------------------------------
 struct BTree {
-   enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit };
-   struct WALBeforeAfterImage {
+   enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit, WALInitPage };
+   struct WALEntry {
+      LID gsn;
+      PID pid;
+   };
+   struct WALBeforeAfterImage : BTree::WALEntry {
       WAL_LOG_TYPE type;
       u16 image_size;
       u8 payload[];
    };
-   struct WALAfterImage {
+   struct WALInitPage : BTree::WALEntry {
+      WAL_LOG_TYPE type;
+      DTID dt_id;
+   };
+   struct WALAfterImage : BTree::WALEntry {
       WAL_LOG_TYPE type;
       u16 image_size;
       u8 payload[];
    };
-   struct WALLogicalSplit {
+   struct WALLogicalSplit : BTree::WALEntry {
       WAL_LOG_TYPE type;
       PID parent_pid = -1;
       PID left_pid = -1;
       PID right_pid = -1;
       s32 right_pos = -1;
    };
-   struct WALInsert {
+   struct WALInsert : BTree::WALEntry {
       WAL_LOG_TYPE type;
       u16 key_length;
       u16 value_length;
       u8 payload[];
    };
-   struct WALUpdate {
+   struct WALUpdate : BTree::WALEntry {
       WAL_LOG_TYPE type;
       u16 key_length;
       u8 payload[];
    };
-   struct WALRemove {
+   struct WALRemove : BTree::WALEntry {
       WAL_LOG_TYPE type;
       u16 key_length;
       u8 payload[];

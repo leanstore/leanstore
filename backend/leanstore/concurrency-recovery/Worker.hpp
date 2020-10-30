@@ -21,7 +21,11 @@ struct Worker {
    ~Worker();
    // -------------------------------------------------------------------------------------
    // Shared with all workers
-   atomic<u64> active_tts = 0;  // High water mark:  < active_tts are either committed or aborted
+   atomic<u64> high_water_mark = 0;  // High water mark: TS > mark are visible
+   atomic<u64> active_tts = 0;
+   // -------------------------------------------------------------------------------------
+   unique_ptr<u64[]> my_snapshot;
+   unique_ptr<u64[]> my_concurrent_transcations;
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    std::mutex worker_group_commiter_mutex;
@@ -96,16 +100,13 @@ struct Worker {
    };
    // -------------------------------------------------------------------------------------
    template <typename T>
-   WALEntryHandler<T> reserveDTEntry(PID pid, DTID dt_id, LID gsn, u64 requested_size)
+   WALEntryHandler<T> reserveDTEntry(u64 requested_size)
    {
       const u64 total_size = sizeof(WALEntry) + requested_size;
       ensure(walContiguousFreeSpace() >= total_size);
       active_entry = reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
       active_entry->size = sizeof(WALEntry) + requested_size;
       active_entry->lsn = wal_lsn_counter++;
-      active_entry->dt_id = dt_id;
-      active_entry->pid = pid;
-      active_entry->gsn = gsn;
       active_entry->type = WALEntry::TYPE::DT_SPECIFIC;
       return {active_entry->payload, total_size};
    }

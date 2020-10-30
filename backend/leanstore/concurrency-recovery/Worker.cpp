@@ -1,5 +1,6 @@
 #include "Worker.hpp"
 
+#include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -17,7 +18,9 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count) : worker_
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
-   active_tts = worker_id;
+   active_tts.store(worker_id, std::memory_order_release);
+   my_snapshot = make_unique<u64[]>(workers_count);
+   my_concurrent_transcations = make_unique<u64[]>(workers_count);
 }
 Worker::~Worker() {}
 // -------------------------------------------------------------------------------------
@@ -66,7 +69,6 @@ void Worker::submitWALEntry()
 // -------------------------------------------------------------------------------------
 void Worker::submitDTEntry(u64 requested_size)
 {
-   ensure(clock_gsn == active_entry->gsn);
    std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
    const u64 next_wt_cursor = wal_wt_cursor + requested_size + sizeof(WALEntry);
    wal_wt_cursor.store(next_wt_cursor, std::memory_order_relaxed);
@@ -82,7 +84,14 @@ void Worker::startTX()
    assert(tx.state != Transaction::STATE::STARTED);
    tx.state = Transaction::STATE::STARTED;
    tx.min_gsn = clock_gsn;
-   tx.tx_id = active_tts;
+   if (0) {
+      for (u64 w = 0; w < workers_count; w++) {
+         my_snapshot[w] = all_workers[w]->high_water_mark;
+         my_concurrent_transcations[w] = all_workers[w]->active_tts;
+      }
+      tx.tx_id = central_tts.fetch_add(workers_count) + worker_id;
+      active_tts.store(tx.tx_id, std::memory_order_release);
+   }
 }
 // -------------------------------------------------------------------------------------
 void Worker::commitTX()
@@ -95,7 +104,6 @@ void Worker::commitTX()
    entry.size = sizeof(WALEntry) + 0;
    entry.type = WALEntry::TYPE::TX_COMMIT;
    entry.lsn = wal_lsn_counter++;
-   entry.gsn = clock_gsn;
    submitWALEntry();
    // -------------------------------------------------------------------------------------
    tx.max_gsn = clock_gsn;
@@ -104,7 +112,6 @@ void Worker::commitTX()
       std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
       ready_to_commit_queue.push_back(tx);
    }
-   active_tts = central_tts.fetch_add(workers_count) + worker_id + workers_count;  // Transaction TimeStamp
 }
 // -------------------------------------------------------------------------------------
 void Worker::abortTX()

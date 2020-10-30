@@ -63,4 +63,4 @@ DECLARE_uint64(wal_offset);
 DECLARE_bool(wal_io_hack);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
-DECLARE_bool(tmp);
+DECLARE_uint64(tmp);
