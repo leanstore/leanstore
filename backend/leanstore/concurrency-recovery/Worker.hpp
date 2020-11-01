@@ -86,6 +86,8 @@ struct Worker {
    void commitTX();
    void abortTX();
    // -------------------------------------------------------------------------------------
+   bool isVisibleForMe(u64 tts);
+   // -------------------------------------------------------------------------------------
    template <typename T>
    class WALEntryHandler
    {

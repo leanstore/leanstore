@@ -1,3 +1,5 @@
+Snapshots:
+
 Datastructures must implement copy function:
 * pre-condition: shared lateched
 * copy content with PIDs instead of swips to a *dest

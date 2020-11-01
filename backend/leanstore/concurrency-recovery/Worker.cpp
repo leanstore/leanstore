@@ -44,14 +44,16 @@ u32 Worker::walContiguousFreeSpace()
 // -------------------------------------------------------------------------------------
 void Worker::walEnsureEnoughSpace(u32 requested_size)
 {
-   // Spin until we have enough space
-   while (walFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {
-   }
-   if (walContiguousFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {  // always keep place for CR entry
-      auto& entry = *reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
-      entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
-      entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
-      wal_wt_cursor = 0;
+   if (FLAGS_wal) {
+      // Spin until we have enough space
+      while (walFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {
+      }
+      if (walContiguousFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {  // always keep place for CR entry
+         auto& entry = *reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
+         entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
+         entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
+         wal_wt_cursor = 0;
+      }
    }
 }
 // -------------------------------------------------------------------------------------
@@ -77,46 +79,56 @@ void Worker::submitDTEntry(u64 requested_size)
 // -------------------------------------------------------------------------------------
 void Worker::startTX()
 {
-   WALEntry& entry = reserveWALEntry();
-   entry.size = sizeof(WALEntry) + 0;
-   entry.lsn = wal_lsn_counter++;
-   submitWALEntry();
-   assert(tx.state != Transaction::STATE::STARTED);
-   tx.state = Transaction::STATE::STARTED;
-   tx.min_gsn = clock_gsn;
-   if (0) {
-      for (u64 w = 0; w < workers_count; w++) {
-         my_snapshot[w] = all_workers[w]->high_water_mark;
-         my_concurrent_transcations[w] = all_workers[w]->active_tts;
+   if (FLAGS_wal) {
+      WALEntry& entry = reserveWALEntry();
+      entry.size = sizeof(WALEntry) + 0;
+      entry.lsn = wal_lsn_counter++;
+      submitWALEntry();
+      assert(tx.state != Transaction::STATE::STARTED);
+      tx.state = Transaction::STATE::STARTED;
+      tx.min_gsn = clock_gsn;
+      if (FLAGS_si) {
+         for (u64 w = 0; w < workers_count; w++) {
+            my_snapshot[w] = all_workers[w]->high_water_mark;
+            my_concurrent_transcations[w] = all_workers[w]->active_tts;
+         }
+         tx.tx_id = central_tts.fetch_add(workers_count) + worker_id;
+         active_tts.store(tx.tx_id, std::memory_order_release);
       }
-      tx.tx_id = central_tts.fetch_add(workers_count) + worker_id;
-      active_tts.store(tx.tx_id, std::memory_order_release);
    }
 }
 // -------------------------------------------------------------------------------------
 void Worker::commitTX()
 {
-   assert(tx.state == Transaction::STATE::STARTED);
-   // -------------------------------------------------------------------------------------
-   // TODO: MVCC
-   // -------------------------------------------------------------------------------------
-   WALEntry& entry = reserveWALEntry();
-   entry.size = sizeof(WALEntry) + 0;
-   entry.type = WALEntry::TYPE::TX_COMMIT;
-   entry.lsn = wal_lsn_counter++;
-   submitWALEntry();
-   // -------------------------------------------------------------------------------------
-   tx.max_gsn = clock_gsn;
-   tx.state = Transaction::STATE::READY_TO_COMMIT;
-   {
-      std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
-      ready_to_commit_queue.push_back(tx);
+   if (FLAGS_wal) {
+      assert(tx.state == Transaction::STATE::STARTED);
+      // -------------------------------------------------------------------------------------
+      // TODO: MVCC
+      // -------------------------------------------------------------------------------------
+      WALEntry& entry = reserveWALEntry();
+      entry.size = sizeof(WALEntry) + 0;
+      entry.type = WALEntry::TYPE::TX_COMMIT;
+      entry.lsn = wal_lsn_counter++;
+      submitWALEntry();
+      // -------------------------------------------------------------------------------------
+      tx.max_gsn = clock_gsn;
+      tx.state = Transaction::STATE::READY_TO_COMMIT;
+      {
+         std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
+         ready_to_commit_queue.push_back(tx);
+      }
    }
 }
 // -------------------------------------------------------------------------------------
 void Worker::abortTX()
 {
    assert(false);
+}
+// -------------------------------------------------------------------------------------
+bool Worker::isVisibleForMe(u64 tts)
+{
+   u64 partition_id = tts % workers_count;
+   return my_snapshot[partition_id] > tts;
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr
