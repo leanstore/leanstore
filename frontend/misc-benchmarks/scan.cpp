@@ -69,7 +69,7 @@ int main(int argc, char** argv)
       };
       x = 0ul;
       counter = 0;
-      btree.rangeScanAsc(
+      btree.scanAsc(
           key_start, sizeof(x),
           [&](u8*, u8* payload, u16) {
              ensure(memcmp(payload, reinterpret_cast<u8*>(&dummy_payload), sizeof(Payload)) == 0);

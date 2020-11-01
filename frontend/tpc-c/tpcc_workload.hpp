@@ -511,11 +511,16 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
    // -------------------------------------------------------------------------------------
    // latest order id desc
    if (FLAGS_order_wdc_index) {
-      order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t::Key& key, const order_wdc_t&) {
-         if (key.o_id < 0)
-            raise(SIGTRAP);
-         o_id = key.o_id;
-      });
+      order_wdc.scanDesc(
+          {w_id, d_id, c_id, std::numeric_limits<Integer>::max()},
+          [&](const order_wdc_t::Key& key, const order_wdc_t&) {
+             assert(key.o_w_id == w_id);
+             assert(key.o_d_id == d_id);
+             assert(key.o_c_id == c_id);
+             o_id = key.o_id;
+             return false;
+          },
+          [] {});
    } else {
       order.scanDesc(
           {w_id, d_id, std::numeric_limits<Integer>::max()},
@@ -587,7 +592,16 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
    Integer o_id = -1;
    // latest order id desc
    if (FLAGS_order_wdc_index) {
-      order_wdc.prefixMax1({w_id, d_id, c_id, 0}, sizeof(Integer), [&](const order_wdc_t::Key& key, const order_wdc_t&) { o_id = key.o_id; });
+      order_wdc.scanDesc(
+          {w_id, d_id, c_id, std::numeric_limits<Integer>::max()},
+          [&](const order_wdc_t::Key& key, const order_wdc_t&) {
+             assert(key.o_w_id == w_id);
+             assert(key.o_d_id == d_id);
+             assert(key.o_c_id == c_id);
+             o_id = key.o_id;
+             return false;
+          },
+          [] {});
    } else {
       order.scanDesc(
           {w_id, d_id, std::numeric_limits<Integer>::max()},

@@ -24,33 +24,12 @@ struct LeanStoreAdapter {
    // -------------------------------------------------------------------------------------
    void printTreeHeight() { cout << name << " height = " << btree->height << endl; }
    // -------------------------------------------------------------------------------------
-   // key_length - truncate_from_end  gives us the length of the prefix
-   // it gives us the maximum tuple with this prefix
-   template <class Fn>
-   void prefixMax1(const typename Record::Key& key, const u64 truncate_from_end, const Fn& fn)
-   {
-      u8 folded_key[Record::maxFoldLength()];
-      u16 folded_key_len = Record::foldRecord(folded_key, key);
-      const bool found =
-          btree->prefixMaxOne(folded_key, folded_key_len - truncate_from_end, [&](const u8* key, const u8* payload, u16 payload_length) {
-             static_cast<void>(payload_length);
-             typename Record::Key typed_key;
-             Record::unfoldRecord(key, typed_key);
-             const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
-             assert(payload_length == sizeof(Record));
-             fn(typed_key, typed_payload);
-          });
-      if (!found) {
-         ensure(false);
-      }
-   }
-   // -------------------------------------------------------------------------------------
    template <class Fn>
    void scanDesc(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);
-      btree->rangeScanDesc(
+      btree->scanDesc(
           folded_key, folded_key_len,
           [&](u8* key, u8* payload, [[maybe_unused]] u16 payload_length) {
              assert(payload_length == sizeof(Record));
@@ -118,7 +97,7 @@ struct LeanStoreAdapter {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);
-      btree->rangeScanAsc(
+      btree->scanAsc(
           folded_key, folded_key_len,
           [&](u8* key, u8* payload, [[maybe_unused]] u16 payload_length) {
              assert(payload_length == sizeof(Record));

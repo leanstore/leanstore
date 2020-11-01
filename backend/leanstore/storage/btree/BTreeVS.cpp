@@ -69,7 +69,7 @@ bool BTree::lookupOne(u8* key, u16 key_length, function<void(const u8*, u16)> pa
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::rangeScanAsc(u8* start_key, u16 key_length, std::function<bool(u8* key, u8* payload, u16 payload_length)> callback, function<void()> undo)
+void BTree::scanAsc(u8* start_key, u16 key_length, std::function<bool(u8* key, u8* payload, u16 payload_length)> callback, function<void()> undo)
 {
    volatile u32 mask = 1;
    u8* volatile next_key = start_key;
@@ -146,7 +146,7 @@ void BTree::rangeScanAsc(u8* start_key, u16 key_length, std::function<bool(u8* k
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::rangeScanDesc(u8* start_key,
+void BTree::scanDesc(u8* start_key,
                           u16 key_length,
                           std::function<bool(u8* key, u8* payload, u16 payload_length)> callback,
                           function<void()> undo)
@@ -216,69 +216,6 @@ void BTree::rangeScanDesc(u8* start_key,
             is_heap_freed = true;  // because at first we reuse the start_key
          }
          undo();
-         BACKOFF_STRATEGIES()
-         WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
-      }
-   }
-}
-// -------------------------------------------------------------------------------------
-bool BTree::prefixMaxOne(u8* start_key, u16 start_key_length, function<void(const u8*, const u8*, u16)> payload_callback)
-{
-   volatile u32 mask = 1;
-   u8 one_step_further_key[start_key_length];
-   std::memcpy(one_step_further_key, start_key, start_key_length);
-   if (++one_step_further_key[start_key_length - 1] == 0) {
-      if (++one_step_further_key[start_key_length - 2] == 0) {
-         ensure(false);
-         // overflow is naively implemented
-      }
-   }
-   while (true) {
-      jumpmuTry()
-      {
-         HybridPageGuard<BTreeNode> leaf;
-         findLeafCanJump<OP_TYPE::POINT_READ>(leaf, one_step_further_key, start_key_length);
-         const s16 cur = leaf->lowerBound<false>(one_step_further_key, start_key_length);
-         if (cur > 0) {
-            const s16 pos = cur - 1;
-            const u16 payload_length = leaf->getPayloadLength(pos);
-            const u8* payload = leaf->getPayload(pos);
-            const u16 key_length = leaf->getFullKeyLen(pos);
-            leaf.recheck();
-            u8 key[key_length];
-            leaf->copyFullKey(pos, key);
-            payload_callback(key, payload, payload_length);
-            leaf.recheck_done();
-            jumpmu_return true;
-         } else {
-            if (leaf->lower_fence.length == 0) {
-               jumpmu_return false;
-            } else {
-               const u16 lower_fence_key_length = leaf->lower_fence.length;
-               u8 lower_fence_key[lower_fence_key_length];
-               leaf.recheck();
-               std::memcpy(lower_fence_key, leaf->getLowerFenceKey(), lower_fence_key_length);
-               HybridPageGuard<BTreeNode> prev;
-               findLeafCanJump<OP_TYPE::POINT_READ>(prev, lower_fence_key, lower_fence_key_length);
-               leaf.recheck_done();
-               // -------------------------------------------------------------------------------------
-               ensure(prev->count >= 1);
-               const s16 pos = prev->count - 1;
-               const u16 payload_length = prev->getPayloadLength(pos);
-               const u8* payload = prev->getPayload(pos);
-               const u16 key_length = prev->getFullKeyLen(pos);
-               prev.recheck();
-               u8 key[key_length];
-               prev->copyFullKey(pos, key);
-               payload_callback(key, payload, payload_length);
-               prev.recheck_done();
-               leaf.recheck_done();
-               jumpmu_return true;
-            }
-         }
-      }
-      jumpmuCatch()
-      {
          BACKOFF_STRATEGIES()
          WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
       }
