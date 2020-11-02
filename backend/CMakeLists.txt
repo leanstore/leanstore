@@ -15,11 +15,12 @@ endif ()
 # Library
 # ---------------------------------------------------------------------------
 add_library(leanstore STATIC ${LEANSTORE_CC})
+if (CMAKE_BUILD_TYPE MATCHES Debug)
+    target_compile_options(leanstore PUBLIC -fsanitize=address)
+    target_link_libraries(leanstore asan)
+endif ()
 target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic tabluate) #tbb
-#if (CMAKE_BUILD_TYPE MATCHES Debug)
-#    target_compile_options(leanstore PUBLIC -fsanitize=address)
-#    target_link_libraries(leanstore asan)
-#endif ()
+
 OPTION(LEANSTORE_COUNTERS "Compile leanstore with debugging/performance counters" ON)
 IF(LEANSTORE_COUNTERS)
   target_compile_definitions(leanstore PUBLIC MACRO_FLAG_COUNTERS=1)

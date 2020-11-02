@@ -134,7 +134,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                      assert(r_buffer->header.isWB == false);
                      assert(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
                      assert(parent_handler.swip.bf == r_buffer);
-                     partition.cooling_queue.push_back(reinterpret_cast<BufferFrame*>(r_buffer));
+                     partition.cooling_queue.emplace_back(reinterpret_cast<BufferFrame*>(r_buffer));
                      r_buffer->header.state = BufferFrame::STATE::COOL;
                      parent_handler.swip.cool();
                      partition.cooling_bfs_counter++;

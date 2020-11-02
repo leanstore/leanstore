@@ -106,6 +106,7 @@ struct Partition {
    }
    // -------------------------------------------------------------------------------------
    Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 cooling_bfs_limit);
+   ~Partition();
 };
 // -------------------------------------------------------------------------------------
 }  // namespace storage
