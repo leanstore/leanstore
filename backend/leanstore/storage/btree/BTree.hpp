@@ -82,7 +82,7 @@ struct BTree {
    // starts at the key >= start_key
    void scanAsc(u8* start_key, u16 key_length, function<bool(u8* key, u8* value, u16 value_length)>, function<void()>);
    // starts at the key + 1 and downwards
-   void scanDesc(u8* start_key, u16 key_length, function<bool(u8* key, u8* value, u16 value_length)>, function<void()>);
+   void scanDesc(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>, function<void()>);
    // -------------------------------------------------------------------------------------
    void insert(u8* key, u16 key_length, u64 valueLength, u8* value);
    void trySplit(BufferFrame& to_split, s16 pos = -1);
@@ -92,6 +92,16 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    bool remove(u8* key, u16 key_length);
    bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
+   // -------------------------------------------------------------------------------------
+   // SI
+   inline u64 myVersion() { return cr::Worker::my().active_tts; }
+   inline bool isVisibleForMe(u64 version) { return cr::Worker::my().isVisibleForMe(version); }
+   inline ValueType sizeToVT(u64 size) { return ValueType(reinterpret_cast<BufferFrame*>(size)); }
+   s16 findLatestVerionPositionSI(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length);
+   bool lookupSI(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
+   bool insertSI(u8* key, u16 key_length, u64 valueLength, u8* value);
+   bool updateSI(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
+   bool removeSI(u8* key, u16 key_length);
    // -------------------------------------------------------------------------------------
    s16 mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
                           s16 left_pos,

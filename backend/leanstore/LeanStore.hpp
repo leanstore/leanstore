@@ -1,7 +1,7 @@
 #pragma once
 #include "Config.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
-#include "storage/btree/BTreeVS.hpp"
+#include "storage/btree/BTree.hpp"
 #include "storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------

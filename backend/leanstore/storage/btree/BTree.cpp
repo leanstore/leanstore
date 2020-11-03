@@ -1,4 +1,4 @@
-#include "BTreeVS.hpp"
+#include "BTree.hpp"
 
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 // -------------------------------------------------------------------------------------
@@ -128,28 +128,13 @@ void BTree::scanAsc(u8* start_key, u16 key_length, std::function<bool(u8* key, u
       }
       jumpmuCatch()
       {
-         // Reset
-         if (next_key == start_key) {
-            assert(next_key_length == key_length);
-            is_heap_freed = true;  // because at first we reuse the start_key
-         } else {
-            assert(is_heap_freed == false);
-            delete[] next_key;
-            next_key = start_key;
-            next_key_length = key_length;
-            is_heap_freed = true;
-         }
-         undo();
          BACKOFF_STRATEGIES()
          WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
       }
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::scanDesc(u8* start_key,
-                          u16 key_length,
-                          std::function<bool(u8* key, u8* payload, u16 payload_length)> callback,
-                          function<void()> undo)
+void BTree::scanDesc(u8* start_key, u16 key_length, std::function<bool(u8*, u16, u8*, u16)> callback, function<void()> undo)
 {
    volatile u32 mask = 1;
    u8* volatile next_key = start_key;
@@ -184,7 +169,7 @@ void BTree::scanDesc(u8* start_key,
                u16 payload_length = s_leaf->getPayloadLength(cur);
                u8* payload = s_leaf->getPayload(cur);
                s_leaf->copyKeyWithoutPrefix(cur, key + prefix_length);
-               if (!callback(key, payload, payload_length)) {
+               if (!callback(key, key_length, payload, payload_length)) {
                   if (!is_heap_freed) {
                      delete[] next_key;
                      is_heap_freed = true;
@@ -210,12 +195,6 @@ void BTree::scanDesc(u8* start_key,
       }
       jumpmuCatch()
       {
-         {
-            next_key = start_key;
-            next_key_length = key_length;
-            is_heap_freed = true;  // because at first we reuse the start_key
-         }
-         undo();
          BACKOFF_STRATEGIES()
          WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
       }

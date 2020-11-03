@@ -31,7 +31,10 @@ struct LeanStoreAdapter {
       u16 folded_key_len = Record::foldRecord(folded_key, key);
       btree->scanDesc(
           folded_key, folded_key_len,
-          [&](u8* key, u8* payload, [[maybe_unused]] u16 payload_length) {
+          [&](u8* key, [[maybe_unused]] u16 key_length, u8* payload, [[maybe_unused]] u16 payload_length) {
+             if (key_length != folded_key_len) {  // TODO
+                return false;
+             }
              assert(payload_length == sizeof(Record));
              typename Record::Key typed_key;
              Record::unfoldRecord(key, typed_key);

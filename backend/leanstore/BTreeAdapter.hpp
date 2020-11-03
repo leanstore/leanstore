@@ -1,5 +1,5 @@
 #include "Units.hpp"
-#include "leanstore/storage/btree/BTreeVS.hpp"
+#include "leanstore/storage/btree/BTree.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 namespace leanstore

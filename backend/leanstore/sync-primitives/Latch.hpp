@@ -97,7 +97,8 @@ struct Guard {
    void recheck()
    {
       // maybe only if state == optimistic
-      if (version != latch->ref().load()) {
+      assert(state == GUARD_STATE::OPTIMISTIC || version == latch->ref().load());
+      if (state == GUARD_STATE::OPTIMISTIC && version != latch->ref().load()) {
          jumpmu::jump();
       }
    }
