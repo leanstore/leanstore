@@ -34,10 +34,11 @@ s16 BTree::findLatestVerionPositionSI(HybridPageGuard<BTreeNode>& target_guard, 
          u8 lower_fence[lower_fence_length];
          findLeaf<OP_TYPE::POINT_UPDATE>(target_guard, lower_fence, lower_fence_length);
          pos = target_guard->count - 1;
-
+         return pos;
       }
+   } else {
+      return pos - 1;
    }
-   return -1;
 }
 // -------------------------------------------------------------------------------------
 bool BTree::lookupSI(u8* k, u16 kl, function<void(const u8*, u16)> payload_callback)
@@ -122,7 +123,7 @@ bool BTree::updateSI(u8* k, u16 kl, function<void(u8* value, u16 value_size)> ca
          }
          // -------------------------------------------------------------------------------------
          const u16 payload_length = c_x_guard->getPayloadLength(pos);
-         if (!c_x_guard->canInsert(key_length, sizeToVT(payload_length))) {
+         if (!c_x_guard->canInsert(key_length, payload_length)) {
             c_guard = std::move(c_x_guard);
             c_guard.kill();
             trySplit(*c_guard.bf);
@@ -138,6 +139,7 @@ bool BTree::updateSI(u8* k, u16 kl, function<void(u8* value, u16 value_size)> ca
          c_x_guard->getPayloadLength(delta_size);
          c_x_guard->space_used -= payload_length - delta_size;
          if (FLAGS_wal) {
+            // TODO: with SI, the current WAL entries are not enough
             // if it is a secondary index, then we can not use updateSameSize
             assert(wal_update_generator.entry_size > 0);
             // -------------------------------------------------------------------------------------
@@ -151,7 +153,7 @@ bool BTree::updateSI(u8* k, u16 kl, function<void(u8* value, u16 value_size)> ca
          // The actual update by the client
          callback(new_payload, payload_length);
          *reinterpret_cast<u64*>(key + kl) = myVersion();
-         c_x_guard->insert(key, key_length, sizeToVT(payload_length), new_payload);
+         c_x_guard->insert(key, key_length, new_payload, payload_length);
       }
       jumpmuCatch() {}
    }
@@ -166,63 +168,54 @@ bool BTree::insertSI(u8* k, u16 kl, u64 value_length, u8* value)
    std::memcpy(key, k, kl);
    *reinterpret_cast<u64*>(key + kl) = std::numeric_limits<u64>::max();
    // -------------------------------------------------------------------------------------
-   // while (true) {
-   //    jumpmuTry()
-   //    {
-   //       HybridPageGuard<BTreeNode> c_guard;
-   //       findLeafCanJump<OP_TYPE::POINT_UPDATE>(c_guard, key, key_length);
-   //       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-   //       ensure(c_x_guard->count > 0);
-   //       // Assume that max version will not be reached
-   //       // Also assume that no empty page will be left in the system
-   //       assert(c_x_guard->lowerBound<true>(key, key_length) == -1);
-   //       s16 pos = c_x_guard->lowerBound<false>(key, key_length);
-   //       ensure(pos > 0);
-   //       pos -= 1;
-   //       u64 version = *reinterpret_cast<u64*>(c_x_guard->getKey(pos) + kl);
-   //       if (!isVisibleForMe(version)) {
-   //          // TODO: write-write conflict, transaction abort
-   //          ensure(false);
-   //       }
-   //       // -------------------------------------------------------------------------------------
-   //       const u16 payload_length = c_x_guard->getPayloadLength(pos);
-   //       if (!c_x_guard->canInsert(key_length, sizeToVT(payload_length))) {
-   //          c_guard = std::move(c_x_guard);
-   //          c_guard.kill();
-   //          trySplit(*c_guard.bf);
-   //          jumpmu_continue;
-   //       }
-   //       // -------------------------------------------------------------------------------------
-   //       // Enough space in the page
-   //       u16 delta_size = wal_update_generator.entry_size;
-   //       u8 delta[delta_size];
-   //       u8 new_payload[payload_length];
-   //       std::memcpy(new_payload, c_x_guard->getPayload(pos), payload_length);
-   //       wal_update_generator.before(c_x_guard->getPayload(pos), delta);
-   //       c_x_guard->getPayloadLength(delta_size);
-   //       c_x_guard->space_used -= payload_length - delta_size;
-   //       if (FLAGS_wal) {
-   //          // if it is a secondary index, then we can not use updateSameSize
-   //          assert(wal_update_generator.entry_size > 0);
-   //          // -------------------------------------------------------------------------------------
-   //          auto wal_entry = c_x_guard.reserveWALEntry<WALUpdate>(key_length + wal_update_generator.entry_size);
-   //          wal_entry->type = WAL_LOG_TYPE::WALUpdate;
-   //          wal_entry->key_length = key_length;
-   //          std::memcpy(wal_entry->payload, key, key_length);
-   //          std::memcpy(wal_entry->payload + key_length, delta, delta_size);
-   //          wal_entry.submit();
-   //       }
-   //       // The actual update by the client
-   //       callback(new_payload, payload_length);
-   //       *reinterpret_cast<u64*>(key + kl) = myVersion();
-   //       c_x_guard->insert(key, key_length, sizeToVT(payload_length), new_payload);
-   //    }
-   //    jumpmuCatch() {}
-   // }
-   return true;
+   while (true) {
+      jumpmuTry()
+      {
+         HybridPageGuard<BTreeNode> leaf;
+         s16 pos = findLatestVerionPositionSI(leaf, key, key_length);
+         ExclusivePageGuard ex_leaf(std::move(leaf));
+         s16 cmp = ex_leaf->cmpKeys(ex_leaf->getKey(pos), key + ex_leaf->prefix_length - 8, ex_leaf->getKeyLen(pos), kl - ex_leaf->prefix_length - 8);
+         if (cmp == 0) {
+            if (ex_leaf->getPayloadLength(pos) == 0) {
+               u64 delete_tts = *reinterpret_cast<u64*>(ex_leaf->getKey(pos) + ex_leaf->getKeyLen(pos) - 8);
+               if (isVisibleForMe(delete_tts)) {
+                 // TODO: insert after delete entry
+               } else {
+                 // TODO: tx abort
+               }
+               // was deleted
+            }
+            // the latest version
+            return false;
+         } else {
+            if (ex_leaf->canInsert(key_length, value_length)) {
+               *reinterpret_cast<u64*>(key + kl) = myVersion();
+               ex_leaf->insert(key, key_length, value, value_length);
+               if (FLAGS_wal) {
+                  auto wal_entry = ex_leaf.reserveWALEntry<WALInsert>(key_length + value_length);
+                  wal_entry->type = WAL_LOG_TYPE::WALInsert;
+                  wal_entry->key_length = key_length;
+                  wal_entry->value_length = value_length;
+                  std::memcpy(wal_entry->payload, key, key_length);
+                  std::memcpy(wal_entry->payload + key_length, value, value_length);
+                  wal_entry.submit();
+               }
+            } else {
+               leaf = std::move(ex_leaf);
+               leaf.kill();
+               trySplit(*leaf.bf);
+            }
+         }
+         return true;
+      }
+      jumpmuCatch() {}
+   }
 }
 // -------------------------------------------------------------------------------------
-bool BTree::removeSI(u8* k, u16 kl) {}
+bool BTree::removeSI(u8*, u16)
+{
+   return false;
+}
 // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage
