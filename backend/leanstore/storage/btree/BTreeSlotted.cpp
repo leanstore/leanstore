@@ -13,12 +13,6 @@ namespace storage
 namespace btree
 {
 // -------------------------------------------------------------------------------------
-// calculate space needed for keys in inner nodes.
-u16 BTreeNode::spaceNeededAsInner(u16 key_length, u16 prefix_length)
-{
-   return sizeof(Slot) + sizeof(ValueType) + (key_length - prefix_length);
-}
-// -------------------------------------------------------------------------------------
 void BTreeNode::makeHint()
 {
    u16 dist = count / (hint_count + 1);
@@ -38,50 +32,57 @@ void BTreeNode::updateHint(u16 slotId)
       assert(hint[i] == slot[dist * (i + 1)].head);
 }
 // -------------------------------------------------------------------------------------
-u16 BTreeNode::spaceNeeded(u16 key_length, ValueType value)
+u16 BTreeNode::spaceNeeded(u16 key_len, u16 payload_len, u16 prefix_len)
 {
-   return spaceNeededAsInner(key_length, prefix_length) + (is_leaf ? value.raw() : 0);
+   return sizeof(Slot) + (key_len - prefix_len) + payload_len;
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::canInsert(u16 keyLength, ValueType value)
+u16 BTreeNode::spaceNeeded(u16 key_length, u16 payload_len)
 {
-   const u16 space_needed = spaceNeeded(keyLength, value);
+   return spaceNeeded(key_length, payload_len, prefix_length);
+}
+// -------------------------------------------------------------------------------------
+bool BTreeNode::canInsert(u16 key_len, u16 payload_len)
+{
+   const u16 space_needed = spaceNeeded(key_len, payload_len);
    if (!hasEnoughSpaceFor(space_needed))
       return false;  // no space, insert fails
    else
       return true;
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::prepareInsert(u8* key, u16 keyLength, ValueType value)
+bool BTreeNode::prepareInsert(u8* key, u16 key_len, u16 payload_len)
 {
-   s32 sanity_check_result = sanityCheck(key, keyLength);
-   static_cast<void>(sanity_check_result);
-   assert(sanity_check_result == 0);
+   DEBUG_BLOCK()
+   {
+      [[maybe_unused]] s32 sanity_check_result = sanityCheck(key, key_len);
+      assert(sanity_check_result == 0);
+   }
    // -------------------------------------------------------------------------------------
-   const u16 space_needed = spaceNeeded(keyLength, value);
+   const u16 space_needed = spaceNeeded(key_len, payload_len);
    if (!requestSpaceFor(space_needed))
       return false;  // no space, insert fails
    else
       return true;
 }
 // -------------------------------------------------------------------------------------
-void BTreeNode::insert(u8* key, u16 keyLength, ValueType value, u8* payload)
+void BTreeNode::insert(u8* key, u16 key_len, u8* payload, u16 payload_length)
 {
    DEBUG_BLOCK()
    {
-      assert(prepareInsert(key, keyLength, value));
-      s32 exact_pos = lowerBound<true>(key, keyLength);
+      assert(prepareInsert(key, key_len, payload_length));
+      s32 exact_pos = lowerBound<true>(key, key_len);
       static_cast<void>(exact_pos);
       assert(exact_pos == -1);  // assert for duplicates
    }
-   s32 slotId = lowerBound<false>(key, keyLength);
+   s32 slotId = lowerBound<false>(key, key_len);
    memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
-   storeKeyValue(slotId, key, keyLength, value, payload);
+   storeKeyValue(slotId, key, key_len, payload, payload_length);
    count++;
    updateHint(slotId);
    DEBUG_BLOCK()
    {
-      s32 exact_pos = lowerBound<true>(key, keyLength);
+      s32 exact_pos = lowerBound<true>(key, key_len);
       static_cast<void>(exact_pos);
       assert(exact_pos == slotId);  // assert for duplicates
    }
@@ -120,7 +121,7 @@ u32 BTreeNode::mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right)
 // -------------------------------------------------------------------------------------
 u32 BTreeNode::spaceUsedBySlot(u16 s_i)
 {
-   return sizeof(BTreeNode::Slot) + sizeof(ValueType) + getKeyLen(s_i) + (is_leaf ? getPayloadLength(s_i) : 0);
+   return sizeof(BTreeNode::Slot) + getKeyLen(s_i) + getPayloadLength(s_i);
 }
 // -------------------------------------------------------------------------------------
 // right survives, this gets reclaimed
@@ -153,13 +154,13 @@ bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, Exclusi
       u16 rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
       u16 extraKeyLength = parent->getFullKeyLen(slotId);
       u16 spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow +
-                            spaceNeededAsInner(extraKeyLength, tmp.prefix_length);
+                            spaceNeeded(extraKeyLength, sizeof(SwipType), tmp.prefix_length);
       if (spaceUpperBound > EFFECTIVE_PAGE_SIZE)
          return false;
       copyKeyValueRange(&tmp, 0, 0, count);
       u8 extraKey[extraKeyLength];
       parent->copyFullKey(slotId, extraKey);
-      tmp.storeKeyValue(count, extraKey, extraKeyLength, upper);
+      tmp.storeKeyValue(count, extraKey, extraKeyLength, reinterpret_cast<u8*>(&upper), sizeof(SwipType));
       tmp.count++;
       right->copyKeyValueRange(&tmp, tmp.count, 0, right->count);
       parent->removeSlot(slotId);
@@ -170,30 +171,24 @@ bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, Exclusi
    }
 }
 // -------------------------------------------------------------------------------------
-void BTreeNode::storeKeyValue(u16 slotId, u8* key, u16 keyLength, ValueType value, u8* payload)
+void BTreeNode::storeKeyValue(u16 slotId, u8* key, u16 key_len, u8* payload, const u16 payload_len)
 {
    // Head
    key += prefix_length;
-   keyLength -= prefix_length;
+   key_len -= prefix_length;
    // -------------------------------------------------------------------------------------
-   slot[slotId].head = head(key, keyLength);
-   slot[slotId].len = keyLength;
+   slot[slotId].head = head(key, key_len);
+   slot[slotId].key_len = key_len;
+   slot[slotId].payload_len = payload_len;
    // Value
-   u16 space = keyLength + sizeof(ValueType) + ((is_leaf) ? value.raw() : 0);
+   const u16 space = key_len + payload_len;
    data_offset -= space;
    space_used += space;
    slot[slotId].offset = data_offset;
-   if (is_leaf) {
-      getPayloadLength(slotId) = static_cast<u16>(value.raw());
-   } else {
-      getChild(slotId) = value;
-   }
-   memcpy(getKey(slotId), key, keyLength);
-   // store payload
-   if (is_leaf) {
-      assert(payload != nullptr);
-      memcpy(getPayload(slotId), payload, getPayloadLength(slotId));
-   }
+   // -------------------------------------------------------------------------------------
+   memcpy(getKey(slotId), key, key_len);
+   // -------------------------------------------------------------------------------------
+   memcpy(getPayload(slotId), payload, payload_len);
    assert(ptr() + data_offset >= reinterpret_cast<u8*>(slot + count));
 }
 // -------------------------------------------------------------------------------------
@@ -207,17 +202,12 @@ void BTreeNode::copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, u16 
       {
          u32 total_space_used = upper_fence.length + lower_fence.length;
          for (u16 i = 0; i < this->count; i++) {
-            total_space_used += sizeof(ValueType) + getKeyLen(i);
-            total_space_used += (is_leaf) ? getPayloadLength(i) : 0;
+            total_space_used += getKeyLen(i) + getPayloadLength(i);
          }
          assert(total_space_used == this->space_used);
       }
       for (u16 i = 0; i < count; i++) {
-         u32 kv_size = sizeof(ValueType) + getKeyLen(srcSlot + i);
-         if (dst->is_leaf) {
-            assert(is_leaf);
-            kv_size += getPayloadLength(srcSlot + i);  // AAA: Payload size
-         }
+         u32 kv_size = getKeyLen(srcSlot + i) + getPayloadLength(srcSlot + i);
          dst->data_offset -= kv_size;
          dst->space_used += kv_size;
          dst->slot[dstSlot + i].offset = dst->data_offset;
@@ -241,8 +231,7 @@ void BTreeNode::copyKeyValue(u16 srcSlot, BTreeNode* dst, u16 dstSlot)
    u16 fullLength = getFullKeyLen(srcSlot);
    u8 key[fullLength];
    copyFullKey(srcSlot, key);
-   u8* payload = (is_leaf ? getPayload(srcSlot) : nullptr);
-   dst->storeKeyValue(dstSlot, key, fullLength, getChild(srcSlot), payload);
+   dst->storeKeyValue(dstSlot, key, fullLength, getPayload(srcSlot), getPayloadLength(srcSlot));
 }
 // -------------------------------------------------------------------------------------
 void BTreeNode::insertFence(BTreeNodeHeader::FenceKey& fk, u8* key, u16 keyLength)
@@ -270,7 +259,7 @@ u16 BTreeNode::commonPrefix(u16 slotA, u16 slotB)
    // TODO: the folowing two checks work only in single threaded
    //   assert(aPos < count);
    //   assert(bPos < count);
-   u32 limit = min(slot[slotA].len, slot[slotB].len);
+   u32 limit = min(slot[slotA].key_len, slot[slotB].key_len);
    u8 *a = getKey(slotA), *b = getKey(slotB);
    u32 i;
    for (i = 0; i < limit; i++)
@@ -297,7 +286,7 @@ BTreeNode::SeparatorInfo BTreeNode::findSep()
       }
    }
    unsigned common = commonPrefix(maxPos, maxPos + 1);
-   if ((slot[maxPos].len > common) && (slot[maxPos + 1].len > common + 1)) {
+   if ((slot[maxPos].key_len > common) && (slot[maxPos + 1].key_len > common + 1)) {
       return SeparatorInfo{static_cast<u16>(prefix_length + common + 1), maxPos, true};
    }
    return SeparatorInfo{getFullKeyLen(maxPos), maxPos, false};
@@ -342,17 +331,18 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
 {
    // PRE: current, parent and nodeLeft are x locked
    // assert(sepSlot > 0); TODO: really ?
-   assert(sepSlot < (EFFECTIVE_PAGE_SIZE / sizeof(ValueType)));
+   assert(sepSlot < (EFFECTIVE_PAGE_SIZE / sizeof(SwipType)));
    // -------------------------------------------------------------------------------------
    nodeLeft->setFences(getLowerFenceKey(), lower_fence.length, sepKey, sepLength);
    BTreeNode tmp(is_leaf);
    BTreeNode* nodeRight = &tmp;
    nodeRight->setFences(sepKey, sepLength, getUpperFenceKey(), upper_fence.length);
-   assert(parent->prepareInsert(sepKey, sepLength, nodeLeft.swip()));
-   parent->insert(sepKey, sepLength, nodeLeft.swip());
+   assert(parent->canInsert(sepLength, sizeof(SwipType)));
+   auto swip = nodeLeft.swip();
+   parent->insert(sepKey, sepLength, reinterpret_cast<u8*>(&swip), sizeof(SwipType));
    if (is_leaf) {
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot + 1);
-      copyKeyValueRange(nodeRight, 0, nodeLeft->count, count - nodeLeft->count);
+      copyKeyValueRange(nodeRight, 0, nodeLeft->count, count - nodeLeft->count);  // BUG
    } else {
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot);
       copyKeyValueRange(nodeRight, 0, nodeLeft->count + 1, count - nodeLeft->count - 1);
@@ -367,8 +357,7 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
 // -------------------------------------------------------------------------------------
 bool BTreeNode::removeSlot(u16 slotId)
 {
-   space_used -= sizeof(ValueType) + getKeyLen(slotId);
-   space_used -= (is_leaf ? getPayloadLength(slotId) : 0);
+   space_used -= getKeyLen(slotId) + getPayloadLength(slotId);
    memmove(slot + slotId, slot + slotId + 1, sizeof(Slot) * (count - slotId - 1));
    count--;
    makeHint();

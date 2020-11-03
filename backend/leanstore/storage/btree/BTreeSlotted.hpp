@@ -8,11 +8,9 @@
 // -------------------------------------------------------------------------------------
 
 #include <algorithm>
-#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <fstream>
-#include <iostream>
 #include <string>
 // -------------------------------------------------------------------------------------
 using namespace std;
@@ -26,7 +24,7 @@ namespace btree
 {
 // -------------------------------------------------------------------------------------
 struct BTreeNode;
-using ValueType = Swip<BTreeNode>;
+using SwipType = Swip<BTreeNode>;
 using HeadType = u32;
 // -------------------------------------------------------------------------------------
 static inline u64 swap(u64 x)
@@ -82,16 +80,20 @@ struct BTreeNodeHeader {
 };
 // -------------------------------------------------------------------------------------
 struct BTreeNode : public BTreeNodeHeader {
-   struct Slot {
-      // Layout:  Value | restKey | Payload
+   struct __attribute__((packed)) Slot {
+      // Layout:  key wihtout prefix | Payload
       u16 offset;
-      u16 len;
+      u16 key_len;
+      u16 payload_len;
       union {
          HeadType head;
          u8 head_bytes[4];
       };
    };
-   Slot slot[(EFFECTIVE_PAGE_SIZE - sizeof(BTreeNodeHeader)) / (sizeof(Slot))];
+   static constexpr u64 pure_slots_capacity = (EFFECTIVE_PAGE_SIZE - sizeof(BTreeNodeHeader)) / (sizeof(Slot));
+   static constexpr u64 left_space_to_waste = (EFFECTIVE_PAGE_SIZE - sizeof(BTreeNodeHeader)) % (sizeof(Slot));
+   Slot slot[pure_slots_capacity];
+   u8 padding[left_space_to_waste];
 
    BTreeNode(bool is_leaf) : BTreeNodeHeader(is_leaf) {}
 
@@ -112,16 +114,14 @@ struct BTreeNode : public BTreeNodeHeader {
       }
       return false;
    }
-   inline u8* getKey(u16 slotId) { return ptr() + slot[slotId].offset + sizeof(ValueType); }
-   inline u16 getKeyLen(u16 slotId) { return slot[slotId].len; }
+   // -------------------------------------------------------------------------------------
+   inline u8* getKey(u16 slotId) { return ptr() + slot[slotId].offset; }
+   inline u16 getKeyLen(u16 slotId) { return slot[slotId].key_len; }
    inline u16 getFullKeyLen(u16 slotId) { return prefix_length + getKeyLen(slotId); }
-   inline ValueType& getChild(u16 slotId) { return *reinterpret_cast<ValueType*>(ptr() + slot[slotId].offset); }
-   inline u16& getPayloadLength(u16 slotId) { return *reinterpret_cast<u16*>(ptr() + slot[slotId].offset); }
-   inline u8* getPayload(u16 slotId)
-   {
-      assert(is_leaf);
-      return ptr() + slot[slotId].offset + slot[slotId].len + sizeof(ValueType);
-   }
+   inline u16 getPayloadLength(u16 slotId) { return slot[slotId].payload_len; }
+   inline void setPayloadLength(u16 slotId, u16 len) { slot[slotId].payload_len = len; }
+   inline u8* getPayload(u16 slotId) { return ptr() + slot[slotId].offset + slot[slotId].key_len; }
+   inline SwipType& getChild(u16 slotId) { return *reinterpret_cast<SwipType*>(getPayload(slotId)); }
    // -------------------------------------------------------------------------------------
    inline void copyPrefix(u8* out) { memcpy(out, getLowerFenceKey(), prefix_length); }
    inline void copyKeyWithoutPrefix(u16 slotId, u8* out_after_prefix) { memcpy(out_after_prefix, getKey(slotId), getKeyLen(slotId)); }
@@ -131,7 +131,6 @@ struct BTreeNode : public BTreeNodeHeader {
       memcpy(out + prefix_length, getKey(slotId), getKeyLen(slotId));
    }
    // -------------------------------------------------------------------------------------
-   static u16 spaceNeededAsInner(u16 keyLength, u16 prefixLength);
    static inline s32 cmpKeys(u8* a, u8* b, u16 aLength, u16 bLength)
    {
       u16 length = min(aLength, bLength);
@@ -213,11 +212,11 @@ struct BTreeNode : public BTreeNodeHeader {
             upper = mid;
          } else if (keyHead > slot[mid].head) {
             lower = mid + 1;
-         } else if (slot[mid].len <= 4) {
+         } else if (slot[mid].key_len <= 4) {
             // head is equal, we don't have to check the rest of the key
-            if (keyLength < slot[mid].len) {
+            if (keyLength < slot[mid].key_len) {
                upper = mid;
-            } else if (keyLength > slot[mid].len) {
+            } else if (keyLength > slot[mid].key_len) {
                lower = mid + 1;
             } else {
                return mid;
@@ -240,10 +239,11 @@ struct BTreeNode : public BTreeNodeHeader {
    // -------------------------------------------------------------------------------------
    void updateHint(u16 slotId);
    // -------------------------------------------------------------------------------------
-   void insert(u8* key, u16 keyLength, ValueType value, u8* payload = nullptr);
-   u16 spaceNeeded(u16 key_length, ValueType value);
-   bool canInsert(u16 key_length, ValueType value);
-   bool prepareInsert(u8* key, u16 keyLength, ValueType value);
+   void insert(u8* key, u16 key_len, u8* payload, u16 payload_len);
+   static u16 spaceNeeded(u16 keyLength, u16 payload_len, u16 prefixLength);
+   u16 spaceNeeded(u16 key_length, u16 payload_len);
+   bool canInsert(u16 key_length, u16 payload_len);
+   bool prepareInsert(u8* key, u16 keyLength, u16 payload_len);
    // -------------------------------------------------------------------------------------
    bool update(u8* key, u16 keyLength, u16 payload_length, u8* payload);
    // -------------------------------------------------------------------------------------
@@ -255,7 +255,7 @@ struct BTreeNode : public BTreeNodeHeader {
    // -------------------------------------------------------------------------------------
    bool merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
    // store key/value pair at slotId
-   void storeKeyValue(u16 slotId, u8* key, u16 keyLength, ValueType value, u8* payload = nullptr);
+   void storeKeyValue(u16 slotId, u8* key, u16 key_len, u8* payload, u16 payload_len);
    // ATTENTION: dstSlot then srcSlot !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    void copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, u16 count);
    void copyKeyValue(u16 srcSlot, BTreeNode* dst, u16 dstSlot);
@@ -272,7 +272,7 @@ struct BTreeNode : public BTreeNodeHeader {
    bool remove(u8* key, u16 keyLength);
 };
 // -------------------------------------------------------------------------------------
-static_assert(sizeof(BTreeNode) == EFFECTIVE_PAGE_SIZE, "page size problem");
+static_assert(sizeof(BTreeNode) == EFFECTIVE_PAGE_SIZE, "BTreeNode must be equal to one page");
 // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage

@@ -213,8 +213,8 @@ void BTree::insert(u8* key, u16 key_length, u64 value_length, u8* value)
          findLeafCanJump<OP_TYPE::POINT_INSERT>(c_guard, key, key_length);
          // -------------------------------------------------------------------------------------
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-         if (c_x_guard->prepareInsert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(value_length)))) {
-            c_x_guard->insert(key, key_length, ValueType(reinterpret_cast<BufferFrame*>(value_length)), value);
+         if (c_x_guard->prepareInsert(key, key_length, value_length)) {
+            c_x_guard->insert(key, key_length, value, value_length);
             if (FLAGS_wal) {
                auto wal_entry = c_x_guard.reserveWALEntry<WALInsert>(key_length + value_length);
                wal_entry->type = WAL_LOG_TYPE::WALInsert;
@@ -290,7 +290,7 @@ bool BTree::tryBalanceRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<
    left->copyFullKey(left_boundary, new_left_uf_key);
    // -------------------------------------------------------------------------------------
    const u16 old_left_sep_space = parent->spaceUsedBySlot(l_pos);
-   const u16 new_left_sep_space = parent->spaceNeeded(new_left_uf_length, left.swip());
+   const u16 new_left_sep_space = parent->spaceNeeded(new_left_uf_length, sizeof(SwipType));
    if (new_left_sep_space > old_left_sep_space) {
       if (!parent->hasEnoughSpaceFor(new_left_sep_space - old_left_sep_space))
          return false;
@@ -326,8 +326,9 @@ bool BTree::tryBalanceRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<
    }
    {
       x_parent->removeSlot(l_pos);
-      ensure(x_parent->prepareInsert(x_left->getUpperFenceKey(), x_left->upper_fence.length, left.swip()));
-      x_parent->insert(x_left->getUpperFenceKey(), x_left->upper_fence.length, left.swip());
+      ensure(x_parent->prepareInsert(x_left->getUpperFenceKey(), x_left->upper_fence.length, sizeof(SwipType)));
+      auto swip = left.swip();
+      x_parent->insert(x_left->getUpperFenceKey(), x_left->upper_fence.length, reinterpret_cast<u8*>(&swip), sizeof(SwipType));
    }
    // -------------------------------------------------------------------------------------
    return true;
@@ -411,12 +412,12 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
       return;
    } else {
       // Parent is not root
-      u16 spaced_need_for_separator = BTreeNode::spaceNeededAsInner(sep_info.length, p_guard->prefix_length);
-      if (p_guard->hasEnoughSpaceFor(spaced_need_for_separator)) {  // Is there enough space in the parent
+      const u16 space_needed_for_separator = p_guard->spaceNeeded(sep_info.length, sizeof(SwipType));
+      if (p_guard->hasEnoughSpaceFor(space_needed_for_separator)) {  // Is there enough space in the parent
                                                                     // for the separator?
          auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-         p_x_guard->requestSpaceFor(spaced_need_for_separator);
+         p_x_guard->requestSpaceFor(space_needed_for_separator);
          assert(meta_node_bf != p_x_guard.bf());
          assert(!p_x_guard->is_leaf);
          // -------------------------------------------------------------------------------------
@@ -705,7 +706,7 @@ s16 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
    // Remove a key at a time from the merge and check if now it fits
    s16 till_slot_id = -1;
    for (s16 s_i = 0; s_i < from_left->count; s_i++) {
-      space_upper_bound -= sizeof(BTreeNode::Slot) + sizeof(ValueType) + from_left->getKeyLen(s_i) + from_left->getPayloadLength(s_i);
+      space_upper_bound -= sizeof(BTreeNode::Slot) + from_left->getKeyLen(s_i) + from_left->getPayloadLength(s_i);
       if (space_upper_bound + (from_left->getFullKeyLen(s_i) - to_right->lower_fence.length) < EFFECTIVE_PAGE_SIZE * 1.0) {
          till_slot_id = s_i + 1;
          break;
@@ -752,8 +753,9 @@ s16 BTree::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
       assert(from_left->sanityCheck(new_left_uf_key, new_left_uf_length) == 0);
       // -------------------------------------------------------------------------------------
       parent->removeSlot(left_pos);
-      ensure(parent->prepareInsert(from_left->getUpperFenceKey(), from_left->upper_fence.length, from_left.swip()));
-      parent->insert(from_left->getUpperFenceKey(), from_left->upper_fence.length, from_left.swip());
+      ensure(parent->prepareInsert(from_left->getUpperFenceKey(), from_left->upper_fence.length, sizeof(SwipType)));
+      auto swip = from_left.swip();
+      parent->insert(from_left->getUpperFenceKey(), from_left->upper_fence.length, reinterpret_cast<u8*>(&swip), sizeof(SwipType));
    }
    return 2;
 }

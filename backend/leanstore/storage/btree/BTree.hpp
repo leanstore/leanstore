@@ -96,7 +96,7 @@ struct BTree {
    // SI
    inline u64 myVersion() { return cr::Worker::my().active_tts; }
    inline bool isVisibleForMe(u64 version) { return cr::Worker::my().isVisibleForMe(version); }
-   inline ValueType sizeToVT(u64 size) { return ValueType(reinterpret_cast<BufferFrame*>(size)); }
+   inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
    s16 findLatestVerionPositionSI(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length);
    bool lookupSI(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
    bool insertSI(u8* key, u16 key_length, u64 valueLength, u8* value);
