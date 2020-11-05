@@ -127,8 +127,8 @@ void Worker::abortTX()
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u64 tts)
 {
-   u64 partition_id = tts % workers_count;
-   return my_snapshot[partition_id] > tts;
+   const u64 partition_id = tts % workers_count;
+   return tts == active_tts || my_snapshot[partition_id] > tts;
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

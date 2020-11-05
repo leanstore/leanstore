@@ -50,10 +50,10 @@ struct Worker {
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALEntry);
    // -------------------------------------------------------------------------------------
    // Published using mutex
-   atomic<u64> wal_wt_cursor;  // W->GCT
-   atomic<LID> wal_max_gsn;    // W->GCT, under mutex
+   atomic<u64> wal_wt_cursor = 0;  // W->GCT
+   atomic<LID> wal_max_gsn = 0;    // W->GCT, under mutex
    // -------------------------------------------------------------------------------------
-   atomic<u64> wal_ww_cursor;                    // GCT->W
+   atomic<u64> wal_ww_cursor = 0;                    // GCT->W
    alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
    LID wal_lsn_counter = 0;
    // -------------------------------------------------------------------------------------

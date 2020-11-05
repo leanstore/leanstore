@@ -186,26 +186,25 @@ void CRManager::groupCommiter()
       for (s32 w_i = 0; w_i < s32(workers_count); w_i++) {
          Worker& worker = *workers[w_i];
          {
-            u64 high_water_mark = 0;
-            {
-               u64 tx_i = 0;
-               std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
-               worker.wal_ww_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_relaxed);
-               while (tx_i < worker.group_commit_data.ready_to_commit_cut) {
-                  if (worker.ready_to_commit_queue[tx_i].max_gsn < worker.group_commit_data.max_safe_gsn_to_commit) {
-                     worker.ready_to_commit_queue[tx_i].state = Transaction::STATE::COMMITED;
-                     committed_tx++;
-                     tx_i++;
-                  } else {
-                     break;
-                  }
+            u64 tx_i = 0;
+            std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
+            worker.wal_ww_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_relaxed);
+            while (tx_i < worker.group_commit_data.ready_to_commit_cut) {
+               if (worker.ready_to_commit_queue[tx_i].max_gsn < worker.group_commit_data.max_safe_gsn_to_commit) {
+                  worker.ready_to_commit_queue[tx_i].state = Transaction::STATE::COMMITED;
+                  committed_tx++;
+                  tx_i++;
+               } else {
+                  break;
                }
-               if (tx_i)
-                  high_water_mark = worker.ready_to_commit_queue[tx_i - 1].tx_id;
-               worker.ready_to_commit_queue.erase(worker.ready_to_commit_queue.begin(), worker.ready_to_commit_queue.begin() + tx_i);
-               worker.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
             }
-            worker.high_water_mark.store(high_water_mark, std::memory_order_release);
+            if (tx_i > 0) {
+               const u64 high_water_mark = worker.ready_to_commit_queue[tx_i - 1].tx_id + workers_count;
+               worker.high_water_mark.store(high_water_mark, std::memory_order_release);
+               cout << "HighWaterMark[" << w_i << "] = " << worker.high_water_mark << endl;
+            }
+            worker.ready_to_commit_queue.erase(worker.ready_to_commit_queue.begin(), worker.ready_to_commit_queue.begin() + tx_i);
+            worker.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
          }
       }
       CRCounters::myCounters().gct_committed_tx += committed_tx;

@@ -76,3 +76,7 @@ target_include_directories(ut PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(wal misc-benchmarks/wal.cpp)
 target_link_libraries(wal leanstore Threads::Threads)
 target_include_directories(wal PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(mvcc misc-benchmarks/mvcc.cpp)
+target_link_libraries(mvcc leanstore Threads::Threads)
+target_include_directories(mvcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
