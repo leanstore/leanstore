@@ -1,3 +1,6 @@
+16 KiB: ex pages per tx : 1088499 / 64970 = approx. 16,753871
+4 KiB: ex pages per tx: 1022923 / 55361 = approx. 18,477322
+
 Snapshots:
 
 Datastructures must implement copy function:

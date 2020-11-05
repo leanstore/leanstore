@@ -139,7 +139,7 @@ void LeanStore::startProfilingThread()
             table.add_row({std::to_string(seconds), bm_table.get("0", "tx"), cr_table.get("0", "gct_committed_tx"), bm_table.get("0", "w_mib"),
                            bm_table.get("0", "r_mib"), std::to_string(instr_per_tx), std::to_string(cpu_table.workers_agg_events["CPU"]),
                            cr_table.get("0", "gct_write_pct"), cr_table.get("0", "gct_phase_1_pct"), cr_table.get("0", "gct_phase_2_pct"),
-                  cr_table.get("0", "gct_write_gib"), cr_table.get("0", "gct_rounds")});
+                           cr_table.get("0", "gct_write_gib"), cr_table.get("0", "gct_rounds")});
             // -------------------------------------------------------------------------------------
             table.format().width(10);
             table.column(0).format().width(5);

@@ -163,6 +163,7 @@ class ExclusivePageGuard
       if (!FLAGS_wal) {
          ref_guard.bf->page.GSN++;
       }
+      WorkerCounters::myCounters().tmp++;
    }
    // -------------------------------------------------------------------------------------
    template <typename WT>
