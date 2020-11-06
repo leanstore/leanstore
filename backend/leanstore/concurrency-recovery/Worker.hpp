@@ -4,8 +4,8 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
-#include <mutex>
 #include <functional>
+#include <mutex>
 #include <vector>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -48,7 +48,7 @@ struct Worker {
    // START WAL
    // -------------------------------------------------------------------------------------
    static constexpr s64 WORKER_WAL_SIZE = 1024 * 1024 * 10;
-   static constexpr s64 CR_ENTRY_SIZE = sizeof(WALEntry);
+   static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    // Published using mutex
    atomic<u64> wal_wt_cursor = 0;  // W->GCT
@@ -65,7 +65,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    // Iterate over current TX entries
    u64 current_tx_wal_start;
-   void iterateOverCurrentTXEntries(std::function<void(const WALEntry &entry)> callback);
+   void iterateOverCurrentTXEntries(std::function<void(const WALEntry& entry)> callback);
    // -------------------------------------------------------------------------------------
    // END WAL
    // -------------------------------------------------------------------------------------
@@ -75,15 +75,15 @@ struct Worker {
    const u64 workers_count;
    // -------------------------------------------------------------------------------------
    Transaction tx;
-   WALEntry* active_entry;
+   WALDTEntry* active_dt_entry;
    // -------------------------------------------------------------------------------------
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
   private:
    // Without Payload, by submit no need to update clock (gsn)
-   WALEntry& reserveWALEntry();
-   void submitWALEntry();
+   WALMetaEntry& reserveWALMetaEntry();
+   void submitWALMetaEntry();
 
   public:
    // -------------------------------------------------------------------------------------
@@ -107,15 +107,19 @@ struct Worker {
    };
    // -------------------------------------------------------------------------------------
    template <typename T>
-   WALEntryHandler<T> reserveDTEntry(u64 requested_size)
+   WALEntryHandler<T> reserveDTEntry(u64 requested_size, PID pid, LID gsn, DTID dt_id)
    {
-      const u64 total_size = sizeof(WALEntry) + requested_size;
+      const u64 total_size = sizeof(WALDTEntry) + requested_size;
       ensure(walContiguousFreeSpace() >= total_size);
-      active_entry = reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
-      active_entry->size = sizeof(WALEntry) + requested_size;
-      active_entry->lsn = wal_lsn_counter++;
-      active_entry->type = WALEntry::TYPE::DT_SPECIFIC;
-      return {active_entry->payload, total_size};
+      active_dt_entry = reinterpret_cast<WALDTEntry*>(wal_buffer + wal_wt_cursor);
+      active_dt_entry->type = WALEntry::TYPE::DT_SPECIFIC;
+      active_dt_entry->size = total_size;
+      active_dt_entry->lsn = wal_lsn_counter++;
+      // -------------------------------------------------------------------------------------
+      active_dt_entry->pid = pid;
+      active_dt_entry->gsn = gsn;
+      active_dt_entry->dt_id = dt_id;
+      return {active_dt_entry->payload, total_size};
    }
    void submitDTEntry(u64 requested_size);
 };

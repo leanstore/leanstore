@@ -26,8 +26,6 @@ struct BTree {
    };
    enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit, WALInitPage };
    struct WALEntry {
-      LID gsn;
-      PID pid;
       WAL_LOG_TYPE type;
    };
    struct WALBeforeAfterImage : BTree::WALEntry {
@@ -102,8 +100,9 @@ struct BTree {
    OP_RESULT insertSI(u8* key, u16 key_length, u64 valueLength, u8* value);
    OP_RESULT updateSI(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
    OP_RESULT removeSI(u8* key, u16 key_length);
-   void applyDeltaTo(u8* dst, u8* delta, u16 delta_size);
-   void undo(u8* wal_entry_ptr, const u64 tts);
+   static void applyDeltaTo(u8* dst, u8* delta, u16 delta_size);
+   // Recovery / SI
+   static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
    // -------------------------------------------------------------------------------------
    s16 mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
                           s16 left_pos,

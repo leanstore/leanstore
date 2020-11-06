@@ -64,9 +64,6 @@ class BufferManager
    atomic<u64> bg_threads_counter = 0;
    atomic<bool> bg_threads_keep_running = true;
    // -------------------------------------------------------------------------------------
-   // Datastructures managements
-   DTRegistry dt_registry;
-   // -------------------------------------------------------------------------------------
    // Misc
    Partition& randomPartition();
    BufferFrame& randomBufferFrame();
@@ -106,15 +103,12 @@ class BufferManager
    void readPageAsync(PID pid, u8* destination, std::function<void()> callback);
    void fDataSync();
    // -------------------------------------------------------------------------------------
-   void registerDatastructureType(DTType type, DTRegistry::DTMeta dt_meta);
-   DTID registerDatastructureInstance(DTType type, void* root_object, string name);
-   // -------------------------------------------------------------------------------------
    void clearSSD();
    void restore();
    void writeAllBufferFrames();
    // -------------------------------------------------------------------------------------
    u64 getPoolSize() { return dram_pool_size; }
-   DTRegistry& getDTRegistry() { return dt_registry; }
+   DTRegistry& getDTRegistry() { return DTRegistry::global_dt_registry; }
    u64 consumedPages();
    BufferFrame& getContainingBufferFrame(const u8*);  // get the buffer frame containing the given ptr address
 };                                                    // namespace storage

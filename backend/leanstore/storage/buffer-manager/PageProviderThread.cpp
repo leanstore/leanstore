@@ -75,7 +75,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                bool picked_a_child_instead = false, all_children_evicted = true;
                [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
                COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
-               dt_registry.iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
+               getDTRegistry().iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
                   all_children_evicted &= swip.isEVICTED();  // ignore when it has a child in the cooling stage
                   if (swip.isHOT()) {
                      r_buffer = &swip.bfRef();
@@ -102,7 +102,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
                DTID dt_id = r_buffer->page.dt_id;
                r_guard.recheck();
-               ParentSwipHandler parent_handler = dt_registry.findParent(dt_id, *r_buffer);
+               ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, *r_buffer);
                assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
                assert(parent_handler.parent_guard.latch != reinterpret_cast<HybridLatch*>(0x99));
                COUNTERS_BLOCK()
@@ -113,7 +113,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                }
                // -------------------------------------------------------------------------------------
                r_guard.recheck();
-               if (dt_registry.checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer, r_guard, parent_handler)) {
+               if (getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer, r_guard, parent_handler)) {
                   r_buffer = &randomBufferFrame();
                   continue;
                }
@@ -201,7 +201,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          auto evict_bf = [&](BufferFrame& bf, OptimisticGuard& guard, std::list<BufferFrame*>::iterator& bf_itr) {
             DTID dt_id = bf.page.dt_id;
             guard.recheck();
-            ParentSwipHandler parent_handler = dt_registry.findParent(dt_id, bf);
+            ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, bf);
             assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
             ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
             guard.guard.toExclusive();

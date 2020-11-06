@@ -54,7 +54,7 @@ LeanStore::LeanStore()
    // -------------------------------------------------------------------------------------
    buffer_manager = make_unique<storage::BufferManager>(ssd_fd);
    BMC::global_bf = buffer_manager.get();
-   buffer_manager->registerDatastructureType(99, storage::btree::BTree::getMeta());
+   DTRegistry::global_dt_registry.registerDatastructureType(99, storage::btree::BTree::getMeta());
    // -------------------------------------------------------------------------------------
    u64 end_of_block_device;
    if (FLAGS_wal_offset == 0) {
@@ -183,7 +183,7 @@ storage::btree::BTree& LeanStore::registerBTree(string name)
 {
    assert(btrees.find(name) == btrees.end());
    auto& btree = btrees[name];
-   DTID dtid = buffer_manager->registerDatastructureInstance(99, reinterpret_cast<void*>(&btree), name);
+   DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(99, reinterpret_cast<void*>(&btree), name);
    auto& bf = buffer_manager->allocatePage();
    Guard guard(bf.header.latch, GUARD_STATE::EXCLUSIVE);
    bf.header.keep_in_memory = true;

@@ -10,11 +10,21 @@ namespace cr
 {
 // -------------------------------------------------------------------------------------
 struct WALEntry {
-   enum class TYPE : u8 { USER_TX_START, SYSTEM_TX_START, DT_SPECIFIC, TX_COMMIT, TX_ABORT, CARRIAGE_RETURN };
+   enum class TYPE : u8 { TX_START, TX_COMMIT, TX_ABORT, DT_SPECIFIC, CARRIAGE_RETURN };
    // -------------------------------------------------------------------------------------
    u16 size;
    TYPE type;
    LID lsn;
+};
+// -------------------------------------------------------------------------------------
+struct WALMetaEntry : WALEntry {
+   u8 payload[];
+};
+// -------------------------------------------------------------------------------------
+struct WALDTEntry : WALEntry {
+   LID gsn;
+   DTID dt_id;
+   PID pid;
    u8 payload[];
 };
 // -------------------------------------------------------------------------------------

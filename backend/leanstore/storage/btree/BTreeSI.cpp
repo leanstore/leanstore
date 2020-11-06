@@ -201,9 +201,9 @@ OP_RESULT BTree::insertSI(u8* k, u16 kl, u64 value_length, u8* value)
             if (FLAGS_wal) {
                auto wal_entry = ex_leaf.reserveWALEntry<WALInsert>(key_length + value_length);
                wal_entry->type = WAL_LOG_TYPE::WALInsert;
-               wal_entry->key_length = key_length;
+               wal_entry->key_length = kl;
                wal_entry->value_length = value_length;
-               std::memcpy(wal_entry->payload, key, key_length);
+               std::memcpy(wal_entry->payload, k, kl);
                std::memcpy(wal_entry->payload + key_length, value, value_length);
                wal_entry.submit();
             }
@@ -282,9 +282,10 @@ void BTree::applyDeltaTo(u8* dst, u8* delta_beginning, u16 delta_size)
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::undo(u8* wal_entry_ptr, const u64 tts)
+void BTree::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
 {
-   WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_entry_ptr);
+   auto& btree = *reinterpret_cast<BTree*>(btree_object);
+   const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
    switch (entry.type) {
       case WAL_LOG_TYPE::WALInsert: {
          auto& insert_entry = *reinterpret_cast<const WALInsert*>(&entry);
@@ -296,10 +297,12 @@ void BTree::undo(u8* wal_entry_ptr, const u64 tts)
             jumpmuTry()
             {
                HybridPageGuard<BTreeNode> c_guard;
-               findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, key, key_length);
+               btree.findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, key, key_length);
                auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
                const bool ret = c_x_guard->remove(key, key_length);
                ensure(ret);
+               // -------------------------------------------------------------------------------------
+               jumpmu_return;
             }
             jumpmuCatch() {}
          }
@@ -315,7 +318,7 @@ void BTree::undo(u8* wal_entry_ptr, const u64 tts)
             jumpmuTry()
             {
                HybridPageGuard<BTreeNode> c_guard;
-               findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, v_key, v_key_length);
+               btree.findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, v_key, v_key_length);
                auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
                const s16 pos = c_x_guard->lowerBound<true>(v_key, v_key_length);
                ensure(pos > 0);
@@ -338,6 +341,8 @@ void BTree::undo(u8* wal_entry_ptr, const u64 tts)
                // -------------------------------------------------------------------------------------
                c_x_guard->requestSpaceFor(old_payload_length + v_key_length);
                c_x_guard->insert(v_key, v_key_length, old_payload, old_payload_length);
+               // -------------------------------------------------------------------------------------
+               jumpmu_return;
             }
             jumpmuCatch() {}
          }
@@ -353,10 +358,12 @@ void BTree::undo(u8* wal_entry_ptr, const u64 tts)
             jumpmuTry()
             {
                HybridPageGuard<BTreeNode> c_guard;
-               findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, v_key, v_key_length);
+               btree.findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, v_key, v_key_length);
                auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
                const bool ret = c_x_guard->remove(v_key, v_key_length);
                ensure(ret);
+               // -------------------------------------------------------------------------------------
+               jumpmu_return;
             }
             jumpmuCatch() {}
          }

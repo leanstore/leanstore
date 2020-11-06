@@ -414,7 +414,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
       // Parent is not root
       const u16 space_needed_for_separator = p_guard->spaceNeeded(sep_info.length, sizeof(SwipType));
       if (p_guard->hasEnoughSpaceFor(space_needed_for_separator)) {  // Is there enough space in the parent
-                                                                    // for the separator?
+                                                                     // for the separator?
          auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          p_x_guard->requestSpaceFor(space_needed_for_separator);
@@ -855,7 +855,8 @@ struct DTRegistry::DTMeta BTree::getMeta()
    DTRegistry::DTMeta btree_meta = {.iterate_children = iterateChildrenSwips,
                                     .find_parent = findParent,
                                     .check_space_utilization = checkSpaceUtilization,
-                                    .checkpoint = checkpoint};
+                                    .checkpoint = checkpoint,
+                                    .undo = undo};
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------

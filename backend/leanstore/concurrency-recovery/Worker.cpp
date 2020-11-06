@@ -2,6 +2,7 @@
 
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
+#include "leanstore/storage/buffer-manager/DTRegistry.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <mutex>
@@ -57,22 +58,22 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
    }
 }
 // -------------------------------------------------------------------------------------
-WALEntry& Worker::reserveWALEntry()
+WALMetaEntry& Worker::reserveWALMetaEntry()
 {
-   walEnsureEnoughSpace(sizeof(WALEntry));
-   return *reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
+   walEnsureEnoughSpace(sizeof(WALMetaEntry));
+   return *reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
 }
 // -------------------------------------------------------------------------------------
-void Worker::submitWALEntry()
+void Worker::submitWALMetaEntry()
 {
-   const u64 next_wal_wt_cursor = wal_wt_cursor + sizeof(WALEntry);
+   const u64 next_wal_wt_cursor = wal_wt_cursor + sizeof(WALMetaEntry);
    wal_wt_cursor.store(next_wal_wt_cursor, std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
-void Worker::submitDTEntry(u64 requested_size)
+void Worker::submitDTEntry(u64 total_size)
 {
    std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
-   const u64 next_wt_cursor = wal_wt_cursor + requested_size + sizeof(WALEntry);
+   const u64 next_wt_cursor = wal_wt_cursor + total_size;
    wal_wt_cursor.store(next_wt_cursor, std::memory_order_relaxed);
    wal_max_gsn.store(clock_gsn, std::memory_order_relaxed);
 }
@@ -81,10 +82,11 @@ void Worker::startTX()
 {
    if (FLAGS_wal) {
       current_tx_wal_start = wal_wt_cursor;
-      WALEntry& entry = reserveWALEntry();
-      entry.size = sizeof(WALEntry) + 0;
+      WALMetaEntry& entry = reserveWALMetaEntry();
+      entry.size = sizeof(WALMetaEntry) + 0;
+      entry.type = WALEntry::TYPE::TX_START;
       entry.lsn = wal_lsn_counter++;
-      submitWALEntry();
+      submitWALMetaEntry();
       assert(tx.state != Transaction::STATE::STARTED);
       tx.state = Transaction::STATE::STARTED;
       tx.min_gsn = clock_gsn;
@@ -104,13 +106,13 @@ void Worker::commitTX()
    if (FLAGS_wal) {
       assert(tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
-      // TODO: MVCC
+      // TODO: MVCC, actually nothing when it comes to our SI plan
       // -------------------------------------------------------------------------------------
-      WALEntry& entry = reserveWALEntry();
-      entry.size = sizeof(WALEntry) + 0;
+      WALMetaEntry& entry = reserveWALMetaEntry();
+      entry.size = sizeof(WALMetaEntry) + 0;
       entry.type = WALEntry::TYPE::TX_COMMIT;
       entry.lsn = wal_lsn_counter++;
-      submitWALEntry();
+      submitWALMetaEntry();
       // -------------------------------------------------------------------------------------
       tx.max_gsn = clock_gsn;
       tx.state = Transaction::STATE::READY_TO_COMMIT;
@@ -124,14 +126,20 @@ void Worker::commitTX()
 void Worker::abortTX()
 {
    if (FLAGS_wal) {
-      iterateOverCurrentTXEntries([&](const WALEntry& wal_entry) {
+      iterateOverCurrentTXEntries([&](const WALEntry& entry) {
+         const u64 tts = active_tts;
+         if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
+            const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
+            leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tts);
+         }
       });
       // -------------------------------------------------------------------------------------
-      WALEntry& entry = reserveWALEntry();
-      entry.size = sizeof(WALEntry) + 0;
+      WALMetaEntry& entry = reserveWALMetaEntry();
+      entry.size = sizeof(WALMetaEntry) + 0;
       entry.type = WALEntry::TYPE::TX_ABORT;
       entry.lsn = wal_lsn_counter++;
-      submitWALEntry();
+      submitWALMetaEntry();
+      tx.state = Transaction::STATE::ABORTED;
    }
 }
 // -------------------------------------------------------------------------------------

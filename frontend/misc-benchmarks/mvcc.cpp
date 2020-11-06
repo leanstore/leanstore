@@ -92,6 +92,15 @@ int main(int argc, char** argv)
       crm.scheduleJobAsync(1, [&]() {
          cr::Worker::my().startTX();
          *reinterpret_cast<u64*>(p) = 200;
+         {
+            union {
+               u64 x;
+               u8 b[8];
+            } k2;
+            k2.x = 99;
+            const auto ret = btree->insertSI(k2.b, sizeof(k2.x), sizeof(p), p);
+            ensure(ret == OP_RESULT::OK);
+         }
          const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
          ensure(ret == OP_RESULT::ABORT_TX);
          if (ret == OP_RESULT::ABORT_TX) {

@@ -365,23 +365,6 @@ void BufferManager::fDataSync()
    fdatasync(ssd_fd);
 }
 // -------------------------------------------------------------------------------------
-// Datastructures management
-// -------------------------------------------------------------------------------------
-void BufferManager::registerDatastructureType(DTType type, DTRegistry::DTMeta dt_meta)
-{
-   dt_registry.dt_types_ht[type] = dt_meta;
-}
-// -------------------------------------------------------------------------------------
-DTID BufferManager::registerDatastructureInstance(DTType type, void* root_object, string name)
-{
-   DTID new_instance_id = dt_registry.dt_types_ht[type].instances_counter++;
-   dt_registry.dt_instances_ht.insert({new_instance_id, {type, root_object, name}});
-   // -------------------------------------------------------------------------------------
-   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_misses_counter[new_instance_id] = 0; }
-   // -------------------------------------------------------------------------------------
-   return new_instance_id;
-}
-// -------------------------------------------------------------------------------------
 u64 BufferManager::getPartitionID(PID pid)
 {
    return pid & partitions_mask;
