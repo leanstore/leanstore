@@ -5,6 +5,7 @@
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <mutex>
+#include <functional>
 #include <vector>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -53,7 +54,7 @@ struct Worker {
    atomic<u64> wal_wt_cursor = 0;  // W->GCT
    atomic<LID> wal_max_gsn = 0;    // W->GCT, under mutex
    // -------------------------------------------------------------------------------------
-   atomic<u64> wal_ww_cursor = 0;                    // GCT->W
+   atomic<u64> wal_ww_cursor = 0;                // GCT->W
    alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
    LID wal_lsn_counter = 0;
    // -------------------------------------------------------------------------------------
@@ -61,6 +62,10 @@ struct Worker {
    u32 walContiguousFreeSpace();
    void walEnsureEnoughSpace(u32 requested_size);
    u8* walReserve(u32 requested_size);
+   // -------------------------------------------------------------------------------------
+   // Iterate over current TX entries
+   u64 current_tx_wal_start;
+   void iterateOverCurrentTXEntries(std::function<void(const WALEntry &entry)> callback);
    // -------------------------------------------------------------------------------------
    // END WAL
    // -------------------------------------------------------------------------------------

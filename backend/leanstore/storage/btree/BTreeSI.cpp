@@ -7,6 +7,7 @@
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::storage;
+using OP_RESULT = leanstore::storage::btree::BTree::OP_RESULT;
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -41,7 +42,7 @@ s16 BTree::findLatestVerionPositionSI(HybridPageGuard<BTreeNode>& target_guard, 
    }
 }
 // -------------------------------------------------------------------------------------
-bool BTree::lookupSI(u8* k, u16 kl, function<void(const u8*, u16)> payload_callback)
+OP_RESULT BTree::lookupSI(u8* k, u16 kl, function<void(const u8*, u16)> payload_callback)
 {
    u8 key[kl + 8];
    u16 key_length = kl + 8;
@@ -92,13 +93,13 @@ bool BTree::lookupSI(u8* k, u16 kl, function<void(const u8*, u16)> payload_callb
        [&]() {});
    if (found) {
       payload_callback(payload.get(), payload_length);
-      return true;
+      return OP_RESULT::OK;
    } else {
-      return false;
+      return OP_RESULT::NOT_FOUND;
    }
 }
 // -------------------------------------------------------------------------------------
-bool BTree::updateSI(u8* k, u16 kl, function<void(u8* value, u16 value_size)> callback, WALUpdateGenerator wal_update_generator)
+OP_RESULT BTree::updateSI(u8* k, u16 kl, function<void(u8* value, u16 value_size)> callback, WALUpdateGenerator wal_update_generator)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    u8 key[kl + 8];
@@ -121,11 +122,11 @@ bool BTree::updateSI(u8* k, u16 kl, function<void(u8* value, u16 value_size)> ca
                               key_length - ex_leaf->prefix_length - 8) == 0) {
             const u64 version = *reinterpret_cast<u64*>(ex_leaf->getKey(pos) + ex_leaf->getKeyLen(pos) - 8);
             if (!isVisibleForMe(version)) {
-               ensure(false);  // TODO: abort tx
+               jumpmu_return OP_RESULT::ABORT_TX;
             }
             if (ex_leaf->getPayloadLength(pos) == 0) {
                // deleted
-               jumpmu_return false;
+               jumpmu_return OP_RESULT::NOT_FOUND;
             }
             const u16 full_payload_length = ex_leaf->getPayloadLength(pos);
             if (ex_leaf->canInsert(key_length, full_payload_length)) {
@@ -142,23 +143,23 @@ bool BTree::updateSI(u8* k, u16 kl, function<void(u8* value, u16 value_size)> ca
                // -------------------------------------------------------------------------------------
                // TODO: WAL
                // -------------------------------------------------------------------------------------
-               jumpmu_return true;
+               jumpmu_return OP_RESULT::OK;
             } else {
                leaf = std::move(ex_leaf);
                leaf.kill();
                trySplit(*leaf.bf);
             }
          } else {
-            jumpmu_return false;
+            jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }
       jumpmuCatch() {}
    }
    ensure(false);
-   return false;
+   jumpmu_return OP_RESULT::NOT_FOUND;
 }
 // -------------------------------------------------------------------------------------
-bool BTree::insertSI(u8* k, u16 kl, u64 value_length, u8* value)
+OP_RESULT BTree::insertSI(u8* k, u16 kl, u64 value_length, u8* value)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    u8 key[kl + 8];
@@ -184,13 +185,13 @@ bool BTree::insertSI(u8* k, u16 kl, u64 value_length, u8* value)
             u64 delete_tts = *reinterpret_cast<u64*>(ex_leaf->getKey(pos) + ex_leaf->getKeyLen(pos) - 8);
             if (!isVisibleForMe(delete_tts)) {
                // TODO: 2) write-write conflict -> tx abort
-               ensure(false);
+               jumpmu_return OP_RESULT::ABORT_TX;
             }
             if (ex_leaf->getPayloadLength(pos) == 0) {
                // was deleted
             } else {
                // 3) not deleted!
-               jumpmu_return false;
+               jumpmu_return OP_RESULT::DUPLICATE;
             }
          }
          if (ex_leaf->canInsert(key_length, value_length)) {
@@ -206,7 +207,7 @@ bool BTree::insertSI(u8* k, u16 kl, u64 value_length, u8* value)
                std::memcpy(wal_entry->payload + key_length, value, value_length);
                wal_entry.submit();
             }
-            jumpmu_return true;
+            jumpmu_return OP_RESULT::OK;
          } else {
             leaf = std::move(ex_leaf);
             leaf.kill();
@@ -217,7 +218,7 @@ bool BTree::insertSI(u8* k, u16 kl, u64 value_length, u8* value)
    }
 }
 // -------------------------------------------------------------------------------------
-bool BTree::removeSI(u8* k_wo_version, u16 kl_wo_version)
+OP_RESULT BTree::removeSI(u8* k_wo_version, u16 kl_wo_version)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    u8 key[kl_wo_version + 8];
@@ -239,10 +240,9 @@ bool BTree::removeSI(u8* k_wo_version, u16 kl_wo_version)
                u64 delete_tts = *reinterpret_cast<u64*>(ex_leaf->getKey(pos) + ex_leaf->getKeyLen(pos) - 8);
                if (isVisibleForMe(delete_tts)) {
                   // Already deleted
-                  jumpmu_return false;
+                  jumpmu_return OP_RESULT::NOT_FOUND;
                } else {
-                  // TODO: tx abort
-                  ensure(false);
+                  jumpmu_return OP_RESULT::ABORT_TX;
                }
             } else {
                // Insert delete version
@@ -252,20 +252,119 @@ bool BTree::removeSI(u8* k_wo_version, u16 kl_wo_version)
                   if (FLAGS_wal) {
                      // TODO:
                   }
-                  jumpmu_return true;
+                  jumpmu_return OP_RESULT::OK;
                } else {
                   leaf = std::move(ex_leaf);
                   leaf.kill();
                   trySplit(*leaf.bf);
-                  jumpmu_return false;
+                  jumpmu_continue;
                }
             }
          } else {
             // entry not found
-            jumpmu_return false;
+            jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }
       jumpmuCatch() {}
+   }
+}
+// -------------------------------------------------------------------------------------
+void BTree::applyDeltaTo(u8* dst, u8* delta_beginning, u16 delta_size)
+{
+   u8* delta_ptr = delta_beginning;
+   while (delta_ptr - delta_beginning < delta_size) {
+      const u16 offset = *reinterpret_cast<u16*>(delta_ptr);
+      delta_ptr += 2;
+      const u16 size = *reinterpret_cast<u16*>(delta_ptr);
+      delta_ptr += 2;
+      std::memcpy(dst + offset, delta_ptr, size);
+      delta_ptr += size;
+   }
+}
+// -------------------------------------------------------------------------------------
+void BTree::undo(u8* wal_entry_ptr, const u64 tts)
+{
+   WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_entry_ptr);
+   switch (entry.type) {
+      case WAL_LOG_TYPE::WALInsert: {
+         auto& insert_entry = *reinterpret_cast<const WALInsert*>(&entry);
+         u16 key_length = insert_entry.key_length + 8;
+         u8 key[key_length];
+         std::memcpy(key, insert_entry.payload, insert_entry.key_length);
+         *reinterpret_cast<u64*>(key + insert_entry.key_length) = tts;
+         while (true) {
+            jumpmuTry()
+            {
+               HybridPageGuard<BTreeNode> c_guard;
+               findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, key, key_length);
+               auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+               const bool ret = c_x_guard->remove(key, key_length);
+               ensure(ret);
+            }
+            jumpmuCatch() {}
+         }
+         break;
+      }
+      case WAL_LOG_TYPE::WALUpdate: {
+         const auto& update_entry = *reinterpret_cast<const WALUpdate*>(&entry);
+         u16 v_key_length = update_entry.key_length + 8;
+         u8 v_key[v_key_length];
+         std::memcpy(v_key, update_entry.payload, update_entry.key_length);
+         *reinterpret_cast<u64*>(v_key + update_entry.key_length) = tts;
+         while (true) {
+            jumpmuTry()
+            {
+               HybridPageGuard<BTreeNode> c_guard;
+               findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, v_key, v_key_length);
+               auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+               const s16 pos = c_x_guard->lowerBound<true>(v_key, v_key_length);
+               ensure(pos > 0);
+               u16 old_payload_length = c_x_guard->getPayloadLength(pos);
+               u8 old_payload[old_payload_length];
+               // -------------------------------------------------------------------------------------
+               // Apply delta
+               const s16 delta_pos = pos - 1;
+               const u16 delta_size = c_x_guard->getPayloadLength(delta_pos);
+               u8* delta_beginning = c_x_guard->getPayload(delta_pos);
+               applyDeltaTo(old_payload, delta_beginning, delta_size);
+               // -------------------------------------------------------------------------------------
+               const u64 delta_version = *reinterpret_cast<u64*>(c_x_guard->getKey(delta_pos) + c_x_guard->getKeyLen(delta_pos) - 8);
+               *reinterpret_cast<u64*>(v_key + update_entry.key_length) = delta_version;
+               // -------------------------------------------------------------------------------------
+               bool ret = c_x_guard->removeSlot(pos);
+               ensure(ret);
+               ret = c_x_guard->removeSlot(delta_pos);
+               ensure(ret);
+               // -------------------------------------------------------------------------------------
+               c_x_guard->requestSpaceFor(old_payload_length + v_key_length);
+               c_x_guard->insert(v_key, v_key_length, old_payload, old_payload_length);
+            }
+            jumpmuCatch() {}
+         }
+         break;
+      }
+      case WAL_LOG_TYPE::WALRemove: {
+         const auto& remove_entry = *reinterpret_cast<const WALRemove*>(&entry);
+         u16 v_key_length = remove_entry.key_length + 8;
+         u8 v_key[v_key_length];
+         std::memcpy(v_key, remove_entry.payload, remove_entry.key_length);
+         *reinterpret_cast<u64*>(v_key + remove_entry.key_length) = tts;
+         while (true) {
+            jumpmuTry()
+            {
+               HybridPageGuard<BTreeNode> c_guard;
+               findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, v_key, v_key_length);
+               auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+               const bool ret = c_x_guard->remove(v_key, v_key_length);
+               ensure(ret);
+            }
+            jumpmuCatch() {}
+         }
+         break;
+      }
+      default: {
+         break;
+      }
    }
 }
 // -------------------------------------------------------------------------------------

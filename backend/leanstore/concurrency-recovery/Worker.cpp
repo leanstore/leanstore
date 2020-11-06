@@ -80,6 +80,7 @@ void Worker::submitDTEntry(u64 requested_size)
 void Worker::startTX()
 {
    if (FLAGS_wal) {
+      current_tx_wal_start = wal_wt_cursor;
       WALEntry& entry = reserveWALEntry();
       entry.size = sizeof(WALEntry) + 0;
       entry.lsn = wal_lsn_counter++;
@@ -122,13 +123,36 @@ void Worker::commitTX()
 // -------------------------------------------------------------------------------------
 void Worker::abortTX()
 {
-   assert(false);
+   if (FLAGS_wal) {
+      iterateOverCurrentTXEntries([&](const WALEntry& wal_entry) {
+      });
+      // -------------------------------------------------------------------------------------
+      WALEntry& entry = reserveWALEntry();
+      entry.size = sizeof(WALEntry) + 0;
+      entry.type = WALEntry::TYPE::TX_ABORT;
+      entry.lsn = wal_lsn_counter++;
+      submitWALEntry();
+   }
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u64 tts)
 {
    const u64 partition_id = tts % workers_count;
    return tts == active_tts || my_snapshot[partition_id] > tts;
+}
+// -------------------------------------------------------------------------------------
+void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entry)> callback)
+{
+   u64 cursor = current_tx_wal_start;
+   while (cursor != wal_wt_cursor) {
+      const WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_buffer + cursor);
+      if (entry.type == WALEntry::TYPE::CARRIAGE_RETURN) {
+         cursor = 0;
+      } else {
+         callback(entry);
+         cursor += entry.size;
+      }
+   }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

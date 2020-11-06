@@ -18,45 +18,45 @@ namespace btree
 {
 // -------------------------------------------------------------------------------------
 struct BTree {
+   enum class OP_RESULT : u8 {
+      OK = 0,
+      NOT_FOUND = 1,
+      DUPLICATE = 2,
+      ABORT_TX = 3,
+   };
    enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit, WALInitPage };
    struct WALEntry {
       LID gsn;
       PID pid;
+      WAL_LOG_TYPE type;
    };
    struct WALBeforeAfterImage : BTree::WALEntry {
-      WAL_LOG_TYPE type;
       u16 image_size;
       u8 payload[];
    };
    struct WALInitPage : BTree::WALEntry {
-      WAL_LOG_TYPE type;
       DTID dt_id;
    };
    struct WALAfterImage : BTree::WALEntry {
-      WAL_LOG_TYPE type;
       u16 image_size;
       u8 payload[];
    };
    struct WALLogicalSplit : BTree::WALEntry {
-      WAL_LOG_TYPE type;
       PID parent_pid = -1;
       PID left_pid = -1;
       PID right_pid = -1;
       s32 right_pos = -1;
    };
    struct WALInsert : BTree::WALEntry {
-      WAL_LOG_TYPE type;
       u16 key_length;
       u16 value_length;
       u8 payload[];
    };
    struct WALUpdate : BTree::WALEntry {
-      WAL_LOG_TYPE type;
       u16 key_length;
       u8 payload[];
    };
    struct WALRemove : BTree::WALEntry {
-      WAL_LOG_TYPE type;
       u16 key_length;
       u8 payload[];
    };
@@ -98,10 +98,12 @@ struct BTree {
    inline bool isVisibleForMe(u64 version) { return cr::Worker::my().isVisibleForMe(version); }
    inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
    s16 findLatestVerionPositionSI(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length);
-   bool lookupSI(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
-   bool insertSI(u8* key, u16 key_length, u64 valueLength, u8* value);
-   bool updateSI(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
-   bool removeSI(u8* key, u16 key_length);
+   OP_RESULT lookupSI(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
+   OP_RESULT insertSI(u8* key, u16 key_length, u64 valueLength, u8* value);
+   OP_RESULT updateSI(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
+   OP_RESULT removeSI(u8* key, u16 key_length);
+   void applyDeltaTo(u8* dst, u8* delta, u16 delta_size);
+   void undo(u8* wal_entry_ptr, const u64 tts);
    // -------------------------------------------------------------------------------------
    s16 mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
                           s16 left_pos,
@@ -127,7 +129,7 @@ struct BTree {
    // -------------------------------------------------------------------------------------
    // Helpers
    template <OP_TYPE op_type = OP_TYPE::POINT_READ>
-   inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
+   inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, u8* key, const u16 key_length)
    {
       HybridPageGuard<BTreeNode> p_guard(meta_node_bf);
       target_guard = HybridPageGuard<BTreeNode>(p_guard, p_guard->upper);
