@@ -96,10 +96,13 @@ struct BTree {
    inline bool isVisibleForMe(u64 version) { return cr::Worker::my().isVisibleForMe(version); }
    inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
    s16 findLatestVerionPositionSI(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length);
+   void iterateDesc(u8* start_key, u16 key_length, function<bool(HybridPageGuard<BTreeNode>& guard, s16 pos)> callback);
    OP_RESULT lookupSI(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
    OP_RESULT insertSI(u8* key, u16 key_length, u64 valueLength, u8* value);
    OP_RESULT updateSI(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
    OP_RESULT removeSI(u8* key, u16 key_length);
+   void scanDescSI(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>);
+   void scanAscSI(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>);  // TODO: gonna be tough
    static void applyDeltaTo(u8* dst, u8* delta, u16 delta_size);
    // Recovery / SI
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);

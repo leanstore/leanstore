@@ -375,6 +375,78 @@ void BTree::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
    }
 }
 // -------------------------------------------------------------------------------------
+void BTree::iterateDesc(u8* start_key, u16 key_length, function<bool(HybridPageGuard<BTreeNode>&, s16)> callback)
+{
+   u8* volatile next_key = start_key;
+   volatile u16 next_key_length = key_length;
+   volatile bool is_heap_freed = true;  // because at first we reuse the start_key
+   while (true) {
+      jumpmuTry()
+      {
+         HybridPageGuard<BTreeNode> leaf;
+         while (true) {
+            findLeafCanJump<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
+            SharedPageGuard s_leaf(std::move(leaf));
+            // -------------------------------------------------------------------------------------
+            if (s_leaf->count == 0) {
+               jumpmu_return;
+            }
+            s16 cur;
+            if (next_key == start_key) {
+               cur = s_leaf->lowerBound<false>(start_key, key_length);
+               if (s_leaf->lowerBound<true>(start_key, key_length) == -1) {
+                  cur--;
+               }
+            } else {
+               cur = s_leaf->count - 1;
+            }
+            // -------------------------------------------------------------------------------------
+            while (cur >= 0) {
+               if (!callback(leaf, cur)) {
+                  if (!is_heap_freed) {
+                     delete[] next_key;
+                     is_heap_freed = true;
+                  }
+                  jumpmu_return;
+               }
+               cur--;
+            }
+            // -------------------------------------------------------------------------------------
+            if (!is_heap_freed) {
+               delete[] next_key;
+               is_heap_freed = true;
+            }
+            if (s_leaf->isLowerFenceInfinity()) {
+               jumpmu_return;
+            }
+            // -------------------------------------------------------------------------------------
+            next_key_length = s_leaf->lower_fence.length;
+            next_key = new u8[next_key_length];
+            is_heap_freed = false;
+            memcpy(next_key, s_leaf->getLowerFenceKey(), s_leaf->lower_fence.length);
+         }
+      }
+      jumpmuCatch() {}
+   }
+}
+// -------------------------------------------------------------------------------------
+void BTree::scanDescSI(u8* k, u16 kl, function<bool(u8*, u16, u8*, u16)> callback)
+{
+   u8 key[kl + 8];
+   u16 key_length = kl + 8;
+   std::memcpy(key, k, kl);
+   *reinterpret_cast<u64*>(key + kl) = std::numeric_limits<u64>::max();
+   // -------------------------------------------------------------------------------------
+   bool skip_delta = false;
+   s16 payload_length = -1;
+   std::unique_ptr<u8[]> payload(nullptr);
+   iterateDesc(key, key_length, [&](HybridPageGuard<BTreeNode>& leaf, s16 pos) {
+      if (!skip_delta || leaf->isDelta(pos)) {
+      }
+      return true;
+   });
+}
+// -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage
 }  // namespace leanstore

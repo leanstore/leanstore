@@ -84,7 +84,8 @@ struct BTreeNode : public BTreeNodeHeader {
       // Layout:  key wihtout prefix | Payload
       u16 offset;
       u16 key_len;
-      u16 payload_len;
+      u8 is_delta : 1;
+      u16 payload_len : 15;
       union {
          HeadType head;
          u8 head_bytes[4];
@@ -120,6 +121,11 @@ struct BTreeNode : public BTreeNodeHeader {
    inline u16 getFullKeyLen(u16 slotId) { return prefix_length + getKeyLen(slotId); }
    inline u16 getPayloadLength(u16 slotId) { return slot[slotId].payload_len; }
    inline void setPayloadLength(u16 slotId, u16 len) { slot[slotId].payload_len = len; }
+   // -------------------------------------------------------------------------------------
+   inline void markAsDelta(u16 slotId) { slot[slotId].is_delta = true; }
+   inline void markAsFullTuple(u16 slotId) { slot[slotId].is_delta = false; }
+   inline bool isDelta(u16 slotId) { return slot[slotId].is_delta; }
+   // -------------------------------------------------------------------------------------
    inline u8* getPayload(u16 slotId) { return ptr() + slot[slotId].offset + slot[slotId].key_len; }
    inline SwipType& getChild(u16 slotId) { return *reinterpret_cast<SwipType*>(getPayload(slotId)); }
    // -------------------------------------------------------------------------------------
