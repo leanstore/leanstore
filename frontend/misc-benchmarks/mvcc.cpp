@@ -90,33 +90,35 @@ int main(int argc, char** argv)
       });
       sleep(1);
       crm.scheduleJobAsync(1, [&]() {
-         cr::Worker::my().startTX();
-         *reinterpret_cast<u64*>(p) = 200;
          {
-            union {
-               u64 x;
-               u8 b[8];
-            } k2;
-            k2.x = 99;
-            const auto ret = btree->insertSI(k2.b, sizeof(k2.x), sizeof(p), p);
-            ensure(ret == OP_RESULT::OK);
+            cr::Worker::my().startTX();
+            *reinterpret_cast<u64*>(p) = 200;
+            {
+               union {
+                  u64 x;
+                  u8 b[8];
+               } k2;
+               k2.x = 99;
+               const auto ret = btree->insertSI(k2.b, sizeof(k2.x), sizeof(p), p);
+               ensure(ret == OP_RESULT::OK);
+            }
+            const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
+            ensure(ret == OP_RESULT::ABORT_TX);
+            if (ret == OP_RESULT::ABORT_TX) {
+               cr::Worker::my().abortTX();
+            } else {
+               cr::Worker::my().commitTX();
+            }
          }
-         const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
-         ensure(ret == OP_RESULT::ABORT_TX);
-         if (ret == OP_RESULT::ABORT_TX) {
-            cr::Worker::my().abortTX();
-         } else {
+         sleep(5);
+         {
+            cr::Worker::my().startTX();
+            *reinterpret_cast<u64*>(p) = 200;
+            const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
+            cout << (int)ret << endl;
+            ensure(ret == OP_RESULT::DUPLICATE);
             cr::Worker::my().commitTX();
          }
-      });
-      sleep(5);
-      crm.scheduleJobAsync(1, [&]() {
-         cr::Worker::my().startTX();
-         *reinterpret_cast<u64*>(p) = 200;
-         const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
-         cout << (int)ret << endl;
-         ensure(ret == OP_RESULT::DUPLICATE);
-         cr::Worker::my().commitTX();
       });
       // -------------------------------------------------------------------------------------
       crm.joinAll();

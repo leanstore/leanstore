@@ -26,7 +26,7 @@ struct Worker {
    atomic<u64> active_tts = 0;
    // -------------------------------------------------------------------------------------
    unique_ptr<u64[]> my_snapshot;
-   unique_ptr<u64[]> my_concurrent_transcations;
+   unique_ptr<u64[]> my_concurrent_transcations;  // TODO: sort
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    std::mutex worker_group_commiter_mutex;

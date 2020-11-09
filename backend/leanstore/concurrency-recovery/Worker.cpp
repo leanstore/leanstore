@@ -95,6 +95,7 @@ void Worker::startTX()
             my_snapshot[w] = all_workers[w]->high_water_mark;
             my_concurrent_transcations[w] = all_workers[w]->active_tts;
          }
+         std::sort(my_concurrent_transcations.get(), my_concurrent_transcations.get() + workers_count, std::greater<int>());
          tx.tx_id = central_tts.fetch_add(workers_count) + worker_id;
          active_tts.store(tx.tx_id, std::memory_order_release);
       }
