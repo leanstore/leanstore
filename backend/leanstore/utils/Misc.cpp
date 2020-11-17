@@ -34,7 +34,7 @@ void pinThisThreadRome()
 void pinThisThreadRome(const u64 t_i)
 {
   u64 pin_id;
-  if (FLAGS_smt) {
+  if (FLAGS_smt_interleaved) {
     u64 cpu = t_i / 8;
     u64 l_cpu = t_i % 8;
     bool is_upper = l_cpu > 3;
