@@ -102,7 +102,7 @@ int main(int argc, char** argv)
     csv << "i,t,c_worker_threads,c_pin_threads,c_smt,c_hash" << endl;
   }
   for (u64 i = 0; i < max_size; i++) {
-    csv << i << "," << sequence[i] << "," << FLAGS_worker_threads << "," << FLAGS_pin_threads << "," << FLAGS_smt << "," << db.getConfigHash()
+    csv << i << "," << sequence[i] << "," << FLAGS_worker_threads << "," << FLAGS_pin_threads << "," << FLAGS_smt_interleaved << "," << db.getConfigHash()
         << endl;
   }
   return 0;
