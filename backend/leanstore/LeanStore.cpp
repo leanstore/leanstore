@@ -63,6 +63,7 @@ LeanStore::LeanStore()
       end_of_block_device = FLAGS_wal_offset * 1024 * 1024 * 1024;
    }
    cr_manager = make_unique<cr::CRManager>(ssd_fd, end_of_block_device);
+   cr::CRManager::global = cr_manager.get();
 }
 // -------------------------------------------------------------------------------------
 LeanStore::~LeanStore()

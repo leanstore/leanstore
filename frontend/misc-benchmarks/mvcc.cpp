@@ -24,8 +24,6 @@ int main(int argc, char** argv)
    gflags::SetUsageMessage("Leanstore Frontend");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
-   chrono::high_resolution_clock::time_point begin, end;
-   // -------------------------------------------------------------------------------------
    // LeanStore DB
    LeanStore db;
    db.startProfilingThread();
@@ -46,24 +44,33 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    using OP_RESULT = leanstore::storage::btree::BTree::OP_RESULT;
    // -------------------------------------------------------------------------------------
+   auto insert = [&](u8* k, u16 kl, u16 vl, u8* v) { return (FLAGS_tmp) ? btree->insertVI(k, kl, vl, v) : btree->insertVW(k, kl, vl, v); };
+   auto lookup = [&](u8* k, u16 kl, function<void(const u8*, u16)> pc) {
+      return (FLAGS_tmp) ? btree->lookupVI(k, kl, pc) : btree->lookupVW(k, kl, pc);
+   };
+   auto update = [&](u8* k, u16 kl, function<void(u8*, u16)> cb, storage::btree::BTree::WALUpdateGenerator g) {
+      return (FLAGS_tmp) ? btree->updateVI(k, kl, cb, g) : btree->updateVW(k, kl, cb, g);
+   };
+   auto remove = [&](u8* k, u16 kl) { return (FLAGS_tmp) ? btree->removeVI(k, kl) : btree->removeVW(k, kl); };
+   // -------------------------------------------------------------------------------------
    if (FLAGS_tmp == 0) {
       crm.scheduleJobAsync(0, [&]() {
          cr::Worker::my().startTX();
-         const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
+         const auto ret = insert(k.b, sizeof(k.x), sizeof(p), p);
          ensure(ret == OP_RESULT::OK);
          cr::Worker::my().commitTX();
       });
       // -------------------------------------------------------------------------------------
       crm.scheduleJobAsync(0, [&]() {
          cr::Worker::my().startTX();
-         const auto ret = btree->removeSI(k.b, sizeof(k.x));
+         const auto ret = remove(k.b, sizeof(k.x));
          ensure(ret == OP_RESULT::OK);
          sleep(4);
          cr::Worker::my().commitTX();
       });
       crm.scheduleJobAsync(1, [&]() {
          cr::Worker::my().startTX();
-         const auto ret = btree->lookupSI(k.b, sizeof(k.x), [&](const u8* value, u16 value_length) {
+         const auto ret = lookup(k.b, sizeof(k.x), [&](const u8* value, u16 value_length) {
             ensure(value_length == sizeof(p));
             ensure(std::memcmp(p, value, value_length) == 0);
          });
@@ -73,7 +80,7 @@ int main(int argc, char** argv)
       sleep(10);
       crm.scheduleJobAsync(1, [&]() {
          cr::Worker::my().startTX();
-         const auto ret = btree->lookupSI(k.b, sizeof(k.x), [&](const u8*, u16) {});
+         const auto ret = lookup(k.b, sizeof(k.x), [&](const u8*, u16) {});
          ensure(ret != OP_RESULT::OK);
          cr::Worker::my().commitTX();
       });
@@ -83,7 +90,7 @@ int main(int argc, char** argv)
       crm.scheduleJobAsync(0, [&]() {
          cr::Worker::my().startTX();
          *reinterpret_cast<u64*>(p) = 200;
-         const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
+         const auto ret = insert(k.b, sizeof(k.x), sizeof(p), p);
          sleep(3);
          ensure(ret == OP_RESULT::OK);
          cr::Worker::my().commitTX();
@@ -99,10 +106,10 @@ int main(int argc, char** argv)
                   u8 b[8];
                } k2;
                k2.x = 99;
-               const auto ret = btree->insertSI(k2.b, sizeof(k2.x), sizeof(p), p);
+               const auto ret = insert(k2.b, sizeof(k2.x), sizeof(p), p);
                ensure(ret == OP_RESULT::OK);
             }
-            const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
+            const auto ret = insert(k.b, sizeof(k.x), sizeof(p), p);
             ensure(ret == OP_RESULT::ABORT_TX);
             if (ret == OP_RESULT::ABORT_TX) {
                cr::Worker::my().abortTX();
@@ -114,7 +121,7 @@ int main(int argc, char** argv)
          {
             cr::Worker::my().startTX();
             *reinterpret_cast<u64*>(p) = 200;
-            const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
+            const auto ret = insert(k.b, sizeof(k.x), sizeof(p), p);
             cout << (int)ret << endl;
             ensure(ret == OP_RESULT::DUPLICATE);
             cr::Worker::my().commitTX();
@@ -126,7 +133,7 @@ int main(int argc, char** argv)
       crm.scheduleJobAsync(0, [&]() {
          cr::Worker::my().startTX();
          *reinterpret_cast<u64*>(p) = 200;
-         const auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
+         const auto ret = insert(k.b, sizeof(k.x), sizeof(p), p);
          ensure(ret == OP_RESULT::OK);
          cr::Worker::my().commitTX();
       });
@@ -134,7 +141,7 @@ int main(int argc, char** argv)
       sleep(2);
       crm.scheduleJobAsync(0, [&]() {
          cr::Worker::my().startTX();
-         const auto ret = btree->updateSI(
+         const auto ret = update(
              k.b, sizeof(k.b), [&](u8* payload, u16 payload_length) { *reinterpret_cast<u64*>(payload) = 100; }, WALUpdate1(value_t, v1));
          ensure(ret == OP_RESULT::OK);
          sleep(4);
@@ -142,14 +149,14 @@ int main(int argc, char** argv)
       });
       crm.scheduleJobAsync(1, [&]() {
          cr::Worker::my().startTX();
-         const auto ret = btree->lookupSI(k.b, sizeof(k.x), [&](const u8* payload, u16) { cout << *reinterpret_cast<const u64*>(payload) << endl; });
+         const auto ret = lookup(k.b, sizeof(k.x), [&](const u8* payload, u16) { cout << *reinterpret_cast<const u64*>(payload) << endl; });
          ensure(ret == OP_RESULT::OK);
          cr::Worker::my().commitTX();
       });
       crm.scheduleJobAsync(1, [&]() {
          sleep(6);
          cr::Worker::my().startTX();
-         const auto ret = btree->lookupSI(k.b, sizeof(k.x), [&](const u8* payload, u16) { cout << *reinterpret_cast<const u64*>(payload) << endl; });
+         const auto ret = lookup(k.b, sizeof(k.x), [&](const u8* payload, u16) { cout << *reinterpret_cast<const u64*>(payload) << endl; });
          ensure(ret == OP_RESULT::OK);
          cr::Worker::my().commitTX();
       });
@@ -157,9 +164,9 @@ int main(int argc, char** argv)
    } else {
       crm.scheduleJobAsync(0, [&]() {
          cr::Worker::my().startTX();
-         auto ret = btree->insertSI(k.b, sizeof(k.x), sizeof(p), p);
+         auto ret = insert(k.b, sizeof(k.x), sizeof(p), p);
          ensure(ret == OP_RESULT::OK);
-         ret = btree->lookupSI(k.b, sizeof(k.x), [&](const u8* value, u16 value_length) {
+         ret = lookup(k.b, sizeof(k.x), [&](const u8* value, u16 value_length) {
             ensure(value_length == sizeof(p));
             ensure(std::memcmp(p, value, value_length) == 0);
          });
@@ -170,7 +177,7 @@ int main(int argc, char** argv)
       // -------------------------------------------------------------------------------------
       crm.scheduleJobAsync(1, [&]() {
          cr::Worker::my().startTX();
-         const auto ret = btree->lookupSI(k.b, sizeof(k.x), [&](const u8*, u16) {});
+         const auto ret = lookup(k.b, sizeof(k.x), [&](const u8*, u16) {});
          ensure(ret == OP_RESULT::OK);
          cr::Worker::my().commitTX();
       });
@@ -178,14 +185,14 @@ int main(int argc, char** argv)
       sleep(6);
       crm.scheduleJobAsync(0, [&]() {
          cr::Worker::my().startTX();
-         const auto ret = btree->removeSI(k.b, sizeof(k.x));
+         const auto ret = remove(k.b, sizeof(k.x));
          ensure(ret == OP_RESULT::OK);
          sleep(3);
          cr::Worker::my().commitTX();
       });
       crm.scheduleJobAsync(1, [&]() {
          cr::Worker::my().startTX();
-         const auto ret = btree->lookupSI(k.b, sizeof(k.x), [&](const u8* value, u16 value_length) {
+         const auto ret = lookup(k.b, sizeof(k.x), [&](const u8* value, u16 value_length) {
             ensure(value_length == sizeof(p));
             ensure(std::memcmp(p, value, value_length) == 0);
          });

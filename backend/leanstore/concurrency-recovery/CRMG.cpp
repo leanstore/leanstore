@@ -10,6 +10,8 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
+CRManager* CRManager::global = nullptr;
+// -------------------------------------------------------------------------------------
 CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_of_block_device(end_of_block_device)
 {
    workers_count = FLAGS_worker_threads;
@@ -22,7 +24,7 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
          // -------------------------------------------------------------------------------------
          CPUCounters::registerThread(thread_name, false);
          // -------------------------------------------------------------------------------------
-         workers[t_i] = new Worker(t_i, workers, workers_count);
+         workers[t_i] = new Worker(t_i, workers, workers_count, ssd_fd);
          Worker::tls_ptr = workers[t_i];
          // -------------------------------------------------------------------------------------
          running_threads++;

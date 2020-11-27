@@ -16,52 +16,57 @@ namespace storage
 {
 namespace btree
 {
+namespace nocc
+{
+enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit, WALInitPage };
+struct WALEntry {
+   WAL_LOG_TYPE type;
+};
+struct WALBeforeAfterImage : WALEntry {
+   u16 image_size;
+   u8 payload[];
+};
+struct WALInitPage : WALEntry {
+   DTID dt_id;
+};
+struct WALAfterImage : WALEntry {
+   u16 image_size;
+   u8 payload[];
+};
+struct WALLogicalSplit : WALEntry {
+   PID parent_pid = -1;
+   PID left_pid = -1;
+   PID right_pid = -1;
+   s32 right_pos = -1;
+};
+struct WALInsert : WALEntry {
+   u16 key_length;
+   u16 value_length;
+   u8 payload[];
+};
+struct WALUpdate : WALEntry {
+   u16 key_length;
+   u8 payload[];
+};
+struct WALRemove : WALEntry {
+   u16 key_length;
+   u16 value_length;
+   u8 payload[];
+};
+}  // namespace nocc
 // -------------------------------------------------------------------------------------
 struct BTree {
+   struct WALUpdateGenerator {
+      void (*before)(u8* tuple, u8* entry);
+      void (*after)(u8* tuple, u8* entry);
+      u16 entry_size;
+   };
+   // -------------------------------------------------------------------------------------
    enum class OP_RESULT : u8 {
       OK = 0,
       NOT_FOUND = 1,
       DUPLICATE = 2,
       ABORT_TX = 3,
-   };
-   enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit, WALInitPage };
-   struct WALEntry {
-      WAL_LOG_TYPE type;
-   };
-   struct WALBeforeAfterImage : BTree::WALEntry {
-      u16 image_size;
-      u8 payload[];
-   };
-   struct WALInitPage : BTree::WALEntry {
-      DTID dt_id;
-   };
-   struct WALAfterImage : BTree::WALEntry {
-      u16 image_size;
-      u8 payload[];
-   };
-   struct WALLogicalSplit : BTree::WALEntry {
-      PID parent_pid = -1;
-      PID left_pid = -1;
-      PID right_pid = -1;
-      s32 right_pos = -1;
-   };
-   struct WALInsert : BTree::WALEntry {
-      u16 key_length;
-      u16 value_length;
-      u8 payload[];
-   };
-   struct WALUpdate : BTree::WALEntry {
-      u16 key_length;
-      u8 payload[];
-   };
-   struct WALRemove : BTree::WALEntry {
-      u16 key_length;
-      u8 payload[];
-   };
-   struct WALUpdateGenerator {
-      void (*before)(u8* tuple, u8* entry);
-      void (*after)(u8* tuple, u8* entry);
-      u16 entry_size;
    };
    // -------------------------------------------------------------------------------------
    enum class OP_TYPE : u8 { POINT_READ, POINT_UPDATE, POINT_INSERT, POINT_DELETE, SCAN };
@@ -92,20 +97,32 @@ struct BTree {
    bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
    // -------------------------------------------------------------------------------------
    // SI
-   inline u64 myVersion() { return cr::Worker::my().active_tts; }
-   inline bool isVisibleForMe(u64 version) { return cr::Worker::my().isVisibleForMe(version); }
-   inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
-   s16 findLatestVerionPositionSI(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length);
-   void iterateDesc(u8* start_key, u16 key_length, function<bool(HybridPageGuard<BTreeNode>& guard, s16 pos)> callback);
-   OP_RESULT lookupSI(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
-   OP_RESULT insertSI(u8* key, u16 key_length, u64 valueLength, u8* value);
-   OP_RESULT updateSI(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
-   OP_RESULT removeSI(u8* key, u16 key_length);
-   void scanDescSI(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>);
-   void scanAscSI(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>);  // TODO: gonna be tough
-   static void applyDeltaTo(u8* dst, u8* delta, u16 delta_size);
+   inline u8 myWorkerID() { return cr::Worker::my().worker_id; }
+   inline u64 myTTS() { return cr::Worker::my().active_tts; }
+   inline bool isVisibleForMe(u8 worker_id, u64 tts) { return cr::Worker::my().isVisibleForMe(worker_id, tts); }
+   inline bool isVisibleForMe(u64 wtts) { return cr::Worker::my().isVisibleForMe(wtts); }
+   // -------------------------------------------------------------------------------------
    // Recovery / SI
-   static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
+   static void applyDelta(u8* dst, u8* delta, u16 delta_size);
+   // -------------------------------------------------------------------------------------
+   // VI [WIP]
+   inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
+   s16 findLatestVersionPositionVI(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length);
+   void iterateDescVI(u8* start_key, u16 key_length, function<bool(HybridPageGuard<BTreeNode>& guard, s16 pos)> callback);
+   OP_RESULT lookupVI(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
+   OP_RESULT insertVI(u8* key, u16 key_length, u16 valueLength, u8* value);
+   OP_RESULT updateVI(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
+   OP_RESULT removeVI(u8* key, u16 key_length);
+   void scanDescVI(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>);
+   void scanAscVI(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>);  // TODO: gonna be tough
+   static void undoVI(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
+   // -------------------------------------------------------------------------------------
+   // VW [WIP]
+   OP_RESULT lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
+   OP_RESULT insertVW(u8* key, u16 key_length, u16 valueLength, u8* value);
+   OP_RESULT updateVW(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
+   OP_RESULT removeVW(u8* key, u16 key_length);
+   void reconstructTupleVW(std::unique_ptr<u8[]>& start_payload, u16& payload_length, u8 worker_id, u64 lsn);
    // -------------------------------------------------------------------------------------
    s16 mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
                           s16 left_pos,

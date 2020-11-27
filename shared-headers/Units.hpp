@@ -31,7 +31,8 @@ using s64 = int64_t;
 // -------------------------------------------------------------------------------------
 using SIZE = size_t;
 using PID = u64;
-using LID = u64; // Log ID
+using LID = u64;   // Log ID
+using TTS = u64;   // Transaction Time Stamp
 using DTID = s64;  // Datastructure ID
 // -------------------------------------------------------------------------------------
 using TINYINT = s8;
@@ -48,4 +49,9 @@ using BytesArray = std::unique_ptr<u8[]>;
 // -------------------------------------------------------------------------------------
 template <int s>
 struct getTheSizeOf;
+// -------------------------------------------------------------------------------------
+constexpr u64 MSB = u64(1) << 63;
+constexpr u64 MSB_MASK = ~(MSB);
+constexpr u64 MSB2 = u64(1) << 62;
+constexpr u64 MSB2_MASK = ~(MSB2);
 // -------------------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 #include "CRMG.hpp"
+#include "leanstore/LeanStore.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -80,6 +81,10 @@ void CRManager::groupCommiter()
             worker.group_commit_data.ready_to_commit_cut = worker.ready_to_commit_queue.size();
             worker.group_commit_data.gsn_to_flush = worker.wal_max_gsn;
             worker.group_commit_data.wt_cursor_to_flush = worker.wal_wt_cursor;
+         }
+         {
+            auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.wal_buffer + worker.group_commit_data.wt_cursor_to_flush);
+            worker.group_commit_data.first_lsn_in_chunk = wal_entry.lsn;
          }
          {
             if (worker.group_commit_data.wt_cursor_to_flush > worker.wal_ww_cursor) {
@@ -188,6 +193,8 @@ void CRManager::groupCommiter()
          {
             u64 tx_i = 0;
             std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
+            worker.wal_finder.insertLowerBound(worker.group_commit_data.first_lsn_in_chunk, chunk.slot[w_i].offset);
+            // -------------------------------------------------------------------------------------
             worker.wal_ww_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_relaxed);
             while (tx_i < worker.group_commit_data.ready_to_commit_cut) {
                if (worker.ready_to_commit_queue[tx_i].max_gsn < worker.group_commit_data.max_safe_gsn_to_commit) {
@@ -199,7 +206,7 @@ void CRManager::groupCommiter()
                }
             }
             if (tx_i > 0) {
-               const u64 high_water_mark = worker.ready_to_commit_queue[tx_i - 1].tx_id + workers_count;
+               const u64 high_water_mark = worker.ready_to_commit_queue[tx_i - 1].tx_id + 1;
                worker.high_water_mark.store(high_water_mark, std::memory_order_release);
                cout << "HighWaterMark[" << w_i << "] = " << worker.high_water_mark << endl;
             }

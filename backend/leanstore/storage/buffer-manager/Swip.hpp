@@ -18,11 +18,11 @@ class Swip
 {
    // -------------------------------------------------------------------------------------
    // 1xxxxxxxxxxxx evicted, 01xxxxxxxxxxx cooling, 00xxxxxxxxxxx hot
-   static const u64 evicted_bit = u64(1) << 63;
-   static const u64 evicted_mask = ~(u64(1) << 63);
-   static const u64 cool_bit = u64(1) << 62;
-   static const u64 cool_mask = ~(u64(1) << 62);
-   static const u64 hot_mask = ~(u64(3) << 62);
+   static const u64 evicted_bit = MSB;
+   static const u64 evicted_mask = MSB_MASK;
+   static const u64 cool_bit = MSB2;
+   static const u64 cool_mask = MSB2_MASK;
+   static const u64 hot_mask = ~(MSB | MSB2);
    static_assert(evicted_bit == 0x8000000000000000, "");
    static_assert(evicted_mask == 0x7FFFFFFFFFFFFFFF, "");
    static_assert(hot_mask == 0x3FFFFFFFFFFFFFFF, "");

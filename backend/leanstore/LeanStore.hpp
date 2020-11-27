@@ -45,7 +45,7 @@ class LeanStore
    storage::btree::BTree& registerBTree(string name);
    storage::btree::BTree& retrieveBTree(string name);
    // -------------------------------------------------------------------------------------
-  storage::BufferManager& getBufferManager() { return *buffer_manager; }
+   storage::BufferManager& getBufferManager() { return *buffer_manager; }
    cr::CRManager& getCRManager() { return *cr_manager; }
    // -------------------------------------------------------------------------------------
    void startProfilingThread();

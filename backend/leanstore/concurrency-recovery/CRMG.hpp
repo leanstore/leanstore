@@ -24,6 +24,7 @@ class CRManager
 {
   public:
    static constexpr u64 MAX_WORKER_THREADS = 256;
+   static CRManager* global;
    Worker* workers[MAX_WORKER_THREADS];
    // -------------------------------------------------------------------------------------
    std::atomic<u64> running_threads = 0;

@@ -12,10 +12,10 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-atomic<u64> Worker::central_tts = 0;
 thread_local Worker* Worker::tls_ptr = nullptr;
 // -------------------------------------------------------------------------------------
-Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count) : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count)
+Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
+    : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), fd(fd)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
@@ -96,7 +96,7 @@ void Worker::startTX()
             my_concurrent_transcations[w] = all_workers[w]->active_tts;
          }
          std::sort(my_concurrent_transcations.get(), my_concurrent_transcations.get() + workers_count, std::greater<int>());
-         tx.tx_id = central_tts.fetch_add(workers_count) + worker_id;
+         tx.tx_id = active_tts.fetch_add(1);
          active_tts.store(tx.tx_id, std::memory_order_release);
       }
    }
@@ -144,12 +144,19 @@ void Worker::abortTX()
    }
 }
 // -------------------------------------------------------------------------------------
-bool Worker::isVisibleForMe(u64 tts)
+bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
 {
-   const u64 partition_id = tts % workers_count;
-   return tts == active_tts || my_snapshot[partition_id] > tts;
+   return worker_id == other_worker_id || my_snapshot[other_worker_id] > tts;
 }
 // -------------------------------------------------------------------------------------
+bool Worker::isVisibleForMe(u64 wtts)
+{
+   const u64 worker_id = wtts % workers_count;
+   const u64 tts = wtts & ~(255ull < 63);
+   return wtts == active_tts || my_snapshot[worker_id] > tts;
+}
+// -------------------------------------------------------------------------------------
+// Called by worker, so concurrent writes on the buffer
 void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entry)> callback)
 {
    u64 cursor = current_tx_wal_start;
@@ -162,6 +169,66 @@ void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entr
          cursor += entry.size;
       }
    }
+}
+// -------------------------------------------------------------------------------------
+u64 Worker::WALFinder::getLowerBound(LID lsn)
+{
+   std::unique_lock guard(m);
+   return ht.lower_bound(lsn)->second;
+}
+// -------------------------------------------------------------------------------------
+void Worker::WALFinder::insertLowerBound(LID LSN, u64 ssd_offset)
+{
+   std::unique_lock guard(m);
+   ht[LSN] = ssd_offset;
+}
+// -------------------------------------------------------------------------------------
+void Worker::getWALDTEntry(u8 worker_id, LID lsn, std::function<void(u8*)> callback)
+{
+   auto wal_entry = getWALEntry(worker_id, lsn);
+   auto dt_entry = reinterpret_cast<WALDTEntry*>(wal_entry.get());
+   callback(dt_entry->payload);
+}
+// -------------------------------------------------------------------------------------
+std::unique_ptr<u8[]> Worker::getWALEntry(u8 worker_id, LID lsn)
+{
+   return all_workers[worker_id]->getWALEntry(lsn);
+}
+// -------------------------------------------------------------------------------------
+std::unique_ptr<u8[]> Worker::getWALEntry(LID lsn)
+{
+   // 1- Scan the local buffer
+   const u64 initial_lower_bound = wal_finder.getLowerBound(lsn);
+   WALEntry* entry = reinterpret_cast<WALEntry*>(wal_buffer);
+   while ((reinterpret_cast<u8*>(entry) - wal_buffer) < WORKER_WAL_SIZE) {
+      if (entry->lsn == lsn) {
+         std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
+         std::memcpy(entry_buffer.get(), entry, entry->size);
+         if (wal_finder.getLowerBound(lsn) == initial_lower_bound) {
+            return entry_buffer;
+         } else {
+            break;
+         }
+      }
+      entry += entry->size;
+   }
+   // 2- Read from SSD, accelerate using getLowerBound
+   // TODO: optimize, do not read 10 MiB!
+   const u64 lower_bound = wal_finder.getLowerBound(lsn);
+   std::unique_ptr<u8[]> log_chunk = std::make_unique<u8[]>(WORKER_WAL_SIZE);
+   assert(lower_bound % 512 == 0);
+   pread(fd, log_chunk.get(), lower_bound, WORKER_WAL_SIZE);
+   entry = reinterpret_cast<WALEntry*>(log_chunk.get());
+   while ((reinterpret_cast<u8*>(entry) - log_chunk.get()) < WORKER_WAL_SIZE) {
+      if (entry->lsn == lsn) {
+         std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
+         std::memcpy(entry_buffer.get(), entry, entry->size);
+         return entry_buffer;
+      }
+      entry += entry->size;
+   }
+   ensure(false);
+   return nullptr;
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr
