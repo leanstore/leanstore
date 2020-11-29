@@ -318,7 +318,7 @@ s32 BTreeNode::sanityCheck(u8* key, u16 keyLength)
    return 0;
 }
 // -------------------------------------------------------------------------------------
-Swip<BTreeNode>& BTreeNode::lookupInner(u8* key, u16 keyLength)
+Swip<BTreeNode>& BTreeNode::lookupInner(const u8* key, u16 keyLength)
 {
    s32 pos = lowerBound<false>(key, keyLength);
    if (pos == count)
@@ -364,7 +364,7 @@ bool BTreeNode::removeSlot(u16 slotId)
    return true;
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::remove(u8* key, u16 keyLength)
+bool BTreeNode::remove(const u8* key, const u16 keyLength)
 {
    int slotId = lowerBound<true>(key, keyLength);
    if (slotId == -1)

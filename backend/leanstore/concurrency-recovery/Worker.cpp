@@ -52,6 +52,7 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
          auto& entry = *reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
+         wal_buffer_round++;  // Carriage Return
          wal_wt_cursor = 0;
       }
    }
@@ -196,21 +197,24 @@ std::unique_ptr<u8[]> Worker::getWALEntry(u8 worker_id, LID lsn)
 std::unique_ptr<u8[]> Worker::getWALEntry(LID lsn)
 {
    // 1- Scan the local buffer
-   const u64 initial_lower_bound = wal_finder.getLowerBound(lsn);
    WALEntry* entry = reinterpret_cast<WALEntry*>(wal_buffer);
-   while ((reinterpret_cast<u8*>(entry) - wal_buffer) < WORKER_WAL_SIZE) {
+   u64 offset = 0;
+   while (offset < WORKER_WAL_SIZE) {
       if (entry->lsn == lsn) {
+         u64 version = wal_wt_cursor.load();
+         u64 round = wal_buffer_round.load();
          std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
          std::memcpy(entry_buffer.get(), entry, entry->size);
-         // TODO:
-         if (true || wal_finder.getLowerBound(lsn) == initial_lower_bound) {
+         if ((version > offset && round == wal_buffer_round.load()) ||
+             (version < offset && wal_wt_cursor.load() < offset && round == wal_buffer_round.load())) {
             return entry_buffer;
          } else {
             break;
          }
       }
       if (entry->size) {
-         entry = reinterpret_cast<WALEntry*>(reinterpret_cast<u8*>(entry) + entry->size);
+         offset += entry->size;
+         entry = reinterpret_cast<WALEntry*>(reinterpret_cast<u8*>(entry) + offset);
       } else {
          break;
       }

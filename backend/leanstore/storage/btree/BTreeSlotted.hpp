@@ -137,7 +137,7 @@ struct BTreeNode : public BTreeNodeHeader {
       memcpy(out + prefix_length, getKey(slotId), getKeyLen(slotId));
    }
    // -------------------------------------------------------------------------------------
-   static inline s32 cmpKeys(u8* a, u8* b, u16 aLength, u16 bLength)
+   static inline s32 cmpKeys(const u8* a, const u8* b, u16 aLength, u16 bLength)
    {
       u16 length = min(aLength, bLength);
       if (length < 4) {
@@ -153,7 +153,7 @@ struct BTreeNode : public BTreeNodeHeader {
          return (aLength - bLength);
       }
    }
-   static inline HeadType head(u8*& key, u16& keyLength)
+   static inline HeadType head(const u8* key, u16& keyLength)
    {
       switch (keyLength) {
          case 0:
@@ -161,11 +161,11 @@ struct BTreeNode : public BTreeNodeHeader {
          case 1:
             return static_cast<u32>(key[0]) << 24;
          case 2:
-            return static_cast<u32>(__builtin_bswap16(*reinterpret_cast<u16*>(key))) << 16;
+            return static_cast<u32>(__builtin_bswap16(*reinterpret_cast<const u16*>(key))) << 16;
          case 3:
-            return (static_cast<u32>(__builtin_bswap16(*reinterpret_cast<u16*>(key))) << 16) | (static_cast<u32>(key[2]) << 8);
+            return (static_cast<u32>(__builtin_bswap16(*reinterpret_cast<const u16*>(key))) << 16) | (static_cast<u32>(key[2]) << 8);
          default:
-            return __builtin_bswap32(*reinterpret_cast<u32*>(key));
+            return __builtin_bswap32(*reinterpret_cast<const u32*>(key));
       }
    }
    void makeHint();
@@ -183,7 +183,7 @@ struct BTreeNode : public BTreeNodeHeader {
    }
    // -------------------------------------------------------------------------------------
    template <bool equalityOnly = false>
-   s16 lowerBound(u8* key, u16 keyLength)
+   s16 lowerBound(const u8* key, u16 keyLength)
    {
       if (equalityOnly) {
          if ((keyLength < prefix_length) || (bcmp(key, getLowerFenceKey(), prefix_length) != 0))
@@ -271,11 +271,11 @@ struct BTreeNode : public BTreeNodeHeader {
    u16 commonPrefix(u16 aPos, u16 bPos);
    SeparatorInfo findSep();
    void getSep(u8* sepKeyOut, SeparatorInfo info);
-   Swip<BTreeNode>& lookupInner(u8* key, u16 keyLength);
+   Swip<BTreeNode>& lookupInner(const u8* key, u16 keyLength);
    // -------------------------------------------------------------------------------------
    // Not synchronized or todo section
    bool removeSlot(u16 slotId);
-   bool remove(u8* key, u16 keyLength);
+   bool remove(const u8* key, const u16 keyLength);
 };
 // -------------------------------------------------------------------------------------
 static_assert(sizeof(BTreeNode) == EFFECTIVE_PAGE_SIZE, "BTreeNode must be equal to one page");

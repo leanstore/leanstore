@@ -44,7 +44,7 @@ static void checkpoint(void*, BufferFrame& bf, u8* dest);
 // -------------------------------------------------------------------------------------
 // Helpers
 template <OP_TYPE op_type = OP_TYPE::POINT_READ>
-inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, u8* key, const u16 key_length)
+inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, const u8* key, const u16 key_length)
 {
    HybridPageGuard<BTreeNode> p_guard(meta_node_bf);
    target_guard = HybridPageGuard<BTreeNode>(p_guard, p_guard->upper);
@@ -68,7 +68,7 @@ inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, u8* key, c
 }
 // -------------------------------------------------------------------------------------
 template <OP_TYPE op_type = OP_TYPE::POINT_READ>
-void findLeaf(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length)
+void findLeaf(HybridPageGuard<BTreeNode>& target_guard, const u8* key, u16 key_length)
 {
    u32 volatile mask = 1;
    while (true) {

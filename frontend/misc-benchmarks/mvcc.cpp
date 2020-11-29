@@ -44,32 +44,18 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    using OP_RESULT = leanstore::storage::btree::OP_RESULT;
    // -------------------------------------------------------------------------------------
-   auto insert = [&](u8* k, u16 kl, u16 vl, u8* v) { return (FLAGS_vi) ? btree->insertVI(k, kl, vl, v) : btree->insertVW(k, kl, vl, v); };
-   auto lookup = [&](u8* k, u16 kl, function<void(const u8*, u16)> pc) {
-      return (FLAGS_vi) ? btree->lookupVI(k, kl, pc) : btree->lookupVW(k, kl, pc);
-   };
+   auto insert = [&](u8* k, u16 kl, u16 vl, u8* v) { return btree->insert(k, kl, vl, v); };
+   auto lookup = [&](u8* k, u16 kl, function<void(const u8*, u16)> pc) { return btree->lookup(k, kl, pc); };
 
    auto update = [&](u8* k, u16 kl, function<void(u8*, u16)> cb, storage::btree::WALUpdateGenerator g) {
-      return (FLAGS_vi) ? btree->updateVI(k, kl, cb, g) : btree->updateVW(k, kl, cb, g);
+      return btree->updateSameSize(k, kl, cb, g);
    };
 
+   auto remove = [&](u8* k, u16 kl) { return btree->remove(k, kl); };
    auto scanAsc = [&](u8* start_key, u16 key_length, function<bool(u8 * key, u16 key_length, u8 * value, u16 value_length)> callback,
-                      function<void()> undo) {
-      if (FLAGS_vi) {
-         ensure(false);
-      } else {
-         btree->scanAscVW(start_key, key_length, callback, undo);
-      }
-   };
+                      function<void()> undo) { btree->scanAsc(start_key, key_length, callback, undo); };
    auto scanDesc = [&](u8* start_key, u16 key_length, function<bool(u8 * key, u16 key_length, u8 * value, u16 value_length)> callback,
-                       function<void()> undo) {
-      if (FLAGS_vi) {
-         ensure(false);
-      } else {
-         btree->scanDescVW(start_key, key_length, callback, undo);
-      }
-   };
-   auto remove = [&](u8* k, u16 kl) { return (FLAGS_vi) ? btree->removeVI(k, kl) : btree->removeVW(k, kl); };
+                       function<void()> undo) { btree->scanDesc(start_key, key_length, callback, undo); };
    // -------------------------------------------------------------------------------------
    if (FLAGS_tmp == 500) {
       constexpr u64 COUNT = 10;
@@ -131,7 +117,6 @@ int main(int argc, char** argv)
              [&]() {});
          cr::Worker::my().commitTX();
       });
-
    } else if (FLAGS_tmp == 50) {
       crm.scheduleJobAsync(0, [&]() {
          cr::Worker::my().startTX();
