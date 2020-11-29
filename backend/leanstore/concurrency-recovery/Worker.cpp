@@ -19,7 +19,6 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
-   active_tts.store(worker_id, std::memory_order_release);
    my_snapshot = make_unique<u64[]>(workers_count);
    my_concurrent_transcations = make_unique<u64[]>(workers_count);
 }
@@ -87,17 +86,16 @@ void Worker::startTX()
       entry.type = WALEntry::TYPE::TX_START;
       entry.lsn = wal_lsn_counter++;
       submitWALMetaEntry();
-      assert(tx.state != Transaction::STATE::STARTED);
-      tx.state = Transaction::STATE::STARTED;
-      tx.min_gsn = clock_gsn;
+      assert(active_tx.state != Transaction::STATE::STARTED);
+      active_tx.state = Transaction::STATE::STARTED;
+      active_tx.min_gsn = clock_gsn;
       if (FLAGS_si) {
          for (u64 w = 0; w < workers_count; w++) {
             my_snapshot[w] = all_workers[w]->high_water_mark;
-            my_concurrent_transcations[w] = all_workers[w]->active_tts;
+            my_concurrent_transcations[w] = all_workers[w]->next_tts;
          }
          std::sort(my_concurrent_transcations.get(), my_concurrent_transcations.get() + workers_count, std::greater<int>());
-         tx.tx_id = active_tts.fetch_add(1);
-         active_tts.store(tx.tx_id, std::memory_order_release);
+         active_tx.tts = next_tts.fetch_add(1);
       }
    }
 }
@@ -105,7 +103,7 @@ void Worker::startTX()
 void Worker::commitTX()
 {
    if (FLAGS_wal) {
-      assert(tx.state == Transaction::STATE::STARTED);
+      assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
       // TODO: MVCC, actually nothing when it comes to our SI plan
       // -------------------------------------------------------------------------------------
@@ -115,11 +113,11 @@ void Worker::commitTX()
       entry.lsn = wal_lsn_counter++;
       submitWALMetaEntry();
       // -------------------------------------------------------------------------------------
-      tx.max_gsn = clock_gsn;
-      tx.state = Transaction::STATE::READY_TO_COMMIT;
+      active_tx.max_gsn = clock_gsn;
+      active_tx.state = Transaction::STATE::READY_TO_COMMIT;
       {
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
-         ready_to_commit_queue.push_back(tx);
+         ready_to_commit_queue.push_back(active_tx);
       }
    }
 }
@@ -128,7 +126,7 @@ void Worker::abortTX()
 {
    if (FLAGS_wal) {
       iterateOverCurrentTXEntries([&](const WALEntry& entry) {
-         const u64 tts = active_tts;
+         const u64 tts = active_tx.tts;
          if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
             const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
             leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tts);
@@ -140,7 +138,7 @@ void Worker::abortTX()
       entry.type = WALEntry::TYPE::TX_ABORT;
       entry.lsn = wal_lsn_counter++;
       submitWALMetaEntry();
-      tx.state = Transaction::STATE::ABORTED;
+      active_tx.state = Transaction::STATE::ABORTED;
    }
 }
 // -------------------------------------------------------------------------------------
@@ -151,9 +149,9 @@ bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u64 wtts)
 {
-   const u64 worker_id = wtts % workers_count;
-   const u64 tts = wtts & ~(255ull < 63);
-   return wtts == active_tts || my_snapshot[worker_id] > tts;
+   const u64 other_worker_id = wtts % workers_count;
+   const u64 tts = wtts & ~(255ull << 56);
+   return isVisibleForMe(other_worker_id, tts);
 }
 // -------------------------------------------------------------------------------------
 // Called by worker, so concurrent writes on the buffer
@@ -204,13 +202,18 @@ std::unique_ptr<u8[]> Worker::getWALEntry(LID lsn)
       if (entry->lsn == lsn) {
          std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
          std::memcpy(entry_buffer.get(), entry, entry->size);
-         if (wal_finder.getLowerBound(lsn) == initial_lower_bound) {
+         // TODO:
+         if (true || wal_finder.getLowerBound(lsn) == initial_lower_bound) {
             return entry_buffer;
          } else {
             break;
          }
       }
-      entry += entry->size;
+      if (entry->size) {
+         entry = reinterpret_cast<WALEntry*>(reinterpret_cast<u8*>(entry) + entry->size);
+      } else {
+         break;
+      }
    }
    // 2- Read from SSD, accelerate using getLowerBound
    // TODO: optimize, do not read 10 MiB!

@@ -7,7 +7,7 @@
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::storage;
-using OP_RESULT = leanstore::storage::btree::BTree::OP_RESULT;
+using OP_RESULT = leanstore::storage::btree::OP_RESULT;
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -16,16 +16,14 @@ namespace storage
 namespace btree
 {
 // -------------------------------------------------------------------------------------
-void BTree::applyDelta(u8* dst, u8* delta_beginning, u16 delta_size)
+void BTree::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
 {
-   u8* delta_ptr = delta_beginning;
-   while (delta_ptr - delta_beginning < delta_size) {
-      const u16 offset = *reinterpret_cast<u16*>(delta_ptr);
-      delta_ptr += 2;
-      const u16 size = *reinterpret_cast<u16*>(delta_ptr);
-      delta_ptr += 2;
-      std::memcpy(dst + offset, delta_ptr, size);
-      delta_ptr += size;
+   if (FLAGS_vi) {
+      undoVI(btree_object, wal_entry_ptr, tts);
+   } else if (FLAGS_vw) {
+      undoVW(btree_object, wal_entry_ptr, tts);
+   } else {
+      ensure(false);
    }
 }
 // -------------------------------------------------------------------------------------

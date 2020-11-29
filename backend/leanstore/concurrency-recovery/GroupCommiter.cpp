@@ -206,7 +206,7 @@ void CRManager::groupCommiter()
                }
             }
             if (tx_i > 0) {
-               const u64 high_water_mark = worker.ready_to_commit_queue[tx_i - 1].tx_id + 1;
+               const u64 high_water_mark = worker.ready_to_commit_queue[tx_i - 1].tts + 1;
                worker.high_water_mark.store(high_water_mark, std::memory_order_release);
                cout << "HighWaterMark[" << w_i << "] = " << worker.high_water_mark << endl;
             }

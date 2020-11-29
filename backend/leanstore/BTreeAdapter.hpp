@@ -44,17 +44,17 @@ struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
    bool lookup(Key k, Payload& v) override
    {
       u8 key_bytes[sizeof(Key)];
-      return btree.lookupOne(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16 payload_length) { memcpy(&v, payload, payload_length); });
+      return btree.lookupOneLL(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16 payload_length) { memcpy(&v, payload, payload_length); });
    }
    void insert(Key k, Payload& v) override
    {
       u8 key_bytes[sizeof(Key)];
-      btree.insert(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8*>(&v));
+      btree.insertLL(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8*>(&v));
    }
    void update(Key k, Payload& v) override
    {
       u8 key_bytes[sizeof(Key)];
-      btree.updateSameSize(key_bytes, fold(key_bytes, k), [&](u8* payload, u16 payload_length) { memcpy(payload, &v, payload_length); });
+      btree.updateSameSizeLL(key_bytes, fold(key_bytes, k), [&](u8* payload, u16 payload_length) { memcpy(payload, &v, payload_length); });
    }
 };
 // -------------------------------------------------------------------------------------

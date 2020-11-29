@@ -7,7 +7,7 @@
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::storage;
-using OP_RESULT = leanstore::storage::btree::BTree::OP_RESULT;
+using OP_RESULT = leanstore::storage::btree::OP_RESULT;
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -52,7 +52,7 @@ struct WALRemove : WALEntry {
    u16 value_length;
    u8 payload[];
 };
-}  // namespace nocc
+}  // namespace vi
 // -------------------------------------------------------------------------------------
 s16 BTree::findLatestVersionPositionVI(HybridPageGuard<BTreeNode>& target_guard, u8* k, u16 kl)
 {
@@ -90,12 +90,9 @@ OP_RESULT BTree::lookupVI(u8* k, u16 kl, function<void(const u8*, u16)> payload_
    bool found = false;
    s16 payload_length = -1;
    std::unique_ptr<u8[]> payload(nullptr);
-   scanDesc(
+   scanDescLL(
        key, key_length,
        [&](u8* s_key, u16 s_key_length, u8* s_payload, u16 s_payload_length) {
-          if (s_key_length != key_length) {
-             return false;
-          }
           ensure(s_key_length > 8);
           const u64 version = *reinterpret_cast<u64*>(s_key + s_key_length - 8);
           if (s_payload_length == 0) {
@@ -354,7 +351,7 @@ void BTree::undoVI(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                const s16 delta_pos = pos - 1;
                const u16 delta_size = c_x_guard->getPayloadLength(delta_pos);
                u8* delta_beginning = c_x_guard->getPayload(delta_pos);
-               applyDelta(old_payload, delta_beginning, delta_size);
+               applyDeltaVI(old_payload, delta_beginning, delta_size);
                // -------------------------------------------------------------------------------------
                const u64 delta_version = *reinterpret_cast<u64*>(c_x_guard->getKey(delta_pos) + c_x_guard->getKeyLen(delta_pos) - 8);
                *reinterpret_cast<u64*>(v_key + update_entry.key_length) = delta_version;
@@ -455,7 +452,7 @@ void BTree::iterateDescVI(u8* start_key, u16 key_length, function<bool(HybridPag
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::scanDescVI(u8* k, u16 kl, function<bool(u8*, u16, u8*, u16)> callback)
+void BTree::scanDescVI(u8* k, u16 kl, function<bool(u8*, u16, u8*, u16)> callback, function<void()>)
 {
    u8 key[kl + 8];
    u16 key_length = kl + 8;
@@ -470,6 +467,19 @@ void BTree::scanDescVI(u8* k, u16 kl, function<bool(u8*, u16, u8*, u16)> callbac
       }
       return true;
    });
+}
+// -------------------------------------------------------------------------------------
+void BTree::applyDeltaVI(u8* dst, u8* delta_beginning, u16 delta_size)
+{
+   u8* delta_ptr = delta_beginning;
+   while (delta_ptr - delta_beginning < delta_size) {
+      const u16 offset = *reinterpret_cast<u16*>(delta_ptr);
+      delta_ptr += 2;
+      const u16 size = *reinterpret_cast<u16*>(delta_ptr);
+      delta_ptr += 2;
+      std::memcpy(dst + offset, delta_ptr, size);
+      delta_ptr += size;
+   }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace btree

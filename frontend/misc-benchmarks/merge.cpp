@@ -69,7 +69,7 @@ int main(int argc, char** argv)
       // -------------------------------------------------------------------------------------
       BufferFrame* bf;
       ensure(
-          vs_btree.lookupOne(key_bytes, key_length, [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); }));
+          vs_btree.lookupOneLL(key_bytes, key_length, [&](const u8* payload, u16) { bf = &db.getBufferManager().getContainingBufferFrame(payload); }));
       OptimisticGuard o_guard = OptimisticGuard(bf->header.latch);
       auto parent_handler = vs_btree.findParent(reinterpret_cast<void*>(&vs_btree), *bf);
       // -------------------------------------------------------------------------------------
@@ -144,7 +144,7 @@ int main(int argc, char** argv)
          PerfEventBlock b(e, tuple_count);
          tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
             for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-               vs_btree.insert(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8,
+               vs_btree.insertLL(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8,
                                reinterpret_cast<u8*>(&t_i));
             }
          });
@@ -238,7 +238,7 @@ int main(int argc, char** argv)
          tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
             for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
                bool flag = true;
-               vs_btree.lookupOne(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(),
+               vs_btree.lookupOneLL(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(),
                                   [&](const u8* payload, u16 payload_length) {
                                      flag &= (payload_length == 8);
                                      flag &= (*reinterpret_cast<const u64*>(payload) == t_i);

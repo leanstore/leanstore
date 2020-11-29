@@ -65,6 +65,8 @@ DEFINE_uint64(wal_offset, 1, "");
 DEFINE_bool(wal_io_hack, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(si, true, "");
+DEFINE_bool(vw, false, "");
+DEFINE_bool(vi, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
 DEFINE_uint64(tmp, false, "");

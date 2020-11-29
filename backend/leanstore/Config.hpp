@@ -63,6 +63,8 @@ DECLARE_uint64(wal_offset);
 DECLARE_bool(wal_io_hack);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(si);
+DECLARE_bool(vw);
+DECLARE_bool(vi);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
 DECLARE_uint64(tmp);

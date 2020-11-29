@@ -39,7 +39,7 @@ struct Worker {
    ~Worker();
    // -------------------------------------------------------------------------------------
    // Shared with all workers
-   atomic<u64> active_tts = 0;
+   atomic<u64> next_tts = 0;
    atomic<u64> high_water_mark = 0;  // High water mark, exclusive: TS < mark are visible
    // -------------------------------------------------------------------------------------
    unique_ptr<u64[]> my_snapshot;
@@ -90,7 +90,7 @@ struct Worker {
    u64 current_tx_wal_start;
    void iterateOverCurrentTXEntries(std::function<void(const WALEntry& entry)> callback);
    // -------------------------------------------------------------------------------------
-   Transaction tx;
+   Transaction active_tx;
    WALDTEntry* active_dt_entry;
    // -------------------------------------------------------------------------------------
   private:

@@ -36,7 +36,7 @@ int main(int argc, char** argv)
    const u64 tuple_count = input_strings.size();
    tbb::parallel_for(tbb::blocked_range<u64>(0, tuple_count), [&](const tbb::blocked_range<u64>& range) {
       for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-         vs_btree.insert(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8,
+         vs_btree.insertLL(reinterpret_cast<u8*>(const_cast<char*>(input_strings[t_i].data())), input_strings[t_i].size(), 8,
                          reinterpret_cast<u8*>(&t_i));
       }
    });
@@ -53,7 +53,7 @@ int main(int argc, char** argv)
          while (keep_running) {
             u64 k = utils::RandomGenerator::getRandU64(0, tuple_count);
             bool flag = true;
-            vs_btree.lookupOne(reinterpret_cast<u8*>(const_cast<char*>(input_strings[k].data())), input_strings[k].size(),
+            vs_btree.lookupOneLL(reinterpret_cast<u8*>(const_cast<char*>(input_strings[k].data())), input_strings[k].size(),
                                [&](const u8* payload, u16 payload_length) {
                                   flag &= (payload_length == 8);
                                   flag &= (*reinterpret_cast<const u64*>(payload) == k);
