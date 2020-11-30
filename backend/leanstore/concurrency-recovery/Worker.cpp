@@ -52,6 +52,7 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
       }
       if (walContiguousFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {  // always keep place for CR entry
          auto& entry = *reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
+         entry.lsn = wal_lsn_counter++;
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
          wal_buffer_round++;  // Carriage Return
@@ -172,16 +173,26 @@ void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entr
    }
 }
 // -------------------------------------------------------------------------------------
-u64 Worker::WALFinder::getLowerBound(LID lsn)
+WALChunk::Slot Worker::WALFinder::getJumpPoint(LID lsn)
 {
    std::unique_lock guard(m);
-   return ht.lower_bound(lsn)->second;
+   if (ht.size() == 0) {
+      return {0, 0};
+   } else {
+      auto iter = ht.lower_bound(lsn);
+      if (iter->first == lsn) {
+         return iter->second;
+      } else {
+         iter = std::prev(iter);
+         return iter->second;
+      }
+   }
 }
 // -------------------------------------------------------------------------------------
-void Worker::WALFinder::insertLowerBound(LID LSN, u64 ssd_offset)
+void Worker::WALFinder::insertJumpPoint(LID LSN, WALChunk::Slot slot)
 {
    std::unique_lock guard(m);
-   ht[LSN] = ssd_offset;
+   ht[LSN] = slot;
 }
 // -------------------------------------------------------------------------------------
 void Worker::getWALDTEntry(u8 worker_id, LID lsn, std::function<void(u8*)> callback)
@@ -200,10 +211,12 @@ std::unique_ptr<u8[]> Worker::getWALEntry(LID lsn)
 {
 restart : {
    // 1- Scan the local buffer
+   bool failed = false;
    {
       WALEntry* entry = reinterpret_cast<WALEntry*>(wal_buffer);
       u64 offset = 0;
       while (offset < WORKER_WAL_SIZE) {
+         ensure(entry->size);
          if (entry->lsn > lsn) {
             break;
          }
@@ -216,45 +229,56 @@ restart : {
                 (version < offset && wal_wt_cursor.load() < offset && round == wal_buffer_round.load())) {
                return entry_buffer;
             } else {
+               failed = true;
                break;
             }
          }
-         if (entry->size) {
-            offset += entry->size;
-            entry = reinterpret_cast<WALEntry*>(wal_buffer + offset);
-         } else {
-            break;
-         }
+         offset += entry->size;
+         entry = reinterpret_cast<WALEntry*>(wal_buffer + offset);
+      }
+   }
+outofmemory : {
+   // 2- Read from SSD, accelerate using getLowerBound
+   // TODO: optimize, do not read 10 Mob!
+   const auto slot = wal_finder.getJumpPoint(lsn);
+   std::unique_ptr<u8> log_chunk(reinterpret_cast<u8*>(std::aligned_alloc(512, WORKER_WAL_SIZE)));
+   const u64 lower_bound = slot.offset;
+   const u64 lower_bound_aligned = utils::downAlign(lower_bound);
+   const s32 ret = pread(ssd_fd, log_chunk.get(), WORKER_WAL_SIZE, lower_bound_aligned);
+   posix_check(ret > 0);
+   // -------------------------------------------------------------------------------------
+   u64 offset = 0;
+   u8* ptr = log_chunk.get() + lower_bound - lower_bound_aligned;
+   WALEntry* entry = reinterpret_cast<WALEntry*>(ptr + offset);
+   WALEntry* prev_entry = entry;
+   while (true) {
+      ensure(entry->size > 0 && entry->lsn <= lsn);
+      if (entry->lsn == lsn) {
+         std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
+         std::memcpy(entry_buffer.get(), entry, entry->size);
+         return entry_buffer;
+      }
+      if (offset + entry->size < slot.length) {
+         offset += entry->size;
+         prev_entry = entry;
+         entry = reinterpret_cast<WALEntry*>(ptr + offset);
+      } else {
+         break;
       }
    }
    {
-      // 2- Read from SSD, accelerate using getLowerBound
-      // TODO: optimize, do not read 10 Mob!
-      const u64 lower_bound = wal_finder.getLowerBound(lsn);
-      std::unique_ptr<u8> log_chunk(reinterpret_cast<u8*>(std::aligned_alloc(512, WORKER_WAL_SIZE)));
-      const u64 lower_bound_aligned = utils::downAlign(lower_bound);
-      const s32 ret = pread(ssd_fd, log_chunk.get(), WORKER_WAL_SIZE, lower_bound_aligned);
-      posix_check(ret > 0);
-      // -------------------------------------------------------------------------------------
-      u64 offset = lower_bound - lower_bound_aligned;
-      WALEntry* entry = reinterpret_cast<WALEntry*>(log_chunk.get() + offset);
-      while (offset < WORKER_WAL_SIZE) {
-         if (entry->lsn == lsn) {
-            std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
-            std::memcpy(entry_buffer.get(), entry, entry->size);
-            return entry_buffer;
+      DEBUG_BLOCK()
+      {
+         const auto slot2 = wal_finder.getJumpPoint(lsn);
+         if (slot.offset == slot2.offset) {
+            auto tmp = std::prev(wal_finder.ht.end())->first;
          }
-         if (entry->size) {
-            offset += entry->size;
-            entry = reinterpret_cast<WALEntry*>(log_chunk.get() + offset);
-         } else {
-           goto restart;
-            break;
-         }
+         ensure(slot.offset != slot2.offset);
       }
-      ensure(false);
-      return nullptr;
+      goto outofmemory;
    }
+   return nullptr;
+}
 }
 }
 // -------------------------------------------------------------------------------------

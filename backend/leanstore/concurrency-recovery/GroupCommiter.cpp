@@ -22,18 +22,6 @@ struct alignas(512) SSDMeta {
    u64 last_written_chunk;
 };
 // -------------------------------------------------------------------------------------
-struct alignas(512) WALChunk {
-   static constexpr u16 STATIC_MAX_WORKERS = 256;
-   struct Slot {
-      u64 offset;
-      u64 length;
-   };
-   u8 workers_count;
-   u32 total_size;
-   Slot slot[STATIC_MAX_WORKERS];
-   u8 data[];
-};
-// -------------------------------------------------------------------------------------
 void CRManager::groupCommiter()
 {
    using Time = decltype(std::chrono::high_resolution_clock::now());
@@ -57,7 +45,6 @@ void CRManager::groupCommiter()
    // -------------------------------------------------------------------------------------
    LID max_safe_gsn;
    // -------------------------------------------------------------------------------------
-loop : {
    while (keep_running) {
       round_i++;
       CRCounters::myCounters().gct_rounds++;
@@ -71,92 +58,71 @@ loop : {
          Worker& worker = *workers[w_i];
          {
             std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
-            if (worker.wal_wt_cursor == worker.wal_ww_cursor) {
-               goto loop;
-            }
             worker.group_commit_data.ready_to_commit_cut = worker.ready_to_commit_queue.size();
             worker.group_commit_data.gsn_to_flush = worker.wal_max_gsn;
             worker.group_commit_data.wt_cursor_to_flush = worker.wal_wt_cursor;
          }
          {
-            auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.wal_buffer + worker.group_commit_data.wt_cursor_to_flush);
+            auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.wal_buffer + worker.wal_ww_cursor);
             worker.group_commit_data.first_lsn_in_chunk = wal_entry.lsn;
          }
          {
             if (worker.group_commit_data.wt_cursor_to_flush > worker.wal_ww_cursor) {
+               const u64 lower_offset = utils::downAlign(worker.wal_ww_cursor);
+               const u64 upper_offset = utils::upAlign(worker.group_commit_data.wt_cursor_to_flush);
                const u64 size = worker.group_commit_data.wt_cursor_to_flush - worker.wal_ww_cursor;
-               const u64 size_aligned = utils::upAlign(size);
+               const u64 size_aligned = upper_offset - lower_offset;
+               // -------------------------------------------------------------------------------------
                ssd_offset -= size_aligned;
                if (!FLAGS_wal_io_hack) {
-                  const u64 ret = pwrite(ssd_fd, worker.wal_buffer + worker.wal_ww_cursor, size_aligned, ssd_offset);
+                  const u64 ret = pwrite(ssd_fd, worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
                   posix_check(ret == size_aligned);
                }
                // -------------------------------------------------------------------------------------
                COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
+               chunk.slot[w_i].offset = ssd_offset + (worker.wal_ww_cursor - lower_offset);
+               chunk.slot[w_i].length = size;
+               assert(chunk.slot[w_i].offset < end_of_block_device);
                chunk.total_size += size_aligned;
-               {
-                  chunk.slot[w_i].offset = ssd_offset + worker.group_commit_data.bytes_to_ignore_in_the_next_round;
-                  assert(chunk.slot[w_i].offset < end_of_block_device);
-                  chunk.slot[w_i].length = size - worker.group_commit_data.bytes_to_ignore_in_the_next_round;
-                  const u64 down_aligned = utils::downAlign(worker.group_commit_data.wt_cursor_to_flush);
-                  worker.group_commit_data.bytes_to_ignore_in_the_next_round = worker.group_commit_data.wt_cursor_to_flush - down_aligned;
-                  worker.group_commit_data.wt_cursor_to_flush = down_aligned;
-                  assert(chunk.slot[w_i].offset < end_of_block_device);
-               }
-               DEBUG_BLOCK()
-               {
-                  alignas(512) u8 tmp[1024];
-                  u64 down_aligned = utils::downAlign(chunk.slot[w_i].offset);
-                  const s32 ret = pread(ssd_fd, tmp, 1024, down_aligned);
-                  posix_check(ret == 1024);
-                  auto entry = reinterpret_cast<WALEntry*>(tmp + chunk.slot[w_i].offset - down_aligned);
-                  assert(entry->lsn == worker.group_commit_data.first_lsn_in_chunk);
-               }
             } else if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_ww_cursor) {
-               raise(SIGTRAP);
-               // u64 total_size = 0;
-               // {
-               //    ensure((Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor) % 512 == 0);
-               //    const u64 size = Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor;
-               //    total_size += size;
-               //    ssd_offset -= size;
-               //    if (!FLAGS_wal_io_hack) {
-               //       const u64 ret = pwrite(ssd_fd, worker.wal_buffer + worker.wal_ww_cursor, size, ssd_offset);
-               //       posix_check(ret == size);
-               //    }
-               //    COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size; }
-               //    chunk.total_size += size;
-               // }
-               // {
-               //    // copy the rest
-               //    const u64 size = worker.group_commit_data.wt_cursor_to_flush;
-               //    const u64 size_aligned = utils::upAlign(size);
-               //    total_size += size;
-               //    ssd_offset -= size_aligned;
-               //    if (!FLAGS_wal_io_hack) {
-               //       const u64 ret = pwrite(ssd_fd, worker.wal_buffer, size_aligned, ssd_offset);
-               //       posix_check(ret == size_aligned);
-               //    }
-               //    COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
-               //    chunk.total_size += size_aligned;
-               // }
-               // {
-               //    chunk.slot[w_i].offset = ssd_offset + worker.group_commit_data.bytes_to_ignore_in_the_next_round;
-               //    chunk.slot[w_i].length = total_size - worker.group_commit_data.bytes_to_ignore_in_the_next_round;
-               //    const u64 down_aligned = utils::downAlign(worker.group_commit_data.wt_cursor_to_flush);
-               //    worker.group_commit_data.bytes_to_ignore_in_the_next_round = worker.group_commit_data.wt_cursor_to_flush - down_aligned;
-               //    assert(worker.group_commit_data.bytes_to_ignore_in_the_next_round < 512);
-               //    worker.group_commit_data.wt_cursor_to_flush = down_aligned;
-               //    assert(chunk.slot[w_i].offset < end_of_block_device);
-               // }
+               {
+                  // XXXXXX---------------
+                  const u64 lower_offset = 0;
+                  const u64 upper_offset = utils::upAlign(worker.group_commit_data.wt_cursor_to_flush);
+                  const u64 size = worker.group_commit_data.wt_cursor_to_flush;
+                  const u64 size_aligned = upper_offset - lower_offset;
+                  // -------------------------------------------------------------------------------------
+                  ssd_offset -= size_aligned;
+                  if (!FLAGS_wal_io_hack) {
+                     const u64 ret = pwrite(ssd_fd, worker.wal_buffer, size_aligned, ssd_offset);
+                     posix_check(ret == size_aligned);
+                  }
+                  COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
+                  chunk.slot[w_i].length = size;
+               }
+               {
+                  // ------------XXXXXXXXX
+                  const u64 lower_offset = utils::downAlign(worker.wal_ww_cursor);
+                  const u64 upper_offset = Worker::WORKER_WAL_SIZE;
+                  const u64 size = Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor;
+                  const u64 size_aligned = upper_offset - lower_offset;
+                  // -------------------------------------------------------------------------------------
+                  ssd_offset -= size_aligned;
+                  if (!FLAGS_wal_io_hack) {
+                     const u64 ret = pwrite(ssd_fd, worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
+                     posix_check(ret == size_aligned);
+                  }
+                  COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
+                  chunk.slot[w_i].offset = ssd_offset + (worker.wal_ww_cursor - lower_offset);
+                  chunk.slot[w_i].length += size;
+               }
             } else {
-               ensure(false);
+               chunk.slot[w_i].offset = 0;
+               chunk.slot[w_i].length = 0;
             }
          }
          // -------------------------------------------------------------------------------------
-         assert(chunk.slot[w_i].offset < end_of_block_device);
          index[w_i] = ssd_offset;
-         assert(chunk.slot[w_i].offset < end_of_block_device);
       }
       // -------------------------------------------------------------------------------------
       if (workers[0]->wal_max_gsn > workers[0]->group_commit_data.max_safe_gsn_to_commit) {
@@ -209,7 +175,18 @@ loop : {
          {
             u64 tx_i = 0;
             std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
-            worker.wal_finder.insertLowerBound(worker.group_commit_data.first_lsn_in_chunk, chunk.slot[w_i].offset);
+            if (chunk.slot[w_i].offset) {
+               worker.wal_finder.insertJumpPoint(worker.group_commit_data.first_lsn_in_chunk, chunk.slot[w_i]);
+               DEBUG_BLOCK()
+               {
+                  alignas(512) u8 tmp[1024];
+                  u64 down_aligned = utils::downAlign(chunk.slot[w_i].offset);
+                  const s32 ret = pread(ssd_fd, tmp, 1024, down_aligned);
+                  posix_check(ret == 1024);
+                  auto entry = reinterpret_cast<WALEntry*>(tmp + chunk.slot[w_i].offset - down_aligned);
+                  assert(entry->lsn == worker.group_commit_data.first_lsn_in_chunk);
+               }
+            }
             // -------------------------------------------------------------------------------------
             worker.wal_ww_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_relaxed);
             while (tx_i < worker.group_commit_data.ready_to_commit_cut) {
@@ -239,7 +216,7 @@ loop : {
          CRCounters::myCounters().gct_write_ms += (std::chrono::duration_cast<std::chrono::microseconds>(write_end - write_begin).count());
       }
    }
-}
+
    running_threads--;
 }
 // -------------------------------------------------------------------------------------

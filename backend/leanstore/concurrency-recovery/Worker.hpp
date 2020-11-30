@@ -26,6 +26,19 @@ struct WLSN {
 static_assert(sizeof(WTTS) == sizeof(u64), "");
 static_assert(sizeof(WLSN) == sizeof(u64), "");
 // -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
+struct alignas(512) WALChunk {
+   static constexpr u16 STATIC_MAX_WORKERS = 256;
+   struct Slot {
+      u64 offset;
+      u64 length;
+   };
+   u8 workers_count;
+   u32 total_size;
+   Slot slot[STATIC_MAX_WORKERS];
+   u8 data[];
+};
+// -------------------------------------------------------------------------------------
 struct Worker {
    // Static
    static thread_local Worker* tls_ptr;
@@ -53,8 +66,8 @@ struct Worker {
       u64 max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
       LID gsn_to_flush;
       u64 wt_cursor_to_flush;
-      u64 bytes_to_ignore_in_the_next_round = 0;
       LID first_lsn_in_chunk;
+      bool skip = false;
    };
    GroupCommitData group_commit_data;
    // -------------------------------------------------------------------------------------
@@ -63,9 +76,9 @@ struct Worker {
    std::vector<Transaction> ready_to_commit_queue;
    struct WALFinder {
       std::mutex m;
-      std::map<LID, u64> ht;  // LSN->SSD Offset
-      void insertLowerBound(LID lsn, u64 ssd_offset);
-      u64 getLowerBound(LID lsn);
+      std::map<LID, WALChunk::Slot> ht;  // LSN->SSD Offset
+      void insertJumpPoint(LID lsn, WALChunk::Slot slot);
+      WALChunk::Slot getJumpPoint(LID lsn);
    };
    WALFinder wal_finder;
    // -------------------------------------------------------------------------------------

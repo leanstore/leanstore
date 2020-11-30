@@ -167,6 +167,7 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
             leaf.recheck_done();
             if (isVisibleForMe(version.worker_id, version.tts)) {
                if (version.is_removed) {
+                  raise(SIGTRAP);
                   jumpmu_return OP_RESULT::NOT_FOUND;
                } else {
                   payload_callback(payload, payload_length);
@@ -175,12 +176,14 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
                }
             } else {
                if (version.is_final) {
+                  raise(SIGTRAP);
                   jumpmu_return OP_RESULT::NOT_FOUND;
                } else {
                   JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
                   std::memcpy(reconstructed_payload->get(), payload, payload_length);
                   reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn);
                   if (payload_length == 0) {
+                     raise(SIGTRAP);
                      jumpmu_return OP_RESULT::NOT_FOUND;
                   } else {
                      payload_callback(reconstructed_payload->get(), payload_length);
@@ -190,6 +193,7 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
             }
          } else {
             leaf.recheck_done();
+            raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }
