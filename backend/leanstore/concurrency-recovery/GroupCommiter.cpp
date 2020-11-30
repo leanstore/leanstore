@@ -3,6 +3,7 @@
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
+#include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <unistd.h>
@@ -32,16 +33,6 @@ struct alignas(512) WALChunk {
    Slot slot[STATIC_MAX_WORKERS];
    u8 data[];
 };
-// -------------------------------------------------------------------------------------
-inline u64 upAlign(u64 x)
-{
-   return (x + 511) & ~511ul;
-}
-// -------------------------------------------------------------------------------------
-inline u64 downAlign(u64 x)
-{
-   return x - (x & 511);
-}
 // -------------------------------------------------------------------------------------
 void CRManager::groupCommiter()
 {
@@ -89,7 +80,7 @@ void CRManager::groupCommiter()
          {
             if (worker.group_commit_data.wt_cursor_to_flush > worker.wal_ww_cursor) {
                const u64 size = worker.group_commit_data.wt_cursor_to_flush - worker.wal_ww_cursor;
-               const u64 size_aligned = upAlign(size);
+               const u64 size_aligned = utils::upAlign(size);
                ssd_offset -= size_aligned;
                if (!FLAGS_wal_io_hack) {
                   const u64 ret = pwrite(ssd_fd, worker.wal_buffer + worker.wal_ww_cursor, size_aligned, ssd_offset);
@@ -100,7 +91,7 @@ void CRManager::groupCommiter()
                {
                   chunk.slot[w_i].offset = ssd_offset + worker.group_commit_data.bytes_to_ignore_in_the_next_round;
                   chunk.slot[w_i].length = size - worker.group_commit_data.bytes_to_ignore_in_the_next_round;
-                  const u64 down_aligned = downAlign(worker.group_commit_data.wt_cursor_to_flush);
+                  const u64 down_aligned = utils::downAlign(worker.group_commit_data.wt_cursor_to_flush);
                   worker.group_commit_data.bytes_to_ignore_in_the_next_round = worker.group_commit_data.wt_cursor_to_flush - down_aligned;
                   worker.group_commit_data.wt_cursor_to_flush = down_aligned;
                }
@@ -121,7 +112,7 @@ void CRManager::groupCommiter()
                {
                   // copy the rest
                   const u64 size = worker.group_commit_data.wt_cursor_to_flush;
-                  const u64 size_aligned = upAlign(size);
+                  const u64 size_aligned = utils::upAlign(size);
                   total_size += size;
                   ssd_offset -= size_aligned;
                   if (!FLAGS_wal_io_hack) {
@@ -134,7 +125,7 @@ void CRManager::groupCommiter()
                {
                   chunk.slot[w_i].offset = ssd_offset + worker.group_commit_data.bytes_to_ignore_in_the_next_round;
                   chunk.slot[w_i].length = total_size - worker.group_commit_data.bytes_to_ignore_in_the_next_round;
-                  const u64 down_aligned = downAlign(worker.group_commit_data.wt_cursor_to_flush);
+                  const u64 down_aligned = utils::downAlign(worker.group_commit_data.wt_cursor_to_flush);
                   worker.group_commit_data.bytes_to_ignore_in_the_next_round = worker.group_commit_data.wt_cursor_to_flush - down_aligned;
                   worker.group_commit_data.wt_cursor_to_flush = down_aligned;
                }
@@ -208,7 +199,7 @@ void CRManager::groupCommiter()
             if (tx_i > 0) {
                const u64 high_water_mark = worker.ready_to_commit_queue[tx_i - 1].tts + 1;
                worker.high_water_mark.store(high_water_mark, std::memory_order_release);
-               cout << "HighWaterMark[" << w_i << "] = " << worker.high_water_mark << endl;
+               // cout << "HighWaterMark[" << w_i << "] = " << worker.high_water_mark << endl;
             }
             worker.ready_to_commit_queue.erase(worker.ready_to_commit_queue.begin(), worker.ready_to_commit_queue.begin() + tx_i);
             worker.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();

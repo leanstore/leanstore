@@ -174,15 +174,22 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
                   jumpmu_return OP_RESULT::OK;
                }
             } else {
-               JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
-               std::memcpy(reconstructed_payload->get(), payload, payload_length);
-               leaf.recheck();
-               reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn);
-               if (payload_length == 0) {
+               if (version.is_final) {
+                  leaf.recheck_done();
                   jumpmu_return OP_RESULT::NOT_FOUND;
                } else {
-                  payload_callback(reconstructed_payload->get(), payload_length);
-                  jumpmu_return OP_RESULT::OK;
+                  JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
+                  std::memcpy(reconstructed_payload->get(), payload, payload_length);
+                  leaf.recheck();
+                  reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn);
+                  if (payload_length == 0) {
+                     leaf.recheck_done();
+                     jumpmu_return OP_RESULT::NOT_FOUND;
+                  } else {
+                     payload_callback(reconstructed_payload->get(), payload_length);
+                     leaf.recheck_done();
+                     jumpmu_return OP_RESULT::OK;
+                  }
                }
             }
          } else {
@@ -196,6 +203,7 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
 // -------------------------------------------------------------------------------------
 void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_length, u8 next_worker_id, u64 next_lsn)
 {
+   [[maybe_ununsed]] u64 version_depth = 1;
    bool flag = true;
    while (flag) {
       cr::Worker::my().getWALDTEntry(next_worker_id, next_lsn, [&](u8* entry) {
@@ -226,6 +234,8 @@ void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
          if (isVisibleForMe(wal_entry.prev_version.worker_id, wal_entry.prev_version.tts) || wal_entry.prev_version.lsn == 0) {
             flag = false;
          } else {
+            DEBUG_BLOCK() { version_depth++; }
+            ensure(next_lsn > wal_entry.prev_version.lsn);
             next_worker_id = wal_entry.prev_version.worker_id;
             next_lsn = wal_entry.prev_version.lsn;
          }
@@ -331,8 +341,9 @@ OP_RESULT BTree::removeVW(u8* key, u16 key_length)
                   version.is_final = false;
                   version.is_removed = true;
                   // -------------------------------------------------------------------------------------
-                  leaf_ex_guard->setPayloadLength(pos, VW_PAYLOAD_OFFSET);
+                  raise(SIGTRAP);
                   leaf_ex_guard->space_used -= payload_length - VW_PAYLOAD_OFFSET;
+                  leaf_ex_guard->setPayloadLength(pos, VW_PAYLOAD_OFFSET);
                   leaf_guard = std::move(leaf_ex_guard);
                   jumpmu_return OP_RESULT::OK;
                }
@@ -426,7 +437,7 @@ void BTree::applyDeltaVW(u8* dst, const u8* delta_beginning, u16 delta_size)
 }
 // -------------------------------------------------------------------------------------
 // For Transaction abort and not for recovery
-void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
+void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
 {
    auto& btree = *reinterpret_cast<BTree*>(btree_object);
    const vw::WALEntry& entry = *reinterpret_cast<const vw::WALEntry*>(wal_entry_ptr);
@@ -484,7 +495,7 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                btree.findLeafCanJump<OP_TYPE::POINT_DELETE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                const s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
-               ensure(pos > 0);
+               ensure(pos != -1);
                auto& version = *reinterpret_cast<vw::Version*>(leaf_ex_guard->getPayload(pos));
                // -------------------------------------------------------------------------------------
                // Apply delta

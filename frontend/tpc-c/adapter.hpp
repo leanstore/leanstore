@@ -29,7 +29,7 @@ struct LeanStoreAdapter {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);
-      btree->scanDescLL(
+      btree->scanDesc(
           folded_key, folded_key_len,
           [&](u8* key, [[maybe_unused]] u16 key_length, u8* payload, [[maybe_unused]] u16 payload_length) {
              if (key_length != folded_key_len) {
@@ -48,7 +48,8 @@ struct LeanStoreAdapter {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, rec_key);
-      btree->insertLL(folded_key, folded_key_len, sizeof(Record), (u8*)(&record));
+      const auto res = btree->insert(folded_key, folded_key_len, sizeof(Record), (u8*)(&record));
+      ensure(res == btree::OP_RESULT::OK);
    }
 
    template <class Fn>
@@ -56,23 +57,21 @@ struct LeanStoreAdapter {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);
-      const bool found = btree->lookupOneLL(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
+      const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          static_cast<void>(payload_length);
          const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
          assert(payload_length == sizeof(Record));
          fn(typed_payload);
       });
-      if (!found) {
-         ensure(false);
-      }
+      ensure(res == btree::OP_RESULT::OK);
    }
 
    template <class Fn>
-   void update1(const typename Record::Key& key, const Fn& fn, storage::btree::BTree::WALUpdateGenerator wal_update_generator)
+   void update1(const typename Record::Key& key, const Fn& fn, storage::btree::WALUpdateGenerator wal_update_generator)
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);
-      btree->updateSameSizeLL(
+      const auto res = btree->updateSameSize(
           folded_key, folded_key_len,
           [&](u8* payload, u16 payload_length) {
              static_cast<void>(payload_length);
@@ -81,18 +80,15 @@ struct LeanStoreAdapter {
              fn(typed_payload);
           },
           wal_update_generator);
+      ensure(res == btree::OP_RESULT::OK);
    }
 
    bool erase(const typename Record::Key& key)
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);
-      if (btree->lookupOneLL(folded_key, folded_key_len, [](const u8*, u16) {})) {
-         if (!btree->removeLL(folded_key, folded_key_len)) {
-            return false;
-         }
-      }
-      return true;
+      const auto res = btree->remove(folded_key, folded_key_len);
+      return (res == btree::OP_RESULT::OK);
    }
    // -------------------------------------------------------------------------------------
    template <class Fn>
@@ -100,9 +96,9 @@ struct LeanStoreAdapter {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);
-      btree->scanAscLL(
+      btree->scanAsc(
           folded_key, folded_key_len,
-          [&](u8* key, u8* payload, [[maybe_ununsed]] u16 key_length, [[maybe_unused]] u16 payload_length) {
+          [&](u8* key, u16 key_length, u8* payload, u16 payload_length) {
              if (key_length != folded_key_len) {
                 return false;
              }
@@ -121,13 +117,13 @@ struct LeanStoreAdapter {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);
       Field local_f;
-      const bool found = btree->lookupOneLL(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
+      const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          static_cast<void>(payload_length);
          assert(payload_length == sizeof(Record));
          Record& typed_payload = *const_cast<Record*>(reinterpret_cast<const Record*>(payload));
          local_f = (typed_payload).*f;
       });
-      ensure(found);
+      ensure(res == btree::OP_RESULT::OK);
       return local_f;
    }
 

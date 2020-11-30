@@ -57,10 +57,10 @@ LeanStore::LeanStore()
    DTRegistry::global_dt_registry.registerDatastructureType(99, storage::btree::BTree::getMeta());
    // -------------------------------------------------------------------------------------
    u64 end_of_block_device;
-   if (FLAGS_wal_offset == 0) {
+   if (FLAGS_wal_offset_gib == 0) {
       ioctl(ssd_fd, BLKGETSIZE64, &end_of_block_device);
    } else {
-      end_of_block_device = FLAGS_wal_offset * 1024 * 1024 * 1024;
+      end_of_block_device = FLAGS_wal_offset_gib * 1024 * 1024 * 1024;
    }
    cr_manager = make_unique<cr::CRManager>(ssd_fd, end_of_block_device);
    cr::CRManager::global = cr_manager.get();

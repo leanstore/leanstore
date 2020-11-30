@@ -29,54 +29,74 @@ struct DTRegistry::DTMeta BTree::getMeta()
 // -------------------------------------------------------------------------------------
 OP_RESULT BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
+   OP_RESULT res;
    if (FLAGS_vw) {
-      return lookupVW(key, key_length, payload_callback);
+      res = lookupVW(key, key_length, payload_callback);
    } else if (FLAGS_vi) {
-      return lookupVI(key, key_length, payload_callback);
+      res = lookupVI(key, key_length, payload_callback);
    } else {
       const bool ret = lookupOneLL(key, key_length, payload_callback);
       if (ret) {
-         return OP_RESULT::OK;
+         res = OP_RESULT::OK;
       } else {
-         return OP_RESULT::NOT_FOUND;
+         res = OP_RESULT::NOT_FOUND;
       }
    }
+   return res;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTree::insert(u8* key, u16 key_length, u64 value_length, u8* value)
 {
+   OP_RESULT res;
    if (FLAGS_vw) {
-      return insertVW(key, key_length, value_length, value);
+      res = insertVW(key, key_length, value_length, value);
    } else if (FLAGS_vi) {
-      return insertVI(key, key_length, value_length, value);
+      res = insertVI(key, key_length, value_length, value);
    } else {
       insertLL(key, key_length, value_length, value);
-      return OP_RESULT::OK;
+      res = OP_RESULT::OK;
    }
+   if (res == OP_RESULT::ABORT_TX) {
+      cr::Worker::my().abortTX();
+      jumpmu::jump();
+   }
+   return res;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* value, u16 value_size)> callback, WALUpdateGenerator wal_generator)
 {
+   OP_RESULT res;
    if (FLAGS_vw) {
-      return updateVW(key, key_length, callback, wal_generator);
+      res = updateVW(key, key_length, callback, wal_generator);
    } else if (FLAGS_vi) {
-      return updateVI(key, key_length, callback, wal_generator);
+      res = updateVI(key, key_length, callback, wal_generator);
    } else {
       updateSameSizeLL(key, key_length, callback, wal_generator);
-      return OP_RESULT::OK;
+      res = OP_RESULT::OK;
    }
+   if (res == OP_RESULT::ABORT_TX) {
+      cr::Worker::my().abortTX();
+      jumpmu::jump();
+   }
+   return res;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTree::remove(u8* key, u16 key_length)
 {
+   OP_RESULT res;
    if (FLAGS_vw) {
-      return removeVW(key, key_length);
+      res = removeVW(key, key_length);
    } else if (FLAGS_vi) {
-      return removeVI(key, key_length);
+      res = removeVI(key, key_length);
    } else {
       removeLL(key, key_length);
-      return OP_RESULT::OK;
+      res = OP_RESULT::OK;
    }
+   if (res == OP_RESULT::ABORT_TX) {
+      cr::Worker::my().abortTX();
+      jumpmu::jump();
+   }
+   return res;
 }
 // -------------------------------------------------------------------------------------
 void BTree::scanAsc(u8* start_key,

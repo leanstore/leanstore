@@ -3,6 +3,7 @@
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/storage/buffer-manager/DTRegistry.hpp"
+#include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <mutex>
@@ -15,7 +16,7 @@ namespace cr
 thread_local Worker* Worker::tls_ptr = nullptr;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
-    : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), fd(fd)
+    : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), ssd_fd(fd)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
@@ -196,10 +197,14 @@ std::unique_ptr<u8[]> Worker::getWALEntry(u8 worker_id, LID lsn)
 // -------------------------------------------------------------------------------------
 std::unique_ptr<u8[]> Worker::getWALEntry(LID lsn)
 {
+restart : {
    // 1- Scan the local buffer
    WALEntry* entry = reinterpret_cast<WALEntry*>(wal_buffer);
    u64 offset = 0;
    while (offset < WORKER_WAL_SIZE) {
+      if (entry->lsn > lsn) {
+         break;
+      }
       if (entry->lsn == lsn) {
          u64 version = wal_wt_cursor.load();
          u64 round = wal_buffer_round.load();
@@ -214,28 +219,35 @@ std::unique_ptr<u8[]> Worker::getWALEntry(LID lsn)
       }
       if (entry->size) {
          offset += entry->size;
-         entry = reinterpret_cast<WALEntry*>(reinterpret_cast<u8*>(entry) + offset);
+         entry = reinterpret_cast<WALEntry*>(wal_buffer + offset);
       } else {
          break;
       }
    }
    // 2- Read from SSD, accelerate using getLowerBound
-   // TODO: optimize, do not read 10 MiB!
+   // TODO: optimize, do not read 10 Mob!
    const u64 lower_bound = wal_finder.getLowerBound(lsn);
    std::unique_ptr<u8[]> log_chunk = std::make_unique<u8[]>(WORKER_WAL_SIZE);
-   assert(lower_bound % 512 == 0);
-   pread(fd, log_chunk.get(), lower_bound, WORKER_WAL_SIZE);
-   entry = reinterpret_cast<WALEntry*>(log_chunk.get());
+   const u64 lower_bound_aligned = utils::downAlign(lower_bound);
+   const s32 ret = pread(ssd_fd, log_chunk.get(), lower_bound_aligned, WORKER_WAL_SIZE);
+   ensure(ret > 0);
+   entry = reinterpret_cast<WALEntry*>(log_chunk.get() + (lower_bound - lower_bound_aligned));
    while ((reinterpret_cast<u8*>(entry) - log_chunk.get()) < WORKER_WAL_SIZE) {
       if (entry->lsn == lsn) {
          std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
          std::memcpy(entry_buffer.get(), entry, entry->size);
          return entry_buffer;
       }
-      entry += entry->size;
+      if (entry->size) {
+         entry += entry->size;
+      } else {
+         goto restart;
+         break;
+      }
    }
    ensure(false);
    return nullptr;
+}
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr
