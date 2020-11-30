@@ -6,6 +6,7 @@
 #include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <cstdlib>
 #include <mutex>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -199,54 +200,61 @@ std::unique_ptr<u8[]> Worker::getWALEntry(LID lsn)
 {
 restart : {
    // 1- Scan the local buffer
-   WALEntry* entry = reinterpret_cast<WALEntry*>(wal_buffer);
-   u64 offset = 0;
-   while (offset < WORKER_WAL_SIZE) {
-      if (entry->lsn > lsn) {
-         break;
-      }
-      if (entry->lsn == lsn) {
-         u64 version = wal_wt_cursor.load();
-         u64 round = wal_buffer_round.load();
-         std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
-         std::memcpy(entry_buffer.get(), entry, entry->size);
-         if ((version > offset && round == wal_buffer_round.load()) ||
-             (version < offset && wal_wt_cursor.load() < offset && round == wal_buffer_round.load())) {
-            return entry_buffer;
+   {
+      WALEntry* entry = reinterpret_cast<WALEntry*>(wal_buffer);
+      u64 offset = 0;
+      while (offset < WORKER_WAL_SIZE) {
+         if (entry->lsn > lsn) {
+            break;
+         }
+         if (entry->lsn == lsn) {
+            u64 version = wal_wt_cursor.load();
+            u64 round = wal_buffer_round.load();
+            std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
+            std::memcpy(entry_buffer.get(), entry, entry->size);
+            if ((version > offset && round == wal_buffer_round.load()) ||
+                (version < offset && wal_wt_cursor.load() < offset && round == wal_buffer_round.load())) {
+               return entry_buffer;
+            } else {
+               break;
+            }
+         }
+         if (entry->size) {
+            offset += entry->size;
+            entry = reinterpret_cast<WALEntry*>(wal_buffer + offset);
          } else {
             break;
          }
       }
-      if (entry->size) {
-         offset += entry->size;
-         entry = reinterpret_cast<WALEntry*>(wal_buffer + offset);
-      } else {
-         break;
-      }
    }
-   // 2- Read from SSD, accelerate using getLowerBound
-   // TODO: optimize, do not read 10 Mob!
-   const u64 lower_bound = wal_finder.getLowerBound(lsn);
-   std::unique_ptr<u8[]> log_chunk = std::make_unique<u8[]>(WORKER_WAL_SIZE);
-   const u64 lower_bound_aligned = utils::downAlign(lower_bound);
-   const s32 ret = pread(ssd_fd, log_chunk.get(), lower_bound_aligned, WORKER_WAL_SIZE);
-   ensure(ret > 0);
-   entry = reinterpret_cast<WALEntry*>(log_chunk.get() + (lower_bound - lower_bound_aligned));
-   while ((reinterpret_cast<u8*>(entry) - log_chunk.get()) < WORKER_WAL_SIZE) {
-      if (entry->lsn == lsn) {
-         std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
-         std::memcpy(entry_buffer.get(), entry, entry->size);
-         return entry_buffer;
+   {
+      // 2- Read from SSD, accelerate using getLowerBound
+      // TODO: optimize, do not read 10 Mob!
+      const u64 lower_bound = wal_finder.getLowerBound(lsn);
+      std::unique_ptr<u8> log_chunk(reinterpret_cast<u8*>(std::aligned_alloc(512, WORKER_WAL_SIZE)));
+      const u64 lower_bound_aligned = utils::downAlign(lower_bound);
+      const s32 ret = pread(ssd_fd, log_chunk.get(), WORKER_WAL_SIZE, lower_bound_aligned);
+      posix_check(ret > 0);
+      // -------------------------------------------------------------------------------------
+      u64 offset = lower_bound - lower_bound_aligned;
+      WALEntry* entry = reinterpret_cast<WALEntry*>(log_chunk.get() + offset);
+      while (offset < WORKER_WAL_SIZE) {
+         if (entry->lsn == lsn) {
+            std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
+            std::memcpy(entry_buffer.get(), entry, entry->size);
+            return entry_buffer;
+         }
+         if (entry->size) {
+            offset += entry->size;
+            entry = reinterpret_cast<WALEntry*>(log_chunk.get() + offset);
+         } else {
+           goto restart;
+            break;
+         }
       }
-      if (entry->size) {
-         entry += entry->size;
-      } else {
-         goto restart;
-         break;
-      }
+      ensure(false);
+      return nullptr;
    }
-   ensure(false);
-   return nullptr;
 }
 }
 // -------------------------------------------------------------------------------------

@@ -57,18 +57,23 @@ void CRManager::groupCommiter()
    // -------------------------------------------------------------------------------------
    LID max_safe_gsn;
    // -------------------------------------------------------------------------------------
+loop : {
    while (keep_running) {
-      round_i = 0;
+      round_i++;
       CRCounters::myCounters().gct_rounds++;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
       // -------------------------------------------------------------------------------------
       max_safe_gsn = std::numeric_limits<LID>::max();
+      chunk.total_size = sizeof(WALChunk);
       // -------------------------------------------------------------------------------------
       // Phase 1
       for (u32 w_i = 0; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
          {
             std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
+            if (worker.wal_wt_cursor == worker.wal_ww_cursor) {
+               goto loop;
+            }
             worker.group_commit_data.ready_to_commit_cut = worker.ready_to_commit_queue.size();
             worker.group_commit_data.gsn_to_flush = worker.wal_max_gsn;
             worker.group_commit_data.wt_cursor_to_flush = worker.wal_wt_cursor;
@@ -86,53 +91,72 @@ void CRManager::groupCommiter()
                   const u64 ret = pwrite(ssd_fd, worker.wal_buffer + worker.wal_ww_cursor, size_aligned, ssd_offset);
                   posix_check(ret == size_aligned);
                }
+               // -------------------------------------------------------------------------------------
                COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                chunk.total_size += size_aligned;
                {
                   chunk.slot[w_i].offset = ssd_offset + worker.group_commit_data.bytes_to_ignore_in_the_next_round;
+                  assert(chunk.slot[w_i].offset < end_of_block_device);
                   chunk.slot[w_i].length = size - worker.group_commit_data.bytes_to_ignore_in_the_next_round;
                   const u64 down_aligned = utils::downAlign(worker.group_commit_data.wt_cursor_to_flush);
                   worker.group_commit_data.bytes_to_ignore_in_the_next_round = worker.group_commit_data.wt_cursor_to_flush - down_aligned;
                   worker.group_commit_data.wt_cursor_to_flush = down_aligned;
+                  assert(chunk.slot[w_i].offset < end_of_block_device);
+               }
+               DEBUG_BLOCK()
+               {
+                  alignas(512) u8 tmp[1024];
+                  u64 down_aligned = utils::downAlign(chunk.slot[w_i].offset);
+                  const s32 ret = pread(ssd_fd, tmp, 1024, down_aligned);
+                  posix_check(ret == 1024);
+                  auto entry = reinterpret_cast<WALEntry*>(tmp + chunk.slot[w_i].offset - down_aligned);
+                  assert(entry->lsn == worker.group_commit_data.first_lsn_in_chunk);
                }
             } else if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_ww_cursor) {
-               u64 total_size = 0;
-               {
-                  ensure((Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor) % 512 == 0);
-                  const u64 size = Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor;
-                  total_size += size;
-                  ssd_offset -= size;
-                  if (!FLAGS_wal_io_hack) {
-                     const u64 ret = pwrite(ssd_fd, worker.wal_buffer + worker.wal_ww_cursor, size, ssd_offset);
-                     posix_check(ret == size);
-                  }
-                  COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size; }
-                  chunk.total_size += size;
-               }
-               {
-                  // copy the rest
-                  const u64 size = worker.group_commit_data.wt_cursor_to_flush;
-                  const u64 size_aligned = utils::upAlign(size);
-                  total_size += size;
-                  ssd_offset -= size_aligned;
-                  if (!FLAGS_wal_io_hack) {
-                     const u64 ret = pwrite(ssd_fd, worker.wal_buffer, size_aligned, ssd_offset);
-                     posix_check(ret == size_aligned);
-                  }
-                  COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
-                  chunk.total_size += size_aligned;
-               }
-               {
-                  chunk.slot[w_i].offset = ssd_offset + worker.group_commit_data.bytes_to_ignore_in_the_next_round;
-                  chunk.slot[w_i].length = total_size - worker.group_commit_data.bytes_to_ignore_in_the_next_round;
-                  const u64 down_aligned = utils::downAlign(worker.group_commit_data.wt_cursor_to_flush);
-                  worker.group_commit_data.bytes_to_ignore_in_the_next_round = worker.group_commit_data.wt_cursor_to_flush - down_aligned;
-                  worker.group_commit_data.wt_cursor_to_flush = down_aligned;
-               }
+               raise(SIGTRAP);
+               // u64 total_size = 0;
+               // {
+               //    ensure((Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor) % 512 == 0);
+               //    const u64 size = Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor;
+               //    total_size += size;
+               //    ssd_offset -= size;
+               //    if (!FLAGS_wal_io_hack) {
+               //       const u64 ret = pwrite(ssd_fd, worker.wal_buffer + worker.wal_ww_cursor, size, ssd_offset);
+               //       posix_check(ret == size);
+               //    }
+               //    COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size; }
+               //    chunk.total_size += size;
+               // }
+               // {
+               //    // copy the rest
+               //    const u64 size = worker.group_commit_data.wt_cursor_to_flush;
+               //    const u64 size_aligned = utils::upAlign(size);
+               //    total_size += size;
+               //    ssd_offset -= size_aligned;
+               //    if (!FLAGS_wal_io_hack) {
+               //       const u64 ret = pwrite(ssd_fd, worker.wal_buffer, size_aligned, ssd_offset);
+               //       posix_check(ret == size_aligned);
+               //    }
+               //    COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
+               //    chunk.total_size += size_aligned;
+               // }
+               // {
+               //    chunk.slot[w_i].offset = ssd_offset + worker.group_commit_data.bytes_to_ignore_in_the_next_round;
+               //    chunk.slot[w_i].length = total_size - worker.group_commit_data.bytes_to_ignore_in_the_next_round;
+               //    const u64 down_aligned = utils::downAlign(worker.group_commit_data.wt_cursor_to_flush);
+               //    worker.group_commit_data.bytes_to_ignore_in_the_next_round = worker.group_commit_data.wt_cursor_to_flush - down_aligned;
+               //    assert(worker.group_commit_data.bytes_to_ignore_in_the_next_round < 512);
+               //    worker.group_commit_data.wt_cursor_to_flush = down_aligned;
+               //    assert(chunk.slot[w_i].offset < end_of_block_device);
+               // }
+            } else {
+               ensure(false);
             }
          }
          // -------------------------------------------------------------------------------------
+         assert(chunk.slot[w_i].offset < end_of_block_device);
          index[w_i] = ssd_offset;
+         assert(chunk.slot[w_i].offset < end_of_block_device);
       }
       // -------------------------------------------------------------------------------------
       if (workers[0]->wal_max_gsn > workers[0]->group_commit_data.max_safe_gsn_to_commit) {
@@ -151,12 +175,11 @@ void CRManager::groupCommiter()
          phase_1_end = std::chrono::high_resolution_clock::now();
          write_begin = phase_1_end;
       }
+      // -------------------------------------------------------------------------------------
+      // Flush
       if (chunk.total_size) {
          ensure(ssd_offset % 512 == 0);
          ssd_offset -= sizeof(WALChunk);
-         for (u64 w_i = 0; w_i < workers_count; w_i++) {
-            chunk.slot[w_i].offset -= ssd_offset;  // Make it relative to the beginning of SSD
-         }
          if (!FLAGS_wal_io_hack) {
             const u64 ret = pwrite(ssd_fd, &chunk, sizeof(WALChunk), ssd_offset);
             posix_check(ret == sizeof(WALChunk));
@@ -172,11 +195,13 @@ void CRManager::groupCommiter()
             fdatasync(ssd_fd);
          }
       }
+      // -------------------------------------------------------------------------------------
       COUNTERS_BLOCK()
       {
          write_end = std::chrono::high_resolution_clock::now();
          phase_2_begin = write_end;
       }
+      // -------------------------------------------------------------------------------------
       // Phase 2, commit
       u64 committed_tx = 0;
       for (s32 w_i = 0; w_i < s32(workers_count); w_i++) {
@@ -214,6 +239,7 @@ void CRManager::groupCommiter()
          CRCounters::myCounters().gct_write_ms += (std::chrono::duration_cast<std::chrono::microseconds>(write_end - write_begin).count());
       }
    }
+}
    running_threads--;
 }
 // -------------------------------------------------------------------------------------
