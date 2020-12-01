@@ -90,6 +90,7 @@ struct Worker {
    atomic<LID> wal_max_gsn = 0;       // W->GCT, under mutex
    atomic<u64> wal_buffer_round = 0;  // W->GCT, under mutex
    // -------------------------------------------------------------------------------------
+   // -------------------------------------------------------------------------------------
    atomic<u64> wal_ww_cursor = 0;                // GCT->W
    alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
    LID wal_lsn_counter = 0;
@@ -133,7 +134,8 @@ struct Worker {
    {
       const u64 total_size = sizeof(WALDTEntry) + requested_size;
       ensure(walContiguousFreeSpace() >= total_size);
-      active_dt_entry = reinterpret_cast<WALDTEntry*>(wal_buffer + wal_wt_cursor);
+      active_dt_entry = new (wal_buffer + wal_wt_cursor) WALDTEntry();
+      active_dt_entry->magic_debugging_number = 99;
       active_dt_entry->type = WALEntry::TYPE::DT_SPECIFIC;
       active_dt_entry->size = total_size;
       active_dt_entry->lsn = wal_lsn_counter++;

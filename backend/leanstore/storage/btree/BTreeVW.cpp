@@ -235,7 +235,7 @@ void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
             flag = false;
          } else {
             DEBUG_BLOCK() { version_depth++; }
-            ensure(next_lsn > wal_entry.prev_version.lsn);
+            assert(next_worker_id != wal_entry.prev_version.worker_id || next_lsn > wal_entry.prev_version.lsn);
             next_worker_id = wal_entry.prev_version.worker_id;
             next_lsn = wal_entry.prev_version.lsn;
          }
@@ -376,13 +376,17 @@ void BTree::scanAscVW(u8* start_key,
                 return callback(key, key_length, payload, payload_length);
              }
           } else {
-             JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
-             std::memcpy(reconstructed_payload->get(), payload, payload_length);
-             reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn);
-             if (payload_length == 0) {
+             if (version.is_final) {
                 return true;
              } else {
-                return callback(key, key_length, reconstructed_payload->get(), payload_length);
+                JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
+                std::memcpy(reconstructed_payload->get(), payload, payload_length);
+                reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn);
+                if (payload_length == 0) {
+                   return true;
+                } else {
+                   return callback(key, key_length, reconstructed_payload->get(), payload_length);
+                }
              }
           }
           return true;

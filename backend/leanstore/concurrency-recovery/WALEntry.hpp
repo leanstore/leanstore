@@ -15,6 +15,7 @@ struct WALEntry {
    u16 size;
    TYPE type;
    LID lsn;
+   u64 magic_debugging_number = 99;
 };
 // -------------------------------------------------------------------------------------
 struct WALMetaEntry : WALEntry {
