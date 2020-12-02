@@ -24,12 +24,13 @@ struct __attribute__((packed)) Version {
    u64 lsn : 56;
    u8 is_removed : 1;
    u8 is_final : 1;
-   Version(u8 worker_id, u64 tts, u64 lsn, bool is_deleted, bool is_final)
-       : worker_id(worker_id), tts(tts), lsn(lsn), is_removed(is_deleted), is_final(is_final)
+   u32 in_memory_offset;
+   Version(u8 worker_id, u64 tts, u64 lsn, bool is_deleted, bool is_final, u32 in_memory_offset)
+       : worker_id(worker_id), tts(tts), lsn(lsn), is_removed(is_deleted), is_final(is_final), in_memory_offset(in_memory_offset)
    {
    }
 };
-static_assert(sizeof(Version) == (2 * sizeof(u64)), "");
+static_assert(sizeof(Version) <= (3 * sizeof(u64)), "");
 // -------------------------------------------------------------------------------------
 enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit, WALInitPage };
 struct WALEntry {
@@ -100,7 +101,7 @@ OP_RESULT BTree::insertVW(u8* key, u16 key_length, u16 value_length_orig, u8* va
                wal_entry.submit();
                // -------------------------------------------------------------------------------------
                u8 value[value_length];
-               new (value) vw::Version(myWorkerID(), myTTS(), wal_entry.lsn, false, true);
+               new (value) vw::Version(myWorkerID(), myTTS(), wal_entry.lsn, false, true, wal_entry.in_memory_offset);
                std::memcpy(value + VW_PAYLOAD_OFFSET, value_orig, value_length_orig);
                // -------------------------------------------------------------------------------------
                leaf_ex_guard->insert(key, key_length, value, value_length);
@@ -126,7 +127,7 @@ OP_RESULT BTree::insertVW(u8* key, u16 key_length, u16 value_length_orig, u8* va
                      // -------------------------------------------------------------------------------------
                      u8 value[value_length];
                      std::memcpy(value + VW_PAYLOAD_OFFSET, value_orig, value_length_orig);
-                     new (value) vw::Version(myWorkerID(), myTTS(), wal_entry.lsn, false, false);
+                     new (value) vw::Version(myWorkerID(), myTTS(), wal_entry.lsn, false, false, wal_entry.in_memory_offset);
                      // -------------------------------------------------------------------------------------
                      leaf_ex_guard->insert(key, key_length, value, value_length);
                      jumpmu_return OP_RESULT::OK;
@@ -181,7 +182,8 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
                } else {
                   JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
                   std::memcpy(reconstructed_payload->get(), payload, payload_length);
-                  reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn);
+                  leaf.recheck_done();
+                  reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
                   if (payload_length == 0) {
                      raise(SIGTRAP);
                      jumpmu_return OP_RESULT::NOT_FOUND;
@@ -201,14 +203,13 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_length, u8 next_worker_id, u64 next_lsn)
+void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_length, u8 next_worker_id, u64 next_lsn, u32 in_memory_offset)
 {
    [[maybe_ununsed]] u64 version_depth = 1;
    bool flag = true;
    while (flag) {
-      cr::Worker::my().getWALDTEntry(next_worker_id, next_lsn, [&](u8* entry) {
+      cr::Worker::my().getWALDTEntry(next_worker_id, next_lsn, in_memory_offset, [&](u8* entry) {
          auto& wal_entry = *reinterpret_cast<vw::WALEntry*>(entry);
-         // raise(SIGTRAP);
          switch (wal_entry.type) {
             case vw::WAL_LOG_TYPE::WALRemove: {
                auto& remove_entry = *reinterpret_cast<vw::WALRemove*>(entry);
@@ -234,6 +235,7 @@ void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
          if (isVisibleForMe(wal_entry.prev_version.worker_id, wal_entry.prev_version.tts) || wal_entry.prev_version.lsn == 0) {
             flag = false;
          } else {
+            auto& update_entry = *reinterpret_cast<vw::WALUpdate*>(entry);
             DEBUG_BLOCK() { version_depth++; }
             assert(next_worker_id != wal_entry.prev_version.worker_id || next_lsn > wal_entry.prev_version.lsn);
             next_worker_id = wal_entry.prev_version.worker_id;
@@ -286,11 +288,13 @@ OP_RESULT BTree::updateVW(u8* key, u16 key_length, function<void(u8* value, u16 
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
                   version.worker_id = myWorkerID();
+                  version.in_memory_offset = wal_entry.in_memory_offset;
                   version.tts = myTTS();
                   version.lsn = wal_entry.lsn;
                   version.is_final = false;
                   version.is_removed = false;
                   // -------------------------------------------------------------------------------------
+                  assert(version.lsn != wal_entry->prev_version.lsn);
                   leaf_guard = std::move(leaf_ex_guard);
                   jumpmu_return OP_RESULT::OK;
                }
@@ -335,6 +339,7 @@ OP_RESULT BTree::removeVW(u8* key, u16 key_length)
                   std::memcpy(wal_entry->payload + key_length, payload, payload_length);
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
+                  version.in_memory_offset = wal_entry.in_memory_offset;
                   version.worker_id = myWorkerID();
                   version.tts = myTTS();
                   version.lsn = wal_entry.lsn;
@@ -381,7 +386,7 @@ void BTree::scanAscVW(u8* start_key,
              } else {
                 JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
                 std::memcpy(reconstructed_payload->get(), payload, payload_length);
-                reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn);
+                reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
                 if (payload_length == 0) {
                    return true;
                 } else {
@@ -414,7 +419,7 @@ void BTree::scanDescVW(u8* start_key,
           } else {
              JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
              std::memcpy(reconstructed_payload->get(), payload, payload_length);
-             reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn);
+             reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
              if (payload_length == 0) {
                 return true;
              } else {
@@ -466,6 +471,7 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
                   leaf_ex_guard->removeSlot(pos);
                   jumpmu_return;
                } else {
+                  raise(SIGTRAP);
                   // The previous entry was delete
                   auto& version = *reinterpret_cast<vw::Version*>(leaf_ex_guard->getPayload(pos));
                   version.is_removed = true;
@@ -488,6 +494,7 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
          break;
       }
       case vw::WAL_LOG_TYPE::WALUpdate: {
+         raise(SIGTRAP);
          // Prev was insert or update
          const auto& update_entry = *reinterpret_cast<const vw::WALUpdate*>(&entry);
          const u16 key_length = update_entry.key_length;
@@ -519,6 +526,7 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
          break;
       }
       case vw::WAL_LOG_TYPE::WALRemove: {
+         raise(SIGTRAP);
          // Prev was insert or update
          const auto& remove_entry = *reinterpret_cast<const vw::WALRemove*>(&entry);
          while (true) {

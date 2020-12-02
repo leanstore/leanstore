@@ -52,12 +52,13 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
       }
       if (walContiguousFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {  // always keep place for CR entry
          auto& entry = *reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
+         wal_wt_next_step.store(0, std::memory_order_release);
+         entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
          entry.magic_debugging_number = 99;
-         entry.lsn = wal_lsn_counter++;
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
          wal_buffer_round++;  // Carriage Return
-         wal_wt_cursor = 0;
+         wal_wt_cursor.store(0, std::memory_order_release);
       }
    }
 }
@@ -65,6 +66,7 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
 WALMetaEntry& Worker::reserveWALMetaEntry()
 {
    walEnsureEnoughSpace(sizeof(WALMetaEntry));
+   wal_wt_next_step.store(wal_wt_cursor + sizeof(WALMetaEntry), std::memory_order_release);
    return *reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
 }
 // -------------------------------------------------------------------------------------
@@ -88,10 +90,10 @@ void Worker::startTX()
    if (FLAGS_wal) {
       current_tx_wal_start = wal_wt_cursor;
       WALMetaEntry& entry = reserveWALMetaEntry();
+      entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
       entry.magic_debugging_number = 99;
       entry.size = sizeof(WALMetaEntry) + 0;
       entry.type = WALEntry::TYPE::TX_START;
-      entry.lsn = wal_lsn_counter++;
       submitWALMetaEntry();
       assert(active_tx.state != Transaction::STATE::STARTED);
       active_tx.state = Transaction::STATE::STARTED;
@@ -115,10 +117,10 @@ void Worker::commitTX()
       // TODO: MVCC, actually nothing when it comes to our SI plan
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
+      entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
       entry.magic_debugging_number = 99;
       entry.size = sizeof(WALMetaEntry) + 0;
       entry.type = WALEntry::TYPE::TX_COMMIT;
-      entry.lsn = wal_lsn_counter++;
       submitWALMetaEntry();
       // -------------------------------------------------------------------------------------
       active_tx.max_gsn = clock_gsn;
@@ -142,10 +144,10 @@ void Worker::abortTX()
       });
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
+      entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
       entry.magic_debugging_number = 99;
       entry.size = sizeof(WALMetaEntry) + 0;
       entry.type = WALEntry::TYPE::TX_ABORT;
-      entry.lsn = wal_lsn_counter++;
       submitWALMetaEntry();
       active_tx.state = Transaction::STATE::ABORTED;
    }
@@ -200,49 +202,60 @@ void Worker::WALFinder::insertJumpPoint(LID LSN, WALChunk::Slot slot)
    ht[LSN] = slot;
 }
 // -------------------------------------------------------------------------------------
-void Worker::getWALDTEntry(u8 worker_id, LID lsn, std::function<void(u8*)> callback)
+void Worker::getWALDTEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
 {
-   auto wal_entry = getWALEntry(worker_id, lsn);
-   auto dt_entry = reinterpret_cast<WALDTEntry*>(wal_entry.get());
-   callback(dt_entry->payload);
+   all_workers[worker_id]->getWALDTEntry(lsn, in_memory_offset, callback);
 }
 // -------------------------------------------------------------------------------------
-std::unique_ptr<u8[]> Worker::getWALEntry(u8 worker_id, LID lsn)
+void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
 {
-   auto tmp = all_workers[worker_id]->getWALEntry(lsn);
-   return tmp;
-}
-// -------------------------------------------------------------------------------------
-std::unique_ptr<u8[]> Worker::getWALEntry(LID lsn)
-{
-restart : {
-   // 1- Scan the local buffer
-   bool failed = false;
-   if (0) {
-      WALEntry* entry = reinterpret_cast<WALEntry*>(wal_buffer);
-      u64 offset = 0;
-      while (offset < WORKER_WAL_SIZE) {
-         ensure(entry->size);
-         if (entry->lsn == lsn) {
-            u64 version = wal_wt_cursor.load();
-            u64 round = wal_buffer_round.load();
-            std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
-            std::memcpy(entry_buffer.get(), entry, entry->size);
-            if ((version > offset && round == wal_buffer_round.load()) ||
-                (version < offset && wal_wt_cursor.load() < offset && round == wal_buffer_round.load())) {
-               return entry_buffer;
-            } else {
-               failed = true;
-               break;
-            }
-         }
-         offset += entry->size;
-         entry = reinterpret_cast<WALEntry*>(wal_buffer + offset);
+inmemory:
+   if (1) {
+      // 1- Optimistically locate the entry
+      auto dt_entry = reinterpret_cast<WALDTEntry*>(wal_buffer + in_memory_offset);
+      if (dt_entry->lsn != lsn) {
+         goto outofmemory;
       }
+      const u64 rounds_v = wal_buffer_round;
+      u64 wal_next = wal_wt_next_step;
+      u64 wal_cur = wal_wt_cursor;
+      const u16 size = 16 * 1024;
+      const u32 begin = in_memory_offset;
+      const u32 end = in_memory_offset + size;
+      bool before = true;
+      if (wal_cur < begin && wal_next < begin) {
+         before = true;
+      } else if (wal_cur > end && wal_next > end) {
+         before = false;
+      } else {
+         goto outofmemory;
+      }
+      const u16 dt_size = dt_entry->size;
+      u8 log[dt_size];
+      std::memcpy(log, wal_buffer + in_memory_offset, dt_size);
+      wal_next = wal_wt_next_step;
+      wal_cur = wal_wt_cursor;
+      if (rounds_v != wal_buffer_round) {
+         goto outofmemory;
+      }
+      if (before) {
+         if (!(wal_cur < begin && wal_next < begin)) {
+            goto outofmemory;
+         }
+      } else {
+         if (!(wal_cur > end && wal_next > end)) {
+            goto outofmemory;
+         }
+      }
+      auto tmp = reinterpret_cast<WALDTEntry*>(log);
+      if (tmp->lsn != lsn) {
+         raise(SIGTRAP);
+      }
+      callback(tmp->payload);
+      cout << "inmemory" << endl;
    }
 outofmemory : {
    // 2- Read from SSD, accelerate using getLowerBound
-   // TODO: optimize, do not read 10 Mib!
    const auto slot = wal_finder.getJumpPoint(lsn);
    if (slot.offset == 0) {
       goto outofmemory;
@@ -256,8 +269,8 @@ outofmemory : {
    // -------------------------------------------------------------------------------------
    u64 offset = 0;
    u8* ptr = log_chunk.get() + lower_bound - lower_bound_aligned;
-   WALEntry* entry = reinterpret_cast<WALEntry*>(ptr + offset);
-   WALEntry* prev_entry = entry;
+   auto entry = reinterpret_cast<WALDTEntry*>(ptr + offset);
+   auto prev_entry = entry;
    while (true) {
       if (entry->magic_debugging_number != 99) {
          cout << endl << offset << "," << read_size_aligned << endl;
@@ -270,14 +283,13 @@ outofmemory : {
       ensure(entry->magic_debugging_number == 99);
       ensure(entry->size > 0 && entry->lsn <= lsn);
       if (entry->lsn == lsn) {
-         std::unique_ptr<u8[]> entry_buffer = std::make_unique<u8[]>(entry->size);
-         std::memcpy(entry_buffer.get(), entry, entry->size);
-         return entry_buffer;
+         callback(entry->payload);
+         return;
       }
       if ((offset + entry->size) < slot.length) {
          offset += entry->size;
          prev_entry = entry;
-         entry = reinterpret_cast<WALEntry*>(ptr + offset);
+         entry = reinterpret_cast<WALDTEntry*>(ptr + offset);
       } else {
          break;
       }
@@ -293,8 +305,7 @@ outofmemory : {
       }
       goto outofmemory;
    }
-   return nullptr;
-}
+   return;
 }
 }
 // -------------------------------------------------------------------------------------

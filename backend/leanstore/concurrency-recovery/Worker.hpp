@@ -87,6 +87,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    // Published using mutex
    atomic<u64> wal_wt_cursor = 0;     // W->GCT
+   atomic<u64> wal_wt_next_step = 0;  // W->GCT
    atomic<LID> wal_max_gsn = 0;       // W->GCT, under mutex
    atomic<u64> wal_buffer_round = 0;  // W->GCT, under mutex
    // -------------------------------------------------------------------------------------
@@ -122,10 +123,14 @@ struct Worker {
       u8* entry;
       u64 total_size;
       u64 lsn;
+      u32 in_memory_offset;
       inline T* operator->() { return reinterpret_cast<T*>(entry); }
       inline T& operator*() { return *reinterpret_cast<T*>(entry); }
       WALEntryHandler() = default;
-      WALEntryHandler(u8* entry, u64 size, u64 lsn) : entry(entry), total_size(size), lsn(lsn) {}
+      WALEntryHandler(u8* entry, u64 size, u64 lsn, u64 in_memory_offset)
+          : entry(entry), total_size(size), lsn(lsn), in_memory_offset(in_memory_offset)
+      {
+      }
       void submit() { cr::Worker::my().submitDTEntry(total_size); }
    };
    // -------------------------------------------------------------------------------------
@@ -134,16 +139,17 @@ struct Worker {
    {
       const u64 total_size = sizeof(WALDTEntry) + requested_size;
       ensure(walContiguousFreeSpace() >= total_size);
+      wal_wt_next_step.store(wal_wt_cursor + total_size, std::memory_order_release);
       active_dt_entry = new (wal_buffer + wal_wt_cursor) WALDTEntry();
+      active_dt_entry->lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
       active_dt_entry->magic_debugging_number = 99;
       active_dt_entry->type = WALEntry::TYPE::DT_SPECIFIC;
       active_dt_entry->size = total_size;
-      active_dt_entry->lsn = wal_lsn_counter++;
       // -------------------------------------------------------------------------------------
       active_dt_entry->pid = pid;
       active_dt_entry->gsn = gsn;
       active_dt_entry->dt_id = dt_id;
-      return {active_dt_entry->payload, total_size, active_dt_entry->lsn};
+      return {active_dt_entry->payload, total_size, active_dt_entry->lsn, wal_wt_cursor};
    }
    void submitDTEntry(u64 requested_size);
    // -------------------------------------------------------------------------------------
@@ -158,9 +164,8 @@ struct Worker {
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
-   std::unique_ptr<u8[]> getWALEntry(LID lsn);
-   std::unique_ptr<u8[]> getWALEntry(u8 worker_id, LID lsn);
-   void getWALDTEntry(u8 worker_id, LID lsn, std::function<void(u8*)> callback);
+   void getWALDTEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
+   void getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr
