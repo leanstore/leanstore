@@ -137,6 +137,7 @@ int main(int argc, char** argv)
             }
             jumpmuCatch() {}
          }
+         cout << endl << "t_i = " << t_i << " managed " << tmp << endl;
          running_threads_counter--;
       });
    }

@@ -16,12 +16,12 @@ namespace storage
 {
 namespace btree
 {
-namespace nocc
-{
-enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit, WALInitPage };
+enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit = 10, WALInitPage = 11 };
 struct WALEntry {
    WAL_LOG_TYPE type;
 };
+namespace nocc
+{
 struct WALBeforeAfterImage : WALEntry {
    u16 image_size;
    u8 payload[];

@@ -171,6 +171,7 @@ void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entr
    u64 cursor = current_tx_wal_start;
    while (cursor != wal_wt_cursor) {
       const WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_buffer + cursor);
+      const WALEntry* next = reinterpret_cast<WALEntry*>(wal_buffer + cursor + entry.size);
       if (entry.type == WALEntry::TYPE::CARRIAGE_RETURN) {
          cursor = 0;
       } else {
@@ -248,11 +249,9 @@ inmemory:
          }
       }
       auto tmp = reinterpret_cast<WALDTEntry*>(log);
-      if (tmp->lsn != lsn) {
-         raise(SIGTRAP);
-      }
+      assert(tmp->lsn == lsn);
       callback(tmp->payload);
-      cout << "inmemory" << endl;
+      return;
    }
 outofmemory : {
    // 2- Read from SSD, accelerate using getLowerBound
@@ -263,27 +262,20 @@ outofmemory : {
    const u64 lower_bound = slot.offset;
    const u64 lower_bound_aligned = utils::downAlign(lower_bound);
    const u64 read_size_aligned = utils::upAlign(slot.length + lower_bound - lower_bound_aligned);
-   std::unique_ptr<u8> log_chunk(reinterpret_cast<u8*>(std::aligned_alloc(512, read_size_aligned)));
-   const s32 ret = pread(ssd_fd, log_chunk.get(), read_size_aligned, lower_bound_aligned);
+   auto log_chunk = static_cast<u8*>(std::aligned_alloc(512, read_size_aligned));
+   const s32 ret = pread(ssd_fd, log_chunk, read_size_aligned, lower_bound_aligned);
    posix_check(ret >= read_size_aligned);
    // -------------------------------------------------------------------------------------
    u64 offset = 0;
-   u8* ptr = log_chunk.get() + lower_bound - lower_bound_aligned;
+   u8* ptr = log_chunk + lower_bound - lower_bound_aligned;
    auto entry = reinterpret_cast<WALDTEntry*>(ptr + offset);
    auto prev_entry = entry;
    while (true) {
-      if (entry->magic_debugging_number != 99) {
-         cout << endl << offset << "," << read_size_aligned << endl;
-         std::unique_lock guard(wal_finder.m);
-         auto tmp0 = wal_finder.ht.upper_bound(lsn);
-         auto tmp1 = wal_finder.ht.lower_bound(lsn);
-         auto tmp = wal_finder.ht.begin();
-         raise(SIGTRAP);
-      }
       ensure(entry->magic_debugging_number == 99);
       ensure(entry->size > 0 && entry->lsn <= lsn);
       if (entry->lsn == lsn) {
          callback(entry->payload);
+         std::free(log_chunk);
          return;
       }
       if ((offset + entry->size) < slot.length) {
@@ -294,17 +286,9 @@ outofmemory : {
          break;
       }
    }
-   {
-      DEBUG_BLOCK()
-      {
-         const auto slot2 = wal_finder.getJumpPoint(lsn);
-         auto tmp = std::prev(wal_finder.ht.end())->first;
-         if (slot.offset == slot2.offset) {
-            // ensure(slot.offset != slot2.offset);
-         }
-      }
-      goto outofmemory;
-   }
+   std::free(log_chunk);
+   goto outofmemory;
+   ensure(false);
    return;
 }
 }

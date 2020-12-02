@@ -12,7 +12,7 @@ target_link_libraries(exp leanstore)
 target_include_directories(exp PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
 add_executable(tpcc tpc-c/tpcc.cpp)
-target_link_libraries(tpcc leanstore Threads::Threads)
+target_link_libraries(tpcc asan leanstore Threads::Threads)
 target_include_directories(tpcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
 

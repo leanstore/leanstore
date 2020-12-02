@@ -17,10 +17,6 @@ namespace btree
 {
 namespace vi
 {
-enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit, WALInitPage };
-struct WALEntry {
-   WAL_LOG_TYPE type;
-};
 struct WALBeforeAfterImage : WALEntry {
    u16 image_size;
    u8 payload[];
@@ -235,7 +231,7 @@ OP_RESULT BTree::insertVI(u8* k, u16 kl, u16 value_length, u8* value)
             ex_leaf->insert(key, key_length, value, value_length);
             if (FLAGS_wal) {
                auto wal_entry = ex_leaf.reserveWALEntry<vi::WALInsert>(key_length + value_length);
-               wal_entry->type = vi::WAL_LOG_TYPE::WALInsert;
+               wal_entry->type = WAL_LOG_TYPE::WALInsert;
                wal_entry->key_length = kl;
                wal_entry->value_length = value_length;
                std::memcpy(wal_entry->payload, k, kl);
@@ -307,9 +303,9 @@ OP_RESULT BTree::removeVI(u8* k_wo_version, u16 kl_wo_version)
 void BTree::undoVI(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
 {
    auto& btree = *reinterpret_cast<BTree*>(btree_object);
-   const vi::WALEntry& entry = *reinterpret_cast<const vi::WALEntry*>(wal_entry_ptr);
+   const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
    switch (entry.type) {
-      case vi::WAL_LOG_TYPE::WALInsert: {
+      case WAL_LOG_TYPE::WALInsert: {
          auto& insert_entry = *reinterpret_cast<const vi::WALInsert*>(&entry);
          u16 key_length = insert_entry.key_length + 8;
          u8 key[key_length];
@@ -330,7 +326,7 @@ void BTree::undoVI(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
          }
          break;
       }
-      case vi::WAL_LOG_TYPE::WALUpdate: {
+      case WAL_LOG_TYPE::WALUpdate: {
          const auto& update_entry = *reinterpret_cast<const vi::WALUpdate*>(&entry);
          u16 v_key_length = update_entry.key_length + 8;
          u8 v_key[v_key_length];
@@ -370,7 +366,7 @@ void BTree::undoVI(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
          }
          break;
       }
-      case vi::WAL_LOG_TYPE::WALRemove: {
+      case WAL_LOG_TYPE::WALRemove: {
          const auto& remove_entry = *reinterpret_cast<const vi::WALRemove*>(&entry);
          u16 v_key_length = remove_entry.key_length + 8;
          u8 v_key[v_key_length];

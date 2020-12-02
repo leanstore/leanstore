@@ -84,31 +84,32 @@ void CRManager::groupCommiter()
                chunk.slot[w_i].length = size;
                assert(chunk.slot[w_i].offset < end_of_block_device);
                chunk.total_size += size_aligned;
-               DEBUG_BLOCK()
-               {
-                  auto& slot = chunk.slot[w_i];
-                  const u64 offset = chunk.slot[w_i].offset;
-                  const u64 offset_aligned = utils::downAlign(chunk.slot[w_i].offset);
-                  const u64 size_aligned = utils::upAlign(slot.length + offset - offset_aligned);
-                  std::unique_ptr<u8> buffer(reinterpret_cast<u8*>(std::aligned_alloc(512, size_aligned)));
-                  const int ret = pread(ssd_fd, buffer.get(), size_aligned, offset_aligned);
-                  posix_check(ret == size_aligned);
-                  u8* ptr = buffer.get() + offset - offset_aligned;
-                  u64 traverse_offset = 0;
-                  auto entry = reinterpret_cast<WALEntry*>(ptr);
-                  while (true) {
-                     if (entry->magic_debugging_number != 99) {
-                        auto tmp = reinterpret_cast<WALEntry*>(worker.wal_buffer + lower_offset + traverse_offset);
-                        ensure(entry->magic_debugging_number == 99);
-                     }
-                     if ((traverse_offset + entry->size) < slot.length) {
-                        traverse_offset += entry->size;
-                        entry = reinterpret_cast<WALEntry*>(ptr + traverse_offset);
-                     } else {
-                        break;
-                     }
-                  }
-               }
+               // DEBUG_BLOCK()
+               // {
+               //    auto& slot = chunk.slot[w_i];
+               //    const u64 offset = chunk.slot[w_i].offset;
+               //    const u64 offset_aligned = utils::downAlign(chunk.slot[w_i].offset);
+               //    const u64 size_aligned = utils::upAlign(slot.length + offset - offset_aligned);
+               //    auto buffer = static_cast<u8*>(std::aligned_alloc(512, size_aligned));
+               //    const u64 ret = pread(ssd_fd, buffer, size_aligned, offset_aligned);
+               //    posix_check(ret == size_aligned);
+               //    u8* ptr = buffer + offset - offset_aligned;
+               //    u64 traverse_offset = 0;
+               //    auto entry = reinterpret_cast<WALEntry*>(ptr);
+               //    while (true) {
+               //       if (entry->magic_debugging_number != 99) {
+               //          auto tmp = reinterpret_cast<WALEntry*>(worker.wal_buffer + lower_offset + traverse_offset);
+               //          ensure(entry->magic_debugging_number == 99);
+               //       }
+               //       if ((traverse_offset + entry->size) < slot.length) {
+               //          traverse_offset += entry->size;
+               //          entry = reinterpret_cast<WALEntry*>(ptr + traverse_offset);
+               //       } else {
+               //          break;
+               //       }
+               //    }
+               //    std::free(buffer);
+               // }
                ensure(chunk.slot[w_i].offset >= ssd_offset);
             } else if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_ww_cursor) {
                {
