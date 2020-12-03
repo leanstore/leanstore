@@ -52,7 +52,7 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
       if (walContiguousFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {  // always keep place for CR entry
          auto& entry = *reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
          wal_wt_next_step.store(0, std::memory_order_release);
-         entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
+         entry.lsn = wal_lsn_counter++;
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
          DEBUG_BLOCK() { entry.computeCRC(); }
@@ -92,7 +92,7 @@ void Worker::startTX()
    if (FLAGS_wal) {
       current_tx_wal_start = wal_wt_cursor;
       WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
+      entry.lsn = wal_lsn_counter++;
       entry.type = WALEntry::TYPE::TX_START;
       submitWALMetaEntry();
       assert(active_tx.state != Transaction::STATE::STARTED);
@@ -117,7 +117,7 @@ void Worker::commitTX()
       // TODO: MVCC, actually nothing when it comes to our SI plan
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
+      entry.lsn = wal_lsn_counter++;
       entry.type = WALEntry::TYPE::TX_COMMIT;
       submitWALMetaEntry();
       // -------------------------------------------------------------------------------------
@@ -143,7 +143,7 @@ void Worker::abortTX()
       });
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
+      entry.lsn = wal_lsn_counter++;
       entry.type = WALEntry::TYPE::TX_ABORT;
       submitWALMetaEntry();
       active_tx.state = Transaction::STATE::ABORTED;
@@ -246,9 +246,9 @@ void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*
             goto outofmemory;
          }
       }
-      auto tmp = reinterpret_cast<WALDTEntry*>(log);
-      assert(tmp->lsn == lsn);
-      callback(tmp->payload);
+      auto entry = reinterpret_cast<WALDTEntry*>(log);
+      assert(entry->lsn == lsn);
+      callback(entry->payload);
       return;
    }
 outofmemory : {

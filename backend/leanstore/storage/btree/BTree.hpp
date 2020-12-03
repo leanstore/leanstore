@@ -74,8 +74,8 @@ struct BTree {
    OP_RESULT insert(u8* key, u16 key_length, u64 valueLength, u8* value);
    OP_RESULT updateSameSize(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0});
    OP_RESULT remove(u8* key, u16 key_length);
-   void scanAsc(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>, function<void()>);
-   void scanDesc(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>, function<void()>);
+   OP_RESULT scanAsc(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>, function<void()>);
+   OP_RESULT scanDesc(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>, function<void()>);
 // -------------------------------------------------------------------------------------
 #include "BTreeLL.hpp"
 // -------------------------------------------------------------------------------------

@@ -205,15 +205,6 @@ void CRManager::groupCommiter()
             std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
             if (chunk.slot[w_i].offset) {
                worker.wal_finder.insertJumpPoint(worker.group_commit_data.first_lsn_in_chunk, chunk.slot[w_i]);
-               DEBUG_BLOCK()
-               {
-                  alignas(512) u8 tmp[1024];
-                  u64 down_aligned = utils::downAlign(chunk.slot[w_i].offset);
-                  const s32 ret = pread(ssd_fd, tmp, 1024, down_aligned);
-                  posix_check(ret == 1024);
-                  auto entry = reinterpret_cast<WALEntry*>(tmp + chunk.slot[w_i].offset - down_aligned);
-                  assert(entry->lsn == worker.group_commit_data.first_lsn_in_chunk);
-               }
             }
             // -------------------------------------------------------------------------------------
             worker.wal_ww_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_relaxed);

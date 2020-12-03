@@ -72,7 +72,7 @@ bool BTree::lookupOneLL(u8* key, u16 key_length, function<void(const u8*, u16)> 
 void BTree::scanAscLL(u8* start_key,
                       u16 key_length,
                       std::function<bool(u8* key, u16 key_length, u8* payload, u16 payload_length)> callback,
-                      function<void()> undo)
+                      function<void()>)
 {
    volatile u32 mask = 1;
    u8* volatile next_key = start_key;
@@ -137,7 +137,7 @@ void BTree::scanAscLL(u8* start_key,
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::scanDescLL(u8* start_key, u16 key_length, std::function<bool(u8*, u16, u8*, u16)> callback, function<void()> undo)
+void BTree::scanDescLL(u8* start_key, u16 key_length, std::function<bool(u8*, u16, u8*, u16)> callback, function<void()>)
 {
    volatile u32 mask = 1;
    u8* volatile next_key = start_key;

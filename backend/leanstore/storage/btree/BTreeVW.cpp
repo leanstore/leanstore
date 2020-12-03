@@ -196,13 +196,18 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
                   JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
                   std::memcpy(reconstructed_payload->get(), payload, payload_length);
                   leaf.recheck_done();
-                  reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
-                  if (payload_length == 0) {
-                     raise(SIGTRAP);
-                     jumpmu_return OP_RESULT::NOT_FOUND;
+                  const bool ret =
+                      reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
+                  if (ret) {
+                     if (payload_length == 0) {
+                        raise(SIGTRAP);
+                        jumpmu_return OP_RESULT::NOT_FOUND;
+                     } else {
+                        payload_callback(reconstructed_payload->get(), payload_length);
+                        jumpmu_return OP_RESULT::OK;
+                     }
                   } else {
-                     payload_callback(reconstructed_payload->get(), payload_length);
-                     jumpmu_return OP_RESULT::OK;
+                     jumpmu_return OP_RESULT::ABORT_TX;
                   }
                }
             }
@@ -216,13 +221,17 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_length, u8 start_worker_id, u64 start_lsn, u32 in_memory_offset)
+bool BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_length, u8 start_worker_id, u64 start_lsn, u32 in_memory_offset)
 {
-   [[maybe_ununsed]] u64 version_depth = 0;
+   u64 version_depth = 0;
+   static_cast<void>(version_depth);
    bool flag = true;
    u8 next_worker_id = start_worker_id;
    u64 next_lsn = start_lsn;
    while (flag) {
+      if (version_depth > 2) {
+         return false;
+      }
       cr::Worker::my().getWALDTEntry(next_worker_id, next_lsn, in_memory_offset, [&](u8* entry) {
          auto& wal_entry = *reinterpret_cast<vw::WALVWEntry*>(entry);
          switch (wal_entry.type) {
@@ -244,21 +253,21 @@ void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
                break;
             }
             default: {
-               cout << u32(wal_entry.type) << endl;
+               // cout << u32(wal_entry.type) << "-" << version_depth << endl;
                ensure(false);
             }
          }
          if (isVisibleForMe(wal_entry.prev_version.worker_id, wal_entry.prev_version.tts) || wal_entry.prev_version.lsn == 0) {
             flag = false;
          } else {
-            auto& update_entry = *reinterpret_cast<vw::WALUpdate*>(entry);
-            DEBUG_BLOCK() { version_depth++; }
+            RELEASE_BLOCK() { version_depth++; }
             assert(next_worker_id != wal_entry.prev_version.worker_id || next_lsn > wal_entry.prev_version.lsn);
             next_worker_id = wal_entry.prev_version.worker_id;
             next_lsn = wal_entry.prev_version.lsn;
          }
       });
    }
+   return true;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTree::updateVW(u8* key, u16 key_length, function<void(u8* value, u16 value_size)> callback, WALUpdateGenerator wal_update_generator)
@@ -380,11 +389,12 @@ OP_RESULT BTree::removeVW(u8* key, u16 key_length)
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::scanAscVW(u8* start_key,
-                      u16 key_length,
-                      function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
-                      function<void()> undo)
+OP_RESULT BTree::scanAscVW(u8* start_key,
+                           u16 key_length,
+                           function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
+                           function<void()> undo)
 {
+   OP_RESULT res = OP_RESULT::OK;
    scanAscLL(
        start_key, key_length,
        [&](u8* key, u16 key_length, u8* payload_ll, u16 payload_length_ll) {
@@ -404,7 +414,15 @@ void BTree::scanAscVW(u8* start_key,
                 ensure(payload_length > 0);
                 JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
                 std::memcpy(reconstructed_payload->get(), payload, payload_length);
-                reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
+                jumpmuTry()
+                {
+                   reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
+                }
+                jumpmuCatch()
+                {
+                   res = OP_RESULT::ABORT_TX;
+                   return false;
+                }
                 if (payload_length == 0) {
                    return true;
                 } else {
@@ -415,13 +433,15 @@ void BTree::scanAscVW(u8* start_key,
           return true;
        },
        [&]() { undo(); });
+   return res;
 }
 // -------------------------------------------------------------------------------------
-void BTree::scanDescVW(u8* start_key,
-                       u16 key_length,
-                       function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
-                       function<void()> undo)
+OP_RESULT BTree::scanDescVW(u8* start_key,
+                            u16 key_length,
+                            function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
+                            function<void()> undo)
 {
+   OP_RESULT res = OP_RESULT::OK;
    scanDescLL(
        start_key, key_length,
        [&](u8* key, u16 key_length, u8* payload_ll, u16 payload_length_ll) {
@@ -437,19 +457,26 @@ void BTree::scanDescVW(u8* start_key,
           } else {
              JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
              std::memcpy(reconstructed_payload->get(), payload, payload_length);
-             reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
-             if (payload_length == 0) {
-                return true;
+             const bool ret = reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
+             if (ret) {
+                if (payload_length == 0) {
+                   return true;
+                } else {
+                   return callback(key, key_length, reconstructed_payload->get(), payload_length);
+                }
              } else {
-                return callback(key, key_length, reconstructed_payload->get(), payload_length);
+                res = OP_RESULT::ABORT_TX;
+                return false;
              }
           }
        },
        [&]() { undo(); });
+   return res;
 }
 // -------------------------------------------------------------------------------------
 void BTree::applyDeltaVW(u8* dst, u16 dst_size, const u8* delta_beginning, u16 delta_size)
 {
+   static_cast<void>(dst_size);
    const u8* delta_ptr = delta_beginning;
    while (delta_ptr - delta_beginning < delta_size) {
       const u16 offset = *reinterpret_cast<const u16*>(delta_ptr);
@@ -458,14 +485,14 @@ void BTree::applyDeltaVW(u8* dst, u16 dst_size, const u8* delta_beginning, u16 d
       delta_ptr += 2;
       for (u64 b_i = 0; b_i < size; b_i++) {
          *reinterpret_cast<u8*>(dst + offset + b_i) ^= *reinterpret_cast<const u8*>(delta_ptr + b_i);
-         ensure(offset + b_i < dst_size);
+         assert(offset + b_i < dst_size);
       }
       delta_ptr += size;
    }
 }
 // -------------------------------------------------------------------------------------
 // For Transaction abort and not for recovery
-void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
+void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
 {
    auto& btree = *reinterpret_cast<BTree*>(btree_object);
    const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);

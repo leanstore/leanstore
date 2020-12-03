@@ -448,7 +448,7 @@ void BTree::iterateDescVI(u8* start_key, u16 key_length, function<bool(HybridPag
    }
 }
 // -------------------------------------------------------------------------------------
-void BTree::scanDescVI(u8* k, u16 kl, function<bool(u8*, u16, u8*, u16)> callback, function<void()>)
+void BTree::scanDescVI(u8* k, u16 kl, [[maybe_ununsed]] function<bool(u8*, u16, u8*, u16)> callback, function<void()>)
 {
    u8 key[kl + 8];
    u16 key_length = kl + 8;
@@ -456,7 +456,7 @@ void BTree::scanDescVI(u8* k, u16 kl, function<bool(u8*, u16, u8*, u16)> callbac
    *reinterpret_cast<u64*>(key + kl) = std::numeric_limits<u64>::max();
    // -------------------------------------------------------------------------------------
    bool skip_delta = false;
-   s16 payload_length = -1;
+   [[maybe_unused]] s16 payload_length = -1;
    std::unique_ptr<u8[]> payload(nullptr);
    iterateDescVI(key, key_length, [&](HybridPageGuard<BTreeNode>& leaf, s16 pos) {
       if (!skip_delta || leaf->isDelta(pos)) {

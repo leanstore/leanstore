@@ -37,13 +37,15 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
 // -------------------------------------------------------------------------------------
 #define UNREACHABLE() throw ex::UnReachable(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
+#define always_check(e)                                                 \
+    (__builtin_expect(!(e), 0) ? throw leanstore::ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + std::to_string(__LINE__) + \
+                                                      " msg: " + std::string(#e))                                                               \
+                             : (void)0)
+
 #ifdef DEBUG
 #define ensure(e) assert(e);
 #else
-#define ensure(e)                                                                                                                               \
-  (__builtin_expect(!(e), 0) ? throw leanstore::ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + std::to_string(__LINE__) + \
-                                                      " msg: " + std::string(#e))                                                               \
-                             : (void)0)
+#define ensure(e) always_check(e)
 #endif
 // -------------------------------------------------------------------------------------
 #define TODO() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));

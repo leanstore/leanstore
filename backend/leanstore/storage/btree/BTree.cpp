@@ -42,6 +42,9 @@ OP_RESULT BTree::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> 
          res = OP_RESULT::NOT_FOUND;
       }
    }
+   if (res == OP_RESULT::ABORT_TX) {
+      cr::Worker::my().abortTX();
+   }
    return res;
 }
 // -------------------------------------------------------------------------------------
@@ -96,32 +99,42 @@ OP_RESULT BTree::remove(u8* key, u16 key_length)
    return res;
 }
 // -------------------------------------------------------------------------------------
-void BTree::scanAsc(u8* start_key,
-                    u16 key_length,
-                    function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
-                    function<void()> undo)
+OP_RESULT BTree::scanAsc(u8* start_key,
+                         u16 key_length,
+                         function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
+                         function<void()> undo)
 {
+   OP_RESULT res = OP_RESULT::OK;
    if (FLAGS_vw) {
-      scanAscVW(start_key, key_length, callback, undo);
+      res = scanAscVW(start_key, key_length, callback, undo);
    } else if (FLAGS_vi) {
       ensure(false);
    } else {
       scanAscLL(start_key, key_length, callback, undo);
    }
+   if (res == OP_RESULT::ABORT_TX) {
+      cr::Worker::my().abortTX();
+   }
+   return res;
 }
 // -------------------------------------------------------------------------------------
-void BTree::scanDesc(u8* start_key,
-                     u16 key_length,
-                     function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
-                     function<void()> undo)
+OP_RESULT BTree::scanDesc(u8* start_key,
+                          u16 key_length,
+                          function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
+                          function<void()> undo)
 {
+   OP_RESULT res = OP_RESULT::OK;
    if (FLAGS_vw) {
-      scanDescVW(start_key, key_length, callback, undo);
+      res = scanDescVW(start_key, key_length, callback, undo);
    } else if (FLAGS_vi) {
       ensure(false);
    } else {
       scanDescLL(start_key, key_length, callback, undo);
    }
+   if (res == OP_RESULT::ABORT_TX) {
+      cr::Worker::my().abortTX();
+   }
+   return res;
 }
 // -------------------------------------------------------------------------------------
 }  // namespace btree

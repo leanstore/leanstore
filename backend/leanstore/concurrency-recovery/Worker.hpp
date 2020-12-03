@@ -142,7 +142,7 @@ struct Worker {
       ensure(walContiguousFreeSpace() >= total_size);
       wal_wt_next_step.store(wal_wt_cursor + total_size, std::memory_order_release);
       active_dt_entry = new (wal_buffer + wal_wt_cursor) WALDTEntry();
-      active_dt_entry->lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
+      active_dt_entry->lsn = wal_lsn_counter++;
       active_dt_entry->magic_debugging_number = 99;
       active_dt_entry->type = WALEntry::TYPE::DT_SPECIFIC;
       active_dt_entry->size = total_size;
