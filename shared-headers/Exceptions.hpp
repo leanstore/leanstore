@@ -54,16 +54,29 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
   };
 
 // -------------------------------------------------------------------------------------
-#ifdef DEBUG
+#ifdef MACRO_CHECK_DEBUG
 #define DEBUG_BLOCK() if(true)
+#define RELEASE_BLOCK() if(true)
+#define BENCHMARK_BLOCK() if(true)
 #else
 #define DEBUG_BLOCK() if(false)
+#ifdef MACRO_CHECK_RELEASE
+#define RELEASE_BLOCK() if(true)
+#define BENCHMARK_BLOCK() if(true)
+#else
+#define RELEASE_BLOCK() if(false)
+#ifdef MACRO_CHECK_BENCHMARK
+#define BENCHMARK_BLOCK() if(true)
+#else
+#define BENCHMARK_BLOCK() if(false)
+#endif
+#endif
 #endif
 // -------------------------------------------------------------------------------------
-#ifdef MACRO_FLAG_COUNTERS
+#ifdef MACRO_COUNTERS_ALL
 #define COUNTERS_BLOCK() if(true)
 #else
-#define COUNTERS_BLOCK() if(false)
+#define COUNTERS_BLOCK() if(else)
 #endif
 // -------------------------------------------------------------------------------------
 template <typename T>

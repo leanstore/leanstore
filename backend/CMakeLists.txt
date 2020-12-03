@@ -26,10 +26,20 @@ ENDIF(SANI)
 
 target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic tabluate) #tbb
 
-OPTION(LEANSTORE_COUNTERS "Compile leanstore with debugging/performance counters" ON)
-IF(LEANSTORE_COUNTERS)
-  target_compile_definitions(leanstore PUBLIC MACRO_FLAG_COUNTERS=1)
-ENDIF(LEANSTORE_COUNTERS)
+# ---------------------------------------------------------------------------
+SET(COUNTERS_LEVEL "all" CACHE STRING "Which counters to leave in leanstore build")
+IF(COUNTERS_LEVEL STREQUAL "all")
+  target_compile_definitions(leanstore PUBLIC MACRO_COUNTERS_ALL)
+ENDIF()
+
+SET(CHECKS_LEVEL "debug" CACHE STRING "Which checks to leave in leanstore build")
+IF(CHECKS_LEVEL STREQUAL "debug")
+  target_compile_definitions(leanstore PUBLIC MACRO_CHECK_DEBUG)
+ELSEIF(CHECKS_LEVEL STREQUAL "release")
+  target_compile_definitions(leanstore PUBLIC MACRO_CHECK_RELEASE)
+ELSEIF(CHECKS_LEVEL STREQUAL "benchmark")
+  target_compile_definitions(leanstore PUBLIC MACRO_CHECK_BENCHMARK)
+ENDIF()
 # ---------------------------------------------------------------------------
 target_include_directories(leanstore PUBLIC ${SHARED_INCLUDE_DIRECTORY})
 target_include_directories(leanstore PRIVATE ${CMAKE_CURRENT_LIST_DIR})

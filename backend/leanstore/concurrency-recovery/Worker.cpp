@@ -53,9 +53,9 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
          auto& entry = *reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
          wal_wt_next_step.store(0, std::memory_order_release);
          entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
-         entry.magic_debugging_number = 99;
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
+         DEBUG_BLOCK() { entry.computeCRC(); }
          wal_buffer_round++;  // Carriage Return
          wal_wt_cursor.store(0, std::memory_order_release);
       }
@@ -73,14 +73,14 @@ WALMetaEntry& Worker::reserveWALMetaEntry()
 // -------------------------------------------------------------------------------------
 void Worker::submitWALMetaEntry()
 {
-   active_mt_entry->computeCRC();
+   DEBUG_BLOCK() { active_mt_entry->computeCRC(); }
    const u64 next_wal_wt_cursor = wal_wt_cursor + sizeof(WALMetaEntry);
    wal_wt_cursor.store(next_wal_wt_cursor, std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::submitDTEntry(u64 total_size)
 {
-   active_dt_entry->computeCRC();
+   DEBUG_BLOCK() { active_dt_entry->computeCRC(); }
    std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
    const u64 next_wt_cursor = wal_wt_cursor + total_size;
    wal_wt_cursor.store(next_wt_cursor, std::memory_order_relaxed);
@@ -169,7 +169,7 @@ void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entr
    u64 cursor = current_tx_wal_start;
    while (cursor != wal_wt_cursor) {
       const WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_buffer + cursor);
-      entry.checkCRC();
+      DEBUG_BLOCK() { entry.checkCRC(); }
       const WALEntry* next = reinterpret_cast<WALEntry*>(wal_buffer + cursor + entry.size);
       if (entry.type == WALEntry::TYPE::CARRIAGE_RETURN) {
          cursor = 0;
@@ -209,8 +209,7 @@ void Worker::getWALDTEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::fun
 // -------------------------------------------------------------------------------------
 void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
 {
-inmemory:
-   if (1) {
+   {
       // 1- Optimistically locate the entry
       auto dt_entry = reinterpret_cast<WALDTEntry*>(wal_buffer + in_memory_offset);
       if (dt_entry->lsn != lsn) {
@@ -270,10 +269,9 @@ outofmemory : {
    auto entry = reinterpret_cast<WALDTEntry*>(ptr + offset);
    auto prev_entry = entry;
    while (true) {
-      // entry->checkCRC();
+      DEBUG_BLOCK() { entry->checkCRC(); }
       ensure(entry->size > 0 && entry->lsn <= lsn);
       if (entry->lsn == lsn) {
-         entry->checkCRC();
          callback(entry->payload);
          std::free(log_chunk);
          return;

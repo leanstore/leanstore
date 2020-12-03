@@ -117,10 +117,11 @@ int main(int argc, char** argv)
    vector<thread> threads;
    auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
    db.startProfilingThread();
+   u64 tx_per_thread[FLAGS_worker_threads];
    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
-         u64 tmp = 0;
+         volatile u64 tx_acc = 0;
          while (keep_running) {
             jumpmuTry()
             {
@@ -138,11 +139,11 @@ int main(int argc, char** argv)
                   cr::Worker::my().commitTX();
                }
                WorkerCounters::myCounters().tx++;
-               tmp++;
+               tx_acc++;
             }
             jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
          }
-         cout << endl << "t_i = " << t_i << " managed " << tmp << endl;
+         tx_per_thread[t_i] = tx_acc;
          running_threads_counter--;
       });
    }
@@ -164,6 +165,12 @@ int main(int argc, char** argv)
          MYPAUSE();
       }
       crm.joinAll();
+   }
+   {
+      cout << endl;
+      for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+         cout << "t_i = " << t_i << " managed " << tx_per_thread[t_i] << endl;
+      }
    }
    // -------------------------------------------------------------------------------------
    gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);

@@ -4,6 +4,8 @@
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
 #include <signal.h>
+
+#include <iostream>
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::storage;
@@ -242,6 +244,7 @@ void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
                break;
             }
             default: {
+               cout << u32(wal_entry.type) << endl;
                ensure(false);
             }
          }
