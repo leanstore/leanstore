@@ -19,14 +19,14 @@ namespace btree
 namespace vw
 {
 struct __attribute__((packed)) Version {
-   u8 worker_id : 8;
    u64 tts : 56;
    u64 lsn : 56;
+   u32 in_memory_offset;
+   u8 worker_id : 8;
    u8 is_removed : 1;
    u8 is_final : 1;
-   u32 in_memory_offset;
    Version(u8 worker_id, u64 tts, u64 lsn, bool is_deleted, bool is_final, u32 in_memory_offset)
-       : worker_id(worker_id), tts(tts), lsn(lsn), is_removed(is_deleted), is_final(is_final), in_memory_offset(in_memory_offset)
+       : tts(tts), lsn(lsn), in_memory_offset(in_memory_offset), worker_id(worker_id), is_removed(is_deleted), is_final(is_final)
    {
    }
    void reset()
@@ -39,7 +39,7 @@ struct __attribute__((packed)) Version {
       in_memory_offset = 0;
    }
 };
-static_assert(sizeof(Version) <= (3 * sizeof(u64)), "");
+static_assert(sizeof(vw::Version) == (20), "");
 // -------------------------------------------------------------------------------------
 struct WALVWEntry : WALEntry {
    vw::Version prev_version;
@@ -115,10 +115,11 @@ OP_RESULT BTree::insertVW(u8* key, u16 key_length, u16 value_length_orig, u8* va
                jumpmu_return OP_RESULT::OK;
             }
          } else {
+            raise(SIGTRAP);
             auto& version = *reinterpret_cast<vw::Version*>(leaf_ex_guard->getPayload(pos));
             if (isVisibleForMe(version.worker_id, version.tts)) {
                if (version.is_removed) {
-                  if (leaf_ex_guard->canInsert(key_length, value_length)) {
+                  if (leaf_ex_guard->prepareInsert(key, key_length, value_length)) {
                      // -------------------------------------------------------------------------------------
                      // WAL
                      auto wal_entry = leaf_ex_guard.reserveWALEntry<vw::WALInsert>(key_length + value_length_orig);
@@ -137,10 +138,12 @@ OP_RESULT BTree::insertVW(u8* key, u16 key_length, u16 value_length_orig, u8* va
                      std::memcpy(value + VW_PAYLOAD_OFFSET, value_orig, value_length_orig);
                      new (value) vw::Version(myWorkerID(), myTTS(), wal_entry.lsn, false, false, wal_entry.in_memory_offset);
                      // -------------------------------------------------------------------------------------
+                     leaf_ex_guard->removeSlot(pos);  // TODO: not sure if it is correct
                      leaf_ex_guard->insert(key, key_length, value, value_length);
                      jumpmu_return OP_RESULT::OK;
                   }
                } else {
+                  raise(SIGTRAP);
                   jumpmu_return OP_RESULT::DUPLICATE;
                }
             } else {
@@ -312,6 +315,7 @@ OP_RESULT BTree::updateVW(u8* key, u16 key_length, function<void(u8* value, u16 
                jumpmu_return OP_RESULT::ABORT_TX;
             }
          } else {
+            raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }

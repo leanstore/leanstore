@@ -381,7 +381,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          // -------------------------------------------------------------------------------------
          c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
       };
-      if (0 && FLAGS_wal) {
+      if (FLAGS_wal) {
          auto new_root_init_wal = new_root.reserveWALEntry<nocc::WALInitPage>(0);
          new_root_init_wal->type = WAL_LOG_TYPE::WALInitPage;
          new_root_init_wal->dt_id = dt_id;
@@ -437,7 +437,7 @@ void BTree::trySplit(BufferFrame& to_split, s16 favored_split_pos)
             c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
          };
          // -------------------------------------------------------------------------------------
-         if (0 && FLAGS_wal) {
+         if (FLAGS_wal) {
             auto new_left_init_wal = new_left_node.reserveWALEntry<nocc::WALInitPage>(0);
             new_left_init_wal->type = WAL_LOG_TYPE::WALInitPage;
             new_left_init_wal->dt_id = dt_id;

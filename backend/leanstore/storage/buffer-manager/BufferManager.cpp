@@ -244,7 +244,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       readPageSync(pid, bf.page);
       COUNTERS_BLOCK()
       {
-         WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
+        // WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
          if (FLAGS_trace_dt_id >= 0 && bf.page.dt_id == FLAGS_trace_dt_id &&
              utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
             utils::printBackTrace();
