@@ -16,7 +16,7 @@ namespace storage
 {
 namespace btree
 {
-enum class WAL_LOG_TYPE : u8 { WALInsert, WALUpdate, WALRemove, WALAfterBeforeImage, WALAfterImage, WALLogicalSplit = 10, WALInitPage = 11 };
+enum class WAL_LOG_TYPE : u8 { WALInsert = 1, WALUpdate =2 , WALRemove =3, WALAfterBeforeImage =4 , WALAfterImage =5, WALLogicalSplit = 10, WALInitPage = 11 };
 struct WALEntry {
    WAL_LOG_TYPE type;
 };

@@ -58,7 +58,6 @@ void BMTable::open()
    columns.emplace("r_mib", [&](Column& col) {
       col << (sum(WorkerCounters::worker_counters, &WorkerCounters::read_operations_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
    });
-   columns.emplace("tx", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx); });
 }
 // -------------------------------------------------------------------------------------
 void BMTable::next()

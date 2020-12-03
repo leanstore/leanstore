@@ -58,7 +58,6 @@ OP_RESULT BTree::insert(u8* key, u16 key_length, u64 value_length, u8* value)
    }
    if (res == OP_RESULT::ABORT_TX) {
       cr::Worker::my().abortTX();
-      jumpmu::jump();
    }
    return res;
 }
@@ -76,7 +75,6 @@ OP_RESULT BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* value
    }
    if (res == OP_RESULT::ABORT_TX) {
       cr::Worker::my().abortTX();
-      jumpmu::jump();
    }
    return res;
 }
@@ -94,7 +92,6 @@ OP_RESULT BTree::remove(u8* key, u16 key_length)
    }
    if (res == OP_RESULT::ABORT_TX) {
       cr::Worker::my().abortTX();
-      jumpmu::jump();
    }
    return res;
 }

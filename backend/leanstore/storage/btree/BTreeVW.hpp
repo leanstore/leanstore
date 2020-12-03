@@ -6,5 +6,5 @@ void scanAscVW(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_len
 // starts at the key + 1
 void scanDescVW(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback, function<void()> undo);
 void reconstructTupleVW(std::unique_ptr<u8[]>& start_payload, u16& payload_length, u8 worker_id, u64 lsn, u32 in_memory_offset);
-static void applyDeltaVW(u8* dst, const u8* delta, u16 delta_size);
+static void applyDeltaVW(u8* dst, u16 dst_size, const u8* delta, u16 delta_size);
 static void undoVW(void* btree_object, const u8* wal_entry_ptr, const u64 tts);

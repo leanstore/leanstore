@@ -3,7 +3,6 @@
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/storage/buffer-manager/DTRegistry.hpp"
-#include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <cstdlib>
@@ -67,22 +66,25 @@ WALMetaEntry& Worker::reserveWALMetaEntry()
 {
    walEnsureEnoughSpace(sizeof(WALMetaEntry));
    wal_wt_next_step.store(wal_wt_cursor + sizeof(WALMetaEntry), std::memory_order_release);
-   return *reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
+   active_mt_entry = reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
+   active_mt_entry->size = sizeof(WALMetaEntry);
+   return *active_mt_entry;
 }
 // -------------------------------------------------------------------------------------
 void Worker::submitWALMetaEntry()
 {
+   active_mt_entry->computeCRC();
    const u64 next_wal_wt_cursor = wal_wt_cursor + sizeof(WALMetaEntry);
    wal_wt_cursor.store(next_wal_wt_cursor, std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::submitDTEntry(u64 total_size)
 {
+   active_dt_entry->computeCRC();
    std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
    const u64 next_wt_cursor = wal_wt_cursor + total_size;
    wal_wt_cursor.store(next_wt_cursor, std::memory_order_relaxed);
    wal_max_gsn.store(clock_gsn, std::memory_order_relaxed);
-   assert(active_dt_entry->magic_debugging_number == 99);
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX()
@@ -91,8 +93,6 @@ void Worker::startTX()
       current_tx_wal_start = wal_wt_cursor;
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
-      entry.magic_debugging_number = 99;
-      entry.size = sizeof(WALMetaEntry) + 0;
       entry.type = WALEntry::TYPE::TX_START;
       submitWALMetaEntry();
       assert(active_tx.state != Transaction::STATE::STARTED);
@@ -112,14 +112,12 @@ void Worker::startTX()
 void Worker::commitTX()
 {
    if (FLAGS_wal) {
-      assert(active_tx.state == Transaction::STATE::STARTED);
+      ensure(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
       // TODO: MVCC, actually nothing when it comes to our SI plan
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
-      entry.magic_debugging_number = 99;
-      entry.size = sizeof(WALMetaEntry) + 0;
       entry.type = WALEntry::TYPE::TX_COMMIT;
       submitWALMetaEntry();
       // -------------------------------------------------------------------------------------
@@ -135,6 +133,7 @@ void Worker::commitTX()
 void Worker::abortTX()
 {
    if (FLAGS_wal) {
+      ensure(active_tx.state == Transaction::STATE::STARTED);
       iterateOverCurrentTXEntries([&](const WALEntry& entry) {
          const u64 tts = active_tx.tts;
          if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
@@ -145,12 +144,11 @@ void Worker::abortTX()
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.lsn.store(wal_lsn_counter++, std::memory_order_relaxed);
-      entry.magic_debugging_number = 99;
-      entry.size = sizeof(WALMetaEntry) + 0;
       entry.type = WALEntry::TYPE::TX_ABORT;
       submitWALMetaEntry();
       active_tx.state = Transaction::STATE::ABORTED;
    }
+   jumpmu::jump();
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
@@ -171,6 +169,7 @@ void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entr
    u64 cursor = current_tx_wal_start;
    while (cursor != wal_wt_cursor) {
       const WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_buffer + cursor);
+      entry.checkCRC();
       const WALEntry* next = reinterpret_cast<WALEntry*>(wal_buffer + cursor + entry.size);
       if (entry.type == WALEntry::TYPE::CARRIAGE_RETURN) {
          cursor = 0;
@@ -271,9 +270,10 @@ outofmemory : {
    auto entry = reinterpret_cast<WALDTEntry*>(ptr + offset);
    auto prev_entry = entry;
    while (true) {
-      ensure(entry->magic_debugging_number == 99);
+      // entry->checkCRC();
       ensure(entry->size > 0 && entry->lsn <= lsn);
       if (entry->lsn == lsn) {
+         entry->checkCRC();
          callback(entry->payload);
          std::free(log_chunk);
          return;

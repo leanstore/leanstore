@@ -95,7 +95,7 @@ OP_RESULT BTree::insertVW(u8* key, u16 key_length, u16 value_length_orig, u8* va
          s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
          if (pos == -1) {
             // Really new
-            if (leaf_ex_guard->canInsert(key_length, value_length)) {
+            if (leaf_ex_guard->prepareInsert(key, key_length, value_length)) {
                // -------------------------------------------------------------------------------------
                // WAL
                auto wal_entry = leaf_ex_guard.reserveWALEntry<vw::WALInsert>(key_length + value_length_orig);
@@ -105,7 +105,6 @@ OP_RESULT BTree::insertVW(u8* key, u16 key_length, u16 value_length_orig, u8* va
                wal_entry->prev_version.reset();
                std::memcpy(wal_entry->payload, key, key_length);
                std::memcpy(wal_entry->payload + key_length, value_orig, value_length_orig);
-               assert(wal_entry->key_length > 0);
                wal_entry.submit();
                // -------------------------------------------------------------------------------------
                u8 value[value_length];
@@ -219,12 +218,8 @@ void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
    u8 next_worker_id = start_worker_id;
    u64 next_lsn = start_lsn;
    while (flag) {
-      u64 tmp = 0;
       cr::Worker::my().getWALDTEntry(next_worker_id, next_lsn, in_memory_offset, [&](u8* entry) {
-         tmp++;
-         ensure(tmp == 1);
          auto& wal_entry = *reinterpret_cast<vw::WALVWEntry*>(entry);
-         //         assert(next_worker_id != start_worker_id || next_lsn < start_lsn);
          switch (wal_entry.type) {
             case WAL_LOG_TYPE::WALRemove: {
                auto& remove_entry = *reinterpret_cast<vw::WALRemove*>(entry);
@@ -240,7 +235,7 @@ void BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
             }
             case WAL_LOG_TYPE::WALUpdate: {
                auto& update_entry = *reinterpret_cast<vw::WALUpdate*>(entry);
-               applyDeltaVW(payload.get(), update_entry.payload + update_entry.key_length, update_entry.delta_length);
+               applyDeltaVW(payload.get(), payload_length, update_entry.payload + update_entry.key_length, update_entry.delta_length);
                break;
             }
             default: {
@@ -399,6 +394,7 @@ void BTree::scanAscVW(u8* start_key,
              if (version.is_final) {
                 return true;
              } else {
+                ensure(payload_length > 0);
                 JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
                 std::memcpy(reconstructed_payload->get(), payload, payload_length);
                 reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
@@ -445,7 +441,7 @@ void BTree::scanDescVW(u8* start_key,
        [&]() { undo(); });
 }
 // -------------------------------------------------------------------------------------
-void BTree::applyDeltaVW(u8* dst, const u8* delta_beginning, u16 delta_size)
+void BTree::applyDeltaVW(u8* dst, u16 dst_size, const u8* delta_beginning, u16 delta_size)
 {
    const u8* delta_ptr = delta_beginning;
    while (delta_ptr - delta_beginning < delta_size) {
@@ -455,6 +451,7 @@ void BTree::applyDeltaVW(u8* dst, const u8* delta_beginning, u16 delta_size)
       delta_ptr += 2;
       for (u64 b_i = 0; b_i < size; b_i++) {
          *reinterpret_cast<u8*>(dst + offset + b_i) ^= *reinterpret_cast<const u8*>(delta_ptr + b_i);
+         ensure(offset + b_i < dst_size);
       }
       delta_ptr += size;
    }
@@ -481,12 +478,10 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                btree.findLeafCanJump<OP_TYPE::POINT_DELETE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
-               if (pos == -1) {
-                  cout << key_length << endl;
-               }
                ensure(pos != -1);
                if (insert_entry.prev_version.lsn == 0) {
-                  leaf_ex_guard->removeSlot(pos);
+                  const bool ret = leaf_ex_guard->removeSlot(pos);
+                  ensure(ret);
                   jumpmu_return;
                } else {
                   // The previous entry was delete
@@ -498,6 +493,7 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                   cr::Worker::my().getWALDTEntry(insert_entry.prev_version.worker_id, insert_entry.prev_version.lsn,
                                                  [&](u8* p_entry) {  // Can be optimized away
                                                     const vw::WALVWEntry& prev_entry = *reinterpret_cast<const vw::WALVWEntry*>(p_entry);
+                                                    ensure(prev_entry.type == WAL_LOG_TYPE::WALRemove);
                                                     version.is_final = (prev_entry.prev_version.lsn == 0);
                                                  });
                   // -------------------------------------------------------------------------------------
@@ -528,7 +524,8 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                // -------------------------------------------------------------------------------------
                // Apply delta
                u8* payload = leaf_ex_guard->getPayload(pos) + VW_PAYLOAD_OFFSET;
-               applyDeltaVW(payload, update_entry.payload + update_entry.key_length, update_entry.delta_length);
+               applyDeltaVW(payload, leaf_ex_guard->getPayloadLength(pos) - VW_PAYLOAD_OFFSET, update_entry.payload + update_entry.key_length,
+                            update_entry.delta_length);
                // -------------------------------------------------------------------------------------
                version.tts = update_entry.prev_version.tts;
                version.worker_id = update_entry.prev_version.worker_id;

@@ -18,10 +18,10 @@ namespace btree
 // -------------------------------------------------------------------------------------
 void BTree::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
 {
-   if (FLAGS_vi) {
-      undoVI(btree_object, wal_entry_ptr, tts);
-   } else if (FLAGS_vw) {
+   if (FLAGS_vw) {
       undoVW(btree_object, wal_entry_ptr, tts);
+   } else if (FLAGS_vi) {
+      undoVI(btree_object, wal_entry_ptr, tts);
    } else {
       ensure(false);
    }

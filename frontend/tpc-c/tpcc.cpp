@@ -21,6 +21,7 @@
 #include <vector>
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(tpcc_warehouse_count, 1, "");
+DEFINE_int32(tpcc_abort_pct, 0, "");
 DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
 DEFINE_bool(tpcc_fast_load, false, "");
@@ -131,11 +132,15 @@ int main(int argc, char** argv)
                   w_id = urand(1, FLAGS_tpcc_warehouse_count);
                }
                tx(w_id);
-               cr::Worker::my().commitTX();
+               if (FLAGS_tpcc_abort_pct && urand(0, 100) <= FLAGS_tpcc_abort_pct) {
+                  cr::Worker::my().abortTX();
+               } else {
+                  cr::Worker::my().commitTX();
+               }
                WorkerCounters::myCounters().tx++;
                tmp++;
             }
-            jumpmuCatch() {}
+            jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
          }
          cout << endl << "t_i = " << t_i << " managed " << tmp << endl;
          running_threads_counter--;

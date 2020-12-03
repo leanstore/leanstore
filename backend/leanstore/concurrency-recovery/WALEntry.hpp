@@ -1,6 +1,7 @@
 #pragma once
 #include "Units.hpp"
 #include "Worker.hpp"
+#include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
@@ -13,15 +14,23 @@ namespace cr
 struct WALEntry {
    enum class TYPE : u8 { TX_START, TX_COMMIT, TX_ABORT, DT_SPECIFIC, CARRIAGE_RETURN };
    // -------------------------------------------------------------------------------------
+   u64 magic_debugging_number = 99;
+   std::atomic<LID> lsn;
    u16 size;
    TYPE type;
-   std::atomic<LID> lsn;
-   u64 magic_debugging_number = 99;
+   void computeCRC() { magic_debugging_number = utils::CRC(reinterpret_cast<u8*>(this) + sizeof(u64), size - sizeof(u64)); }
+   void checkCRC() const
+   {
+      if (magic_debugging_number != utils::CRC(reinterpret_cast<const u8*>(this) + sizeof(u64), size - sizeof(u64))) {
+         raise(SIGTRAP);
+         ensure(false);
+      }
+   }
 };
 // -------------------------------------------------------------------------------------
 struct WALMetaEntry : WALEntry {
-   u8 payload[];
 };
+// static_assert(sizeof(WALMetaEntry) == 32, "");
 // -------------------------------------------------------------------------------------
 struct WALDTEntry : WALEntry {
    LID gsn;

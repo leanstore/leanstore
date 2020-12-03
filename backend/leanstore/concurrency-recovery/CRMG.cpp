@@ -64,10 +64,14 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
 CRManager::~CRManager()
 {
    keep_running = false;
+
    for (u64 t_i = 0; t_i < workers_count; t_i++) {
       worker_threads_meta[t_i].cv.notify_one();
    }
    while (running_threads) {
+   }
+   for (u64 t_i = 0; t_i < workers_count; t_i++) {
+      delete workers[t_i];
    }
 }
 // -------------------------------------------------------------------------------------
