@@ -83,8 +83,8 @@ void Worker::submitDTEntry(u64 total_size)
    DEBUG_BLOCK() { active_dt_entry->computeCRC(); }
    std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
    const u64 next_wt_cursor = wal_wt_cursor + total_size;
-   wal_wt_cursor.store(next_wt_cursor, std::memory_order_relaxed);
-   wal_max_gsn.store(clock_gsn, std::memory_order_relaxed);
+   wal_wt_cursor.store(next_wt_cursor, std::memory_order_release);
+   wal_max_gsn.store(clock_gsn, std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX()
@@ -248,7 +248,9 @@ void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*
       }
       auto entry = reinterpret_cast<WALDTEntry*>(log);
       assert(entry->lsn == lsn);
+      DEBUG_BLOCK() { entry->checkCRC(); }
       callback(entry->payload);
+      // cout << "bingo" << endl;
       return;
    }
 outofmemory : {
@@ -285,6 +287,7 @@ outofmemory : {
       }
    }
    std::free(log_chunk);
+   // cout << "damn" << endl;
    goto outofmemory;
    ensure(false);
    return;

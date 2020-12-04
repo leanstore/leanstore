@@ -177,7 +177,9 @@ void CRManager::groupCommiter()
          if (!FLAGS_wal_io_hack) {
             const u64 ret = pwrite(ssd_fd, &chunk, sizeof(WALChunk), ssd_offset);
             posix_check(ret == sizeof(WALChunk));
-            fdatasync(ssd_fd);
+            if (FLAGS_wal_fsync) {
+               fdatasync(ssd_fd);
+            }
          }
          // -------------------------------------------------------------------------------------
          meta.last_written_chunk = ssd_offset;
@@ -185,7 +187,7 @@ void CRManager::groupCommiter()
             const u64 ret = pwrite(ssd_fd, &meta, sizeof(SSDMeta), meta_offset);
             ensure(ret == sizeof(SSDMeta));
          }
-         if (!FLAGS_wal_io_hack) {
+         if (!FLAGS_wal_io_hack && FLAGS_wal_fsync) {
             fdatasync(ssd_fd);
          }
       }

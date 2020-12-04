@@ -117,10 +117,10 @@ OP_RESULT BTree::insertVW(u8* key, u16 key_length, u16 value_length_orig, u8* va
                jumpmu_return OP_RESULT::OK;
             }
          } else {
-            raise(SIGTRAP);
             auto& version = *reinterpret_cast<vw::Version*>(leaf_ex_guard->getPayload(pos));
             if (isVisibleForMe(version.worker_id, version.tts)) {
                if (version.is_removed) {
+                  raise(SIGTRAP);
                   if (leaf_ex_guard->prepareInsert(key, key_length, value_length)) {
                      // -------------------------------------------------------------------------------------
                      // WAL
@@ -229,9 +229,10 @@ bool BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
    u8 next_worker_id = start_worker_id;
    u64 next_lsn = start_lsn;
    while (flag) {
-      if (version_depth > 2) {
-         return false;
-      }
+      // if (version_depth > 20) {
+      //   return false;
+      //   raise(SIGTRAP);
+      // }
       cr::Worker::my().getWALDTEntry(next_worker_id, next_lsn, in_memory_offset, [&](u8* entry) {
          auto& wal_entry = *reinterpret_cast<vw::WALVWEntry*>(entry);
          switch (wal_entry.type) {
@@ -253,7 +254,8 @@ bool BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
                break;
             }
             default: {
-               // cout << u32(wal_entry.type) << "-" << version_depth << endl;
+               cout << u32(wal_entry.type) << "-" << version_depth << endl;
+               raise(SIGTRAP);
                ensure(false);
             }
          }
@@ -353,12 +355,13 @@ OP_RESULT BTree::removeVW(u8* key, u16 key_length)
             const u16 payload_length = leaf_ex_guard->getPayloadLength(pos) - VW_PAYLOAD_OFFSET;
             if (isVisibleForMe(version.worker_id, version.tts)) {
                if (version.is_removed) {
+                  raise(SIGTRAP);
                   jumpmu_return OP_RESULT::NOT_FOUND;
                } else {
                   auto wal_entry = leaf_ex_guard.reserveWALEntry<vw::WALRemove>(key_length + payload_length);
                   wal_entry->type = WAL_LOG_TYPE::WALRemove;
                   wal_entry->key_length = key_length;
-                  wal_entry->payload_length = key_length;
+                  wal_entry->payload_length = payload_length;
                   wal_entry->prev_version = version;
                   // -------------------------------------------------------------------------------------
                   std::memcpy(wal_entry->payload, key, key_length);
@@ -372,9 +375,8 @@ OP_RESULT BTree::removeVW(u8* key, u16 key_length)
                   version.is_final = false;
                   version.is_removed = true;
                   // -------------------------------------------------------------------------------------
-                  raise(SIGTRAP);
-                  leaf_ex_guard->space_used -= payload_length - VW_PAYLOAD_OFFSET;
-                  leaf_ex_guard->setPayloadLength(pos, VW_PAYLOAD_OFFSET);
+                  // leaf_ex_guard->space_used -= leaf_ex_guard->getPayloadLength(pos) - VW_PAYLOAD_OFFSET;
+                  // leaf_ex_guard->setPayloadLength(pos, VW_PAYLOAD_OFFSET);
                   leaf_guard = std::move(leaf_ex_guard);
                   jumpmu_return OP_RESULT::OK;
                }
@@ -382,6 +384,7 @@ OP_RESULT BTree::removeVW(u8* key, u16 key_length)
                jumpmu_return OP_RESULT::ABORT_TX;
             }
          } else {
+            raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }
@@ -575,7 +578,6 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
          break;
       }
       case WAL_LOG_TYPE::WALRemove: {
-         raise(SIGTRAP);
          // Prev was insert or update
          const auto& remove_entry = *reinterpret_cast<const vw::WALRemove*>(&entry);
          while (true) {
@@ -589,13 +591,14 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
                btree.findLeafCanJump<OP_TYPE::POINT_DELETE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                const s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
+               ensure(pos != -1);
                // -------------------------------------------------------------------------------------
                auto& version = *reinterpret_cast<vw::Version*>(leaf_ex_guard->getPayload(pos));
-               version.is_final = false;
-               version.is_removed = false;
                version.worker_id = remove_entry.prev_version.worker_id;
                version.lsn = remove_entry.prev_version.lsn;
                version.tts = remove_entry.prev_version.tts;
+               version.is_final = false;
+               version.is_removed = false;
                std::memcpy(leaf_ex_guard->getPayload(pos) + VW_PAYLOAD_OFFSET, payload, payload_length);
                // -------------------------------------------------------------------------------------
                leaf_guard = std::move(leaf_ex_guard);

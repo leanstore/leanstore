@@ -63,6 +63,7 @@ DEFINE_bool(out_of_place, false, "");
 DEFINE_bool(wal, false, "");
 DEFINE_uint64(wal_offset_gib, 1, "");
 DEFINE_bool(wal_io_hack, false, "");
+DEFINE_bool(wal_fsync, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(si, true, "");
 DEFINE_bool(vw, false, "");

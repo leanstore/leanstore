@@ -379,8 +379,8 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
       if (o_id == minInteger)
          continue;
 
-      // const auto ret = neworder.erase({w_id, d_id, o_id});
-      // ensure(ret);
+      const auto ret = neworder.erase({w_id, d_id, o_id});
+      ensure(ret);
 
       // Integer ol_cnt = minInteger, c_id;
       // order.scan({w_id, d_id, o_id}, [&](const order_t& rec) { ol_cnt = rec.o_ol_cnt; c_id = rec.o_c_id; return false; });
