@@ -63,7 +63,7 @@ struct WALRemove : WALEntry {
 };
 }  // namespace nocc
    // -------------------------------------------------------------------------------------
-enum class OP_TYPE : u8 { POINT_READ, POINT_UPDATE, POINT_INSERT, POINT_DELETE, SCAN };
+enum class OP_TYPE : u8 { POINT_READ, POINT_UPDATE, POINT_INSERT, POINT_REMOVE, SCAN };
 enum class OP_RESULT : u8 {
    OK = 0,
    NOT_FOUND = 1,

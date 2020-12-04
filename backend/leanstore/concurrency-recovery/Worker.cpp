@@ -5,8 +5,12 @@
 #include "leanstore/storage/buffer-manager/DTRegistry.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <stdio.h>
+
 #include <cstdlib>
+#include <fstream>
 #include <mutex>
+#include <sstream>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -183,6 +187,9 @@ void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entr
 WALChunk::Slot Worker::WALFinder::getJumpPoint(LID lsn)
 {
    std::unique_lock guard(m);
+   // -------------------------------------------------------------------------------------
+   stats.push_back(lsn);
+   // -------------------------------------------------------------------------------------
    if (ht.size() == 0) {
       return {0, 0};
    } else {
@@ -200,6 +207,17 @@ void Worker::WALFinder::insertJumpPoint(LID LSN, WALChunk::Slot slot)
 {
    std::unique_lock guard(m);
    ht[LSN] = slot;
+}
+// -------------------------------------------------------------------------------------
+Worker::WALFinder::~WALFinder()
+{
+   static atomic<u64> tmp = 0;
+   std::ofstream csv;
+   csv.open("wal_stats_" + std::to_string(tmp++) + ".csv", std::ios::trunc);
+   for (u64 t_i = 0; t_i < stats.size(); t_i++) {
+      csv << t_i << "," << stats[t_i] << endl;
+   }
+   csv.close();
 }
 // -------------------------------------------------------------------------------------
 void Worker::getWALDTEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)

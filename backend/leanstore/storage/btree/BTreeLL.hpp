@@ -57,7 +57,7 @@ inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, const u8* 
       if (level == height - 1) {
          target_guard = HybridPageGuard(
              p_guard, c_swip,
-             (op_type == OP_TYPE::POINT_UPDATE || op_type == OP_TYPE::POINT_INSERT) ? FALLBACK_METHOD::EXCLUSIVE : FALLBACK_METHOD::SHARED);
+             (op_type == OP_TYPE::POINT_REMOVE || op_type == OP_TYPE::POINT_INSERT) ? FALLBACK_METHOD::EXCLUSIVE : FALLBACK_METHOD::SHARED);
       } else {
          target_guard = HybridPageGuard(p_guard, c_swip);
       }
@@ -83,7 +83,7 @@ void findLeaf(HybridPageGuard<BTreeNode>& target_guard, const u8* key, u16 key_l
          // -------------------------------------------------------------------------------------
          if (op_type == OP_TYPE::POINT_READ || op_type == OP_TYPE::SCAN) {
             WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
-         } else if (op_type == OP_TYPE::POINT_UPDATE) {
+         } else if (op_type == OP_TYPE::POINT_REMOVE) {
             WorkerCounters::myCounters().dt_restarts_update_same_size[dt_id]++;
          } else if (op_type == OP_TYPE::POINT_INSERT) {
             WorkerCounters::myCounters().dt_restarts_structural_change[dt_id]++;

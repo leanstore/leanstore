@@ -79,6 +79,9 @@ struct Worker {
       std::map<LID, WALChunk::Slot> ht;  // LSN->SSD Offset
       void insertJumpPoint(LID lsn, WALChunk::Slot slot);
       WALChunk::Slot getJumpPoint(LID lsn);
+      // -------------------------------------------------------------------------------------
+      std::vector<LID> stats;
+      ~WALFinder();
    };
    WALFinder wal_finder;
    // -------------------------------------------------------------------------------------

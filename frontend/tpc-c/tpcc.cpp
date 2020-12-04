@@ -25,6 +25,7 @@ DEFINE_int32(tpcc_abort_pct, 0, "");
 DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
 DEFINE_bool(tpcc_fast_load, false, "");
+DEFINE_bool(tpcc_remove, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;

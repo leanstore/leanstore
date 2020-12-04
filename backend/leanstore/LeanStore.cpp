@@ -19,6 +19,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <locale>
 #include <sstream>
 // -------------------------------------------------------------------------------------
 using namespace tabulate;
@@ -174,6 +175,7 @@ void LeanStore::startProfilingThread()
             // -------------------------------------------------------------------------------------
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             seconds += 1;
+            std::locale::global(std::locale::classic());
          }
       }
       bg_threads_counter--;

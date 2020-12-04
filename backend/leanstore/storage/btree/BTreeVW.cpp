@@ -285,7 +285,7 @@ OP_RESULT BTree::updateVW(u8* key, u16 key_length, function<void(u8* value, u16 
       {
          // -------------------------------------------------------------------------------------
          HybridPageGuard<BTreeNode> leaf_guard;
-         findLeafCanJump<OP_TYPE::POINT_UPDATE>(leaf_guard, key, key_length);
+         findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
          auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
          s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
          if (pos != -1) {
@@ -346,7 +346,7 @@ OP_RESULT BTree::removeVW(u8* key, u16 key_length)
       {
          // -------------------------------------------------------------------------------------
          HybridPageGuard<BTreeNode> leaf_guard;
-         findLeafCanJump<OP_TYPE::POINT_UPDATE>(leaf_guard, key, key_length);
+         findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
          auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
          s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
          if (pos != -1) {
@@ -375,8 +375,8 @@ OP_RESULT BTree::removeVW(u8* key, u16 key_length)
                   version.is_final = false;
                   version.is_removed = true;
                   // -------------------------------------------------------------------------------------
-                  // leaf_ex_guard->space_used -= leaf_ex_guard->getPayloadLength(pos) - VW_PAYLOAD_OFFSET;
-                  // leaf_ex_guard->setPayloadLength(pos, VW_PAYLOAD_OFFSET);
+                  leaf_ex_guard->space_used -= leaf_ex_guard->getPayloadLength(pos) - VW_PAYLOAD_OFFSET;
+                  leaf_ex_guard->setPayloadLength(pos, VW_PAYLOAD_OFFSET);
                   leaf_guard = std::move(leaf_ex_guard);
                   jumpmu_return OP_RESULT::OK;
                }
@@ -512,7 +512,7 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
             jumpmuTry()
             {
                HybridPageGuard<BTreeNode> leaf_guard;
-               btree.findLeafCanJump<OP_TYPE::POINT_DELETE>(leaf_guard, key, key_length);
+               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
                ensure(pos != -1);
@@ -521,6 +521,7 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
                   ensure(ret);
                   jumpmu_return;
                } else {
+                  raise(SIGTRAP);
                   // The previous entry was delete
                   auto& version = *reinterpret_cast<vw::Version*>(leaf_ex_guard->getPayload(pos));
                   version.is_removed = true;
@@ -553,7 +554,7 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
             jumpmuTry()
             {
                HybridPageGuard<BTreeNode> leaf_guard;
-               btree.findLeafCanJump<OP_TYPE::POINT_UPDATE>(leaf_guard, key, key_length);
+               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                const s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
                ensure(pos != -1);
@@ -588,7 +589,7 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
                const u8* payload = remove_entry.payload + key_length;
                const u16 payload_length = remove_entry.payload_length;
                HybridPageGuard<BTreeNode> leaf_guard;
-               btree.findLeafCanJump<OP_TYPE::POINT_DELETE>(leaf_guard, key, key_length);
+               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                const s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
                ensure(pos != -1);

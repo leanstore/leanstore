@@ -564,7 +564,7 @@ bool BTree::removeLL(u8* key, u16 key_length)
       jumpmuTry()
       {
          HybridPageGuard<BTreeNode> c_guard;
-         findLeafCanJump<OP_TYPE::POINT_DELETE>(c_guard, key, key_length);
+         findLeafCanJump<OP_TYPE::POINT_REMOVE>(c_guard, key, key_length);
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          if (c_x_guard->remove(key, key_length)) {
             if (FLAGS_wal) {
