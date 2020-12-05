@@ -171,7 +171,7 @@ void CRManager::groupCommiter()
       }
       // -------------------------------------------------------------------------------------
       // Flush
-      if (chunk.total_size > sizeof(WALChunk)) {
+      if (0 && chunk.total_size > sizeof(WALChunk)) {
          ensure(ssd_offset % 512 == 0);
          ssd_offset -= sizeof(WALChunk);
          if (!FLAGS_wal_io_hack) {

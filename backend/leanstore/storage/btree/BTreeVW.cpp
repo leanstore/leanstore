@@ -223,12 +223,14 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
 // -------------------------------------------------------------------------------------
 bool BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_length, u8 start_worker_id, u64 start_lsn, u32 in_memory_offset)
 {
-   u64 version_depth = 0;
+   u64 version_depth = 1;
    static_cast<void>(version_depth);
    bool flag = true;
    u8 next_worker_id = start_worker_id;
    u64 next_lsn = start_lsn;
    while (flag) {
+      if (version_depth < 10)
+         WorkerCounters::myCounters().vw_version_step[dt_id][version_depth]++;
       // if (version_depth > 20) {
       //   return false;
       //   raise(SIGTRAP);
@@ -417,19 +419,17 @@ OP_RESULT BTree::scanAscVW(u8* start_key,
                 ensure(payload_length > 0);
                 JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
                 std::memcpy(reconstructed_payload->get(), payload, payload_length);
-                jumpmuTry()
-                {
-                   reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
-                }
-                jumpmuCatch()
-                {
+                const bool ret =
+                    reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
+                if (ret) {
+                   if (payload_length == 0) {
+                      return true;
+                   } else {
+                      return callback(key, key_length, reconstructed_payload->get(), payload_length);
+                   }
+                } else {
                    res = OP_RESULT::ABORT_TX;
                    return false;
-                }
-                if (payload_length == 0) {
-                   return true;
-                } else {
-                   return callback(key, key_length, reconstructed_payload->get(), payload_length);
                 }
              }
           }

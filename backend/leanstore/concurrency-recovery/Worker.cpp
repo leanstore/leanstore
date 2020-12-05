@@ -2,6 +2,7 @@
 
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/DTRegistry.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -256,25 +257,39 @@ void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*
       wal_next = wal_wt_next_step;
       wal_cur = wal_wt_cursor;
       if (rounds_v != wal_buffer_round) {
-         goto outofmemory;
-      }
-      if (before) {
-         if (!(wal_cur < begin && wal_next < begin)) {
+         if (wal_buffer_round == rounds_v + 1) {
+            // There is a chance
+            if (before) {
+               goto outofmemory;
+            } else {
+               // Was after and now before
+               if (!(wal_cur < begin && wal_next < begin)) {
+                  goto outofmemory;
+               }
+            }
+         } else {
             goto outofmemory;
          }
       } else {
-         if (!(wal_cur > end && wal_next > end)) {
-            goto outofmemory;
+         if (before) {
+            if (!(wal_cur < begin && wal_next < begin)) {
+               goto outofmemory;
+            }
+         } else {
+            if (!(wal_cur > end && wal_next > end)) {
+               goto outofmemory;
+            }
          }
       }
       auto entry = reinterpret_cast<WALDTEntry*>(log);
       assert(entry->lsn == lsn);
       DEBUG_BLOCK() { entry->checkCRC(); }
       callback(entry->payload);
-      // cout << "bingo" << endl;
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().wal_buffer_hit++; }
       return;
    }
 outofmemory : {
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().wal_buffer_miss++; }
    // 2- Read from SSD, accelerate using getLowerBound
    const auto slot = wal_finder.getJumpPoint(lsn);
    if (slot.offset == 0) {
@@ -286,6 +301,7 @@ outofmemory : {
    auto log_chunk = static_cast<u8*>(std::aligned_alloc(512, read_size_aligned));
    const s32 ret = pread(ssd_fd, log_chunk, read_size_aligned, lower_bound_aligned);
    posix_check(ret >= read_size_aligned);
+   WorkerCounters::myCounters().wal_read_bytes += read_size_aligned;
    // -------------------------------------------------------------------------------------
    u64 offset = 0;
    u8* ptr = log_chunk + lower_bound - lower_bound_aligned;
@@ -308,7 +324,6 @@ outofmemory : {
       }
    }
    std::free(log_chunk);
-   // cout << "damn" << endl;
    goto outofmemory;
    ensure(false);
    return;

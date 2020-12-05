@@ -1,3 +1,6 @@
+1- on many cores [rome], the commit latency grows -> delays in snapshots
+
+#
 * Contention management [random split, tuple movement]
 * Backoff
 * Page provider thread [monitoring, adaptive, copartitioning scalability]

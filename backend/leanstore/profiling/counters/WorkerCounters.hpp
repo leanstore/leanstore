@@ -40,6 +40,14 @@ struct WorkerCounters {
    atomic<u64> dt_restarts_read[max_dt_id] = {0};
    atomic<u64> dt_researchy[max_dt_id][max_researchy_counter] = {};  // temporary counter used to track some value for an idea in my mind
    // -------------------------------------------------------------------------------------
+  constexpr static u64 VW_MAX_STEPS = 10;
+   atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {0};
+   // -------------------------------------------------------------------------------------
+   // WAL
+   atomic<u64> wal_read_bytes = 0;
+   atomic<u64> wal_buffer_hit = 0;
+   atomic<u64> wal_buffer_miss = 0;
+   // -------------------------------------------------------------------------------------
    WorkerCounters() { t_id = workers_counter++; }
    // -------------------------------------------------------------------------------------
    static atomic<u64> workers_counter;
