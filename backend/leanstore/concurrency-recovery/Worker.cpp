@@ -241,7 +241,7 @@ void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*
       const u64 rounds_v = wal_buffer_round;
       u64 wal_next = wal_wt_next_step;
       u64 wal_cur = wal_wt_cursor;
-      const u16 size = 16 * 1024;
+      const u16 size = dt_entry->size;
       const u32 begin = in_memory_offset;
       const u32 end = in_memory_offset + size;
       bool before = true;
