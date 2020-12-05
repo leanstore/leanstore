@@ -188,8 +188,6 @@ WALChunk::Slot Worker::WALFinder::getJumpPoint(LID lsn)
 {
    std::unique_lock guard(m);
    // -------------------------------------------------------------------------------------
-   stats.push_back(lsn);
-   // -------------------------------------------------------------------------------------
    if (ht.size() == 0) {
       return {0, 0};
    } else {
@@ -214,6 +212,7 @@ Worker::WALFinder::~WALFinder()
    static atomic<u64> tmp = 0;
    std::ofstream csv;
    csv.open("wal_stats_" + std::to_string(tmp++) + ".csv", std::ios::trunc);
+   csv << "i,lsn" << endl;
    for (u64 t_i = 0; t_i < stats.size(); t_i++) {
       csv << t_i << "," << stats[t_i] << endl;
    }
@@ -227,6 +226,10 @@ void Worker::getWALDTEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::fun
 // -------------------------------------------------------------------------------------
 void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
 {
+   {
+      std::unique_lock guard(wal_finder.m);
+      wal_finder.stats.push_back(lsn);
+   }
    {
       // 1- Optimistically locate the entry
       auto dt_entry = reinterpret_cast<WALDTEntry*>(wal_buffer + in_memory_offset);
