@@ -90,7 +90,6 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    // Published using mutex
    atomic<u64> wal_wt_cursor = 0;     // W->GCT
-   atomic<u64> wal_wt_next_step = 0;  // W->GCT
    atomic<LID> wal_max_gsn = 0;       // W->GCT, under mutex
    atomic<u64> wal_buffer_round = 0;  // W->GCT, under mutex
    // -------------------------------------------------------------------------------------
@@ -141,11 +140,24 @@ struct Worker {
    template <typename T>
    WALEntryHandler<T> reserveDTEntry(u64 requested_size, PID pid, LID gsn, DTID dt_id)
    {
+      const auto lsn = wal_lsn_counter++;
       const u64 total_size = sizeof(WALDTEntry) + requested_size;
       ensure(walContiguousFreeSpace() >= total_size);
-      wal_wt_next_step.store(wal_wt_cursor + total_size, std::memory_order_release);
+      {
+         // Sync
+         u64 offset = wal_wt_cursor;
+         while (offset < wal_wt_cursor + requested_size) {
+            auto entry = reinterpret_cast<WALEntry*>(wal_buffer + offset);
+            assert(entry->lsn < lsn);
+            entry->lsn.store(lsn, std::memory_order_release);
+            offset += entry->size;
+            if (entry->size == 0 || entry->type == WALEntry::TYPE::CARRIAGE_RETURN) {
+               break;
+            }
+         }
+      }
       active_dt_entry = new (wal_buffer + wal_wt_cursor) WALDTEntry();
-      active_dt_entry->lsn = wal_lsn_counter++;
+      active_dt_entry->lsn.store(lsn, std::memory_order_release);
       active_dt_entry->magic_debugging_number = 99;
       active_dt_entry->type = WALEntry::TYPE::DT_SPECIFIC;
       active_dt_entry->size = total_size;

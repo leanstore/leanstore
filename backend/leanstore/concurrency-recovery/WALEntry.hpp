@@ -4,6 +4,7 @@
 #include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <atomic>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -14,7 +15,7 @@ struct WALEntry {
    enum class TYPE : u8 { TX_START, TX_COMMIT, TX_ABORT, DT_SPECIFIC, CARRIAGE_RETURN };
    // -------------------------------------------------------------------------------------
    u64 magic_debugging_number = 99;
-   LID lsn;
+   std::atomic<LID> lsn;
    u16 size;
    TYPE type;
    void computeCRC() { magic_debugging_number = utils::CRC(reinterpret_cast<u8*>(this) + sizeof(u64), size - sizeof(u64)); }

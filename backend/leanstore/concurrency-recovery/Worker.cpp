@@ -55,9 +55,7 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
       while (walFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {
       }
       if (walContiguousFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {  // always keep place for CR entry
-         auto& entry = *reinterpret_cast<WALEntry*>(wal_buffer + wal_wt_cursor);
-         wal_wt_next_step.store(0, std::memory_order_release);
-         entry.lsn = wal_lsn_counter++;
+         WALMetaEntry& entry = reserveWALMetaEntry();
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
          DEBUG_BLOCK() { entry.computeCRC(); }
@@ -70,8 +68,8 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
 WALMetaEntry& Worker::reserveWALMetaEntry()
 {
    walEnsureEnoughSpace(sizeof(WALMetaEntry));
-   wal_wt_next_step.store(wal_wt_cursor + sizeof(WALMetaEntry), std::memory_order_release);
    active_mt_entry = reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
+   active_mt_entry->lsn.store(wal_lsn_counter++, std::memory_order_release);
    active_mt_entry->size = sizeof(WALMetaEntry);
    return *active_mt_entry;
 }
@@ -97,7 +95,6 @@ void Worker::startTX()
    if (FLAGS_wal) {
       current_tx_wal_start = wal_wt_cursor;
       WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.lsn = wal_lsn_counter++;
       entry.type = WALEntry::TYPE::TX_START;
       submitWALMetaEntry();
       assert(active_tx.state != Transaction::STATE::STARTED);
@@ -120,7 +117,6 @@ void Worker::commitTX()
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.lsn = wal_lsn_counter++;
       entry.type = WALEntry::TYPE::TX_COMMIT;
       submitWALMetaEntry();
       // -------------------------------------------------------------------------------------
@@ -149,7 +145,6 @@ void Worker::abortTX()
       });
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.lsn = wal_lsn_counter++;
       entry.type = WALEntry::TYPE::TX_ABORT;
       submitWALMetaEntry();
       active_tx.state = Transaction::STATE::ABORTED;
@@ -228,6 +223,7 @@ void Worker::getWALDTEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::fun
 // -------------------------------------------------------------------------------------
 void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
 {
+   COUNTERS_BLOCK()
    {
       std::unique_lock guard(wal_finder.m);
       wal_finder.stats.push_back(lsn);
@@ -235,52 +231,14 @@ void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*
    {
       // 1- Optimistically locate the entry
       auto dt_entry = reinterpret_cast<WALDTEntry*>(wal_buffer + in_memory_offset);
+      const u16 dt_size = dt_entry->size;
       if (dt_entry->lsn != lsn) {
          goto outofmemory;
       }
-      const u64 rounds_v = wal_buffer_round;
-      u64 wal_next = wal_wt_next_step;
-      u64 wal_cur = wal_wt_cursor;
-      const u16 size = dt_entry->size;
-      const u32 begin = in_memory_offset;
-      const u32 end = in_memory_offset + size;
-      bool before = true;
-      if (wal_cur < begin && wal_next < begin) {
-         before = true;
-      } else if (wal_cur > end && wal_next > end) {
-         before = false;
-      } else {
-         goto outofmemory;
-      }
-      const u16 dt_size = dt_entry->size;
       u8 log[dt_size];
       std::memcpy(log, wal_buffer + in_memory_offset, dt_size);
-      wal_next = wal_wt_next_step;
-      wal_cur = wal_wt_cursor;
-      if (rounds_v != wal_buffer_round) {
-         if (wal_buffer_round == rounds_v + 1) {
-            // There is a chance
-            if (before) {
-               goto outofmemory;
-            } else {
-               // Was after and now before
-               if (!(wal_cur < begin && wal_next < begin)) {
-                  goto outofmemory;
-               }
-            }
-         } else {
-            goto outofmemory;
-         }
-      } else {
-         if (before) {
-            if (!(wal_cur < begin && wal_next < begin)) {
-               goto outofmemory;
-            }
-         } else {
-            if (!(wal_cur > end && wal_next > end)) {
-               goto outofmemory;
-            }
-         }
+      if (dt_entry->lsn != lsn) {
+         goto outofmemory;
       }
       auto entry = reinterpret_cast<WALDTEntry*>(log);
       assert(entry->lsn == lsn);
@@ -300,7 +258,7 @@ outofmemory : {
    const u64 lower_bound_aligned = utils::downAlign(lower_bound);
    const u64 read_size_aligned = utils::upAlign(slot.length + lower_bound - lower_bound_aligned);
    auto log_chunk = static_cast<u8*>(std::aligned_alloc(512, read_size_aligned));
-   const s32 ret = pread(ssd_fd, log_chunk, read_size_aligned, lower_bound_aligned);
+   const u64 ret = pread(ssd_fd, log_chunk, read_size_aligned, lower_bound_aligned);
    posix_check(ret >= read_size_aligned);
    WorkerCounters::myCounters().wal_read_bytes += read_size_aligned;
    // -------------------------------------------------------------------------------------
@@ -310,7 +268,7 @@ outofmemory : {
    auto prev_entry = entry;
    while (true) {
       DEBUG_BLOCK() { entry->checkCRC(); }
-      ensure(entry->size > 0 && entry->lsn <= lsn);
+      assert(entry->size > 0 && entry->lsn <= lsn);
       if (entry->lsn == lsn) {
          callback(entry->payload);
          std::free(log_chunk);
