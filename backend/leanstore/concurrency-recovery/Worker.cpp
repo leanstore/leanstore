@@ -117,9 +117,7 @@ void Worker::startTX()
 void Worker::commitTX()
 {
    if (FLAGS_wal) {
-      ensure(active_tx.state == Transaction::STATE::STARTED);
-      // -------------------------------------------------------------------------------------
-      // TODO: MVCC, actually nothing when it comes to our SI plan
+      assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.lsn = wal_lsn_counter++;
@@ -128,6 +126,9 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       active_tx.max_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
+      if (1) {  // TODO: verify the latency optimization
+         high_water_mark.store(active_tx.tts + 1, std::memory_order_release);
+      }
       {
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
          ready_to_commit_queue.push_back(active_tx);

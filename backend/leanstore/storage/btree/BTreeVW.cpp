@@ -229,7 +229,7 @@ bool BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
    u8 next_worker_id = start_worker_id;
    u64 next_lsn = start_lsn;
    while (flag) {
-      if (version_depth < 10)
+      if (version_depth < WorkerCounters::VW_MAX_STEPS)
          WorkerCounters::myCounters().vw_version_step[dt_id][version_depth]++;
       // if (version_depth > 20) {
       //   return false;
@@ -416,7 +416,7 @@ OP_RESULT BTree::scanAscVW(u8* start_key,
              if (version.is_final) {
                 return true;
              } else {
-                ensure(payload_length > 0);
+                // ensure(payload_length > 0); secondary index
                 JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
                 std::memcpy(reconstructed_payload->get(), payload, payload_length);
                 const bool ret =

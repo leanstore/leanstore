@@ -219,7 +219,7 @@ void CRManager::groupCommiter()
                   break;
                }
             }
-            if (tx_i > 0) {
+            if (0 && tx_i > 0) {  // TODO: verify the latency optimization
                const u64 high_water_mark = worker.ready_to_commit_queue[tx_i - 1].tts + 1;
                worker.high_water_mark.store(high_water_mark, std::memory_order_release);
                // cout << "HighWaterMark[" << w_i << "] = " << worker.high_water_mark << endl;

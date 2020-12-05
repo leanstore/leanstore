@@ -85,7 +85,7 @@ struct Worker {
    };
    WALFinder wal_finder;
    // -------------------------------------------------------------------------------------
-   static constexpr s64 WORKER_WAL_SIZE = 1024 * 1024 * 0.5;
+   static constexpr s64 WORKER_WAL_SIZE = 1024 * 1024 * 10;
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    // Published using mutex
