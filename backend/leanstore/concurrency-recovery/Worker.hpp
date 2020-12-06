@@ -7,8 +7,8 @@
 #include <functional>
 #include <map>
 #include <mutex>
-#include <vector>
 #include <queue>
+#include <vector>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -52,9 +52,11 @@ struct Worker {
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
    // -------------------------------------------------------------------------------------
+   u64 next_tts = 0;
    // Shared with all workers
-   atomic<u64> next_tts = 0;
+   u8 padding_1[64];
    atomic<u64> high_water_mark = 0;  // High water mark, exclusive: TS < mark are visible
+   u8 padding_2[64];
    // -------------------------------------------------------------------------------------
    // Garbage Collect (is_removed) when the is_removed version visible for all
    u64 lower_water_mark = 0;  // Safe to garbage collect

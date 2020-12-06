@@ -209,7 +209,7 @@ void CRManager::groupCommiter()
                worker.wal_finder.insertJumpPoint(worker.group_commit_data.first_lsn_in_chunk, chunk.slot[w_i]);
             }
             // -------------------------------------------------------------------------------------
-            worker.wal_ww_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_relaxed);
+            worker.wal_ww_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_release);
             while (tx_i < worker.group_commit_data.ready_to_commit_cut) {
                if (worker.ready_to_commit_queue[tx_i].max_gsn < worker.group_commit_data.max_safe_gsn_to_commit) {
                   worker.ready_to_commit_queue[tx_i].state = Transaction::STATE::COMMITED;

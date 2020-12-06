@@ -146,7 +146,7 @@ void Worker::startTX()
             my_snapshot[w] = all_workers[w]->high_water_mark;
             all_workers[w]->lower_water_marks[worker_id * 8].store(my_snapshot[w], std::memory_order_release);
          }
-         active_tx.tts = next_tts.fetch_add(1);
+         active_tx.tts = next_tts++;
       }
       if (1 && todo_list.size()) {  // Check TODO
          {
@@ -183,7 +183,7 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       active_tx.max_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
-      if (1) {  // TODO: verify the latency optimization
+      if (FLAGS_si) {  // TODO: verify the latency optimization
          high_water_mark.store(active_tx.tts + 1, std::memory_order_release);
       }
       {
@@ -307,7 +307,7 @@ outofmemory : {
    const u64 lower_bound = slot.offset;
    const u64 lower_bound_aligned = utils::downAlign(lower_bound);
    const u64 read_size_aligned = utils::upAlign(slot.length + lower_bound - lower_bound_aligned);
-   auto log_chunk = static_cast<u8*>(std::aligned_alloc(512, read_size_aligned));
+   alignas(512) u8 log_chunk[read_size_aligned];
    const u64 ret = pread(ssd_fd, log_chunk, read_size_aligned, lower_bound_aligned);
    posix_check(ret >= read_size_aligned);
    WorkerCounters::myCounters().wal_read_bytes += read_size_aligned;
@@ -332,7 +332,6 @@ outofmemory : {
          break;
       }
    }
-   std::free(log_chunk);
    goto outofmemory;
    ensure(false);
    return;
