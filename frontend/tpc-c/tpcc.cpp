@@ -170,8 +170,9 @@ int main(int argc, char** argv)
    {
       cout << endl;
       for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-         cout << "t_i = " << t_i << " managed " << tx_per_thread[t_i] << endl;
+         cout << tx_per_thread[t_i] << ",";
       }
+      cout << endl;
    }
    // -------------------------------------------------------------------------------------
    gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);

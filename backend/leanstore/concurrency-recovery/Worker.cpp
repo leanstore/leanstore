@@ -34,10 +34,10 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
 }
 Worker::~Worker()
 {
-   static std::mutex m;
-   std::unique_lock guard(m);
-   cout << "WorkerID = " << worker_id << endl;
-   cout << worker_id << " high = " << high_water_mark << " - low = " << lower_water_mark << " todo# " << todo_list.size() << endl;
+   // static std::mutex m;
+   // std::unique_lock guard(m);
+   // cout << "WorkerID = " << worker_id << endl;
+   // cout << worker_id << " high = " << high_water_mark << " - low = " << lower_water_mark << " todo# " << todo_list.size() << endl;
 }
 // -------------------------------------------------------------------------------------
 u32 Worker::walFreeSpace()

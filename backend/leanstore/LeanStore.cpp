@@ -141,11 +141,11 @@ void LeanStore::startProfilingThread()
          // using RowType = std::vector<variant<std::string, const char*, Table>>;
          if (FLAGS_print_tx_console) {
             tabulate::Table table;
-            table.add_row({"t", "TX P", "TX A", "TX C", "w_mib", "r_mib", "instr_tx", "workers_cpus", "WAL R GiB", "WAL W GiB", "GCT Rounds"});
+            table.add_row({"t", "TX P", "TX A", "TX C", "W MiB", "R MiB", "instr_tx", "CPUs", "L1 Mmiss", "WAL R G", "WAL W G", "GCT Rounds"});
             table.add_row({std::to_string(seconds), cr_table.get("0", "tx"), cr_table.get("0", "tx_abort"), cr_table.get("0", "gct_committed_tx"),
                            bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), std::to_string(instr_per_tx),
-                           std::to_string(cpu_table.workers_agg_events["CPU"]), cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"),
-                           cr_table.get("0", "gct_rounds")});
+                           std::to_string(cpu_table.workers_agg_events["CPU"]), std::to_string(cpu_table.workers_agg_events["L1-miss"] / 1024.0 / 1024.0),
+                           cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"), cr_table.get("0", "gct_rounds")});
             // -------------------------------------------------------------------------------------
             table.format().width(10);
             table.column(0).format().width(5);
