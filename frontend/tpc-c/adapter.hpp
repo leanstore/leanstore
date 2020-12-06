@@ -35,7 +35,6 @@ struct LeanStoreAdapter {
              if (key_length != folded_key_len) {
                 return false;
              }
-             assert(payload_length == sizeof(Record));
              typename Record::Key typed_key;
              Record::unfoldRecord(key, typed_key);
              const Record& typed_payload = *reinterpret_cast<Record*>(payload);
@@ -103,7 +102,6 @@ struct LeanStoreAdapter {
                 return false;
              }
              static_cast<void>(payload_length);
-             assert(payload_length == sizeof(Record));
              typename Record::Key typed_key;
              Record::unfoldRecord(key, typed_key);
              const Record& typed_payload = *reinterpret_cast<Record*>(payload);

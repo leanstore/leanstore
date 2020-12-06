@@ -241,7 +241,11 @@ void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entr
    u64 cursor = current_tx_wal_start;
    while (cursor != wal_wt_cursor) {
       const WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_buffer + cursor);
-      DEBUG_BLOCK() { entry.checkCRC(); }
+      DEBUG_BLOCK()
+      {
+         if (entry.type != WALEntry::TYPE::CARRIAGE_RETURN)
+            entry.checkCRC();
+      }
       if (entry.type == WALEntry::TYPE::CARRIAGE_RETURN) {
          cursor = 0;
       } else {
@@ -317,7 +321,7 @@ outofmemory : {
    const u64 lower_bound = slot.offset;
    const u64 lower_bound_aligned = utils::downAlign(lower_bound);
    const u64 read_size_aligned = utils::upAlign(slot.length + lower_bound - lower_bound_aligned);
-   alignas(512) u8 log_chunk[read_size_aligned];
+   auto log_chunk = static_cast<u8*>(std::aligned_alloc(512, read_size_aligned));
    const u64 ret = pread(ssd_fd, log_chunk, read_size_aligned, lower_bound_aligned);
    posix_check(ret >= read_size_aligned);
    WorkerCounters::myCounters().wal_read_bytes += read_size_aligned;
@@ -331,6 +335,7 @@ outofmemory : {
       assert(entry->size > 0 && entry->lsn <= lsn);
       if (entry->lsn == lsn) {
          callback(entry);
+         std::free(log_chunk);
          return;
       }
       if ((offset + entry->size) < slot.length) {
@@ -341,6 +346,7 @@ outofmemory : {
          break;
       }
    }
+   std::free(log_chunk);
    goto outofmemory;
    ensure(false);
    return;
