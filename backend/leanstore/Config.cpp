@@ -66,6 +66,7 @@ DEFINE_bool(wal_io_hack, false, "");
 DEFINE_bool(wal_fsync, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(si, true, "");
+DEFINE_uint64(si_refresh_rate, 0, "");
 DEFINE_bool(vw, false, "");
 DEFINE_bool(vw_todo, true, "");
 DEFINE_bool(vi, false, "");
