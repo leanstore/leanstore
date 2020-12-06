@@ -15,3 +15,4 @@ inline bool isVisibleForMe(u64 wtts)
    return cr::Worker::my().isVisibleForMe(wtts);
 }
 static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
+static void todo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);

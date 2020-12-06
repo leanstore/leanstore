@@ -235,7 +235,7 @@ bool BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
       //   return false;
       //   raise(SIGTRAP);
       // }
-      cr::Worker::my().getWALDTEntry(next_worker_id, next_lsn, in_memory_offset, [&](u8* entry) {
+      cr::Worker::my().getWALDTEntryPayload(next_worker_id, next_lsn, in_memory_offset, [&](u8* entry) {
          auto& wal_entry = *reinterpret_cast<vw::WALVWEntry*>(entry);
          switch (wal_entry.type) {
             case WAL_LOG_TYPE::WALRemove: {
@@ -370,6 +370,8 @@ OP_RESULT BTree::removeVW(u8* key, u16 key_length)
                   std::memcpy(wal_entry->payload + key_length, payload, payload_length);
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
+                  cr::Worker::my().addTODO(myTTS(), wal_entry.lsn, wal_entry.in_memory_offset);
+                  // -------------------------------------------------------------------------------------
                   version.in_memory_offset = wal_entry.in_memory_offset;
                   version.worker_id = myWorkerID();
                   version.tts = myTTS();
@@ -493,6 +495,7 @@ void BTree::applyDeltaVW(u8* dst, u16 dst_size, const u8* delta_beginning, u16 d
       delta_ptr += size;
    }
 }
+
 // -------------------------------------------------------------------------------------
 // For Transaction abort and not for recovery
 void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
@@ -528,12 +531,13 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
                   version.lsn = insert_entry.prev_version.lsn;
                   version.worker_id = insert_entry.prev_version.worker_id;
                   version.tts = insert_entry.prev_version.tts;
-                  cr::Worker::my().getWALDTEntry(insert_entry.prev_version.worker_id, insert_entry.prev_version.lsn,
-                                                 [&](u8* p_entry) {  // Can be optimized away
-                                                    const vw::WALVWEntry& prev_entry = *reinterpret_cast<const vw::WALVWEntry*>(p_entry);
-                                                    ensure(prev_entry.type == WAL_LOG_TYPE::WALRemove);
-                                                    version.is_final = (prev_entry.prev_version.lsn == 0);
-                                                 });
+                  cr::Worker::my().getWALDTEntryPayload(insert_entry.prev_version.worker_id, insert_entry.prev_version.lsn,
+                                                        insert_entry.prev_version.in_memory_offset,
+                                                        [&](u8* p_entry) {  // Can be optimized away
+                                                           const vw::WALVWEntry& prev_entry = *reinterpret_cast<const vw::WALVWEntry*>(p_entry);
+                                                           ensure(prev_entry.type == WAL_LOG_TYPE::WALRemove);
+                                                           version.is_final = (prev_entry.prev_version.lsn == 0);
+                                                        });
                   // -------------------------------------------------------------------------------------
                   leaf_ex_guard->space_used -= leaf_ex_guard->getPayloadLength(pos) - VW_PAYLOAD_OFFSET;
                   leaf_ex_guard->setPayloadLength(pos, VW_PAYLOAD_OFFSET);
@@ -614,6 +618,46 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
       }
    }
 }
+// -------------------------------------------------------------------------------------
+// For Transaction abort and not for recovery
+void BTree::todoVW(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
+{
+   auto& btree = *reinterpret_cast<BTree*>(btree_object);
+   const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
+   switch (entry.type) {
+      case WAL_LOG_TYPE::WALRemove: {
+         // Prev was insert or update
+         const auto& remove_entry = *reinterpret_cast<const vw::WALRemove*>(&entry);
+         while (true) {
+            jumpmuTry()
+            {
+               const u8* key = remove_entry.payload;
+               const u16 key_length = remove_entry.key_length;
+               HybridPageGuard<BTreeNode> leaf_guard;
+               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
+               auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
+               const s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
+               if (pos != -1) {
+                  auto& version = *reinterpret_cast<vw::Version*>(leaf_ex_guard->getPayload(pos));
+                  if (version.tts == tts) {
+                     leaf_ex_guard->removeSlot(pos);
+                  }
+               }
+               leaf_guard = std::move(leaf_ex_guard);
+               jumpmu_return;
+            }
+            jumpmuCatch() {}
+         }
+         break;
+      }
+      default: {
+         ensure(false);
+         break;
+      }
+   }
+}
+// -------------------------------------------------------------------------------------
+
 // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage

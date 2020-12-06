@@ -56,5 +56,11 @@ void DTRegistry::undo(DTID dt_id, const u8* wal_entry, u64 tts)
    return dt_types_ht[std::get<0>(dt_meta)].undo(std::get<1>(dt_meta), wal_entry, tts);
 }
 // -------------------------------------------------------------------------------------
+void DTRegistry::todo(DTID dt_id, const u8* wal_entry, u64 tts)
+{
+   auto dt_meta = dt_instances_ht[dt_id];
+   return dt_types_ht[std::get<0>(dt_meta)].todo(std::get<1>(dt_meta), wal_entry, tts);
+}
+// -------------------------------------------------------------------------------------
 }  // namespace storage
 }  // namespace leanstore

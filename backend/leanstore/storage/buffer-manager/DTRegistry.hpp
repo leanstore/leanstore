@@ -35,6 +35,7 @@ struct DTRegistry {
       // -------------------------------------------------------------------------------------
       // MVCC / SI
       std::function<void(void* btree_object, const u8* entry, u64 tts)> undo;
+      std::function<void(void* btree_object, const u8* entry, u64 tts)> todo;
       // -------------------------------------------------------------------------------------
       u64 instances_counter = 0;
    };
@@ -56,6 +57,7 @@ struct DTRegistry {
    // -------------------------------------------------------------------------------------
    // Recovery / SI
    void undo(DTID dt_id, const u8* wal_entry, u64 tts);
+   void todo(DTID dt_id, const u8* wal_entry, u64 tts);
 };
 
 // -------------------------------------------------------------------------------------

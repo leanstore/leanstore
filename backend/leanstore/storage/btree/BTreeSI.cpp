@@ -26,6 +26,17 @@ void BTree::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
       ensure(false);
    }
 }
+// ------------------------------------------------------------------------------------
+void BTree::todo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
+{
+   if (FLAGS_vw) {
+      todoVW(btree_object, wal_entry_ptr, tts);
+   } else if (FLAGS_vi) {
+      ensure(false);
+   } else {
+      ensure(false);
+   }
+}
 // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage

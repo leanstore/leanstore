@@ -25,10 +25,20 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
+   std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
    my_snapshot = make_unique<u64[]>(workers_count);
-   my_concurrent_transcations = make_unique<u64[]>(workers_count);
+   lower_water_marks = make_unique<atomic<u64>[]>(workers_count);
+   for (u64 w = 0; w < workers_count; w++) {
+      lower_water_marks[w] = 0;
+   }
 }
-Worker::~Worker() {}
+Worker::~Worker()
+{
+   static std::mutex m;
+   std::unique_lock guard(m);
+   cout << "WorkerID = " << worker_id << endl;
+   cout << worker_id << " high = " << high_water_mark << " - low = " << lower_water_mark << " todo# " << todo_list.size() << endl;
+}
 // -------------------------------------------------------------------------------------
 u32 Worker::walFreeSpace()
 {
@@ -59,8 +69,37 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
          DEBUG_BLOCK() { entry.computeCRC(); }
-         wal_buffer_round++;  // Carriage Return
+         // -------------------------------------------------------------------------------------
+         invalidateEntriesUntil(WORKER_WAL_SIZE);
          wal_wt_cursor.store(0, std::memory_order_release);
+         wal_next_to_clean = 0;
+         wal_buffer_round++;  // Carriage Return
+      }
+   }
+}
+// -------------------------------------------------------------------------------------
+void Worker::invalidateEntriesUntil(u64 until)
+{
+   if (wal_buffer_round > 0) {
+      constexpr u64 INVALIDATE_LSN = std::numeric_limits<u64>::max();
+      assert(wal_next_to_clean >= wal_wt_cursor);
+      assert(wal_next_to_clean <= WORKER_WAL_SIZE);
+      if (wal_next_to_clean < until) {
+         u64 offset = wal_next_to_clean;
+         while (offset < until) {
+            auto entry = reinterpret_cast<WALEntry*>(wal_buffer + offset);
+            DEBUG_BLOCK()
+            {
+               assert(offset + entry->size <= WORKER_WAL_SIZE);
+               if (entry->type != WALEntry::TYPE::CARRIAGE_RETURN) {
+                  entry->checkCRC();
+               }
+               assert(entry->lsn < INVALIDATE_LSN);
+            }
+            entry->lsn.store(INVALIDATE_LSN, std::memory_order_release);
+            offset += entry->size;
+         }
+         wal_next_to_clean = offset;
       }
    }
 }
@@ -69,6 +108,7 @@ WALMetaEntry& Worker::reserveWALMetaEntry()
 {
    walEnsureEnoughSpace(sizeof(WALMetaEntry));
    active_mt_entry = reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
+   invalidateEntriesUntil(wal_wt_cursor + sizeof(WALMetaEntry));
    active_mt_entry->lsn.store(wal_lsn_counter++, std::memory_order_release);
    active_mt_entry->size = sizeof(WALMetaEntry);
    return *active_mt_entry;
@@ -103,10 +143,30 @@ void Worker::startTX()
       if (FLAGS_si) {
          for (u64 w = 0; w < workers_count; w++) {
             my_snapshot[w] = all_workers[w]->high_water_mark;
-            // my_concurrent_transcations[w] = all_workers[w]->next_tts;
+            all_workers[w]->lower_water_marks[worker_id] = my_snapshot[w];
          }
-         // std::sort(my_concurrent_transcations.get(), my_concurrent_transcations.get() + workers_count, std::greater<int>());
          active_tx.tts = next_tts.fetch_add(1);
+      }
+      if (1 && todo_list.size()) {  // Check TODO
+         {
+            u64 min = std::numeric_limits<u64>::max();
+            for (u64 w = 0; w < workers_count; w++) {
+               min = std::min<u64>(min, lower_water_marks[w]);
+            }
+            lower_water_mark = min;
+         }
+         while (todo_list.size()) {
+            auto& todo = todo_list.front();
+            if (todo.tts < lower_water_mark) {
+               getWALEntry(todo.lsn, todo.in_memory_offset, [&](WALEntry* entry) {
+                  const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(entry);
+                  leanstore::storage::DTRegistry::global_dt_registry.todo(dt_entry.dt_id, dt_entry.payload, todo.tts);
+               });
+               todo_list.pop();
+            } else {
+               break;
+            }
+         }
       }
    }
 }
@@ -171,7 +231,6 @@ void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entr
    while (cursor != wal_wt_cursor) {
       const WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_buffer + cursor);
       DEBUG_BLOCK() { entry.checkCRC(); }
-      const WALEntry* next = reinterpret_cast<WALEntry*>(wal_buffer + cursor + entry.size);
       if (entry.type == WALEntry::TYPE::CARRIAGE_RETURN) {
          cursor = 0;
       } else {
@@ -216,12 +275,17 @@ Worker::WALFinder::~WALFinder()
    csv.close();
 }
 // -------------------------------------------------------------------------------------
-void Worker::getWALDTEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
+void Worker::getWALDTEntryPayload(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
 {
-   all_workers[worker_id]->getWALDTEntry(lsn, in_memory_offset, callback);
+   all_workers[worker_id]->getWALEntry(lsn, in_memory_offset, [&](WALEntry* entry) { callback(reinterpret_cast<WALDTEntry*>(entry)->payload); });
 }
 // -------------------------------------------------------------------------------------
-void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
+void Worker::getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback)
+{
+   all_workers[worker_id]->getWALEntry(lsn, in_memory_offset, callback);
+}
+// -------------------------------------------------------------------------------------
+void Worker::getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback)
 {
    COUNTERS_BLOCK()
    {
@@ -230,7 +294,7 @@ void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*
    }
    {
       // 1- Optimistically locate the entry
-      auto dt_entry = reinterpret_cast<WALDTEntry*>(wal_buffer + in_memory_offset);
+      auto dt_entry = reinterpret_cast<WALEntry*>(wal_buffer + in_memory_offset);
       const u16 dt_size = dt_entry->size;
       if (dt_entry->lsn != lsn) {
          goto outofmemory;
@@ -240,10 +304,10 @@ void Worker::getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*
       if (dt_entry->lsn != lsn) {
          goto outofmemory;
       }
-      auto entry = reinterpret_cast<WALDTEntry*>(log);
+      auto entry = reinterpret_cast<WALEntry*>(log);
       assert(entry->lsn == lsn);
       DEBUG_BLOCK() { entry->checkCRC(); }
-      callback(entry->payload);
+      callback(entry);
       COUNTERS_BLOCK() { WorkerCounters::myCounters().wal_buffer_hit++; }
       return;
    }
@@ -264,20 +328,20 @@ outofmemory : {
    // -------------------------------------------------------------------------------------
    u64 offset = 0;
    u8* ptr = log_chunk + lower_bound - lower_bound_aligned;
-   auto entry = reinterpret_cast<WALDTEntry*>(ptr + offset);
+   auto entry = reinterpret_cast<WALEntry*>(ptr + offset);
    auto prev_entry = entry;
    while (true) {
       DEBUG_BLOCK() { entry->checkCRC(); }
       assert(entry->size > 0 && entry->lsn <= lsn);
       if (entry->lsn == lsn) {
-         callback(entry->payload);
+         callback(entry);
          std::free(log_chunk);
          return;
       }
       if ((offset + entry->size) < slot.length) {
          offset += entry->size;
          prev_entry = entry;
-         entry = reinterpret_cast<WALDTEntry*>(ptr + offset);
+         entry = reinterpret_cast<WALEntry*>(ptr + offset);
       } else {
          break;
       }
@@ -287,6 +351,11 @@ outofmemory : {
    ensure(false);
    return;
 }
+}
+// -------------------------------------------------------------------------------------
+void Worker::addTODO(u64 tts, LID lsn, u32 in_memory_offset)
+{
+   todo_list.push({tts, lsn, in_memory_offset});
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

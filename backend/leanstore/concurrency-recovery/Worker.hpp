@@ -8,6 +8,7 @@
 #include <map>
 #include <mutex>
 #include <vector>
+#include <queue>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -55,8 +56,18 @@ struct Worker {
    atomic<u64> next_tts = 0;
    atomic<u64> high_water_mark = 0;  // High water mark, exclusive: TS < mark are visible
    // -------------------------------------------------------------------------------------
+   // Garbage Collect (is_removed) when the is_removed version visible for all
+   u64 lower_water_mark = 0;  // Safe to garbage collect
+   unique_ptr<atomic<u64>[]> lower_water_marks;
+   struct TODO {
+      u64 tts;
+      LID lsn;
+      u64 in_memory_offset;
+   };
+   std::queue<TODO> todo_list;
+   void addTODO(u64 tts, LID lsn, u32 in_memory_offset);
+   // -------------------------------------------------------------------------------------
    unique_ptr<u64[]> my_snapshot;
-   unique_ptr<u64[]> my_concurrent_transcations;  // TODO: sort
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------
@@ -89,9 +100,9 @@ struct Worker {
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    // Published using mutex
-   atomic<u64> wal_wt_cursor = 0;     // W->GCT
-   atomic<LID> wal_max_gsn = 0;       // W->GCT, under mutex
-   atomic<u64> wal_buffer_round = 0;  // W->GCT, under mutex
+   atomic<u64> wal_wt_cursor = 0;  // W->GCT
+   atomic<LID> wal_max_gsn = 0;    // W->GCT, under mutex
+   u64 wal_buffer_round = 0, wal_next_to_clean = 0;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    atomic<u64> wal_ww_cursor = 0;                // GCT->W
@@ -103,6 +114,7 @@ struct Worker {
    u32 walContiguousFreeSpace();
    void walEnsureEnoughSpace(u32 requested_size);
    u8* walReserve(u32 requested_size);
+   void invalidateEntriesUntil(u64 until);
    // -------------------------------------------------------------------------------------
    // Iterate over current TX entries
    u64 current_tx_wal_start;
@@ -143,19 +155,8 @@ struct Worker {
       const auto lsn = wal_lsn_counter++;
       const u64 total_size = sizeof(WALDTEntry) + requested_size;
       ensure(walContiguousFreeSpace() >= total_size);
-      {
-         // Sync
-         u64 offset = wal_wt_cursor;
-         while (offset < wal_wt_cursor + requested_size) {
-            auto entry = reinterpret_cast<WALEntry*>(wal_buffer + offset);
-            assert(entry->lsn < lsn);
-            entry->lsn.store(lsn, std::memory_order_release);
-            offset += entry->size;
-            if (entry->size == 0 || entry->type == WALEntry::TYPE::CARRIAGE_RETURN) {
-               break;
-            }
-         }
-      }
+      // Sync
+      invalidateEntriesUntil(wal_wt_cursor + total_size);
       active_dt_entry = new (wal_buffer + wal_wt_cursor) WALDTEntry();
       active_dt_entry->lsn.store(lsn, std::memory_order_release);
       active_dt_entry->magic_debugging_number = 99;
@@ -167,7 +168,7 @@ struct Worker {
       active_dt_entry->dt_id = dt_id;
       return {active_dt_entry->payload, total_size, active_dt_entry->lsn, wal_wt_cursor};
    }
-   void submitDTEntry(u64 requested_size);
+   void submitDTEntry(u64 total_size);
    // -------------------------------------------------------------------------------------
   public:
    // -------------------------------------------------------------------------------------
@@ -180,8 +181,9 @@ struct Worker {
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
-   void getWALDTEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
-   void getWALDTEntry(LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
+   void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
+   void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
+   void getWALDTEntryPayload(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr
