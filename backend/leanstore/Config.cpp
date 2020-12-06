@@ -67,6 +67,7 @@ DEFINE_bool(wal_fsync, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(si, true, "");
 DEFINE_bool(vw, false, "");
+DEFINE_bool(vw_todo, true, "");
 DEFINE_bool(vi, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");

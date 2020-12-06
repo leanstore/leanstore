@@ -147,25 +147,25 @@ void Worker::startTX()
             all_workers[w]->lower_water_marks[worker_id * 8].store(my_snapshot[w], std::memory_order_release);
          }
          active_tx.tts = next_tts++;
-      }
-      if (1 && todo_list.size()) {  // Check TODO
-         {
-            u64 min = std::numeric_limits<u64>::max();
-            for (u64 w = 0; w < workers_count; w++) {
-               min = std::min<u64>(min, lower_water_marks[w * 8]);
+         if (FLAGS_vw && FLAGS_vw_todo && todo_list.size()) {  // Cleanup
+            {
+               u64 min = std::numeric_limits<u64>::max();
+               for (u64 w = 0; w < workers_count; w++) {
+                  min = std::min<u64>(min, lower_water_marks[w * 8]);
+               }
+               lower_water_mark = min;
             }
-            lower_water_mark = min;
-         }
-         while (todo_list.size()) {
-            auto& todo = todo_list.front();
-            if (todo.tts < lower_water_mark) {
-               getWALEntry(todo.lsn, todo.in_memory_offset, [&](WALEntry* entry) {
-                  const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(entry);
-                  leanstore::storage::DTRegistry::global_dt_registry.todo(dt_entry.dt_id, dt_entry.payload, todo.tts);
-               });
-               todo_list.pop();
-            } else {
-               break;
+            while (todo_list.size()) {
+               auto& todo = todo_list.front();
+               if (todo.tts < lower_water_mark) {
+                  getWALEntry(todo.lsn, todo.in_memory_offset, [&](WALEntry* entry) {
+                     const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(entry);
+                     leanstore::storage::DTRegistry::global_dt_registry.todo(dt_entry.dt_id, dt_entry.payload, todo.tts);
+                  });
+                  todo_list.pop();
+               } else {
+                  break;
+               }
             }
          }
       }
