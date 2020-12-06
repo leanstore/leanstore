@@ -50,6 +50,8 @@ void ConfigsTable::open()
    columns.emplace("c_backoff", [&](Column& col) { col << FLAGS_backoff; });
    // -------------------------------------------------------------------------------------
    columns.emplace("c_wal", [&](Column& col) { col << FLAGS_wal; });
+   columns.emplace("c_si", [&](Column& col) { col << FLAGS_si; });
+   columns.emplace("c_vw", [&](Column& col) { col << FLAGS_vw; });
    // -------------------------------------------------------------------------------------
    for (auto& c : columns) {
       c.second.generator(c.second);

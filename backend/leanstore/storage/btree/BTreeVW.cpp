@@ -605,7 +605,37 @@ void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)
                version.is_removed = false;
                version.is_final = false;  // TODO: maybe the prev was insert
                // -------------------------------------------------------------------------------------
-               leaf_guard = std::move(leaf_ex_guard);
+               if (FLAGS_contention_split && leaf_guard.hasFacedContention()) {
+                  const u64 random_number = utils::RandomGenerator::getRandU64();
+                  if ((random_number & ((1ull << FLAGS_cm_update_on) - 1)) == 0) {
+                     s64 last_modified_pos = leaf_ex_guard.bf()->header.contention_tracker.last_modified_pos;
+                     leaf_ex_guard.bf()->header.contention_tracker.last_modified_pos = pos;
+                     leaf_ex_guard.bf()->header.contention_tracker.restarts_counter += 1;
+                     leaf_ex_guard.bf()->header.contention_tracker.access_counter++;
+                     if ((random_number & ((1ull << FLAGS_cm_period) - 1)) == 0) {
+                        const u64 current_restarts_counter = leaf_ex_guard.bf()->header.contention_tracker.restarts_counter;
+                        const u64 current_access_counter = leaf_ex_guard.bf()->header.contention_tracker.access_counter;
+                        const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
+                        leaf_ex_guard.bf()->header.contention_tracker.restarts_counter = 0;
+                        leaf_ex_guard.bf()->header.contention_tracker.access_counter = 0;
+                        // -------------------------------------------------------------------------------------
+                        if (last_modified_pos != pos && normalized_restarts >= FLAGS_cm_slowpath_threshold && leaf_ex_guard->count > 2) {
+                           s16 split_pos = std::min<s16>(last_modified_pos, pos);
+                           leaf_guard = std::move(leaf_ex_guard);
+                           leaf_guard.kill();
+                           jumpmuTry()
+                           {
+                              btree.trySplit(*leaf_guard.bf, split_pos);
+                              WorkerCounters::myCounters().contention_split_succ_counter[btree.dt_id]++;
+                           }
+                           jumpmuCatch() { WorkerCounters::myCounters().contention_split_fail_counter[btree.dt_id]++; }
+                        }
+                     }
+                  }
+               } else {
+                  leaf_guard = std::move(leaf_ex_guard);
+               }
+               // -------------------------------------------------------------------------------------
                jumpmu_return;
             }
             jumpmuCatch() {}

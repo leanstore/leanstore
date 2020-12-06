@@ -27,13 +27,14 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    CRCounters::myCounters().worker_id = worker_id;
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
    my_snapshot = make_unique<u64[]>(workers_count);
-   lower_water_marks = make_unique<atomic<u64>[]>(workers_count);
+   lower_water_marks = static_cast<atomic<u64>*>(std::aligned_alloc(64, 8 * sizeof(u64) * workers_count));
    for (u64 w = 0; w < workers_count; w++) {
-      lower_water_marks[w] = 0;
+      lower_water_marks[w * 8] = 0;
    }
 }
 Worker::~Worker()
 {
+   std::free(lower_water_marks);
    // static std::mutex m;
    // std::unique_lock guard(m);
    // cout << "WorkerID = " << worker_id << endl;
@@ -143,7 +144,7 @@ void Worker::startTX()
       if (FLAGS_si) {
          for (u64 w = 0; w < workers_count; w++) {
             my_snapshot[w] = all_workers[w]->high_water_mark;
-            all_workers[w]->lower_water_marks[worker_id] = my_snapshot[w];
+            all_workers[w]->lower_water_marks[worker_id * 8].store(my_snapshot[w], std::memory_order_release);
          }
          active_tx.tts = next_tts.fetch_add(1);
       }
@@ -151,7 +152,7 @@ void Worker::startTX()
          {
             u64 min = std::numeric_limits<u64>::max();
             for (u64 w = 0; w < workers_count; w++) {
-               min = std::min<u64>(min, lower_water_marks[w]);
+               min = std::min<u64>(min, lower_water_marks[w * 8]);
             }
             lower_water_mark = min;
          }
@@ -263,17 +264,7 @@ void Worker::WALFinder::insertJumpPoint(LID LSN, WALChunk::Slot slot)
    ht[LSN] = slot;
 }
 // -------------------------------------------------------------------------------------
-Worker::WALFinder::~WALFinder()
-{
-   static atomic<u64> tmp = 0;
-   std::ofstream csv;
-   csv.open("wal_stats_" + std::to_string(tmp++) + ".csv", std::ios::trunc);
-   csv << "i,lsn" << endl;
-   for (u64 t_i = 0; t_i < stats.size(); t_i++) {
-      csv << t_i << "," << stats[t_i] << endl;
-   }
-   csv.close();
-}
+Worker::WALFinder::~WALFinder() {}
 // -------------------------------------------------------------------------------------
 void Worker::getWALDTEntryPayload(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
 {
@@ -287,11 +278,6 @@ void Worker::getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::funct
 // -------------------------------------------------------------------------------------
 void Worker::getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback)
 {
-   COUNTERS_BLOCK()
-   {
-      std::unique_lock guard(wal_finder.m);
-      wal_finder.stats.push_back(lsn);
-   }
    {
       // 1- Optimistically locate the entry
       auto dt_entry = reinterpret_cast<WALEntry*>(wal_buffer + in_memory_offset);

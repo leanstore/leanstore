@@ -41,6 +41,7 @@ void CRTable::open()
    columns.emplace("wal_hit_pct", [&](Column& col) { col << wal_hit_pct; });
    columns.emplace("wal_miss", [&](Column& col) { col << wal_miss; });
    columns.emplace("wal_hit", [&](Column& col) { col << wal_hits; });
+   columns.emplace("wal_total", [&](Column& col) { col << wal_total; });
 }
 // -------------------------------------------------------------------------------------
 void CRTable::next()

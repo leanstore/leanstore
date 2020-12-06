@@ -58,7 +58,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    // Garbage Collect (is_removed) when the is_removed version visible for all
    u64 lower_water_mark = 0;  // Safe to garbage collect
-   unique_ptr<atomic<u64>[]> lower_water_marks;
+   atomic<u64>* lower_water_marks;
    struct TODO {
       u64 tts;
       LID lsn;
@@ -90,8 +90,6 @@ struct Worker {
       std::map<LID, WALChunk::Slot> ht;  // LSN->SSD Offset
       void insertJumpPoint(LID lsn, WALChunk::Slot slot);
       WALChunk::Slot getJumpPoint(LID lsn);
-      // -------------------------------------------------------------------------------------
-      std::vector<LID> stats;
       ~WALFinder();
    };
    WALFinder wal_finder;
