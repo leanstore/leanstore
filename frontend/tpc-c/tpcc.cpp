@@ -123,6 +123,7 @@ int main(int argc, char** argv)
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
          volatile u64 tx_acc = 0;
+         cr::Worker::my().refreshSnapshot();
          while (keep_running) {
             jumpmuTry()
             {

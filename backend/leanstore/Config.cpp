@@ -71,4 +71,4 @@ DEFINE_bool(vw_todo, true, "");
 DEFINE_bool(vi, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
-DEFINE_uint64(tmp, false, "");
+DEFINE_uint64(tmp, 0, "");

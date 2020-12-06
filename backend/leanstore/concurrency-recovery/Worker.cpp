@@ -131,6 +131,14 @@ void Worker::submitDTEntry(u64 total_size)
    wal_max_gsn.store(clock_gsn, std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
+void Worker::refreshSnapshot()
+{
+   for (u64 w = 0; w < workers_count; w++) {
+      my_snapshot[w] = all_workers[w]->high_water_mark;
+      all_workers[w]->lower_water_marks[worker_id * 8].store(my_snapshot[w], std::memory_order_release);
+   }
+}
+// -------------------------------------------------------------------------------------
 void Worker::startTX()
 {
    if (FLAGS_wal) {
@@ -142,10 +150,11 @@ void Worker::startTX()
       active_tx.state = Transaction::STATE::STARTED;
       active_tx.min_gsn = clock_gsn;
       if (FLAGS_si) {
-         for (u64 w = 0; w < workers_count; w++) {
-            my_snapshot[w] = all_workers[w]->high_water_mark;
-            all_workers[w]->lower_water_marks[worker_id * 8].store(my_snapshot[w], std::memory_order_release);
-         }
+         if (active_tx.tts % FLAGS_tmp == 0)
+            for (u64 w = 0; w < workers_count; w++) {
+               my_snapshot[w] = all_workers[w]->high_water_mark;
+               all_workers[w]->lower_water_marks[worker_id * 8].store(my_snapshot[w], std::memory_order_release);
+            }
          active_tx.tts = next_tts++;
          if (FLAGS_vw && FLAGS_vw_todo && todo_list.size()) {  // Cleanup
             {
@@ -321,7 +330,6 @@ outofmemory : {
       assert(entry->size > 0 && entry->lsn <= lsn);
       if (entry->lsn == lsn) {
          callback(entry);
-         std::free(log_chunk);
          return;
       }
       if ((offset + entry->size) < slot.length) {
