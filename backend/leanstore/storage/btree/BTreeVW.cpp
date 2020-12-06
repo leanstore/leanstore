@@ -193,14 +193,14 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
                   raise(SIGTRAP);
                   jumpmu_return OP_RESULT::NOT_FOUND;
                } else {
-                  JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
-                  std::memcpy(reconstructed_payload->get(), payload, payload_length);
+                  u8 reconstructed_payload[PAGE_SIZE];
+                  std::memcpy(reconstructed_payload, payload, payload_length);
                   leaf.recheck_done();
                   leaf.kill();
                   const bool exists =
-                      reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
+                      reconstructTupleVW(reconstructed_payload, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
                   if (exists) {
-                     payload_callback(reconstructed_payload->get(), payload_length);
+                     payload_callback(reconstructed_payload, payload_length);
                      jumpmu_return OP_RESULT::OK;
                   } else {
                      raise(SIGTRAP);
@@ -218,7 +218,7 @@ OP_RESULT BTree::lookupVW(u8* key, u16 key_length, function<void(const u8*, u16)
    }
 }
 // -------------------------------------------------------------------------------------
-bool BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_length, u8 start_worker_id, u64 start_lsn, u32 in_memory_offset)
+bool BTree::reconstructTupleVW(u8* payload, u16& payload_length, u8 start_worker_id, u64 start_lsn, u32 in_memory_offset)
 {
    u64 version_depth = 1;
    static_cast<void>(version_depth);
@@ -238,25 +238,19 @@ bool BTree::reconstructTupleVW(std::unique_ptr<u8[]>& payload, u16& payload_leng
          switch (wal_entry.type) {
             case WAL_LOG_TYPE::WALRemove: {
                auto& remove_entry = *reinterpret_cast<vw::WALRemove*>(entry);
-               if (payload_length != remove_entry.payload_length) {
-                  payload_length = remove_entry.payload_length;
-                  payload.reset(new u8[payload_length]);
-               }
-               std::memcpy(payload.get(), remove_entry.payload, payload_length);
+               payload_length = remove_entry.payload_length;
+               std::memcpy(payload, remove_entry.payload, payload_length);
                is_removed = false;
                break;
             }
             case WAL_LOG_TYPE::WALInsert: {
-               if (payload_length != 0) {
-                  payload.reset();
-                  payload_length = 0;
-               }
+               payload_length = 0;
                is_removed = true;
                break;
             }
             case WAL_LOG_TYPE::WALUpdate: {
                auto& update_entry = *reinterpret_cast<vw::WALUpdate*>(entry);
-               applyDeltaVW(payload.get(), payload_length, update_entry.payload + update_entry.key_length, update_entry.delta_length);
+               applyDeltaVW(payload, payload_length, update_entry.payload + update_entry.key_length, update_entry.delta_length);
                is_removed = false;
                break;
             }
@@ -454,12 +448,12 @@ OP_RESULT BTree::scanAscVW(u8* start_key,
                 return true;
              } else {
                 // ensure(payload_length > 0); secondary index
-                JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
-                std::memcpy(reconstructed_payload->get(), payload, payload_length);
+                u8 reconstructed_payload[PAGE_SIZE];
+                std::memcpy(reconstructed_payload, payload, payload_length);
                 const bool exists =
-                    reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
+                    reconstructTupleVW(reconstructed_payload, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
                 if (exists) {
-                   return callback(key, key_length, reconstructed_payload->get(), payload_length);
+                   return callback(key, key_length, reconstructed_payload, payload_length);
                 } else {
                    return true;
                 }
@@ -490,12 +484,11 @@ OP_RESULT BTree::scanDescVW(u8* start_key,
                 return callback(key, key_length, payload, payload_length);
              }
           } else {
-             JMUW<std::unique_ptr<u8[]>> reconstructed_payload = std::make_unique<u8[]>(payload_length);
-             std::memcpy(reconstructed_payload->get(), payload, payload_length);
-             const bool exists =
-                 reconstructTupleVW(reconstructed_payload.obj, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
+             u8 reconstructed_payload[PAGE_SIZE];
+             std::memcpy(reconstructed_payload, payload, payload_length);
+             const bool exists = reconstructTupleVW(reconstructed_payload, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
              if (exists) {
-                return callback(key, key_length, reconstructed_payload->get(), payload_length);
+                return callback(key, key_length, reconstructed_payload, payload_length);
              } else {
                 return true;
              }
