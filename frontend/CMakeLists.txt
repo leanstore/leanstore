@@ -66,6 +66,10 @@ add_executable(fairness misc-benchmarks/fairness.cpp)
 target_link_libraries(fairness leanstore Threads::Threads)
 target_include_directories(fairness PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
+add_executable(verifyrome misc-benchmarks/verifyrome.cpp)
+target_link_libraries(verifyrome leanstore Threads::Threads)
+target_include_directories(verifyrome PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
 add_executable(scheduler misc-benchmarks/scheduler.cpp)
 target_link_libraries(scheduler leanstore Threads::Threads)
 target_include_directories(scheduler PRIVATE ${SHARED_INCLUDE_DIRECTORY})

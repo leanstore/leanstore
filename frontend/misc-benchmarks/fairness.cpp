@@ -20,13 +20,17 @@
 #include <thread>
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(samples_count, (1 << 20), "");
+DEFINE_uint64(sep, 32, "");
 DEFINE_bool(mixed, false, "");
+DEFINE_bool(right, true, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
 using namespace leanstore::buffermanager;
 int main(int argc, char** argv)
 {
+  if (FLAGS_right)
+    utils::pinThisThreadRome(FLAGS_worker_threads - 1);
   gflags::SetUsageMessage("");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   // -------------------------------------------------------------------------------------
@@ -63,8 +67,13 @@ int main(int argc, char** argv)
   cout << "Insert: done" << endl;
   // -------------------------------------------------------------------------------------
   atomic<u64> threads_counter = 0;
-  for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+  std::mutex io_mutex;
+  for (s64 t_i = FLAGS_worker_threads - 1; t_i >= 0; t_i--) {
     threads.emplace_back([&, t_i]() {
+      PerfEvent e;
+      if (t_i == 0 || t_i == FLAGS_worker_threads - 1) {
+        e.startCounters();
+      }
       threads_counter++;
       if (FLAGS_pin_threads)
         utils::pinThisThreadRome(FLAGS_pp_threads + t_i);
@@ -77,6 +86,12 @@ int main(int argc, char** argv)
         sequence[bf.seq_id++ % max_size] = t_i;
       }
       threads_counter--;
+      std::unique_lock g(io_mutex);
+      if (t_i == 0 || t_i == FLAGS_worker_threads - 1) {
+        cout << "t_i = " << t_i << endl;
+        e.stopCounters();
+        e.printReport(std::cout, 1);
+      }
     });
   }
   sleep(FLAGS_run_for_seconds);
@@ -87,6 +102,36 @@ int main(int argc, char** argv)
     thread.join();
   }
   threads.clear();
+  // -------------------------------------------------------------------------------------s
+  // Left, Right
+  u64 ccx = sequence[0] / 4;
+  u64 counter = 1;
+  for (u64 i = 1; i < max_size; i++) {
+    u64 t_i = sequence[i];
+    u64 l_ccx = (t_i / 4);
+    if (ccx == l_ccx) {
+      counter++;
+    } else {
+      cout << ccx << "," << counter << endl;
+      ccx = l_ccx;
+      counter = 1;
+    }
+  }
+  cout << ccx << "," << counter << endl;
+  return 0;
+  // -------------------------------------------------------------------------------------s
+  std::map<u64, u64> agg;
+  for (u64 i = 0; i < FLAGS_worker_threads; i++) {
+    agg[i] = 0;
+  }
+  for (u64 i = 0; i < max_size; i++) {
+    agg[sequence[i]]++;
+  }
+  cout << "t,freq" << endl;
+  for (u64 i = 0; i < FLAGS_worker_threads; i++) {
+    cout << i << "," << agg[i] << endl;
+  }
+  // -------------------------------------------------------------------------------------
   std::ofstream csv;
   string filename = FLAGS_csv_path + ".csv";
   std::ofstream::openmode open_flags;
@@ -102,8 +147,8 @@ int main(int argc, char** argv)
     csv << "i,t,c_worker_threads,c_pin_threads,c_smt,c_hash" << endl;
   }
   for (u64 i = 0; i < max_size; i++) {
-    csv << i << "," << sequence[i] << "," << FLAGS_worker_threads << "," << FLAGS_pin_threads << "," << FLAGS_smt_interleaved << "," << db.getConfigHash()
-        << endl;
+    csv << i << "," << sequence[i] << "," << FLAGS_worker_threads << "," << FLAGS_pin_threads << "," << FLAGS_smt_interleaved << ","
+        << db.getConfigHash() << endl;
   }
   return 0;
 }

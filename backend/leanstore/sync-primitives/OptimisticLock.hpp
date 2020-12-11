@@ -197,13 +197,19 @@ class ExclusiveGuard
           ensure(false);
         }
       } else {
-        if (!ref_guard.latch_ptr->mutex.try_lock()) {
-          jumpmu::jump();
-        }
-        // ref_guard.latch_ptr->mutex.lock(); can be helpful for debugging
-        if (!ref_guard.latch_ptr->ref().compare_exchange_strong(expected, new_version)) {
-          ref_guard.latch_ptr->mutex.unlock();
-          jumpmu::jump();
+        if (FLAGS_mutex) {
+          if (!ref_guard.latch_ptr->mutex.try_lock()) {
+            jumpmu::jump();
+          }
+          // ref_guard.latch_ptr->mutex.lock(); can be helpful for debugging
+          if (!ref_guard.latch_ptr->ref().compare_exchange_strong(expected, new_version)) {
+            ref_guard.latch_ptr->mutex.unlock();
+            jumpmu::jump();
+          }
+        } else {
+          if (!ref_guard.latch_ptr->ref().compare_exchange_strong(expected, new_version)) {
+            jumpmu::jump();
+          }
         }
       }
       ref_guard.local_version = new_version;
@@ -218,7 +224,7 @@ class ExclusiveGuard
     assert((ref_guard.local_version & LATCH_EXCLUSIVE_STATE_MASK) == LATCH_EXCLUSIVE_BIT);
     {
       ref_guard.local_version = LATCH_EXCLUSIVE_BIT + ref_guard.latch_ptr->ref().fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
-      if (!ref_guard.mutex_locked_upfront) {
+      if (FLAGS_mutex && !ref_guard.mutex_locked_upfront) {
         ref_guard.latch_ptr->assertNotExclusivelyLatched();
         ref_guard.latch_ptr->mutex.unlock();
       }
