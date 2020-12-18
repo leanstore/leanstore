@@ -1,7 +1,15 @@
 # Leanstore DB
-Just for fun !
+## Compiling
+Install dependencies:
+`sudo apt-get install cmake libaio-dev libtbb-dev`
 
-* Naming conventions:
+`make debug && cd debug && cmake -DCMAKE_BUILD_TYPE=Debug ..`
+
+and/or
+
+`make release && cd release && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..`
+
+## Naming conventions:
 functionName
 ClassName
 ClassName.hpp
