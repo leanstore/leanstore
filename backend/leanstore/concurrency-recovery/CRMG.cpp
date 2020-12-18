@@ -53,12 +53,14 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
    while (running_threads < workers_count) {
    }
    // -------------------------------------------------------------------------------------
-   std::thread group_commiter([&]() { groupCommiter(); });
-   cpu_set_t cpuset;
-   CPU_ZERO(&cpuset);
-   CPU_SET(FLAGS_pp_threads, &cpuset);
-   posix_check(pthread_setaffinity_np(group_commiter.native_handle(), sizeof(cpu_set_t), &cpuset) == 0);
-   group_commiter.detach();
+   if (FLAGS_wal) {
+      std::thread group_commiter([&]() { groupCommiter(); });
+      cpu_set_t cpuset;
+      CPU_ZERO(&cpuset);
+      CPU_SET(FLAGS_pp_threads, &cpuset);
+      posix_check(pthread_setaffinity_np(group_commiter.native_handle(), sizeof(cpu_set_t), &cpuset) == 0);
+      group_commiter.detach();
+   }
 }
 // -------------------------------------------------------------------------------------
 CRManager::~CRManager()

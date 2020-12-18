@@ -16,7 +16,7 @@ jobs:
     - name: Install dependencies
       run: sudo apt install -y libtbb-dev libaio-dev
     - name: cmake
-      run: mkdir release && cd release && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j tpcc random_io scan
+      run: mkdir release && cd release && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j
 
     - name: Upload tpc-c
       uses: actions/upload-artifact@v1
