@@ -79,9 +79,8 @@ include_directories(
 # ---------------------------------------------------------------------------
 
 add_subdirectory("backend")
-#add_subdirectory("tests")
+add_subdirectory("tests")
 add_subdirectory("tools")
-add_subdirectory("playground")
 
 # ---------------------------------------------------------------------------
 # Tests

@@ -19,11 +19,11 @@ DEFINE_bool(trunc, false, "Truncate file");
 DEFINE_uint32(falloc, 0, "Preallocate GiB");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(print_debug, true, "");
-DEFINE_bool(print_tx_console, false, "");
+DEFINE_bool(print_tx_console, true, "");
 DEFINE_uint32(print_debug_interval_s, 1, "");
 DEFINE_bool(profiling, false, "");
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(worker_threads, 20, "");
+DEFINE_uint32(worker_threads, 4, "");
 DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
 // -------------------------------------------------------------------------------------
@@ -54,21 +54,22 @@ DEFINE_double(d, 0.0, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(bulk_insert, false, "");
 // -------------------------------------------------------------------------------------
-DEFINE_int64(trace_dt_id, -1, "");
+DEFINE_int64(trace_dt_id, -1, "Print a stack trace for page reads for this DT ID");
 DEFINE_int64(trace_trigger_probability, 100, "");
+// -------------------------------------------------------------------------------------
 DEFINE_string(tag, "", "Unique identifier for this, will be appended to each line csv");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(out_of_place, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(wal, false, "");
 DEFINE_uint64(wal_offset_gib, 1, "");
-DEFINE_bool(wal_io_hack, false, "");
-DEFINE_bool(wal_fsync, true, "");
+DEFINE_bool(wal_io_hack, false, "Does not really write logs on SSD");
+DEFINE_bool(wal_fsync, false, "");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(si, true, "");
+DEFINE_bool(si, false, "");
 DEFINE_uint64(si_refresh_rate, 0, "");
 DEFINE_bool(vw, false, "");
-DEFINE_bool(vw_todo, true, "");
+DEFINE_bool(vw_todo, false, "");
 DEFINE_bool(vi, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
