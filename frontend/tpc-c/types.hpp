@@ -33,7 +33,12 @@ struct Varchar {
       memcpy(data, other.data, length);
    }
 
-   void append(char x) { data[length++] = x; };
+   void append(char x)
+   {
+      assert(length < maxLength);
+      data[length++] = x;
+   };
+
    std::string toString() { return std::string(data, length); };
 
    template <int otherMaxLength>
