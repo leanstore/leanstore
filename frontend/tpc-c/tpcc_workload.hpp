@@ -5,8 +5,8 @@ atomic<u64> scanned_elements = 0;
 
 Integer warehouseCount;
 // -------------------------------------------------------------------------------------
-static constexpr INTEGER OL_I_ID_C = 7911;  // in range [0, 8191]
-static constexpr INTEGER C_ID_C = 259;      // in range [0, 1023]
+static constexpr INTEGER OL_I_ID_C = 7911;  // C for getItemID: in range [0, 8191]
+static constexpr INTEGER C_ID_C = 259;      // C for getCustomerID: in range [0, 1023]
 // NOTE: TPC-C 2.1.6.1 specifies that abs(C_LAST_LOAD_C - C_LAST_RUN_C) must
 // be within [65, 119]
 static constexpr INTEGER C_LAST_LOAD_C = 157;  // in range [0, 255]
@@ -14,62 +14,82 @@ static constexpr INTEGER C_LAST_RUN_C = 223;   // in range [0, 255]
 // -------------------------------------------------------------------------------------
 static constexpr INTEGER ITEMS_NO = 100000;  // 100K
 
+// -------------------------------------------------------------------------------------
+// RandomGenerator functions
+// -------------------------------------------------------------------------------------
+
 // [0, n)
 Integer rnd(Integer n)
 {
    return leanstore::utils::RandomGenerator::getRand(0, n);
 }
 
-// [fromId, toId]
-Integer randomId(Integer fromId, Integer toId)
-{
-   return leanstore::utils::RandomGenerator::getRand(fromId, toId + 1);
-}
-
 // [low, high]
-Integer urand(Integer low, Integer high)
+Integer uRand(Integer low, Integer high)
 {
    return rnd(high - low + 1) + low;
 }
 
-Integer urandexcept(Integer low, Integer high, Integer v)
+// [fromId, toId]
+Integer randomId(Integer fromId, Integer toId)
+{
+   return uRand(fromId, toId);
+}
+
+Integer uRandExcept(Integer low, Integer high, Integer v)
 {
    if (high <= low)
       return low;
-   Integer r = rnd(high - low) + low;
+   Integer r = uRand(low, high - 1);
    if (r >= v)
       return r + 1;
    else
       return r;
 }
 
+Integer nURand(Integer A, Integer x, Integer y, Integer C = 42)
+{
+   // TPC-C random is [a,b] inclusive
+   // in standard: NURand(A, x, y) = (((random(0, A) | random(x, y)) + C) % (y - x + 1)) + x
+   return (((uRand(0, A) | uRand(x, y)) + C) % (y - x + 1)) + x;
+}
+
+// 0-9A-Za-z
 template <int maxLength>
-Varchar<maxLength> randomastring(Integer minLenStr, Integer maxLenStr)
+Varchar<maxLength> randomASCIIString(Integer minLenStr, Integer maxLenStr)
 {
    assert(maxLenStr <= maxLength);
-   Integer len = rnd(maxLenStr - minLenStr + 1) + minLenStr;
+   Integer len = uRand(minLenStr, maxLenStr);
    Varchar<maxLength> result;
    for (Integer index = 0; index < len; index++) {
       Integer i = rnd(62);
-      if (i < 10)
+      if (i < 10)  // 0-9
          result.append(48 + i);
-      else if (i < 36)
+      else if (i < 36)  // A-Z
          result.append(64 - 10 + i);
-      else
+      else  // a-z
          result.append(96 - 36 + i);
    }
    return result;
 }
 
-Varchar<16> randomnstring(Integer minLenStr, Integer maxLenStr)
+// 0-9
+Varchar<16> randomNumString(Integer minLenStr, Integer maxLenStr)
 {
-   Integer len = rnd(maxLenStr - minLenStr + 1) + minLenStr;
+   assert(maxLenStr <= 16);
+   Integer len = uRand(minLenStr, maxLenStr);
    Varchar<16> result;
    for (Integer i = 0; i < len; i++)
-      result.append(48 + rnd(10));
+      result.append(48 + rnd(10));  // 0-9
    return result;
 }
 
+/**
+ * @brief Returns namePart from list of Strings.
+ *
+ * @param id position in list of Strings to take
+ * @return Varchar<16> VarChar representation of String
+ */
 Varchar<16> namePart(Integer id)
 {
    assert(id < 10);
@@ -77,6 +97,12 @@ Varchar<16> namePart(Integer id)
    return data[id];
 }
 
+/**
+ * @brief Generate name from partStrings.
+ *
+ * @param id id for which to generate name
+ * @return Varchar<16> Varchar representation of the name
+ */
 Varchar<16> genName(Integer id)
 {
    return namePart((id / 100) % 10) || namePart((id / 10) % 10) || namePart(id % 10);
@@ -89,7 +115,7 @@ Numeric randomNumeric(Numeric min, Numeric max)
    return min + (leanstore::utils::RandomGenerator::getRandU64() / div);
 }
 
-Varchar<9> randomzip()
+Varchar<9> randomZip()
 {
    Integer id = rnd(10000);
    Varchar<9> result;
@@ -100,78 +126,72 @@ Varchar<9> randomzip()
    return result || Varchar<9>("11111");
 }
 
-Integer nurand(Integer a, Integer x, Integer y, Integer C = 42)
-{
-   // TPC-C random is [a,b] inclusive
-   // in standard: NURand(A, x, y) = (((random(0, A) | random(x, y)) + C) % (y - x + 1)) + x
-   // return (((rnd(a + 1) | rnd((y - x + 1) + x)) + 42) % (y - x + 1)) + x;
-   return (((urand(0, a) | urand(x, y)) + C) % (y - x + 1)) + x;
-   // incorrect: return (((rnd(a) | rnd((y - x + 1) + x)) + 42) % (y - x + 1)) + x;
-}
-
 inline Integer getItemID()
 {
    // OL_I_ID_C
-   return nurand(8191, 1, ITEMS_NO, OL_I_ID_C);
+   return nURand(8191, 1, ITEMS_NO, OL_I_ID_C);
 }
 inline Integer getCustomerID()
 {
    // C_ID_C
-   return nurand(1023, 1, 3000, C_ID_C);
-   // return urand(1, 3000);
+   return nURand(1023, 1, 3000, C_ID_C);
 }
 inline Integer getNonUniformRandomLastNameForRun()
 {
    // C_LAST_RUN_C
-   return nurand(255, 0, 999, C_LAST_RUN_C);
+   return nURand(255, 0, 999, C_LAST_RUN_C);
 }
 inline Integer getNonUniformRandomLastNameForLoad()
 {
    // C_LAST_LOAD_C
-   return nurand(255, 0, 999, C_LAST_LOAD_C);
+   return nURand(255, 0, 999, C_LAST_LOAD_C);
 }
+
 // -------------------------------------------------------------------------------------
+// Functions to add data to dataset e.g. initialize dataset
 // -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
+
 void loadItem()
 {
    for (Integer i = 1; i <= ITEMS_NO; i++) {
-      Varchar<50> i_data = randomastring<50>(25, 50);
+      Varchar<50> i_data = randomASCIIString<50>(25, 50);
       if (rnd(10) == 0) {
          i_data.length = rnd(i_data.length - 8);
          i_data = i_data || Varchar<10>("ORIGINAL");
       }
-      item.insert({i}, {randomId(1, 10000), randomastring<24>(14, 24), randomNumeric(1.00, 100.00), i_data});
+      item.insert({i}, {randomId(1, 10000), randomASCIIString<24>(14, 24), randomNumeric(1.00, 100.00), i_data});
    }
 }
 
 void loadWarehouse()
 {
    for (Integer i = 0; i < warehouseCount; i++) {
-      warehouse.insert({i + 1}, {randomastring<10>(6, 10), randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<20>(10, 20),
-                                 randomastring<2>(2, 2), randomzip(), randomNumeric(0.1000, 0.2000), 3000000});
+      warehouse.insert({i + 1}, {randomASCIIString<10>(6, 10), randomASCIIString<20>(10, 20), randomASCIIString<20>(10, 20),
+                                 randomASCIIString<20>(10, 20), randomASCIIString<2>(2, 2), randomZip(), randomNumeric(0.1000, 0.2000), 3000000});
    }
 }
 
 void loadStock(Integer w_id)
 {
    for (Integer i = 0; i < ITEMS_NO; i++) {
-      Varchar<50> s_data = randomastring<50>(25, 50);
+      Varchar<50> s_data = randomASCIIString<50>(25, 50);
       if (rnd(10) == 0) {
          s_data.length = rnd(s_data.length - 8);
          s_data = s_data || Varchar<10>("ORIGINAL");
       }
-      stock.insert({w_id, i + 1}, {randomNumeric(10, 100), randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24),
-                                   randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24),
-                                   randomastring<24>(24, 24), randomastring<24>(24, 24), randomastring<24>(24, 24), 0, 0, 0, s_data});
+      stock.insert({w_id, i + 1},
+                   {randomNumeric(10, 100), randomASCIIString<24>(24, 24), randomASCIIString<24>(24, 24), randomASCIIString<24>(24, 24),
+                    randomASCIIString<24>(24, 24), randomASCIIString<24>(24, 24), randomASCIIString<24>(24, 24), randomASCIIString<24>(24, 24),
+                    randomASCIIString<24>(24, 24), randomASCIIString<24>(24, 24), randomASCIIString<24>(24, 24), 0, 0, 0, s_data});
    }
 }
 
-void loadDistrinct(Integer w_id)
+void loadDistrict(Integer w_id)
 {
    for (Integer i = 1; i < 11; i++) {
-      district.insert({w_id, i}, {randomastring<10>(6, 10), randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<20>(10, 20),
-                                  randomastring<2>(2, 2), randomzip(), randomNumeric(0.0000, 0.2000), 3000000, 3001});
+      district.insert({w_id, i},
+                      {randomASCIIString<10>(6, 10), randomASCIIString<20>(10, 20), randomASCIIString<20>(10, 20), randomASCIIString<20>(10, 20),
+                       randomASCIIString<2>(2, 2), randomZip(), randomNumeric(0.0000, 0.2000), 3000000, 3001});
    }
 }
 
@@ -189,15 +209,15 @@ void loadCustomer(Integer w_id, Integer d_id)
          c_last = genName(i);
       else
          c_last = genName(getNonUniformRandomLastNameForLoad());
-      Varchar<16> c_first = randomastring<16>(8, 16);
+      Varchar<16> c_first = randomASCIIString<16>(8, 16);
       Varchar<2> c_credit(rnd(10) ? "GC" : "BC");
-      customer.insert({w_id, d_id, i + 1}, {c_first, "OE", c_last, randomastring<20>(10, 20), randomastring<20>(10, 20), randomastring<20>(10, 20),
-                                            randomastring<2>(2, 2), randomzip(), randomnstring(16, 16), now, c_credit, 50000.00,
-                                            randomNumeric(0.0000, 0.5000), -10.00, 1, 0, 0, randomastring<500>(300, 500)});
+      customer.insert({w_id, d_id, i + 1}, {c_first, "OE", c_last, randomASCIIString<20>(10, 20), randomASCIIString<20>(10, 20),
+                                            randomASCIIString<20>(10, 20), randomASCIIString<2>(2, 2), randomZip(), randomNumString(16, 16), now,
+                                            c_credit, 50000.00, randomNumeric(0.0000, 0.5000), -10.00, 1, 0, 0, randomASCIIString<500>(300, 500)});
       customerwdl.insert({w_id, d_id, c_last, c_first}, {i + 1});
       Integer t_id = (Integer)WorkerCounters::myCounters().t_id;
       Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
-      history.insert({t_id, h_id}, {i + 1, d_id, w_id, d_id, w_id, now, 10.00, randomastring<24>(12, 24)});
+      history.insert({t_id, h_id}, {i + 1, d_id, w_id, d_id, w_id, now, 10.00, randomASCIIString<24>(12, 24)});
    }
 }
 
@@ -224,7 +244,7 @@ void loadOrders(Integer w_id, Integer d_id)
             ol_delivery_d = now;
          Numeric ol_amount = (o_id < 2101) ? 0 : randomNumeric(0.01, 9999.99);
          const Integer ol_i_id = rnd(ITEMS_NO) + 1;
-         orderline.insert({w_id, d_id, o_id, ol_number}, {ol_i_id, w_id, ol_delivery_d, 5, ol_amount, randomastring<24>(24, 24)});
+         orderline.insert({w_id, d_id, o_id, ol_number}, {ol_i_id, w_id, ol_delivery_d, 5, ol_amount, randomASCIIString<24>(24, 24)});
       }
       o_id++;
    }
@@ -233,7 +253,10 @@ void loadOrders(Integer w_id, Integer d_id)
       neworder.insert({w_id, d_id, i}, {});
 }
 
-// run
+// -------------------------------------------------------------------------------------
+// Functions to execute operations on data
+// -------------------------------------------------------------------------------------
+
 void newOrder(Integer w_id,
               Integer d_id,
               Integer c_id,
@@ -336,9 +359,9 @@ void newOrder(Integer w_id,
 
 void newOrderRnd(Integer w_id)
 {
-   Integer d_id = urand(1, 10);
+   Integer d_id = uRand(1, 10);
    Integer c_id = getCustomerID();
-   Integer ol_cnt = urand(5, 15);
+   Integer ol_cnt = uRand(5, 15);
 
    vector<Integer> lineNumbers;
    lineNumbers.reserve(15);
@@ -350,15 +373,15 @@ void newOrderRnd(Integer w_id)
    qtys.reserve(15);
    for (Integer i = 1; i <= ol_cnt; i++) {
       Integer supware = w_id;
-      if (urand(1, 100) == 1)  // remote transaction
-         supware = urandexcept(1, warehouseCount, w_id);
+      if (uRand(1, 100) == 1)  // remote transaction
+         supware = uRandExcept(1, warehouseCount, w_id);
       Integer itemid = getItemID();
-      if (false && (i == ol_cnt) && (urand(1, 100) == 1))  // invalid item => random
+      if (false && (i == ol_cnt) && (uRand(1, 100) == 1))  // invalid item => random
          itemid = 0;
       lineNumbers.push_back(i);
       supwares.push_back(supware);
       itemids.push_back(itemid);
-      qtys.push_back(urand(1, 10));
+      qtys.push_back(uRand(1, 10));
    }
    newOrder(w_id, d_id, c_id, lineNumbers, supwares, itemids, qtys, currentTimestamp());
 }
@@ -448,7 +471,7 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
 
 void deliveryRnd(Integer w_id)
 {
-   Integer carrier_id = urand(1, 10);
+   Integer carrier_id = uRand(1, 10);
    delivery(w_id, carrier_id, currentTimestamp());
 }
 
@@ -492,7 +515,7 @@ void stockLevel(Integer w_id, Integer d_id, Integer threshold)
 
 void stockLevelRnd(Integer w_id)
 {
-   stockLevel(w_id, urand(1, 10), urand(10, 20));
+   stockLevel(w_id, uRand(1, 10), uRand(10, 20));
 }
 
 void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
@@ -634,8 +657,8 @@ void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
 
 void orderStatusRnd(Integer w_id)
 {
-   Integer d_id = urand(1, 10);
-   if (urand(1, 100) <= 40) {
+   Integer d_id = uRand(1, 10);
+   if (uRand(1, 100) <= 40) {
       orderStatusId(w_id, d_id, getCustomerID());
    } else {
       orderStatusName(w_id, d_id, genName(getNonUniformRandomLastNameForRun()));
@@ -848,48 +871,59 @@ void paymentByName(Integer w_id,
 
 void paymentRnd(Integer w_id)
 {
-   Integer d_id = urand(1, 10);
+   Integer d_id = uRand(1, 10);
    Integer c_w_id = w_id;
    Integer c_d_id = d_id;
-   if (urand(1, 100) > 85) {
-      c_w_id = urandexcept(1, warehouseCount, w_id);
-      c_d_id = urand(1, 10);
+   if (uRand(1, 100) > 85) {
+      c_w_id = uRandExcept(1, warehouseCount, w_id);
+      c_d_id = uRand(1, 10);
    }
    Numeric h_amount = randomNumeric(1.00, 5000.00);
    Timestamp h_date = currentTimestamp();
 
-   if (urand(1, 100) <= 60) {
+   if (uRand(1, 100) <= 60) {
       paymentByName(w_id, d_id, c_w_id, c_d_id, genName(getNonUniformRandomLastNameForRun()), h_date, h_amount, currentTimestamp());
    } else {
       paymentById(w_id, d_id, c_w_id, c_d_id, getCustomerID(), h_date, h_amount, currentTimestamp());
    }
 }
 
-// was: [w_begin, w_end]
+/**
+ * @brief Run random transaction on warehouse w_id.
+ * Types are
+ * - 0: Payment
+ * - 1: OrderStatus
+ * - 2: Delivery
+ * - 3: StockLevel
+ * - 4: New Order
+ *
+ * @param w_id ID of the warehouse
+ * @return int Type of transaction run
+ */
 int tx(Integer w_id)
 {
    // micro-optimized version of weighted distribution
    int rnd = leanstore::utils::RandomGenerator::getRand(0, 10000);
-   if (rnd < 4300) {
+   if (rnd < 4300) {  // 0-4299
       paymentRnd(w_id);
       return 0;
    }
    rnd -= 4300;
-   if (rnd < 400) {
+   if (rnd < 400) {  // 4300 - 4699
       orderStatusRnd(w_id);
       return 1;
    }
    rnd -= 400;
-   if (rnd < 400) {
+   if (rnd < 400) {  // 4700 - 5099
       deliveryRnd(w_id);
       return 2;
    }
    rnd -= 400;
-   if (rnd < 400) {
+   if (rnd < 400) {  // 5100 - 5499
       stockLevelRnd(w_id);
       return 3;
    }
-   rnd -= 400;
+   // 5500 - 9999
    newOrderRnd(w_id);
    return 4;
 }

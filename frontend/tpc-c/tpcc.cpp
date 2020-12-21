@@ -80,12 +80,14 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    // const u64 load_threads = (FLAGS_tpcc_fast_load) ? thread::hardware_concurrency() : FLAGS_worker_threads;
    {
+      // Init workers
       crm.scheduleJobSync(0, [&]() {
          cr::Worker::my().startTX();
          loadItem();
          loadWarehouse();
          cr::Worker::my().commitTX();
       });
+      // create warehouse parallel with all threads
       std::atomic<u32> g_w_id = 1;
       for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
          crm.scheduleJobAsync(t_i, [&]() {
@@ -96,7 +98,7 @@ int main(int argc, char** argv)
                }
                cr::Worker::my().startTX();
                loadStock(w_id);
-               loadDistrinct(w_id);
+               loadDistrict(w_id);
                for (Integer d_id = 1; d_id <= 10; d_id++) {
                   loadCustomer(w_id, d_id);
                   loadOrders(w_id, d_id);
@@ -132,10 +134,10 @@ int main(int argc, char** argv)
                if (FLAGS_tpcc_warehouse_affinity) {
                   w_id = t_i + 1;
                } else {
-                  w_id = urand(1, FLAGS_tpcc_warehouse_count);
+                  w_id = uRand(1, FLAGS_tpcc_warehouse_count);
                }
                tx(w_id);
-               if (FLAGS_tpcc_abort_pct && urand(0, 100) <= FLAGS_tpcc_abort_pct) {
+               if (FLAGS_tpcc_abort_pct && uRand(0, 100) <= FLAGS_tpcc_abort_pct) {
                   cr::Worker::my().abortTX();
                } else {
                   cr::Worker::my().commitTX();
