@@ -4,9 +4,10 @@
 // -------------------------------------------------------------------------------------
 #include <cstring>
 // -------------------------------------------------------------------------------------
+// TODO: Works only for update same size
 #define DELTA_COPY
-// Obsolete
 #ifdef DELTA_XOR
+// Obsolete
 #define beforeBody(Type, Attribute, tuple, entry)                    \
    const auto Attribute##_offset = offsetof(Type, Attribute);        \
    const auto Attribute##_size = sizeof(Type::Attribute);            \
@@ -27,7 +28,6 @@
    entry += Attribute##_size;
 #endif
 #ifdef DELTA_COPY
-// TODO: Works only for update same size
 #define beforeBody(Type, Attribute, tuple, entry)                    \
    const auto Attribute##_offset = offsetof(Type, Attribute);        \
    const auto Attribute##_size = sizeof(Type::Attribute);            \

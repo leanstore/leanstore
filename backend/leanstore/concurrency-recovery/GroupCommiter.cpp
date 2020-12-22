@@ -6,6 +6,7 @@
 #include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <libaio.h>
 #include <unistd.h>
 
 #include <chrono>
@@ -39,9 +40,31 @@ void CRManager::groupCommiter()
    u64* index = reinterpret_cast<u64*>(chunk.data);
    u64 ssd_offset = end_of_block_device - sizeof(SSDMeta);
    // -------------------------------------------------------------------------------------
+   // Async IO
+   const u64 batch_max_size = (workers_count * 2) + 2;
+   s32 io_slot = 0;
+   std::unique_ptr<struct iocb[]> iocbs = make_unique<struct iocb[]>(batch_max_size);
+   std::unique_ptr<struct iocb*[]> iocbs_ptr = make_unique<struct iocb*[]>(batch_max_size);
+   std::unique_ptr<struct io_event[]> events = make_unique<struct io_event[]>(batch_max_size);
+   io_context_t aio_context;
+   {
+      memset(&aio_context, 0, sizeof(aio_context));
+      const int ret = io_setup(batch_max_size, &aio_context);
+      if (ret != 0) {
+         throw ex::GenericException("io_setup failed, ret code = " + std::to_string(ret));
+      }
+   }
+   auto add_pwrite = [&](u8* src, u64 size, u64 offset) {
+      io_prep_pwrite(&iocbs[io_slot], ssd_fd, src, size, offset);
+      iocbs[io_slot].data = src;
+      iocbs_ptr[io_slot] = &iocbs[io_slot];
+      io_slot++;
+   };
+   // -------------------------------------------------------------------------------------
    LID max_safe_gsn;
    // -------------------------------------------------------------------------------------
    while (keep_running) {
+      io_slot = 0;
       round_i++;
       CRCounters::myCounters().gct_rounds++;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
@@ -71,8 +94,7 @@ void CRManager::groupCommiter()
                // -------------------------------------------------------------------------------------
                ssd_offset -= size_aligned;
                if (!FLAGS_wal_io_hack) {
-                  const u64 ret = pwrite(ssd_fd, worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
-                  posix_check(ret == size_aligned);
+                  add_pwrite(worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
                }
                // -------------------------------------------------------------------------------------
                COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
@@ -80,32 +102,6 @@ void CRManager::groupCommiter()
                chunk.slot[w_i].length = size;
                assert(chunk.slot[w_i].offset < end_of_block_device);
                chunk.total_size += size_aligned;
-               // DEBUG_BLOCK()
-               // {
-               //    auto& slot = chunk.slot[w_i];
-               //    const u64 offset = chunk.slot[w_i].offset;
-               //    const u64 offset_aligned = utils::downAlign(chunk.slot[w_i].offset);
-               //    const u64 size_aligned = utils::upAlign(slot.length + offset - offset_aligned);
-               //    auto buffer = static_cast<u8*>(std::aligned_alloc(512, size_aligned));
-               //    const u64 ret = pread(ssd_fd, buffer, size_aligned, offset_aligned);
-               //    posix_check(ret == size_aligned);
-               //    u8* ptr = buffer + offset - offset_aligned;
-               //    u64 traverse_offset = 0;
-               //    auto entry = reinterpret_cast<WALEntry*>(ptr);
-               //    while (true) {
-               //       if (entry->magic_debugging_number != 99) {
-               //          auto tmp = reinterpret_cast<WALEntry*>(worker.wal_buffer + lower_offset + traverse_offset);
-               //          ensure(entry->magic_debugging_number == 99);
-               //       }
-               //       if ((traverse_offset + entry->size) < slot.length) {
-               //          traverse_offset += entry->size;
-               //          entry = reinterpret_cast<WALEntry*>(ptr + traverse_offset);
-               //       } else {
-               //          break;
-               //       }
-               //    }
-               //    std::free(buffer);
-               // }
                ensure(chunk.slot[w_i].offset >= ssd_offset);
             } else if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_ww_cursor) {
                {
@@ -117,8 +113,7 @@ void CRManager::groupCommiter()
                   // -------------------------------------------------------------------------------------
                   ssd_offset -= size_aligned;
                   if (!FLAGS_wal_io_hack) {
-                     const u64 ret = pwrite(ssd_fd, worker.wal_buffer, size_aligned, ssd_offset);
-                     posix_check(ret == size_aligned);
+                     add_pwrite(worker.wal_buffer, size_aligned, ssd_offset);
                   }
                   COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                   chunk.slot[w_i].length = size;
@@ -132,8 +127,7 @@ void CRManager::groupCommiter()
                   // -------------------------------------------------------------------------------------
                   ssd_offset -= size_aligned;
                   if (!FLAGS_wal_io_hack) {
-                     const u64 ret = pwrite(ssd_fd, worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
-                     posix_check(ret == size_aligned);
+                     add_pwrite(worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
                   }
                   COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                   chunk.slot[w_i].offset = ssd_offset + (worker.wal_ww_cursor - lower_offset);
@@ -167,12 +161,26 @@ void CRManager::groupCommiter()
       }
       // -------------------------------------------------------------------------------------
       // Flush
-      if (0 && chunk.total_size > sizeof(WALChunk)) {
+      if (chunk.total_size > sizeof(WALChunk)) {
          ensure(ssd_offset % 512 == 0);
          ssd_offset -= sizeof(WALChunk);
          if (!FLAGS_wal_io_hack) {
-            const u64 ret = pwrite(ssd_fd, &chunk, sizeof(WALChunk), ssd_offset);
-            posix_check(ret == sizeof(WALChunk));
+            add_pwrite(reinterpret_cast<u8*>(&chunk), sizeof(WALChunk), ssd_offset);
+            {
+               s32 ret_code = io_submit(aio_context, io_slot, iocbs_ptr.get());
+               ensure(ret_code == s32(io_slot));
+            }
+            {
+               if (io_slot > 0) {
+                  const s32 done_requests = io_getevents(aio_context, io_slot, io_slot, events.get(), NULL);
+                  if (done_requests != io_slot) {
+                     cerr << done_requests << endl;
+                     raise(SIGTRAP);
+                     ensure(false);
+                  }
+                  io_slot = 0;
+               }
+            }
             if (FLAGS_wal_fsync) {
                fdatasync(ssd_fd);
             }
