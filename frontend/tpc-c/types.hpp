@@ -1,4 +1,11 @@
-#pragma once
+/**
+ * @file types.hpp
+ * @brief Defines some datatypes and the fold and unfold function for each.
+ *
+ * - fold: compress datatype to writer, returns size of compressed object
+ * - unfold: decrompres datatype from input, returns size of compressed object
+ *
+ */
 
 #include <cassert>
 #include <cstdint>
@@ -15,7 +22,7 @@ static constexpr Integer minInteger = std::numeric_limits<int>::min();
 template <int maxLength>
 struct Varchar {
    int16_t length;
-   char data[maxLength];
+   char data[maxLength];  // not '\0' terminated
 
    Varchar() : length(0) {}
    Varchar(const char* str)
@@ -64,6 +71,13 @@ struct Varchar {
    }
 };
 
+/**
+ * @brief Copies data from data object to writer
+ *
+ * @param writer
+ * @param x data object
+ * @return length of data written.
+ */
 unsigned fold(uint8_t* writer, const Integer& x)
 {
    *reinterpret_cast<uint32_t*>(writer) = __builtin_bswap32(x ^ (1ul << 31));
@@ -84,6 +98,13 @@ unsigned fold(uint8_t* writer, const Varchar<len>& x)
    return x.length + 1;
 }
 
+/**
+ * @brief Copies data input to data object
+ *
+ * @param input
+ * @param x data object
+ * @return length of data object
+ */
 unsigned unfold(const uint8_t* input, Integer& x)
 {
    x = __builtin_bswap32(*reinterpret_cast<const uint32_t*>(input)) ^ (1ul << 31);
@@ -100,7 +121,8 @@ template <int len>
 unsigned unfold(const uint8_t* input, Varchar<len>& x)
 {
    int l = strlen(reinterpret_cast<const char*>(input));
-   memcpy(x.data, input, len);
+   assert(l <= len);
+   memcpy(x.data, input, l);
    x.length = l;
    return l + 1;
 }
