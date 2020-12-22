@@ -342,7 +342,7 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
    parent->insert(sepKey, sepLength, reinterpret_cast<u8*>(&swip), sizeof(SwipType));
    if (is_leaf) {
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot + 1);
-      copyKeyValueRange(nodeRight, 0, nodeLeft->count, count - nodeLeft->count);  // BUG
+      copyKeyValueRange(nodeRight, 0, nodeLeft->count, count - nodeLeft->count);
    } else {
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot);
       copyKeyValueRange(nodeRight, 0, nodeLeft->count + 1, count - nodeLeft->count - 1);

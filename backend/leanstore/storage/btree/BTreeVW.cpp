@@ -299,7 +299,7 @@ OP_RESULT BTree::updateVW(u8* key, u16 key_length, function<void(u8* value, u16 
                } else {
                   // We can update
                   // -------------------------------------------------------------------------------------
-                  // if it is a secondary index, then we can not use updateSameSize
+                  // If it is a secondary index, then we can not use updateSameSize
                   assert(wal_update_generator.entry_size > 0);
                   // -------------------------------------------------------------------------------------
                   auto wal_entry = leaf_ex_guard.reserveWALEntry<vw::WALUpdate>(key_length + wal_update_generator.entry_size);
@@ -498,23 +498,29 @@ OP_RESULT BTree::scanDescVW(u8* start_key,
    return res;
 }
 // -------------------------------------------------------------------------------------
+// TODO: Works only for same size
 void BTree::applyDeltaVW(u8* dst, u16 dst_size, const u8* delta_beginning, u16 delta_size)
 {
    static_cast<void>(dst_size);
    const u8* delta_ptr = delta_beginning;
    while (delta_ptr - delta_beginning < delta_size) {
       const u16 offset = *reinterpret_cast<const u16*>(delta_ptr);
-      delta_ptr += 2;
+      delta_ptr += sizeof(offset);
       const u16 size = *reinterpret_cast<const u16*>(delta_ptr);
-      delta_ptr += 2;
+      delta_ptr += sizeof(size);
+#ifdef DELTA_COPY
+      std::memcpy(dst + offset, delta_ptr, size);
+      delta_ptr += 2 * size;
+#endif
+#ifdef DELTA_XOR
       for (u64 b_i = 0; b_i < size; b_i++) {
          *reinterpret_cast<u8*>(dst + offset + b_i) ^= *reinterpret_cast<const u8*>(delta_ptr + b_i);
          assert(offset + b_i < dst_size);
       }
       delta_ptr += size;
+#endif
    }
 }
-
 // -------------------------------------------------------------------------------------
 // For Transaction abort and not for recovery
 void BTree::undoVW(void* btree_object, const u8* wal_entry_ptr, const u64)

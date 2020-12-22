@@ -4,6 +4,9 @@
 // -------------------------------------------------------------------------------------
 #include <cstring>
 // -------------------------------------------------------------------------------------
+#define DELTA_COPY
+// Obsolete
+#ifdef DELTA_XOR
 #define beforeBody(Type, Attribute, tuple, entry)                    \
    const auto Attribute##_offset = offsetof(Type, Attribute);        \
    const auto Attribute##_size = sizeof(Type::Attribute);            \
@@ -22,6 +25,27 @@
       *(entry + b_i) ^= *(tuple + Attribute##_offset + b_i);  \
    }                                                          \
    entry += Attribute##_size;
+#endif
+#ifdef DELTA_COPY
+// TODO: Works only for update same size
+#define beforeBody(Type, Attribute, tuple, entry)                    \
+   const auto Attribute##_offset = offsetof(Type, Attribute);        \
+   const auto Attribute##_size = sizeof(Type::Attribute);            \
+   *reinterpret_cast<u16*>(entry) = Attribute##_offset;              \
+   entry += sizeof(u16);                                             \
+   *reinterpret_cast<u16*>(entry) = Attribute##_size;                \
+   entry += sizeof(u16);                                             \
+   std::memcpy(entry, tuple + Attribute##_offset, Attribute##_size); \
+   entry += 2 * Attribute##_size;
+
+#define afterBody(Type, Attribute, tuple, entry)                     \
+   const auto Attribute##_offset = offsetof(Type, Attribute);        \
+   const auto Attribute##_size = sizeof(Type::Attribute);            \
+   entry += (sizeof(u16) * 2);                                       \
+   entry += Attribute##_size;                                        \
+   std::memcpy(entry, tuple + Attribute##_offset, Attribute##_size); \
+   entry += 1 * Attribute##_size;
+#endif
 
 #define beforeWrapper1(Type, A1) [](u8* tuple, u8* entry) { beforeBody(Type, A1, tuple, entry); }
 #define beforeWrapper2(Type, A1, A2)      \
@@ -65,7 +89,12 @@
       afterBody(Type, A4, tuple, entry);    \
    }
 
-#define entrySize1(Type, A1) ((2 * sizeof(u16)) + sizeof(Type::A1))
+#ifdef DELTA_XOR
+#define entrySize1(Type, A1) ((2 * sizeof(u16)) + (1 * sizeof(Type::A1)))
+#endif
+#ifdef DELTA_COPY
+#define entrySize1(Type, A1) ((2 * sizeof(u16)) + (2 * sizeof(Type::A1)))
+#endif
 #define entrySize2(Type, A1, A2) entrySize1(Type, A1) + entrySize1(Type, A2)
 #define entrySize3(Type, A1, A2, A3) entrySize1(Type, A1) + entrySize1(Type, A2) + entrySize1(Type, A3)
 #define entrySize4(Type, A1, A2, A3, A4) entrySize1(Type, A1) + entrySize1(Type, A2) + entrySize1(Type, A3) + entrySize1(Type, A4)

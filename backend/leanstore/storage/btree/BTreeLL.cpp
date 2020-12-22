@@ -1,4 +1,3 @@
-
 #include "BTree.hpp"
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 // -------------------------------------------------------------------------------------

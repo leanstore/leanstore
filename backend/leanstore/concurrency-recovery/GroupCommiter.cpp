@@ -30,10 +30,6 @@ void CRManager::groupCommiter()
    running_threads++;
    std::string thread_name("group_committer");
    pthread_setname_np(pthread_self(), thread_name.c_str());
-   // -------------------------------------------------------------------------------------
-   auto tid = syscall(__NR_gettid);
-   cout << "GCT: " << tid << endl;
-   // -------------------------------------------------------------------------------------
    CPUCounters::registerThread(thread_name, false);
    // -------------------------------------------------------------------------------------
    WALChunk chunk;

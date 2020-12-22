@@ -193,7 +193,7 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       active_tx.max_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
-      if (FLAGS_si) {  // TODO: verify the latency optimization
+      if (FLAGS_si) {
          high_water_mark.store(active_tx.tts + 1, std::memory_order_release);
       }
       {
