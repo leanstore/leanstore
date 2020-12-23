@@ -1,8 +1,9 @@
 /**
  * @file adapter.hpp
  * @brief Standardizes working with storage engine
- * 
+ *
  */
+
 #pragma once
 #include "types.hpp"
 // -------------------------------------------------------------------------------------

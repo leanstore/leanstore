@@ -1,3 +1,9 @@
+/**
+ * @file tpcc_workload.hpp
+ * @brief Functions to execute TPC-C transactions.
+ *
+ */
+
 DEFINE_bool(order_wdc_index, true, "");
 atomic<u64> scanned_elements = 0;
 
@@ -485,11 +491,11 @@ void stockLevel(Integer w_id, Integer d_id, Integer threshold)
    /*
     * http://www.tpc.org/tpc_documents_current_versions/pdf/tpc-c_v5.11.0.pdf P 116
     * EXEC SQL SELECT COUNT(DISTINCT (s_i_id)) INTO :stock_count
- FROM order_line, stock
- WHERE ol_w_id=:w_id AND
- ol_d_id=:d_id AND ol_o_id<:o_id AND
- ol_o_id>=:o_id-20 AND s_w_id=:w_id AND
- s_i_id=ol_i_id AND s_quantity < :threshold;
+    * FROM order_line, stock
+    * WHERE ol_w_id=:w_id AND
+    * ol_d_id=:d_id AND ol_o_id<:o_id AND
+    * ol_o_id>=:o_id-20 AND s_w_id=:w_id AND
+    * s_i_id=ol_i_id AND s_quantity < :threshold;
     */
    vector<Integer> items;
    items.reserve(100);

@@ -1,3 +1,9 @@
+/**
+ * @file tpcc.cpp
+ * @brief Manages the execution of the TPC-C workload.
+ *
+ */
+
 #include "adapter.hpp"
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"

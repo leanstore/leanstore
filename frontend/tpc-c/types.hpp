@@ -6,6 +6,7 @@
  * - unfold: decrompres datatype from input, returns size of compressed object
  *
  */
+
 #pragma once
 
 #include <cassert>
