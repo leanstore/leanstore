@@ -37,8 +37,8 @@ DEFINE_uint64(run_for_seconds, 10, "Keep the experiment running for x seconds");
 DEFINE_uint64(warmup_for_seconds, 10, "Warmup for x seconds");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(cm_split, false, "");
-DEFINE_uint64(cm_update_on, 7, "as exponent of 2");
-DEFINE_uint64(cm_period, 14, "as exponent of 2");
+DEFINE_uint64(cm_update_on, 2, "as exponent of 2");
+DEFINE_uint64(cm_period, 9, "as exponent of 2");
 DEFINE_uint64(cm_slowpath_threshold, 100, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(su_merge, false, "");
