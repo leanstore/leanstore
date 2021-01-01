@@ -4,3 +4,4 @@
 **/*.log
 **/*.Rhistory
 btree-contention-space
+*
