@@ -53,7 +53,7 @@ int main(int argc, char** argv)
   csv.seekp(0, ios::end);
   csv << std::setprecision(2) << std::fixed;
   if (csv.tellp() == 0) {
-    csv << "i,ff,flag,bstar,su_merge,tag,c_hash" << endl;
+    csv << "i,ff,flag,bstar,xmerge,tag,c_hash" << endl;
   }
   // -------------------------------------------------------------------------------------
   auto compress_bf = [&](u8* key_bytes, u16 key_length) {
@@ -115,7 +115,7 @@ int main(int argc, char** argv)
     u64 p_i = 0;
     vs_btree.iterateAllPages([&](leanstore::btree::vs::BTreeNode&) { return 0; },
                              [&](leanstore::btree::vs::BTreeNode& leaf) {
-                               csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_bstar << "," << FLAGS_su_merge
+                               csv << p_i++ << "," << leaf.fillFactorAfterCompaction() << "," << flag << "," << FLAGS_bstar << "," << FLAGS_xmerge
                                    << "," << FLAGS_tag << "," << db.getConfigHash() << endl;
                                return 0;
                              });

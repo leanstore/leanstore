@@ -137,13 +137,13 @@ void LeanStore::debuggingThread()
   config_entries.emplace_back("c_bulk_insert", [&](ostream& out) { out << FLAGS_bulk_insert; });
   config_entries.emplace_back("c_backoff_strategy", [&](ostream& out) { out << FLAGS_backoff_strategy; });
   // -------------------------------------------------------------------------------------
-  config_entries.emplace_back("c_cm_split", [&](ostream& out) { out << FLAGS_cm_split; });
-  config_entries.emplace_back("c_cm_update_on", [&](ostream& out) { out << FLAGS_cm_update_on; });
-  config_entries.emplace_back("c_cm_period", [&](ostream& out) { out << FLAGS_cm_period; });
-  config_entries.emplace_back("c_cm_slowpath_threshold", [&](ostream& out) { out << FLAGS_cm_slowpath_threshold; });
+  config_entries.emplace_back("c_contention_split", [&](ostream& out) { out << FLAGS_contention_split; });
+  config_entries.emplace_back("c_cs_frequency", [&](ostream& out) { out << FLAGS_cs_frequency; });
+  config_entries.emplace_back("c_cs_period", [&](ostream& out) { out << FLAGS_cs_period; });
   // -------------------------------------------------------------------------------------
-  config_entries.emplace_back("c_su_kwaymerge", [&](ostream& out) { out << FLAGS_su_kwaymerge; });
-  config_entries.emplace_back("c_su_merge", [&](ostream& out) { out << FLAGS_su_merge; });
+  config_entries.emplace_back("c_xmerge", [&](ostream& out) { out << FLAGS_xmerge; });
+  config_entries.emplace_back("c_xmerge_k", [&](ostream& out) { out << FLAGS_xmerge_k; });
+  // -------------------------------------------------------------------------------------
   config_entries.emplace_back("c_su_target_pct", [&](ostream& out) { out << FLAGS_su_target_pct; });
   // -------------------------------------------------------------------------------------
   config_entries.emplace_back("c_zipf_factor", [&](ostream& out) { out << FLAGS_zipf_factor; });

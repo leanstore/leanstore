@@ -26,7 +26,7 @@ DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt_interleaved, false, "Simultaneous multithreading");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(root, false, "does this process have root rights ?");
-DEFINE_bool(fs, false, "use fix\ed size btree");
+DEFINE_bool(fs, false, "use fixed-size btree");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff_strategy, 0, "");
 // -------------------------------------------------------------------------------------
@@ -36,19 +36,18 @@ DEFINE_double(target_gib, 0.0, "size of dataset in gib (exact interpretation dep
 DEFINE_uint64(run_for_seconds, 10, "Keep the experiment running for x seconds");
 DEFINE_uint64(warmup_for_seconds, 10, "Warmup for x seconds");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(cm_split, false, "");
-DEFINE_uint64(cm_update_on, 2, "as exponent of 2");
-DEFINE_uint64(cm_period, 9, "as exponent of 2");
-DEFINE_bool(cm_simple, false, "");
-DEFINE_uint64(cm_slowpath_threshold, 100, "");
+DEFINE_bool(contention_split, false, "Contention Split");
+DEFINE_uint64(cs_frequency, 2, "Contention Split sampling frequency probability (as 2^-x)");
+DEFINE_uint64(cs_period, 9, "Contention Split period length (as 2^-x)");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(su_merge, false, "");
-DEFINE_uint64(su_kwaymerge, 5, "");
-DEFINE_double(su_target_pct, 80, "");
+DEFINE_bool(xmerge, false, "");
+DEFINE_uint64(xmerge_k, 5, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff, 512, "");
 DEFINE_bool(mutex, true, "");
 // -------------------------------------------------------------------------------------
+// Temporary flags
+DEFINE_double(su_target_pct, 80, "");
 DEFINE_uint64(x, 512, "");
 DEFINE_uint64(y, 100, "");
 DEFINE_double(d, 0.0, "");

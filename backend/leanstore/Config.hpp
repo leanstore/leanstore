@@ -24,15 +24,12 @@ DECLARE_bool(print_debug);
 DECLARE_bool(print_tx_console);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
-DECLARE_bool(cm_split);
-DECLARE_bool(cm_simple);
-DECLARE_uint64(cm_update_on);
-DECLARE_uint64(cm_period);
-DECLARE_uint64(cm_slowpath_threshold);
+DECLARE_bool(contention_split);
+DECLARE_uint64(cs_frequency);
+DECLARE_uint64(cs_period);
 // -------------------------------------------------------------------------------------
-DECLARE_bool(su_merge);
-DECLARE_uint64(su_kwaymerge);
-DECLARE_double(su_target_pct);
+DECLARE_bool(xmerge);
+DECLARE_uint64(xmerge_k);
 // -------------------------------------------------------------------------------------
 DECLARE_string(zipf_path);
 DECLARE_double(zipf_factor);
@@ -45,6 +42,7 @@ DECLARE_uint64(backoff_strategy);
 DECLARE_uint64(backoff);
 DECLARE_bool(mutex);
 // -------------------------------------------------------------------------------------
+DECLARE_double(su_target_pct);
 DECLARE_uint64(x);
 DECLARE_uint64(y);
 DECLARE_double(d);

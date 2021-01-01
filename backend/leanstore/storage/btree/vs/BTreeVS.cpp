@@ -669,12 +669,21 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
       u16 payload_length = c_x_guard->getPayloadLength(pos);
       callback((c_x_guard->isLarge(pos)) ? c_x_guard->getPayloadLarge(pos) : c_x_guard->getPayload(pos), payload_length);
       // -------------------------------------------------------------------------------------
-      if (FLAGS_cm_split) {
-        if (FLAGS_cm_simple) {
-          if (local_restarts_counter > 0) {
-            const s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
-            c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
-            if (last_modified_pos != pos && c_x_guard->count > 2) {
+      if (FLAGS_contention_split) {
+        const u64 random_number = utils::RandomGenerator::getRandU64();
+        if ((random_number & ((1ull << FLAGS_cs_frequency) - 1)) == 0) {
+          s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
+          c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
+          c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
+          c_x_guard.bf->header.contention_tracker.access_counter++;
+          if ((random_number & ((1ull << FLAGS_cs_period) - 1)) == 0) {
+            const u64 current_restarts_counter = c_x_guard.bf->header.contention_tracker.restarts_counter;
+            const u64 current_access_counter = c_x_guard.bf->header.contention_tracker.access_counter;
+            const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
+            c_x_guard.bf->header.contention_tracker.restarts_counter = 0;
+            c_x_guard.bf->header.contention_tracker.access_counter = 0;
+            // -------------------------------------------------------------------------------------
+            if (last_modified_pos != pos && normalized_restarts >= 1.0 && c_x_guard->count > 2) {
               s16 split_pos = std::min<s16>(last_modified_pos, pos);
               c_guard = std::move(c_x_guard);
               c_guard.kill();
@@ -686,43 +695,9 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
               jumpmuCatch() { WorkerCounters::myCounters().cm_split_fail_counter[dtid]++; }
             }
           }
-        } else {
-          if (true) { // local_restarts_counter > 0
-            const u64 cm_update_on = FLAGS_cm_update_on;
-            const u64 cm_period = FLAGS_cm_period;
-            // const u64 cm_update_on = c_x_guard.bf->header.contention_tracker.frequency;
-            // const u64 cm_period = cm_update_on + 1;
-            // -------------------------------------------------------------------------------------
-            const u64 random_number = utils::RandomGenerator::getRandU64();
-            if ((random_number & ((1ull << cm_update_on) - 1)) == 0) {
-              s64 last_modified_pos = c_x_guard.bf->header.contention_tracker.last_modified_pos;
-              c_x_guard.bf->header.contention_tracker.last_modified_pos = pos;
-              c_x_guard.bf->header.contention_tracker.restarts_counter += local_restarts_counter;
-              c_x_guard.bf->header.contention_tracker.access_counter++;
-              if ((random_number & ((1ull << cm_period) - 1)) == 0) {
-                const u64 current_restarts_counter = c_x_guard.bf->header.contention_tracker.restarts_counter;
-                const u64 current_access_counter = c_x_guard.bf->header.contention_tracker.access_counter;
-                const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
-                c_x_guard.bf->header.contention_tracker.restarts_counter = 0;
-                c_x_guard.bf->header.contention_tracker.access_counter = 0;
-                // -------------------------------------------------------------------------------------
-                if (last_modified_pos != pos && normalized_restarts >= FLAGS_cm_slowpath_threshold && c_x_guard->count > 2) {
-                  s16 split_pos = std::min<s16>(last_modified_pos, pos);
-                  c_guard = std::move(c_x_guard);
-                  c_guard.kill();
-                  jumpmuTry()
-                  {
-                    trySplit(*c_guard.bf, split_pos);
-                    WorkerCounters::myCounters().cm_split_succ_counter[dtid]++;
-                  }
-                  jumpmuCatch() { WorkerCounters::myCounters().cm_split_fail_counter[dtid]++; }
-                }
-              }
-            }
-          } else {
-            c_guard = std::move(c_x_guard);
-          }
         }
+      } else {
+        c_guard = std::move(c_x_guard);
       }
       jumpmu_return;
     }
@@ -962,7 +937,7 @@ BTree::KWayMergeReturnCode BTree::kWayMerge(OptimisticPageGuard<BTreeNode>& p_gu
     return KWayMergeReturnCode::NOTHING;
   }
   // -------------------------------------------------------------------------------------
-  const u8 MAX_MERGE_PAGES = FLAGS_su_kwaymerge;
+  const u8 MAX_MERGE_PAGES = FLAGS_xmerge_k;
   s16 pos = parent_handler.pos;
   u8 pages_count = 1;
   s16 max_right;
@@ -1052,7 +1027,7 @@ bool BTree::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Optimisti
   OptimisticPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
   OptimisticPageGuard<BTreeNode> c_guard = OptimisticPageGuard<BTreeNode>::manuallyAssembleGuard(std::move(guard), &bf);
   // -------------------------------------------------------------------------------------
-  if (FLAGS_su_merge) {
+  if (FLAGS_xmerge) {
     KWayMergeReturnCode merged = btree.kWayMerge(p_guard, c_guard, parent_handler);
     p_guard.kill();
     c_guard.kill();
