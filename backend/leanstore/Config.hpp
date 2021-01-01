@@ -25,6 +25,7 @@ DECLARE_bool(print_tx_console);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(cm_split);
+DECLARE_bool(cm_simple);
 DECLARE_uint64(cm_update_on);
 DECLARE_uint64(cm_period);
 DECLARE_uint64(cm_slowpath_threshold);
