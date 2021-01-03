@@ -683,7 +683,7 @@ void BTree::updateSameSize(u8* key, u16 key_length, function<void(u8* payload, u
             c_x_guard.bf->header.contention_tracker.restarts_counter = 0;
             c_x_guard.bf->header.contention_tracker.access_counter = 0;
             // -------------------------------------------------------------------------------------
-            if (last_modified_pos != pos && normalized_restarts >= 1.0 && c_x_guard->count > 2) {
+            if (last_modified_pos != pos && normalized_restarts >= 100.0 && c_x_guard->count > 2) {
               s16 split_pos = std::min<s16>(last_modified_pos, pos);
               c_guard = std::move(c_x_guard);
               c_guard.kill();
