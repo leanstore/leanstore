@@ -43,12 +43,12 @@ struct LeanStoreAdapter {
    // -------------------------------------------------------------------------------------
 
    /**
-    * @brief Scans asc from start_key.
+    * @brief Scans asc.
     *
     * @tparam Fn
     * @param key start_key
-    * @param fn ??
-    * @param undo ??
+    * @param fn Can read from record. Returns bool (continue scan).
+    * @param undo Call if scan fails.
     */
    template <class Fn>
    void scan(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
@@ -59,12 +59,12 @@ struct LeanStoreAdapter {
    }
 
    /**
-    * @brief Scans desc from start_key.
+    * @brief Scans desc.
     *
     * @tparam Fn
     * @param key start_key
-    * @param fn ??
-    * @param undo ??
+    * @param fn Can read from record. Returns bool (continue scan).
+    * @param undo Call if scan fails.
     */
    template <class Fn>
    void scanDesc(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
