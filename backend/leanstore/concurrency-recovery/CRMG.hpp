@@ -50,14 +50,54 @@ class CRManager
    // -------------------------------------------------------------------------------------
    void groupCommiter();
    // -------------------------------------------------------------------------------------
+   /**
+    * @brief Schedule same job on specific amount of workers.
+    * 
+    * @param workers amount of workers
+    * @param job Job to do. Same for each worker.
+    */
    void scheduleJobs(u64 workers, std::function<void()> job);
+   /**
+    * @brief Schedule worker_id specific job on specific amount of workers.
+    * 
+    * @param workers amount of workers
+    * @param job Job to do. Different for each worker.
+    */
    void scheduleJobs(u64 workers, std::function<void(u64 t_i)> job);
+   /**
+    * @brief Schedules one job asynchron on specific worker.
+    * 
+    * @param t_i worker to compute job
+    * @param job job
+    */
    void scheduleJobAsync(u64 t_i, std::function<void()> job);
+   /**
+    * @brief Schedules one job on one specific worker and waits for completion.
+    * 
+    * @param t_i worker to compute job
+    * @param job job
+    */
    void scheduleJobSync(u64 t_i, std::function<void()> job);
+   /**
+    * @brief Waits for all Workers to complete.
+    * 
+    */
    void joinAll();
 
   private:
+   /**
+    * @brief Set the Job to specific worker.
+    * 
+    * @param t_i specific worker
+    * @param job job
+    */
    void setJob(u64 t_i, std::function<void()> job);
+   /**
+    * @brief Wait for one worker to complete.
+    * 
+    * @param t_i worker_id.
+    * @param condition what is the completion condition?
+    */
    void joinOne(u64 t_i, std::function<bool(WorkerThread&)> condition);
 };
 // -------------------------------------------------------------------------------------
