@@ -14,7 +14,7 @@ Install dependencies:
 check `build/frontend/tpcc --help` for other options
 
 ## Cite
-The code we used for our CIDR 2021 paper is in a different (and outdated) [branch](https://github.com/adnan-alhomssi/leanstore/tree/cidr).
+The code we used for our CIDR 2021 paper is in a different (and outdated) [branch](https://github.com/leanstore/leanstore/tree/cidr).
 
 ```
 @inproceedings{alhomssi21,
