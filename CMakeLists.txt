@@ -21,7 +21,7 @@ else()
 endif()
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3") # because we had behavior on aws arm without
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3") # because we had weird behavior on aws arm without it
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" AND CMAKE_BUILD_TYPE MATCHES Debug)
     add_compile_options(-fstandalone-debug)
@@ -47,7 +47,6 @@ find_package(Threads REQUIRED)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
-include("${CMAKE_SOURCE_DIR}/libs/googletest.cmake")
 include("${CMAKE_SOURCE_DIR}/libs/gflags.cmake")
 
 # ---------------------------------------------------------------------------
@@ -59,7 +58,6 @@ include("${CMAKE_SOURCE_DIR}/shared-headers/local.cmake")
 include_directories(
         ${CMAKE_SOURCE_DIR}/include
         ${FLEX_INCLUDE_DIRS}
-        ${GTEST_INCLUDE_DIR}
         ${GFLAGS_INCLUDE_DIR}
 )
 
@@ -70,42 +68,7 @@ include_directories(
 add_subdirectory("backend")
 
 # ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-#include("${CMAKE_SOURCE_DIR}/test/local.cmake")
-
-# ---------------------------------------------------------------------------
-# Benchmarks
-# ---------------------------------------------------------------------------
-
-#include("${CMAKE_SOURCE_DIR}/benchmark/local.cmake")
-
-# ---------------------------------------------------------------------------
 # Executable
 # ---------------------------------------------------------------------------
 
 add_subdirectory("frontend")
-
-# ---------------------------------------------------------------------------
-# Linting
-# ---------------------------------------------------------------------------
-
-
-#todo
-
-#include("${CMAKE_SOURCE_DIR}/cmake/clang-tidy.cmake")
-#list(APPEND lint_targets lint_src)
-#add_custom_target(lint)
-#add_dependencies(lint ${lint_targets})
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-message(STATUS "[cengine] settings")
-message(STATUS "    GFLAGS_INCLUDE_DIR          = ${GFLAGS_INCLUDE_DIR}")
-message(STATUS "    GFLAGS_LIBRARY_PATH         = ${GFLAGS_LIBRARY_PATH}")
-message(STATUS "[TEST] settings")
-message(STATUS "    GTEST_INCLUDE_DIR           = ${GTEST_INCLUDE_DIR}")
-message(STATUS "    GTEST_LIBRARY_PATH          = ${GTEST_LIBRARY_PATH}")

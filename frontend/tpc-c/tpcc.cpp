@@ -80,7 +80,6 @@ int main(int argc, char** argv)
   // -------------------------------------------------------------------------------------
   double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
   cout << "data loaded - consumed space in GiB = " << gib << endl;
-  cout << "Warehouse pages = " << warehouse.btree->countPages() << endl;
   // -------------------------------------------------------------------------------------
   atomic<u64> keep_running = true;
   atomic<u64> running_threads_counter = 0;
@@ -159,7 +158,7 @@ int main(int argc, char** argv)
   }
   // -------------------------------------------------------------------------------------
   gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
-  cout << "consumed space in GiB = " << gib << endl;
+  cout << "Consumed space in GiB = " << gib << endl;
   // -------------------------------------------------------------------------------------
   return 0;
 }
