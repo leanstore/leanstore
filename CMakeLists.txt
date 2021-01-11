@@ -49,7 +49,7 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 include("${CMAKE_SOURCE_DIR}/libs/gflags.cmake")
 include("${CMAKE_SOURCE_DIR}/libs/tabluate.cmake")
-include("${CMAKE_SOURCE_DIR}/libs/googletest.cmake")
+#include("${CMAKE_SOURCE_DIR}/libs/googletest.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/benchmark.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/rapidjson.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/yaml-cpp.cmake")
@@ -67,12 +67,6 @@ include("${CMAKE_SOURCE_DIR}/libs/googletest.cmake")
 
 include("${CMAKE_SOURCE_DIR}/shared-headers/local.cmake")
 
-include_directories(
-        ${CMAKE_SOURCE_DIR}/include
-        ${GTEST_INCLUDE_DIR}
-        ${GFLAGS_INCLUDE_DIR}
-)
-
 # ---------------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------------
@@ -80,23 +74,7 @@ include_directories(
 add_subdirectory("backend")
 
 # ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-add_subdirectory("tests")
-
-# ---------------------------------------------------------------------------
 # Executable
 # ---------------------------------------------------------------------------
 
 add_subdirectory("frontend")
-add_subdirectory("tools")
-
-# ---------------------------------------------------------------------------
-# Linting: TODO
-# ---------------------------------------------------------------------------
-
-#include("${CMAKE_SOURCE_DIR}/cmake/clang-tidy.cmake")
-#list(APPEND lint_targets lint_src)
-#add_custom_target(lint)
-#add_dependencies(lint ${lint_targets})

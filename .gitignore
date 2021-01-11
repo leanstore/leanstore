@@ -16,3 +16,4 @@ git-ignore
 debug*
 release*
 clang*
+paper*
