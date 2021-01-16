@@ -28,12 +28,6 @@ s16 mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
 enum class XMergeReturnCode : u8 { NOTHING, FULL_MERGE, PARTIAL_MERGE };
 XMergeReturnCode XMerge(HybridPageGuard<BTreeNode>& p_guard, HybridPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
 // -------------------------------------------------------------------------------------
-// B*-tree
-bool tryBalanceRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<BTreeNode>& left, s16 l_pos);
-bool tryBalanceLeft(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<BTreeNode>& right, s16 l_pos);
-bool trySplitRight(HybridPageGuard<BTreeNode>& parent, HybridPageGuard<BTreeNode>& left, s16 l_pos);
-void tryBStar(BufferFrame&);
-// -------------------------------------------------------------------------------------
 static DTRegistry::DTMeta getMeta();
 static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);
 static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
