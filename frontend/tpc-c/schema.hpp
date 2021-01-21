@@ -191,6 +191,7 @@ struct history_t {
    static unsigned unfoldKey(const uint8_t* in, T& record)
    {
       unsigned pos = 0;
+      pos += unfold(in + pos, record.thread_id);
       pos += unfold(in + pos, record.h_pk);
       return pos;
    }
