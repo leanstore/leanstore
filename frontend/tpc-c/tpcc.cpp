@@ -4,7 +4,8 @@
  *
  */
 
-#include "adapter.hpp"
+#include "../shared/adapter-leanstore.hpp"
+#include "../shared/types.hpp"
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -13,7 +14,6 @@
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
 #include "schema.hpp"
-#include "types.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 
