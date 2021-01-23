@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 // -------------------------------------------------------------------------------------
 using std::atomic;
 using std::cerr;
@@ -55,3 +56,4 @@ constexpr u64 MSB_MASK = ~(MSB);
 constexpr u64 MSB2 = u64(1) << 62;
 constexpr u64 MSB2_MASK = ~(MSB2);
 // -------------------------------------------------------------------------------------
+using Slice = std::basic_string_view<u8>;

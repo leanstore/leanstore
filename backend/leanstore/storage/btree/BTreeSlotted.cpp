@@ -66,6 +66,28 @@ bool BTreeNode::prepareInsert(u8* key, u16 key_len, u16 payload_len)
       return true;
 }
 // -------------------------------------------------------------------------------------
+s16 BTreeNode::insertDoNotCopyPayload(u8* key, u16 key_len, u16 payload_length)
+{
+   s32 slotId = lowerBound<false>(key, key_len);
+   memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
+   // -------------------------------------------------------------------------------------
+   // StoreKeyValue
+   key += prefix_length;
+   key_len -= prefix_length;
+   slot[slotId].head = head(key, key_len);
+   slot[slotId].key_len = key_len;
+   slot[slotId].payload_len = payload_length;
+   const u16 space = key_len + payload_length;
+   data_offset -= space;
+   space_used += space;
+   slot[slotId].offset = data_offset;
+   memcpy(getKey(slotId), key, key_len);
+   // -------------------------------------------------------------------------------------
+   count++;
+   updateHint(slotId);
+   return slotId;
+}
+// -------------------------------------------------------------------------------------
 void BTreeNode::insert(u8* key, u16 key_len, u8* payload, u16 payload_length)
 {
    DEBUG_BLOCK()
@@ -75,11 +97,13 @@ void BTreeNode::insert(u8* key, u16 key_len, u8* payload, u16 payload_length)
       static_cast<void>(exact_pos);
       assert(exact_pos == -1);  // assert for duplicates
    }
+   // -------------------------------------------------------------------------------------
    s32 slotId = lowerBound<false>(key, key_len);
    memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
    storeKeyValue(slotId, key, key_len, payload, payload_length);
    count++;
    updateHint(slotId);
+   // -------------------------------------------------------------------------------------
    DEBUG_BLOCK()
    {
       s32 exact_pos = lowerBound<true>(key, key_len);
@@ -256,16 +280,20 @@ void BTreeNode::setFences(u8* lowerKey, u16 lowerLen, u8* upperKey, u16 upperLen
 // -------------------------------------------------------------------------------------
 u16 BTreeNode::commonPrefix(u16 slotA, u16 slotB)
 {
-   // TODO: the folowing two checks work only in single threaded
-   //   assert(aPos < count);
-   //   assert(bPos < count);
-   u32 limit = min(slot[slotA].key_len, slot[slotB].key_len);
-   u8 *a = getKey(slotA), *b = getKey(slotB);
-   u32 i;
-   for (i = 0; i < limit; i++)
-      if (a[i] != b[i])
-         break;
-   return i;
+   if (count == 0) {  // Do not prefix compress if only one tuple is in to avoid corner cases (e.g., SI Version)
+      return 0;
+   } else {
+      // TODO: the folowing two checks work only in single threaded
+      //   assert(aPos < count);
+      //   assert(bPos < count);
+      u32 limit = min(slot[slotA].key_len, slot[slotB].key_len);
+      u8 *a = getKey(slotA), *b = getKey(slotB);
+      u32 i;
+      for (i = 0; i < limit; i++)
+         if (a[i] != b[i])
+            break;
+      return i;
+   }
 }
 // -------------------------------------------------------------------------------------
 BTreeNode::SeparatorInfo BTreeNode::findSep()

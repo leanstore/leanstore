@@ -6,6 +6,10 @@ inline u64 myTTS()
 {
    return cr::Worker::my().active_tx.tts;
 }
+inline u64 myWTTS()
+{
+   return myWorkerID() | (myTTS() << 8);
+}
 inline bool isVisibleForMe(u8 worker_id, u64 tts)
 {
    return cr::Worker::my().isVisibleForMe(worker_id, tts);

@@ -86,6 +86,7 @@ struct BTree {
    OP_RESULT scanDesc(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>, function<void()>);
 // -------------------------------------------------------------------------------------
 #include "BTreeLL.hpp"
+#include "Iterator.hpp"
 // -------------------------------------------------------------------------------------
 // SI
 #include "BTreeSI.hpp"

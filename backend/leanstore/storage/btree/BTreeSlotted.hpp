@@ -84,7 +84,6 @@ struct BTreeNode : public BTreeNodeHeader {
       // Layout:  key wihtout prefix | Payload
       u16 offset;
       u16 key_len;
-      u8 is_delta : 1;
       u16 payload_len : 15;
       union {
          HeadType head;
@@ -121,11 +120,6 @@ struct BTreeNode : public BTreeNodeHeader {
    inline u16 getFullKeyLen(u16 slotId) { return prefix_length + getKeyLen(slotId); }
    inline u16 getPayloadLength(u16 slotId) { return slot[slotId].payload_len; }
    inline void setPayloadLength(u16 slotId, u16 len) { slot[slotId].payload_len = len; }
-   // -------------------------------------------------------------------------------------
-   inline void markAsDelta(u16 slotId) { slot[slotId].is_delta = true; }
-   inline void markAsFullTuple(u16 slotId) { slot[slotId].is_delta = false; }
-   inline bool isDelta(u16 slotId) { return slot[slotId].is_delta; }
-   // -------------------------------------------------------------------------------------
    inline u8* getPayload(u16 slotId) { return ptr() + slot[slotId].offset + slot[slotId].key_len; }
    inline SwipType& getChild(u16 slotId) { return *reinterpret_cast<SwipType*>(getPayload(slotId)); }
    // -------------------------------------------------------------------------------------
@@ -148,7 +142,7 @@ struct BTreeNode : public BTreeNodeHeader {
          return (aLength - bLength);
       } else {
          int c = memcmp(a, b, length);
-         if (c)
+         if (c != 0)
             return c;
          return (aLength - bLength);
       }
@@ -183,8 +177,11 @@ struct BTreeNode : public BTreeNodeHeader {
    }
    // -------------------------------------------------------------------------------------
    template <bool equalityOnly = false>
-   s16 lowerBound(const u8* key, u16 keyLength)
+   s16 lowerBound(const u8* key, u16 keyLength, bool* is_equal = nullptr)
    {
+      if (is_equal != nullptr && is_leaf) {
+         *is_equal = false;
+      }
       if (equalityOnly) {
          if ((keyLength < prefix_length) || (bcmp(key, getLowerFenceKey(), prefix_length) != 0))
             return -1;
@@ -225,7 +222,10 @@ struct BTreeNode : public BTreeNodeHeader {
             } else if (keyLength > slot[mid].key_len) {
                lower = mid + 1;
             } else {
-               return mid;
+               if (is_equal != nullptr && is_leaf) {
+                  *is_equal = true;
+               }
+               return mid;  // It is even equal
             }
          } else {
             int cmp = cmpKeys(key, getKey(mid), keyLength, getKeyLen(mid));
@@ -234,7 +234,10 @@ struct BTreeNode : public BTreeNodeHeader {
             } else if (cmp > 0) {
                lower = mid + 1;
             } else {
-               return mid;
+               if (is_equal != nullptr && is_leaf) {
+                  *is_equal = true;
+               }
+               return mid;  // It is even equal
             }
          }
       }
@@ -245,6 +248,7 @@ struct BTreeNode : public BTreeNodeHeader {
    // -------------------------------------------------------------------------------------
    void updateHint(u16 slotId);
    // -------------------------------------------------------------------------------------
+   s16 insertDoNotCopyPayload(u8* key, u16 key_len, u16 payload_len);
    void insert(u8* key, u16 key_len, u8* payload, u16 payload_len);
    static u16 spaceNeeded(u16 keyLength, u16 payload_len, u16 prefixLength);
    u16 spaceNeeded(u16 key_length, u16 payload_len);

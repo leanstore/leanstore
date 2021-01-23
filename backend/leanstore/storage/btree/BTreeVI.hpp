@@ -2,7 +2,6 @@ inline SwipType sizeToVT(u64 size)
 {
    return SwipType(reinterpret_cast<BufferFrame*>(size));
 }
-s16 findLatestVersionPositionVI(HybridPageGuard<BTreeNode>& target_guard, u8* key, u16 key_length);
 void iterateDescVI(u8* start_key, u16 key_length, function<bool(HybridPageGuard<BTreeNode>& guard, s16 pos)> callback);
 OP_RESULT lookupVI(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
 OP_RESULT insertVI(u8* key, u16 key_length, u16 valueLength, u8* value);
