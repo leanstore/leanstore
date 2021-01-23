@@ -381,7 +381,7 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
       // -------------------------------------------------------------------------------------
       if (FLAGS_tpcc_remove) {
          const auto ret = neworder.erase({w_id, d_id, o_id});
-         ensure(ret);
+         ensure(!FLAGS_si || ret);
       }
       // -------------------------------------------------------------------------------------
       // Integer ol_cnt = minInteger, c_id;

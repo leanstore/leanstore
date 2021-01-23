@@ -50,7 +50,7 @@ int main(int argc, char** argv)
    // LeanStore DB
    LeanStore db;
    unique_ptr<BTreeInterface<YCSBKey, YCSBPayload>> adapter;
-   auto& vs_btree = db.registerBTree("ycsb");
+   auto& vs_btree = db.registerBTreeLL("ycsb");
    adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);

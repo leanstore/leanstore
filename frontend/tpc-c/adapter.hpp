@@ -2,7 +2,7 @@
 #include "types.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/LeanStore.hpp"
-#include "leanstore/storage/btree/WALMacros.hpp"
+#include "leanstore/storage/btree/core/WALMacros.hpp"
 // -------------------------------------------------------------------------------------
 #include <cassert>
 #include <cstdint>
@@ -13,16 +13,25 @@
 using namespace leanstore;
 template <class Record>
 struct LeanStoreAdapter {
-   storage::btree::BTree* btree;
+   storage::btree::BTreeInterface* btree;
    std::map<std::string, Record> map;
    string name;
    LeanStoreAdapter()
    {
       // hack
    }
-   LeanStoreAdapter(LeanStore& db, string name) : btree(&db.registerBTree(name)), name(name) {}
+   LeanStoreAdapter(LeanStore& db, string name) : name(name)
+   {
+      if (FLAGS_vw) {
+         btree = &db.registerBTreeVW(name);
+      } else if (FLAGS_vi) {
+         btree = &db.registerBTreeVI(name);
+      } else {
+         btree = &db.registerBTreeLL(name);
+      }
+   }
    // -------------------------------------------------------------------------------------
-   void printTreeHeight() { cout << name << " height = " << btree->height << endl; }
+   void printTreeHeight() { cout << name << " height = " << btree->getHeight() << endl; }
    // -------------------------------------------------------------------------------------
    template <class Fn>
    void scanDesc(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
@@ -47,8 +56,11 @@ struct LeanStoreAdapter {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, rec_key);
-      const auto res = btree->insert(folded_key, folded_key_len, sizeof(Record), (u8*)(&record));
-      ensure(res == btree::OP_RESULT::OK);
+      const auto res = btree->insert(folded_key, folded_key_len, (u8*)(&record), sizeof(Record));
+      ensure(res == btree::OP_RESULT::OK || res == btree::OP_RESULT::ABORT_TX);
+      if (res == btree::OP_RESULT::ABORT_TX) {
+         cr::Worker::my().abortTX();
+      }
    }
 
    template <class Fn>
@@ -79,7 +91,10 @@ struct LeanStoreAdapter {
              fn(typed_payload);
           },
           wal_update_generator);
-      ensure(res == btree::OP_RESULT::OK);
+      ensure(res != btree::OP_RESULT::NOT_FOUND);
+      if (res == btree::OP_RESULT::ABORT_TX) {
+         cr::Worker::my().abortTX();
+      }
    }
 
    bool erase(const typename Record::Key& key)
@@ -87,6 +102,9 @@ struct LeanStoreAdapter {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldRecord(folded_key, key);
       const auto res = btree->remove(folded_key, folded_key_len);
+      if (res == btree::OP_RESULT::ABORT_TX) {
+         cr::Worker::my().abortTX();
+      }
       return (res == btree::OP_RESULT::OK);
    }
    // -------------------------------------------------------------------------------------

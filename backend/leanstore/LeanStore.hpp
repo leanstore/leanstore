@@ -1,7 +1,9 @@
 #pragma once
 #include "Config.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
-#include "storage/btree/BTree.hpp"
+#include "storage/btree/BTreeLL.hpp"
+#include "storage/btree/BTreeVI.hpp"
+#include "storage/btree/BTreeVW.hpp"
 #include "storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -19,7 +21,10 @@ class LeanStore
    // -------------------------------------------------------------------------------------
   public:
    // Poor man catalog
-   std::unordered_map<string, storage::btree::BTree> btrees;
+   std::unordered_map<string, storage::btree::BTreeLL> btrees_ll;
+   std::unordered_map<string, storage::btree::BTreeVW> btrees_vw;
+   std::unordered_map<string, storage::btree::BTreeVI> btrees_vi;
+   // -------------------------------------------------------------------------------------
    s32 ssd_fd;
    // -------------------------------------------------------------------------------------
    unique_ptr<cr::CRManager> cr_manager;
@@ -42,8 +47,12 @@ class LeanStore
    u64 getConfigHash();
    GlobalStats getGlobalStats();
    // -------------------------------------------------------------------------------------
-   storage::btree::BTree& registerBTree(string name);
-   storage::btree::BTree& retrieveBTree(string name);
+   storage::btree::BTreeLL& registerBTreeLL(string name);
+   storage::btree::BTreeLL& retrieveBTreeLL(string name) { return btrees_ll[name]; }
+   storage::btree::BTreeVW& registerBTreeVW(string name);
+   storage::btree::BTreeVW& retrieveBTreeVW(string name) { return btrees_vw[name]; }
+   storage::btree::BTreeVI& registerBTreeVI(string name);
+   storage::btree::BTreeVI& retrieveBTreeVI(string name) { return btrees_vi[name]; }
    // -------------------------------------------------------------------------------------
    storage::BufferManager& getBufferManager() { return *buffer_manager; }
    cr::CRManager& getCRManager() { return *cr_manager; }

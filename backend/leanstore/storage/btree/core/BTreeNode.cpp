@@ -1,4 +1,4 @@
-#include "BTreeSlotted.hpp"
+#include "BTreeNode.hpp"
 
 #include "leanstore/sync-primitives/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
