@@ -93,7 +93,7 @@ OP_RESULT BTreeVI::updateSameSize(u8* k, u16 kl, function<void(u8* value, u16 va
       jumpmuTry()
       {
          HybridPageGuard<BTreeNode> leaf;
-         findLeafCanJump<OP_TYPE::POINT_INSERT>(leaf, key, key_length);
+         findLeafCanJump(leaf, key, key_length);
          // -------------------------------------------------------------------------------------
          auto leaf_ex = ExclusivePageGuard(std::move(leaf));
          const s32 head_pos = leaf->lowerBound<true>(key, key_length);
@@ -138,7 +138,7 @@ OP_RESULT BTreeVI::insert(u8* k, u16 kl, u8* value, u16 value_length)
       jumpmuTry()
       {
          HybridPageGuard<BTreeNode> leaf;
-         findLeafCanJump<OP_TYPE::POINT_INSERT>(leaf, key, key_length);
+         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key, key_length);
          // -------------------------------------------------------------------------------------
          auto leaf_ex = ExclusivePageGuard(std::move(leaf));
          const s32 pos = leaf->lowerBound<true>(key, key_length);
@@ -178,7 +178,7 @@ OP_RESULT BTreeVI::remove(u8* k_wo_version, u16 kl_wo_version)
       jumpmuTry()
       {
          HybridPageGuard<BTreeNode> leaf;
-         findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf, key, key_length);
+         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key, key_length);
          // -------------------------------------------------------------------------------------
          auto leaf_ex = ExclusivePageGuard(std::move(leaf));
          const s32 primary_pos = leaf->lowerBound<true>(key, key_length);
@@ -231,7 +231,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
             jumpmuTry()
             {
                HybridPageGuard<BTreeNode> c_guard;
-               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(c_guard, key, key_length);
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
                auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
                const bool ret = c_x_guard->remove(key, key_length);
                ensure(ret);
@@ -256,7 +256,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
             jumpmuTry()
             {
                HybridPageGuard<BTreeNode> c_guard;
-               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(c_guard, key, key_length);
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
                auto secondary_x_guard = ExclusivePageGuard(std::move(c_guard));
                const s16 secondary_pos = secondary_x_guard->lowerBound<true>(key, key_length);
                ensure(secondary_pos >= 0);
@@ -280,7 +280,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                // Go to primary version
                HybridPageGuard<BTreeNode> c_guard;
                sn = 0;
-               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(c_guard, key, key_length);
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
                auto primary_x_guard = ExclusivePageGuard(std::move(c_guard));
                const s16 primary_pos = primary_x_guard->lowerBound<true>(key, key_length);
                ensure(primary_pos >= 0);
@@ -310,7 +310,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                HybridPageGuard<BTreeNode> c_guard;
                // -------------------------------------------------------------------------------------
                // Get secondary version
-               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(c_guard, key, key_length);
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
                auto secondary_x_guard = ExclusivePageGuard(std::move(c_guard));
                const s32 secondary_pos = secondary_x_guard->lowerBound<true>(key, key_length);
                u8* secondary_payload = secondary_x_guard->getPayload(secondary_pos);
@@ -323,7 +323,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                // -------------------------------------------------------------------------------------
                // Go to primary version
                sn = 0;
-               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(c_guard, key, key_length);
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
                auto primary_x_guard = ExclusivePageGuard(std::move(c_guard));
                const s32 primary_pos = primary_x_guard->lowerBound<true>(key, key_length);
                ensure(primary_pos >= 0);
@@ -350,7 +350,7 @@ void BTreeVI::iterateDesc(u8* start_key, u16 key_length, function<bool(HybridPag
       {
          HybridPageGuard<BTreeNode> leaf;
          while (true) {
-            findLeafCanJump<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
+            findLeafCanJump(leaf, next_key, next_key_length);
             SharedPageGuard s_leaf(std::move(leaf));
             // -------------------------------------------------------------------------------------
             if (s_leaf->count == 0) {

@@ -1,5 +1,6 @@
 #pragma once
 #include "BTreeInterface.hpp"
+#include "BTreeIteratorInterface.hpp"
 #include "BTreeNode.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -31,8 +32,11 @@ struct WALLogicalSplit : WALEntry {
 class BTreeGeneric
 {
   public:
-   BufferFrame* meta_node_bf;  // kept in memory
    // -------------------------------------------------------------------------------------
+   template <typename T>
+   friend class BTreePessimisticIterator;
+   // -------------------------------------------------------------------------------------
+   BufferFrame* meta_node_bf;  // kept in memory
    atomic<u64> height = 1;
    DTID dt_id;
    // -------------------------------------------------------------------------------------
@@ -59,7 +63,7 @@ class BTreeGeneric
    ~BTreeGeneric();
    // -------------------------------------------------------------------------------------
    // Helpers
-   template <OP_TYPE op_type = OP_TYPE::POINT_READ>
+   template <LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED>
    inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, const u8* key, const u16 key_length)
    {
       HybridPageGuard<BTreeNode> p_guard(meta_node_bf);
@@ -71,10 +75,7 @@ class BTreeGeneric
          Swip<BTreeNode>& c_swip = target_guard->lookupInner(key, key_length);
          p_guard = std::move(target_guard);
          if (level == height - 1) {
-            target_guard = HybridPageGuard(p_guard, c_swip,
-                                           (op_type == OP_TYPE::POINT_REMOVE || op_type == OP_TYPE::POINT_UPDATE || op_type == OP_TYPE::POINT_INSERT)
-                                               ? FALLBACK_METHOD::EXCLUSIVE
-                                               : FALLBACK_METHOD::SHARED);
+            target_guard = HybridPageGuard(p_guard, c_swip, mode);
          } else {
             target_guard = HybridPageGuard(p_guard, c_swip);
          }
@@ -84,30 +85,25 @@ class BTreeGeneric
       p_guard.kill();
    }
    // -------------------------------------------------------------------------------------
-   template <OP_TYPE op_type = OP_TYPE::POINT_READ>
-   void findLeaf(HybridPageGuard<BTreeNode>& target_guard, const u8* key, u16 key_length)
+   template <LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED>
+   void findLeafAndLatch(HybridPageGuard<BTreeNode>& target_guard, const u8* key, u16 key_length)
    {
       u32 volatile mask = 1;
       while (true) {
          jumpmuTry()
          {
-            findLeafCanJump<op_type>(target_guard, key, key_length);
+            findLeafCanJump<mode>(target_guard, key, key_length);
+            if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
+               target_guard.toExclusive();
+            } else {
+               target_guard.toShared();
+            }
             jumpmu_return;
          }
-         jumpmuCatch()
-         {
-            BACKOFF_STRATEGIES()
-            // -------------------------------------------------------------------------------------
-            if (op_type == OP_TYPE::POINT_READ || op_type == OP_TYPE::SCAN) {
-               WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
-            } else if (op_type == OP_TYPE::POINT_UPDATE) {
-               WorkerCounters::myCounters().dt_restarts_update_same_size[dt_id]++;
-            } else {
-               WorkerCounters::myCounters().dt_restarts_structural_change[dt_id]++;
-            }
-         }
+         jumpmuCatch() { BACKOFF_STRATEGIES() }
       }
    }
+   // -------------------------------------------------------------------------------------
    // Helpers
    // -------------------------------------------------------------------------------------
    inline bool isMetaNode(HybridPageGuard<BTreeNode>& guard) { return meta_node_bf == guard.bf; }

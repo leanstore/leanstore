@@ -23,7 +23,7 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
       jumpmuTry()
       {
          HybridPageGuard<BTreeNode> leaf;
-         findLeafCanJump<OP_TYPE::POINT_READ>(leaf, key, key_length);
+         findLeafCanJump(leaf, key, key_length);
          // -------------------------------------------------------------------------------------
          DEBUG_BLOCK()
          {
@@ -68,7 +68,7 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
       {
          HybridPageGuard<BTreeNode> leaf;
          while (true) {
-            findLeafCanJump<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
+            findLeafCanJump(leaf, next_key, next_key_length);
             SharedPageGuard s_leaf(std::move(leaf));
             // -------------------------------------------------------------------------------------
             if (s_leaf->count == 0) {
@@ -133,7 +133,7 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(u8
       {
          HybridPageGuard<BTreeNode> leaf;
          while (true) {
-            findLeafCanJump<OP_TYPE::SCAN>(leaf, next_key, next_key_length);
+            findLeafCanJump(leaf, next_key, next_key_length);
             SharedPageGuard s_leaf(std::move(leaf));
             // -------------------------------------------------------------------------------------
             if (s_leaf->count == 0) {
@@ -198,7 +198,7 @@ OP_RESULT BTreeLL::insert(u8* key, u16 key_length, u8* value, u16 value_length)
       jumpmuTry()
       {
          HybridPageGuard<BTreeNode> c_guard;
-         findLeafCanJump<OP_TYPE::POINT_INSERT>(c_guard, key, key_length);
+         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
          // -------------------------------------------------------------------------------------
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          if (c_x_guard->prepareInsert(key, key_length, value_length)) {
@@ -244,7 +244,7 @@ OP_RESULT BTreeLL::updateSameSize(u8* key,
       {
          // -------------------------------------------------------------------------------------
          HybridPageGuard<BTreeNode> c_guard;
-         findLeafCanJump<OP_TYPE::POINT_UPDATE>(c_guard, key, key_length);
+         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
          u32 local_restarts_counter = c_guard.hasFacedContention();  // current implementation uses the mutex
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          s16 pos = c_x_guard->lowerBound<true>(key, key_length);
@@ -316,7 +316,7 @@ OP_RESULT BTreeLL::remove(u8* key, u16 key_length)
       jumpmuTry()
       {
          HybridPageGuard<BTreeNode> c_guard;
-         findLeafCanJump<OP_TYPE::POINT_REMOVE>(c_guard, key, key_length);
+         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          if (c_x_guard->remove(key, key_length)) {
             if (FLAGS_wal) {

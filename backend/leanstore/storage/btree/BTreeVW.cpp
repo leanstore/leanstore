@@ -28,7 +28,7 @@ OP_RESULT BTreeVW::insert(u8* key, u16 key_length, u8* value_orig, u16 value_len
       jumpmuTry()
       {
          HybridPageGuard<BTreeNode> leaf_guard;
-         findLeafCanJump<OP_TYPE::POINT_INSERT>(leaf_guard, key, key_length);
+         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf_guard, key, key_length);
          // -------------------------------------------------------------------------------------
          auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
          s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
@@ -108,7 +108,7 @@ OP_RESULT BTreeVW::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
       jumpmuTry()
       {
          HybridPageGuard<BTreeNode> leaf;
-         findLeafCanJump<OP_TYPE::POINT_READ>(leaf, key, key_length);
+         findLeafCanJump(leaf, key, key_length);
          // -------------------------------------------------------------------------------------
          s16 pos = leaf->lowerBound<true>(key, key_length);
          if (pos != -1) {
@@ -226,7 +226,7 @@ OP_RESULT BTreeVW::updateSameSize(u8* key,
       {
          // -------------------------------------------------------------------------------------
          HybridPageGuard<BTreeNode> leaf_guard;
-         findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
+         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf_guard, key, key_length);
          auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
          s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
          if (pos != -1) {
@@ -317,7 +317,7 @@ OP_RESULT BTreeVW::remove(u8* key, u16 key_length)
       {
          // -------------------------------------------------------------------------------------
          HybridPageGuard<BTreeNode> leaf_guard;
-         findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
+         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf_guard, key, key_length);
          auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
          s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
          if (pos != -1) {
@@ -479,7 +479,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             jumpmuTry()
             {
                HybridPageGuard<BTreeNode> leaf_guard;
-               btree.findLeafCanJump<OP_TYPE::POINT_INSERT>(leaf_guard, key, key_length);
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
                ensure(pos != -1);
@@ -522,7 +522,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             jumpmuTry()
             {
                HybridPageGuard<BTreeNode> leaf_guard;
-               btree.findLeafCanJump<OP_TYPE::POINT_UPDATE>(leaf_guard, key, key_length);
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                const s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
                ensure(pos != -1);
@@ -587,7 +587,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                const u8* payload = remove_entry.payload + key_length;
                const u16 payload_length = remove_entry.payload_length;
                HybridPageGuard<BTreeNode> leaf_guard;
-               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                const s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
                ensure(pos != -1);
@@ -628,7 +628,7 @@ void BTreeVW::todo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                const u8* key = remove_entry.payload;
                const u16 key_length = remove_entry.key_length;
                HybridPageGuard<BTreeNode> leaf_guard;
-               btree.findLeafCanJump<OP_TYPE::POINT_REMOVE>(leaf_guard, key, key_length);
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf_guard, key, key_length);
                auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
                const s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
                if (pos != -1) {

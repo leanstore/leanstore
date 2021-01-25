@@ -123,11 +123,12 @@ struct BTreeNode : public BTreeNodeHeader {
    inline u8* getPayload(u16 slotId) { return ptr() + slot[slotId].offset + slot[slotId].key_len; }
    inline SwipType& getChild(u16 slotId) { return *reinterpret_cast<SwipType*>(getPayload(slotId)); }
    // -------------------------------------------------------------------------------------
+   inline u8* getPrefix() { return getLowerFenceKey(); }
    inline void copyPrefix(u8* out) { memcpy(out, getLowerFenceKey(), prefix_length); }
    inline void copyKeyWithoutPrefix(u16 slotId, u8* out_after_prefix) { memcpy(out_after_prefix, getKey(slotId), getKeyLen(slotId)); }
    inline void copyFullKey(u16 slotId, u8* out)
    {
-      memcpy(out, getLowerFenceKey(), prefix_length);
+      memcpy(out, getPrefix(), prefix_length);
       memcpy(out + prefix_length, getKey(slotId), getKeyLen(slotId));
    }
    // -------------------------------------------------------------------------------------

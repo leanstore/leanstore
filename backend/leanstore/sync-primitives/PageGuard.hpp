@@ -54,14 +54,14 @@ class HybridPageGuard
    // -------------------------------------------------------------------------------------
    // I: Lock coupling
    template <typename T2>
-   HybridPageGuard(HybridPageGuard<T2>& p_guard, Swip<T>& swip, const FALLBACK_METHOD if_contended = FALLBACK_METHOD::SPIN)
+   HybridPageGuard(HybridPageGuard<T2>& p_guard, Swip<T>& swip, const LATCH_FALLBACK_MODE if_contended = LATCH_FALLBACK_MODE::SPIN)
        : bf(&BMC::global_bf->tryFastResolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
    {
-      if (if_contended == FALLBACK_METHOD::SPIN) {
+      if (if_contended == LATCH_FALLBACK_MODE::SPIN) {
          guard.toOptimisticSpin();
-      } else if (if_contended == FALLBACK_METHOD::EXCLUSIVE) {
+      } else if (if_contended == LATCH_FALLBACK_MODE::EXCLUSIVE) {
          guard.toOptimisticOrExclusive();
-      } else if (if_contended == FALLBACK_METHOD::SHARED) {
+      } else if (if_contended == LATCH_FALLBACK_MODE::SHARED) {
          guard.toOptimisticOrShared();
       }
       syncGSN();
@@ -127,6 +127,10 @@ class HybridPageGuard
    inline T* ptr() { return reinterpret_cast<T*>(bf->page.dt); }
    inline Swip<T> swip() { return Swip<T>(bf); }
    inline T* operator->() { return reinterpret_cast<T*>(bf->page.dt); }
+   // -------------------------------------------------------------------------------------
+   // Use with caution!
+   void toShared() { guard.toShared(); }
+   void toExclusive() { guard.toExclusive(); }
    // -------------------------------------------------------------------------------------
    void reclaim()
    {

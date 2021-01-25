@@ -550,6 +550,7 @@ void BTreeGeneric::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bo
    }
    callback(c_node.upper.cast<BufferFrame>());
 }
+// -------------------------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------------------------
 s64 BTreeGeneric::iterateAllPagesRec(HybridPageGuard<BTreeNode>& node_guard,

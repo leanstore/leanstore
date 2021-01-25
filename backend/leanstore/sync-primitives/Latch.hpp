@@ -62,7 +62,7 @@ struct alignas(64) HybridLatch {
 static_assert(sizeof(HybridLatch) == 64, "");
 // -------------------------------------------------------------------------------------
 enum class GUARD_STATE { UNINITIALIZED, OPTIMISTIC, SHARED, EXCLUSIVE, MOVED };
-enum class FALLBACK_METHOD { JUMP, SPIN, SHARED, EXCLUSIVE, SHOULD_NOT_HAPPEN };
+enum class LATCH_FALLBACK_MODE : u8 { SHARED = 0, EXCLUSIVE = 1, JUMP = 2, SPIN = 3, SHOULD_NOT_HAPPEN = 4 };
 // -------------------------------------------------------------------------------------
 struct Guard {
    HybridLatch* latch = nullptr;

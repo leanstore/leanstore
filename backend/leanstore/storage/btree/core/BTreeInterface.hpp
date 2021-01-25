@@ -1,10 +1,5 @@
 #pragma once
 #include "BTreeNode.hpp"
-#include "leanstore/Config.hpp"
-#include "leanstore/profiling/counters/WorkerCounters.hpp"
-#include "leanstore/storage/buffer-manager/BufferManager.hpp"
-#include "leanstore/sync-primitives/PageGuard.hpp"
-#include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -29,13 +24,7 @@ struct WALEntry {
    WAL_LOG_TYPE type;
 };
 // -------------------------------------------------------------------------------------
-enum class OP_TYPE : u8 { POINT_READ, POINT_UPDATE, POINT_INSERT, POINT_REMOVE, SCAN };
-enum class OP_RESULT : u8 {
-   OK = 0,
-   NOT_FOUND = 1,
-   DUPLICATE = 2,
-   ABORT_TX = 3,
-};
+enum class OP_RESULT : u8 { OK = 0, NOT_FOUND = 1, DUPLICATE = 2, ABORT_TX = 3, NOT_ENOUGH_SPACE = 4 };
 struct WALUpdateGenerator {
    void (*before)(u8* tuple, u8* entry);
    void (*after)(u8* tuple, u8* entry);
