@@ -41,11 +41,11 @@ class BTreeInterface
    virtual OP_RESULT remove(u8* key, u16 key_length) = 0;
    virtual OP_RESULT scanAsc(u8* start_key,
                              u16 key_length,
-                             function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>,
+                             function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                              function<void()>) = 0;
    virtual OP_RESULT scanDesc(u8* start_key,
                               u16 key_length,
-                              function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>,
+                              function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                               function<void()>) = 0;
    // -------------------------------------------------------------------------------------
    virtual u64 countPages() = 0;

@@ -40,13 +40,13 @@ struct LeanStoreAdapter {
       u16 folded_key_len = Record::foldRecord(folded_key, key);
       btree->scanDesc(
           folded_key, folded_key_len,
-          [&](u8* key, [[maybe_unused]] u16 key_length, u8* payload, [[maybe_unused]] u16 payload_length) {
+          [&](const u8* key, [[maybe_unused]] u16 key_length, const u8* payload, [[maybe_unused]] u16 payload_length) {
              if (key_length != folded_key_len) {
                 return false;
              }
              typename Record::Key typed_key;
              Record::unfoldRecord(key, typed_key);
-             const Record& typed_payload = *reinterpret_cast<Record*>(payload);
+             const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
              return fn(typed_key, typed_payload);
           },
           undo);
@@ -115,14 +115,14 @@ struct LeanStoreAdapter {
       u16 folded_key_len = Record::foldRecord(folded_key, key);
       btree->scanAsc(
           folded_key, folded_key_len,
-          [&](u8* key, u16 key_length, u8* payload, u16 payload_length) {
+          [&](const u8* key, u16 key_length, const u8* payload, u16 payload_length) {
              if (key_length != folded_key_len) {
                 return false;
              }
              static_cast<void>(payload_length);
              typename Record::Key typed_key;
              Record::unfoldRecord(key, typed_key);
-             const Record& typed_payload = *reinterpret_cast<Record*>(payload);
+             const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
              return fn(typed_key, typed_payload);
           },
           undo);

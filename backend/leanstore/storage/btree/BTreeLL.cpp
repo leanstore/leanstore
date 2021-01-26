@@ -1,5 +1,6 @@
 #include "BTreeLL.hpp"
 
+#include "core/BTreeGenericIterator.hpp"
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
@@ -56,137 +57,53 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanAsc(u8* start_key,
                            u16 key_length,
-                           std::function<bool(u8* key, u16 key_length, u8* payload, u16 payload_length)> callback,
+                           std::function<bool(const u8* key, u16 key_length, const u8* payload, u16 payload_length)> callback,
                            function<void()>)
 {
-   volatile u32 mask = 1;
-   u8* volatile next_key = start_key;
-   volatile u16 next_key_length = key_length;
-   volatile bool is_heap_freed = true;  // because at first we reuse the start_key
-   while (true) {
-      jumpmuTry()
-      {
-         HybridPageGuard<BTreeNode> leaf;
-         while (true) {
-            findLeafCanJump(leaf, next_key, next_key_length);
-            SharedPageGuard s_leaf(std::move(leaf));
-            // -------------------------------------------------------------------------------------
-            if (s_leaf->count == 0) {
-               jumpmu_return OP_RESULT::OK;
+   jumpmuTry()
+   {
+      BTreePessimisticIterator<LATCH_FALLBACK_MODE::SHARED> iterator(*dynamic_cast<BTreeGeneric*>(this));
+      auto ret = iterator.seek(Slice(start_key, key_length));
+      if (ret != OP_RESULT::OK) {
+         jumpmu_return ret;
+      }
+      while (true) {
+         auto key = iterator.key();
+         auto value = iterator.value();
+         if (!callback(key.data(), key.length(), value.data(), value.length())) {
+            jumpmu_return OP_RESULT::OK;
+         } else {
+            if (iterator.next() != OP_RESULT::OK) {
+               jumpmu_return OP_RESULT::NOT_FOUND;
             }
-            s16 cur;
-            if (next_key == start_key) {
-               cur = s_leaf->lowerBound<false>(start_key, key_length);
-            } else {
-               cur = 0;
-            }
-            // -------------------------------------------------------------------------------------
-            u16 prefix_length = s_leaf->prefix_length;
-            u8 key[PAGE_SIZE];  // TODO
-            s_leaf->copyPrefix(key);
-            // -------------------------------------------------------------------------------------
-            while (cur < s_leaf->count) {
-               u16 payload_length = s_leaf->getPayloadLength(cur);
-               u8* payload = s_leaf->getPayload(cur);
-               s_leaf->copyKeyWithoutPrefix(cur, key + prefix_length);
-               if (!callback(key, s_leaf->getFullKeyLen(cur), payload, payload_length)) {
-                  if (!is_heap_freed) {
-                     delete[] next_key;
-                     is_heap_freed = true;
-                  }
-                  jumpmu_return OP_RESULT::OK;
-               }
-               cur++;
-            }
-            // -------------------------------------------------------------------------------------
-            if (!is_heap_freed) {
-               delete[] next_key;
-               is_heap_freed = true;
-            }
-            if (s_leaf->isUpperFenceInfinity()) {
-               jumpmu_return OP_RESULT::OK;
-            }
-            // -------------------------------------------------------------------------------------
-            next_key_length = s_leaf->upper_fence.length + 1;
-            next_key = new u8[next_key_length];
-            is_heap_freed = false;
-            memcpy(next_key, s_leaf->getUpperFenceKey(), s_leaf->upper_fence.length);
-            next_key[next_key_length - 1] = 0;
          }
       }
-      jumpmuCatch()
-      {
-         BACKOFF_STRATEGIES()
-         WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
-      }
    }
+   jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(u8*, u16, u8*, u16)> callback, function<void()>)
+OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
-   volatile u32 mask = 1;
-   u8* volatile next_key = start_key;
-   volatile u16 next_key_length = key_length;
-   volatile bool is_heap_freed = true;  // because at first we reuse the start_key
-   while (true) {
-      jumpmuTry()
-      {
-         HybridPageGuard<BTreeNode> leaf;
-         while (true) {
-            findLeafCanJump(leaf, next_key, next_key_length);
-            SharedPageGuard s_leaf(std::move(leaf));
-            // -------------------------------------------------------------------------------------
-            if (s_leaf->count == 0) {
-               jumpmu_return OP_RESULT::OK;
+   jumpmuTry()
+   {
+      BTreePessimisticIterator<LATCH_FALLBACK_MODE::SHARED> iterator(*dynamic_cast<BTreeGeneric*>(this));
+      auto ret = iterator.seekForPrev(Slice(start_key, key_length));
+      if (ret != OP_RESULT::OK) {
+         jumpmu_return ret;
+      }
+      while (true) {
+         auto key = iterator.key();
+         auto value = iterator.value();
+         if (!callback(key.data(), key.length(), value.data(), value.length())) {
+            jumpmu_return OP_RESULT::OK;
+         } else {
+            if (iterator.prev() != OP_RESULT::OK) {
+               jumpmu_return OP_RESULT::NOT_FOUND;
             }
-            s16 cur;
-            if (next_key == start_key) {
-               cur = s_leaf->lowerBound<false>(start_key, key_length);
-               if (s_leaf->lowerBound<true>(start_key, key_length) == -1) {
-                  cur--;
-               }
-            } else {
-               cur = s_leaf->count - 1;
-            }
-            // -------------------------------------------------------------------------------------
-            u16 prefix_length = s_leaf->prefix_length;
-            u8 key[PAGE_SIZE];  // TODO
-            s_leaf->copyPrefix(key);
-            // -------------------------------------------------------------------------------------
-            while (cur >= 0) {
-               u16 payload_length = s_leaf->getPayloadLength(cur);
-               u8* payload = s_leaf->getPayload(cur);
-               s_leaf->copyKeyWithoutPrefix(cur, key + prefix_length);
-               if (!callback(key, key_length, payload, payload_length)) {
-                  if (!is_heap_freed) {
-                     delete[] next_key;
-                     is_heap_freed = true;
-                  }
-                  jumpmu_return OP_RESULT::OK;
-               }
-               cur--;
-            }
-            // -------------------------------------------------------------------------------------
-            if (!is_heap_freed) {
-               delete[] next_key;
-               is_heap_freed = true;
-            }
-            if (s_leaf->isLowerFenceInfinity()) {
-               jumpmu_return OP_RESULT::OK;
-            }
-            // -------------------------------------------------------------------------------------
-            next_key_length = s_leaf->lower_fence.length;
-            next_key = new u8[next_key_length];
-            is_heap_freed = false;
-            memcpy(next_key, s_leaf->getLowerFenceKey(), s_leaf->lower_fence.length);
          }
       }
-      jumpmuCatch()
-      {
-         BACKOFF_STRATEGIES()
-         WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
-      }
    }
+   jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::insert(u8* key, u16 key_length, u8* value, u16 value_length)
@@ -382,6 +299,10 @@ struct DTRegistry::DTMeta BTreeLL::getMeta()
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------
+struct ParentSwipHandler BTreeLL::findParent(void* btree_object, BufferFrame& to_find)
+{
+   return BTreeGeneric::findParent(*dynamic_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
+}  // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage
 }  // namespace leanstore

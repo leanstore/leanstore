@@ -26,16 +26,16 @@ void BTreeGeneric::create(DTID dtid, BufferFrame* meta_bf)
    root_write_guard.init(true);
    // -------------------------------------------------------------------------------------
    this->meta_node_bf = meta_bf;
+   this->dt_id = dtid;
    HybridPageGuard<BTreeNode> meta_guard(meta_bf);
    ExclusivePageGuard meta_page(std::move(meta_guard));
    meta_page->upper = root_write_guard.bf();  // HACK: use upper of meta node as a swip to the storage root
-   this->dt_id = dtid;
 }
 // -------------------------------------------------------------------------------------
 void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   auto parent_handler = findParent(this, to_split);
+   auto parent_handler = findParent(*this, to_split);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
    if (c_guard->count <= 2)
@@ -174,7 +174,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 // -------------------------------------------------------------------------------------
 bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
 {
-   auto parent_handler = findParent(this, to_merge);
+   auto parent_handler = findParent(*this, to_merge);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
    int pos = parent_handler.pos;
@@ -477,13 +477,11 @@ void BTreeGeneric::checkpoint(void*, BufferFrame& bf, u8* dest)
 }
 // -------------------------------------------------------------------------------------
 // TODO: Refactor
-// Jump if any page on the path is already evicted
-// Throws if the bf could not be found
-struct ParentSwipHandler BTreeGeneric::findParent(void* btree_object, BufferFrame& to_find)
+// Jump if any page on the path is already evicted or of the bf could not be found
+// to_find is not latched
+struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFrame& to_find)
 {
-   // Pre: bf is write locked TODO: but trySplit does not ex lock !
    auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
-   auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
    // -------------------------------------------------------------------------------------
    HybridPageGuard<BTreeNode> p_guard(btree.meta_node_bf);
    u16 level = 0;

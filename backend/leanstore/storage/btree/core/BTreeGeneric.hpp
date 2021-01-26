@@ -33,7 +33,7 @@ class BTreeGeneric
 {
   public:
    // -------------------------------------------------------------------------------------
-   template <typename T>
+   template <LATCH_FALLBACK_MODE mode>
    friend class BTreePessimisticIterator;
    // -------------------------------------------------------------------------------------
    BufferFrame* meta_node_bf;  // kept in memory
@@ -56,7 +56,7 @@ class BTreeGeneric
    XMergeReturnCode XMerge(HybridPageGuard<BTreeNode>& p_guard, HybridPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
    // -------------------------------------------------------------------------------------
    static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);
-   static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
+   static ParentSwipHandler findParent(BTreeGeneric& btree_object, BufferFrame& to_find);
    static void iterateChildrenSwips(void* btree_object, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback);
    static void checkpoint(void*, BufferFrame& bf, u8* dest);
    // -------------------------------------------------------------------------------------

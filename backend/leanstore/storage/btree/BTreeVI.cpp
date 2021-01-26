@@ -28,7 +28,7 @@ OP_RESULT BTreeVI::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
    std::unique_ptr<u8[]> payload(nullptr);
    BTreeLL::scanAsc(
        key, key_length,
-       [&](const u8* s_key, u16 s_key_length, u8* s_payload, u16 s_payload_length) {
+       [&](const u8* s_key, u16 s_key_length, const u8* s_payload, u16 s_payload_length) {
           if (std::memcmp(s_key, key, key_length) != 0) {
              found = false;
              called = false;
@@ -55,9 +55,9 @@ OP_RESULT BTreeVI::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
              // Apply delta
              u16 delta_ptr = 0;
              while (delta_ptr < payload_length) {
-                const u16 offset = *reinterpret_cast<u16*>(s_payload + delta_ptr);
+                const u16 offset = *reinterpret_cast<const u16*>(s_payload + delta_ptr);
                 delta_ptr += 2;
-                const u16 size = *reinterpret_cast<u16*>(s_payload + delta_ptr);
+                const u16 size = *reinterpret_cast<const u16*>(s_payload + delta_ptr);
                 delta_ptr += 2;
                 std::memcpy(payload.get() + offset, s_payload + delta_ptr, size);
                 delta_ptr += size;
@@ -411,13 +411,16 @@ struct DTRegistry::DTMeta BTreeVI::getMeta()
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::scanDesc(u8* k, u16 kl, [[maybe_ununsed]] function<bool(u8*, u16, u8*, u16)> callback, function<void()>)
+OP_RESULT BTreeVI::scanDesc(u8* k, u16 kl, [[maybe_ununsed]] function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
    ensure(false);
    return OP_RESULT::OK;
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::scanAsc(u8* start_key, u16 key_length, function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>, function<void()>)
+OP_RESULT BTreeVI::scanAsc(u8* start_key,
+                           u16 key_length,
+                           function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
+                           function<void()>)
 {
    ensure(false);
    return OP_RESULT::OK;

@@ -1,6 +1,6 @@
 #pragma once
 #include "BTreeGeneric.hpp"
-#include "BTreeIteratorinterface.hpp"
+#include "BTreeIteratorInterface.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -19,13 +19,15 @@ class BTreePessimisticIterator : public BTreeSharedIterator
 {
    friend class BTreeGeneric;
 
-  private:
+  public:
    BTreeGeneric& btree;
    HybridPageGuard<BTreeNode> leaf;
    s32 cur = -1;
-   u8 buffer[PAGE_SIZE];
+   u8 buffer[1024];
    // -------------------------------------------------------------------------------------
-   PessimisticIterator(BTreeGeneric& btree) : btree(btree) {}
+  public:
+   BTreePessimisticIterator(BTreeGeneric& btree) : btree(btree) {}
+   // TODO: What if the current node got merged after we release the latch
    bool nextPage()
    {
       if (leaf->upper_fence.length == 0) {
@@ -34,9 +36,9 @@ class BTreePessimisticIterator : public BTreeSharedIterator
          const u16 key_length = leaf->upper_fence.length + 1;
          u8 key[key_length];
          std::memcpy(key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
-         HybridPageGuard<BTreeNode> next_leaf;
-         btree.findLeafAndLatch<mode>(next_leaf, key, key_length);
-         leaf = std::move(next_leaf);
+         key[key_length - 1] = 0;
+         leaf.kill();
+         btree.findLeafAndLatch<mode>(leaf, key, key_length);
          return true;
       }
    }
@@ -48,9 +50,8 @@ class BTreePessimisticIterator : public BTreeSharedIterator
          const u16 key_length = leaf->lower_fence.length;
          u8 key[key_length];
          std::memcpy(key, leaf->getLowerFenceKey(), leaf->lower_fence.length);
-         HybridPageGuard<BTreeNode> next_leaf;
+         leaf.kill();
          btree.findLeafAndLatch<mode>(leaf, key, key_length);
-         leaf = std::move(next_leaf);
          return true;
       }
    }
@@ -62,9 +63,9 @@ class BTreePessimisticIterator : public BTreeSharedIterator
       bool is_equal = false;
       cur = leaf->lowerBound<false>(key.data(), key.length(), &is_equal);
       if (is_equal == true) {
-         jumpmu_return OP_RESULT::OK;
+         return OP_RESULT::OK;
       } else {
-         jumpmu_return OP_RESULT::NOT_FOUND;
+         return OP_RESULT::NOT_FOUND;
       }
    }
    // -------------------------------------------------------------------------------------
@@ -74,17 +75,17 @@ class BTreePessimisticIterator : public BTreeSharedIterator
       bool is_equal = false;
       cur = leaf->lowerBound<false>(key.data(), key.length(), &is_equal);
       if (is_equal == true) {
-         jumpmu_return OP_RESULT::OK;
+         return OP_RESULT::OK;
       } else if ((cur + 1) >= leaf->count) {
          if (nextPage() && leaf->count > 0) {
             cur = 0;
-            jumpmu_return OP_RESULT::OK;
+            return OP_RESULT::OK;
          } else {
-            jumpmu_return OP_RESULT::NOT_FOUND;
+            return OP_RESULT::NOT_FOUND;
          }
       } else {
          cur += 1;
-         jumpmu_return OP_RESULT::OK;
+         return OP_RESULT::OK;
       }
    }
    // -------------------------------------------------------------------------------------
@@ -94,17 +95,17 @@ class BTreePessimisticIterator : public BTreeSharedIterator
       bool is_equal = false;
       cur = leaf->lowerBound<false>(key.data(), key.length(), &is_equal);
       if (is_equal == true) {
-         jumpmu_return OP_RESULT::OK;
+         return OP_RESULT::OK;
       } else if (cur == 0) {
          if (prevPage() && leaf->count > 0) {
             cur = leaf->count - 1;
-            jumpmu_return OP_RESULT::OK;
+            return OP_RESULT::OK;
          } else {
-            jumpmu_return OP_RESULT::NOT_FOUND;
+            return OP_RESULT::NOT_FOUND;
          }
       } else {
          cur -= 1;
-         jumpmu_return OP_RESULT::OK;
+         return OP_RESULT::OK;
       }
    }
    // -------------------------------------------------------------------------------------
@@ -143,11 +144,11 @@ class BTreePessimisticIterator : public BTreeSharedIterator
       leaf->copyFullKey(cur, buffer);
       return Slice(buffer, leaf->getFullKeyLen(cur));
    }
-   virtual bool isKeyEqualTo(Slice key) override { return key == key(); }
+   virtual bool isKeyEqualTo(Slice other) override { return other == key(); }
    virtual Slice keyPrefix() override { return Slice(leaf->getPrefix(), leaf->prefix_length); }
    virtual Slice keyWithoutPrefix() override { return Slice(leaf->getKey(cur), leaf->getKeyLen(cur)); }
-   virtual Slice value() override { return Slice(leaf->getPayload(cur), leaf->getPayloadLen(cur)); }
-};
+   virtual Slice value() override { return Slice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }
+};  // namespace btree
 // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage

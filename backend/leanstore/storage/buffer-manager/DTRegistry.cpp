@@ -18,6 +18,7 @@ void DTRegistry::iterateChildrenSwips(DTID dtid, BufferFrame& bf, std::function<
 ParentSwipHandler DTRegistry::findParent(DTID dtid, BufferFrame& bf)
 {
    auto dt_meta = dt_instances_ht[dtid];
+   auto name = std::get<2>(dt_meta);
    return dt_types_ht[std::get<0>(dt_meta)].find_parent(std::get<1>(dt_meta), bf);
 }
 // -------------------------------------------------------------------------------------
@@ -37,16 +38,15 @@ void DTRegistry::checkpoint(DTID dtid, BufferFrame& bf, u8* dest)
 // -------------------------------------------------------------------------------------
 void DTRegistry::registerDatastructureType(DTType type, DTRegistry::DTMeta dt_meta)
 {
+   std::unique_lock guard(mutex);
    dt_types_ht[type] = dt_meta;
 }
 // -------------------------------------------------------------------------------------
 DTID DTRegistry::registerDatastructureInstance(DTType type, void* root_object, string name)
 {
-   DTID new_instance_id = dt_types_ht[type].instances_counter++;
+   std::unique_lock guard(mutex);
+   DTID new_instance_id = instances_counter++;
    dt_instances_ht.insert({new_instance_id, {type, root_object, name}});
-   // -------------------------------------------------------------------------------------
-   // COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_misses_counter[new_instance_id] = 0; }
-   // -------------------------------------------------------------------------------------
    return new_instance_id;
 }
 // -------------------------------------------------------------------------------------

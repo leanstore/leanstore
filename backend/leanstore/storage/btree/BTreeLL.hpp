@@ -50,17 +50,18 @@ class BTreeLL : public BTreeInterface, public BTreeGeneric
    virtual OP_RESULT remove(u8* key, u16 key_length) override;
    virtual OP_RESULT scanAsc(u8* start_key,
                              u16 key_length,
-                             function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>,
+                             function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                              function<void()>) override;
    virtual OP_RESULT scanDesc(u8* start_key,
                               u16 key_length,
-                              function<bool(u8* key, u16 key_length, u8* value, u16 value_length)>,
+                              function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                               function<void()>) override;
    // -------------------------------------------------------------------------------------
    virtual u64 countPages() override;
    virtual u64 countEntries() override;
    virtual u64 getHeight() override;
    // -------------------------------------------------------------------------------------
+   static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
    static void todo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
    static DTRegistry::DTMeta getMeta();

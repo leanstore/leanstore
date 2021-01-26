@@ -367,15 +367,15 @@ OP_RESULT BTreeVW::remove(u8* key, u16 key_length)
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVW::scanAsc(u8* start_key,
                            u16 key_length,
-                           function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
+                           function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback,
                            function<void()> undo)
 {
    OP_RESULT res = OP_RESULT::OK;
    BTreeLL::scanAsc(
        start_key, key_length,
-       [&](u8* key, u16 key_length, u8* payload_ll, u16 payload_length_ll) {
-          auto& version = *reinterpret_cast<Version*>(payload_ll);
-          u8* payload = payload_ll + VW_PAYLOAD_OFFSET;
+       [&](const u8* key, u16 key_length, const u8* payload_ll, u16 payload_length_ll) {
+          auto& version = *reinterpret_cast<const Version*>(payload_ll);
+          const u8* payload = payload_ll + VW_PAYLOAD_OFFSET;
           u16 payload_length = payload_length_ll - VW_PAYLOAD_OFFSET;
           if (isVisibleForMe(version.worker_id, version.tts)) {
              if (version.is_removed) {
@@ -406,15 +406,15 @@ OP_RESULT BTreeVW::scanAsc(u8* start_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVW::scanDesc(u8* start_key,
                             u16 key_length,
-                            function<bool(u8* key, u16 key_length, u8* value, u16 value_length)> callback,
+                            function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback,
                             function<void()> undo)
 {
    OP_RESULT res = OP_RESULT::OK;
    BTreeLL::scanDesc(
        start_key, key_length,
-       [&](u8* key, u16 key_length, u8* payload_ll, u16 payload_length_ll) {
-          auto& version = *reinterpret_cast<Version*>(payload_ll);
-          u8* payload = payload_ll + VW_PAYLOAD_OFFSET;
+       [&](const u8* key, u16 key_length, const u8* payload_ll, u16 payload_length_ll) {
+          auto& version = *reinterpret_cast<const Version*>(payload_ll);
+          const u8* payload = payload_ll + VW_PAYLOAD_OFFSET;
           u16 payload_length = payload_length_ll - VW_PAYLOAD_OFFSET;
           if (isVisibleForMe(version.worker_id, version.tts)) {
              if (version.is_removed) {
