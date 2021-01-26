@@ -12,7 +12,7 @@ namespace btree
 {
 // -------------------------------------------------------------------------------------
 // Interface
-class BTreeIterator
+class BTreeIteratorInterface
 {
   public:
    // >= key
@@ -24,7 +24,7 @@ class BTreeIterator
    virtual OP_RESULT prev() = 0;
    virtual bool isKeyEqualTo(Slice key) = 0;
 };
-class BTreeOptimisticIterator : public BTreeIterator  // Can jump
+class BTreeOptimisticIteratorInterface : public BTreeIteratorInterface  // Can jump
 {
   public:
    virtual void key(std::function<void(Slice key)> cb) = 0;
@@ -33,7 +33,7 @@ class BTreeOptimisticIterator : public BTreeIterator  // Can jump
    virtual void value(std::function<void(Slice key)> cb) = 0;
 };
 // -------------------------------------------------------------------------------------
-class BTreeSharedIterator : public BTreeIterator
+class BTreePessimisticIteratorInterface : public BTreeIteratorInterface
 {
   public:
    virtual Slice key() = 0;
@@ -41,10 +41,12 @@ class BTreeSharedIterator : public BTreeIterator
    virtual Slice keyPrefix() = 0;
    virtual Slice value() = 0;
 };
+using BTreeSharedIteratorInterface = BTreePessimisticIteratorInterface;
 // -------------------------------------------------------------------------------------
-class BTreeExclusiveIterator : public BTreeSharedIterator
+class BTreeExclusiveIteratorInterface : public BTreePessimisticIteratorInterface
 {
   public:
+   virtual OP_RESULT seekToInsert(Slice key) = 0;
    virtual OP_RESULT remove(Slice key) = 0;
    virtual OP_RESULT insert(Slice key, Slice Value) = 0;
    virtual OP_RESULT split() = 0;

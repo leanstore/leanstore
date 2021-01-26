@@ -104,6 +104,7 @@ class HybridPageGuard
       return *this;
    }
    // -------------------------------------------------------------------------------------
+   // WAL
    inline void syncGSN()
    {
       if (FLAGS_wal) {
@@ -113,9 +114,24 @@ class HybridPageGuard
          }
       }
    }
+   template <typename WT>
+   cr::Worker::WALEntryHandler<WT> reserveWALEntry(u64 extra_size)
+   {
+      assert(FLAGS_wal);
+      assert(guard.state == GUARD_STATE::EXCLUSIVE);
+      const LID gsn = std::max<LID>(bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
+      bf->page.GSN = gsn;
+      cr::Worker::my().setCurrentGSN(gsn);
+      // -------------------------------------------------------------------------------------
+      const auto pid = bf->header.pid;
+      const auto dt_id = bf->page.dt_id;
+      auto handler = cr::Worker::my().reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, gsn, dt_id);
+      return handler;
+   }
+   inline void submitWALEntry(u64 total_size) { cr::Worker::my().submitDTEntry(total_size); }
    // -------------------------------------------------------------------------------------
    inline bool hasFacedContention() { return guard.faced_contention; }
-   inline void kill() { guard.unlock(); }
+   inline void unlock() { guard.unlock(); }
    inline void recheck() { guard.recheck(); }
    inline void recheck_done()
    {
@@ -173,18 +189,10 @@ class ExclusivePageGuard
    template <typename WT>
    cr::Worker::WALEntryHandler<WT> reserveWALEntry(u64 extra_size)
    {
-      assert(FLAGS_wal);
-      const LID gsn = std::max<LID>(ref_guard.bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
-      ref_guard.bf->page.GSN = gsn;
-      cr::Worker::my().setCurrentGSN(gsn);
-      // -------------------------------------------------------------------------------------
-      const auto pid = ref_guard.bf->header.pid;
-      const auto dt_id = ref_guard.bf->page.dt_id;
-      auto handler = cr::Worker::my().reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, gsn, dt_id);
-      return handler;
+      return ref_guard.template reserveWALEntry<WT>(extra_size);
    }
    // -------------------------------------------------------------------------------------
-   inline void submitWALEntry(u64 total_size) { cr::Worker::my().submitDTEntry(total_size); }
+   inline void submitWALEntry(u64 total_size) { ref_guard.submitWALEntry(total_size); }
    // -------------------------------------------------------------------------------------
    template <typename... Args>
    void init(Args&&... args)
@@ -199,7 +207,7 @@ class ExclusivePageGuard
       if (!ref_guard.keep_alive && ref_guard.guard.state == GUARD_STATE::EXCLUSIVE) {
          ref_guard.reclaim();
       } else {
-         ref_guard.guard.unlock();
+         ref_guard.unlock();
       }
    }
    // -------------------------------------------------------------------------------------
@@ -217,9 +225,9 @@ class SharedPageGuard
   public:
    HybridPageGuard<T>& ref_guard;
    // I: Upgrade
-   SharedPageGuard(HybridPageGuard<T>&& h_guard) : ref_guard(h_guard) { ref_guard.guard.toShared(); }
+   SharedPageGuard(HybridPageGuard<T>&& h_guard) : ref_guard(h_guard) { ref_guard.toShared(); }
    // -------------------------------------------------------------------------------------
-   ~SharedPageGuard() { ref_guard.guard.unlock(); }
+   ~SharedPageGuard() { ref_guard.unlock(); }
    // -------------------------------------------------------------------------------------
    inline T& ref() { return *reinterpret_cast<T*>(ref_guard.bf->page.dt); }
    inline T* ptr() { return reinterpret_cast<T*>(ref_guard.bf->page.dt); }

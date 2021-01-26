@@ -165,8 +165,8 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
             exec();
          }
       } else {
-         p_guard.kill();
-         c_guard.kill();
+         p_guard.unlock();
+         c_guard.unlock();
          trySplit(*p_guard.bf);  // Must split parent head to make space for separator
       }
    }
@@ -179,8 +179,8 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
    int pos = parent_handler.pos;
    if (isMetaNode(p_guard) || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
-      p_guard.kill();
-      c_guard.kill();
+      p_guard.unlock();
+      c_guard.unlock();
       return false;
    }
    // -------------------------------------------------------------------------------------
@@ -199,7 +199,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       }
       auto l_guard = HybridPageGuard(p_guard, l_swip);
       if (l_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
-         l_guard.kill();
+         l_guard.unlock();
          return false;
       }
       auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
@@ -225,7 +225,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       }
       auto r_guard = HybridPageGuard(p_guard, r_swip);
       if (r_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
-         r_guard.kill();
+         r_guard.unlock();
          return false;
       }
       auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
@@ -450,8 +450,8 @@ bool BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Op
       XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
       o_guard.guard = std::move(c_guard.guard);
       parent_handler.parent_guard = std::move(p_guard.guard);
-      p_guard.kill();
-      c_guard.kill();
+      p_guard.unlock();
+      c_guard.unlock();
       return (return_code != XMergeReturnCode::NOTHING);
    }
    return false;
@@ -525,7 +525,7 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
       c_guard = HybridPageGuard(p_guard, c_swip->cast<BTreeNode>());
       level++;
    }
-   p_guard.kill();
+   p_guard.unlock();
    const bool found = c_swip->bfPtrAsHot() == &to_find;
    c_guard.recheck_done();
    if (!found) {

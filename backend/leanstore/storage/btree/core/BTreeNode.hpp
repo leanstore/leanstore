@@ -165,7 +165,7 @@ struct BTreeNode : public BTreeNodeHeader {
    }
    void makeHint();
    // -------------------------------------------------------------------------------------
-   s32 sanityCheck(u8* key, u16 keyLength);
+   s32 sanityCheck(const u8* key, u16 keyLength);
    // -------------------------------------------------------------------------------------
    void searchHint(u32 keyHead, unsigned& pos, unsigned& pos2)
    {
@@ -250,11 +250,11 @@ struct BTreeNode : public BTreeNodeHeader {
    void updateHint(u16 slotId);
    // -------------------------------------------------------------------------------------
    s16 insertDoNotCopyPayload(u8* key, u16 key_len, u16 payload_len);
-   void insert(u8* key, u16 key_len, u8* payload, u16 payload_len);
+   void insert(const u8* key, u16 key_len, const u8* payload, u16 payload_len);
    static u16 spaceNeeded(u16 keyLength, u16 payload_len, u16 prefixLength);
    u16 spaceNeeded(u16 key_length, u16 payload_len);
    bool canInsert(u16 key_length, u16 payload_len);
-   bool prepareInsert(u8* key, u16 keyLength, u16 payload_len);
+   bool prepareInsert(const u8* key, u16 keyLength, u16 payload_len);
    // -------------------------------------------------------------------------------------
    bool update(u8* key, u16 keyLength, u16 payload_length, u8* payload);
    // -------------------------------------------------------------------------------------
@@ -266,7 +266,7 @@ struct BTreeNode : public BTreeNodeHeader {
    // -------------------------------------------------------------------------------------
    bool merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
    // store key/value pair at slotId
-   void storeKeyValue(u16 slotId, u8* key, u16 key_len, u8* payload, u16 payload_len);
+   void storeKeyValue(u16 slotId, const u8* key, u16 key_len, const u8* payload, u16 payload_len);
    // ATTENTION: dstSlot then srcSlot !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
    void copyKeyValueRange(BTreeNode* dst, u16 dstSlot, u16 srcSlot, u16 count);
    void copyKeyValue(u16 srcSlot, BTreeNode* dst, u16 dstSlot);

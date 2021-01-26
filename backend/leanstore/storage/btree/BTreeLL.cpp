@@ -62,7 +62,7 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
 {
    jumpmuTry()
    {
-      BTreePessimisticIterator<LATCH_FALLBACK_MODE::SHARED> iterator(*dynamic_cast<BTreeGeneric*>(this));
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
       auto ret = iterator.seek(Slice(start_key, key_length));
       if (ret != OP_RESULT::OK) {
          jumpmu_return ret;
@@ -86,7 +86,7 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
 {
    jumpmuTry()
    {
-      BTreePessimisticIterator<LATCH_FALLBACK_MODE::SHARED> iterator(*dynamic_cast<BTreeGeneric*>(this));
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
       auto ret = iterator.seekForPrev(Slice(start_key, key_length));
       if (ret != OP_RESULT::OK) {
          jumpmu_return ret;
@@ -109,44 +109,23 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
 OP_RESULT BTreeLL::insert(u8* key, u16 key_length, u8* value, u16 value_length)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   volatile u32 mask = 1;
-   volatile u32 local_restarts_counter = 0;
-   while (true) {
-      jumpmuTry()
-      {
-         HybridPageGuard<BTreeNode> c_guard;
-         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
-         // -------------------------------------------------------------------------------------
-         auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-         if (c_x_guard->prepareInsert(key, key_length, value_length)) {
-            c_x_guard->insert(key, key_length, value, value_length);
-            if (FLAGS_wal) {
-               auto wal_entry = c_x_guard.reserveWALEntry<WALInsert>(key_length + value_length);
-               wal_entry->type = WAL_LOG_TYPE::WALInsert;
-               wal_entry->key_length = key_length;
-               wal_entry->value_length = value_length;
-               std::memcpy(wal_entry->payload, key, key_length);
-               std::memcpy(wal_entry->payload + key_length, value, value_length);
-               wal_entry.submit();
-            }
-            jumpmu_return OP_RESULT::OK;
-         }
-         // -------------------------------------------------------------------------------------
-         // Release lock
-         c_guard = std::move(c_x_guard);
-         c_guard.kill();
-         // -------------------------------------------------------------------------------------
-         trySplit(*c_guard.bf);
-         // -------------------------------------------------------------------------------------
-         jumpmu_continue;
+   jumpmuTry()
+   {
+      BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
+      auto ret = iterator.insertKV(Slice(key, key_length), Slice(value, value_length));
+      ensure(ret == OP_RESULT::OK);
+      if (FLAGS_wal) {
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALInsert>(key_length + value_length);
+         wal_entry->type = WAL_LOG_TYPE::WALInsert;
+         wal_entry->key_length = key_length;
+         wal_entry->value_length = value_length;
+         std::memcpy(wal_entry->payload, key, key_length);
+         std::memcpy(wal_entry->payload + key_length, value, value_length);
+         wal_entry.submit();
       }
-      jumpmuCatch()
-      {
-         BACKOFF_STRATEGIES()
-         WorkerCounters::myCounters().dt_restarts_structural_change[dt_id]++;
-         local_restarts_counter++;
-      }
+      jumpmu_return OP_RESULT::OK;
    }
+   jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::updateSameSize(u8* key,
@@ -155,80 +134,38 @@ OP_RESULT BTreeLL::updateSameSize(u8* key,
                                   WALUpdateGenerator wal_update_generator)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   volatile u32 mask = 1;
-   while (true) {
-      jumpmuTry()
-      {
-         // -------------------------------------------------------------------------------------
-         HybridPageGuard<BTreeNode> c_guard;
-         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
-         u32 local_restarts_counter = c_guard.hasFacedContention();  // current implementation uses the mutex
-         auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-         s16 pos = c_x_guard->lowerBound<true>(key, key_length);
-         assert(pos != -1);
-         u16 payload_length = c_x_guard->getPayloadLength(pos);
-         // -------------------------------------------------------------------------------------
-         if (FLAGS_wal) {
-            // if it is a secondary index, then we can not use updateSameSize
-            assert(wal_update_generator.entry_size > 0);
-            // -------------------------------------------------------------------------------------
-            auto wal_entry = c_x_guard.reserveWALEntry<WALUpdate>(key_length + wal_update_generator.entry_size);
-            wal_entry->type = WAL_LOG_TYPE::WALUpdate;
-            wal_entry->key_length = key_length;
-            std::memcpy(wal_entry->payload, key, key_length);
-            wal_update_generator.before(c_x_guard->getPayload(pos), wal_entry->payload + key_length);
-            // The actual update by the client
-            callback(c_x_guard->getPayload(pos), payload_length);
-            wal_update_generator.after(c_x_guard->getPayload(pos), wal_entry->payload + key_length);
-            wal_entry.submit();
-         } else {
-            callback(c_x_guard->getPayload(pos), payload_length);
-         }
-         // -------------------------------------------------------------------------------------
-         if (FLAGS_contention_split && local_restarts_counter > 0) {
-            const u64 random_number = utils::RandomGenerator::getRandU64();
-            if ((random_number & ((1ull << FLAGS_cm_update_on) - 1)) == 0) {
-               s64 last_modified_pos = c_x_guard.bf()->header.contention_tracker.last_modified_pos;
-               c_x_guard.bf()->header.contention_tracker.last_modified_pos = pos;
-               c_x_guard.bf()->header.contention_tracker.restarts_counter += local_restarts_counter;
-               c_x_guard.bf()->header.contention_tracker.access_counter++;
-               if ((random_number & ((1ull << FLAGS_cm_period) - 1)) == 0) {
-                  const u64 current_restarts_counter = c_x_guard.bf()->header.contention_tracker.restarts_counter;
-                  const u64 current_access_counter = c_x_guard.bf()->header.contention_tracker.access_counter;
-                  const u64 normalized_restarts = 100.0 * current_restarts_counter / current_access_counter;
-                  c_x_guard.bf()->header.contention_tracker.restarts_counter = 0;
-                  c_x_guard.bf()->header.contention_tracker.access_counter = 0;
-                  // -------------------------------------------------------------------------------------
-                  if (last_modified_pos != pos && normalized_restarts >= FLAGS_cm_slowpath_threshold && c_x_guard->count > 2) {
-                     s16 split_pos = std::min<s16>(last_modified_pos, pos);
-                     c_guard = std::move(c_x_guard);
-                     c_guard.kill();
-                     jumpmuTry()
-                     {
-                        trySplit(*c_guard.bf, split_pos);
-                        WorkerCounters::myCounters().contention_split_succ_counter[dt_id]++;
-                     }
-                     jumpmuCatch() { WorkerCounters::myCounters().contention_split_fail_counter[dt_id]++; }
-                  }
-               }
-            }
-         } else {
-            c_guard = std::move(c_x_guard);
-         }
-         jumpmu_return OP_RESULT::OK;
+   jumpmuTry()
+   {
+      BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
+      auto ret = iterator.seekExact(Slice(key, key_length));
+      if (ret != OP_RESULT::OK) {
+         jumpmu_return ret;
       }
-      jumpmuCatch()
-      {
-         BACKOFF_STRATEGIES()
-         WorkerCounters::myCounters().dt_restarts_update_same_size[dt_id]++;
+      if (FLAGS_wal) {
+         // if it is a secondary index, then we can not use updateSameSize
+         assert(wal_update_generator.entry_size > 0);
+         // -------------------------------------------------------------------------------------
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdate>(key_length + wal_update_generator.entry_size);
+         wal_entry->type = WAL_LOG_TYPE::WALUpdate;
+         wal_entry->key_length = key_length;
+         std::memcpy(wal_entry->payload, key, key_length);
+         wal_update_generator.before(iterator.valuePtr(), wal_entry->payload + key_length);
+         // The actual update by the client
+         callback(iterator.valuePtr(), iterator.valueLength());
+         wal_update_generator.after(iterator.valuePtr(), wal_entry->payload + key_length);
+         wal_entry.submit();
+      } else {
+         callback(iterator.valuePtr(), iterator.valueLength());
       }
+      iterator.contentionSplit();
+      jumpmu_return OP_RESULT::OK;
    }
+   jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::remove(u8* key, u16 key_length)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   volatile u32 mask = 1;
    while (true) {
       jumpmuTry()
       {
@@ -249,7 +186,7 @@ OP_RESULT BTreeLL::remove(u8* key, u16 key_length)
          }
          if (c_x_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
             c_guard = std::move(c_x_guard);
-            c_guard.kill();
+            c_guard.unlock();
             jumpmuTry() { tryMerge(*c_guard.bf); }
             jumpmuCatch()
             {
@@ -258,11 +195,7 @@ OP_RESULT BTreeLL::remove(u8* key, u16 key_length)
          }
          jumpmu_return OP_RESULT::OK;
       }
-      jumpmuCatch()
-      {
-         BACKOFF_STRATEGIES()
-         WorkerCounters::myCounters().dt_restarts_structural_change[dt_id]++;
-      }
+      jumpmuCatch() {}
    }
 }
 // -------------------------------------------------------------------------------------
@@ -301,8 +234,9 @@ struct DTRegistry::DTMeta BTreeLL::getMeta()
 // -------------------------------------------------------------------------------------
 struct ParentSwipHandler BTreeLL::findParent(void* btree_object, BufferFrame& to_find)
 {
-   return BTreeGeneric::findParent(*dynamic_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
-}  // -------------------------------------------------------------------------------------
+   return BTreeGeneric::findParent(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
+}
+// -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage
 }  // namespace leanstore

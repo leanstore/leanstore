@@ -92,7 +92,7 @@ OP_RESULT BTreeVW::insert(u8* key, u16 key_length, u8* value_orig, u16 value_len
          // -------------------------------------------------------------------------------------
          // Release lock
          leaf_guard = std::move(leaf_ex_guard);
-         leaf_guard.kill();
+         leaf_guard.unlock();
          // -------------------------------------------------------------------------------------
          trySplit(*leaf_guard.bf);
          // -------------------------------------------------------------------------------------
@@ -133,7 +133,7 @@ OP_RESULT BTreeVW::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
                   u8 reconstructed_payload[PAGE_SIZE];
                   std::memcpy(reconstructed_payload, payload, payload_length);
                   leaf.recheck_done();
-                  leaf.kill();
+                  leaf.unlock();
                   const bool exists =
                       reconstructTuple(reconstructed_payload, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
                   if (exists) {
@@ -281,7 +281,7 @@ OP_RESULT BTreeVW::updateSameSize(u8* key,
                            if (last_modified_pos != pos && normalized_restarts >= FLAGS_cm_slowpath_threshold && leaf_ex_guard->count > 2) {
                               s16 split_pos = std::min<s16>(last_modified_pos, pos);
                               leaf_guard = std::move(leaf_ex_guard);
-                              leaf_guard.kill();
+                              leaf_guard.unlock();
                               jumpmuTry()
                               {
                                  trySplit(*leaf_guard.bf, split_pos);
@@ -556,7 +556,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                         if (last_modified_pos != pos && normalized_restarts >= FLAGS_cm_slowpath_threshold && leaf_ex_guard->count > 2) {
                            s16 split_pos = std::min<s16>(last_modified_pos, pos);
                            leaf_guard = std::move(leaf_ex_guard);
-                           leaf_guard.kill();
+                           leaf_guard.unlock();
                            jumpmuTry()
                            {
                               btree.trySplit(*leaf_guard.bf, split_pos);

@@ -66,6 +66,7 @@ class BTreeGeneric
    template <LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED>
    inline void findLeafCanJump(HybridPageGuard<BTreeNode>& target_guard, const u8* key, const u16 key_length)
    {
+      target_guard.unlock();
       HybridPageGuard<BTreeNode> p_guard(meta_node_bf);
       target_guard = HybridPageGuard<BTreeNode>(p_guard, p_guard->upper);
       // -------------------------------------------------------------------------------------
@@ -82,7 +83,7 @@ class BTreeGeneric
          level++;
       }
       // -------------------------------------------------------------------------------------
-      p_guard.kill();
+      p_guard.unlock();
    }
    // -------------------------------------------------------------------------------------
    template <LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED>

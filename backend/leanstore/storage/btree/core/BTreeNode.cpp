@@ -51,7 +51,7 @@ bool BTreeNode::canInsert(u16 key_len, u16 payload_len)
       return true;
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::prepareInsert(u8* key, u16 key_len, u16 payload_len)
+bool BTreeNode::prepareInsert(const u8* key, u16 key_len, u16 payload_len)
 {
    DEBUG_BLOCK()
    {
@@ -88,7 +88,7 @@ s16 BTreeNode::insertDoNotCopyPayload(u8* key, u16 key_len, u16 payload_length)
    return slotId;
 }
 // -------------------------------------------------------------------------------------
-void BTreeNode::insert(u8* key, u16 key_len, u8* payload, u16 payload_length)
+void BTreeNode::insert(const u8* key, u16 key_len, const u8* payload, u16 payload_length)
 {
    DEBUG_BLOCK()
    {
@@ -195,7 +195,7 @@ bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, Exclusi
    }
 }
 // -------------------------------------------------------------------------------------
-void BTreeNode::storeKeyValue(u16 slotId, u8* key, u16 key_len, u8* payload, const u16 payload_len)
+void BTreeNode::storeKeyValue(u16 slotId, const u8* key, u16 key_len, const u8* payload, const u16 payload_len)
 {
    // Head
    key += prefix_length;
@@ -330,7 +330,7 @@ void BTreeNode::getSep(u8* sepKeyOut, BTreeNodeHeader::SeparatorInfo info)
    }
 }
 // -------------------------------------------------------------------------------------
-s32 BTreeNode::sanityCheck(u8* key, u16 keyLength)
+s32 BTreeNode::sanityCheck(const u8* key, u16 keyLength)
 {
    // Lower Bound exclusive, upper bound inclusive
    if (lower_fence.offset) {
