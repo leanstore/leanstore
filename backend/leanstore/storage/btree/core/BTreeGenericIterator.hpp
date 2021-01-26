@@ -138,14 +138,14 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       }
    }
    // -------------------------------------------------------------------------------------
-   virtual Slice key()override
+   virtual Slice key() override
    {
       leaf->copyFullKey(cur, buffer);
       return Slice(buffer, leaf->getFullKeyLen(cur));
    }
    virtual bool isKeyEqualTo(Slice other) override { return other == key(); }
    virtual Slice keyPrefix() override { return Slice(leaf->getPrefix(), leaf->prefix_length); }
-   virtual Slice keyWithoutPrefix() override{ return Slice(leaf->getKey(cur), leaf->getKeyLen(cur)); }
+   virtual Slice keyWithoutPrefix() override { return Slice(leaf->getKey(cur), leaf->getKeyLen(cur)); }
    virtual u16 valueLength() { return leaf->getPayloadLength(cur); }
    virtual Slice value() override { return Slice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }
 };
@@ -267,6 +267,17 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
          return OP_RESULT::OK;
       } else {
          return ret;
+      }
+   }
+   virtual void mergeIfNeeded()
+   {
+      if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+         leaf.unlock();
+         jumpmuTry() { btree.tryMerge(*leaf.bf); }
+         jumpmuCatch()
+         {
+            // nothing, it is fine not to merge
+         }
       }
    }
 };

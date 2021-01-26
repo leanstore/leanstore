@@ -303,7 +303,7 @@ BTreeNode::SeparatorInfo BTreeNode::findSep()
 
    u16 lower = count / 2 - count / 16;
    u16 upper = count / 2 + count / 16;
-   assert(upper < count);
+   // does not work under optimistic mode assert(upper < count);
    u16 maxPos = count / 2;
    s16 maxPrefix = commonPrefix(maxPos, 0);
    for (u32 i = lower; i < upper; i++) {

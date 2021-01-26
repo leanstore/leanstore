@@ -163,40 +163,32 @@ OP_RESULT BTreeLL::updateSameSize(u8* key,
    jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeLL::remove(u8* key, u16 key_length)
+OP_RESULT BTreeLL::remove(u8* key_ptr, u16 key_length)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   while (true) {
-      jumpmuTry()
-      {
-         HybridPageGuard<BTreeNode> c_guard;
-         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
-         auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-         if (c_x_guard->remove(key, key_length)) {
-            if (FLAGS_wal) {
-               auto wal_entry = c_x_guard.reserveWALEntry<WALRemove>(key_length);
-               wal_entry->type = WAL_LOG_TYPE::WALRemove;
-               wal_entry->key_length = key_length;
-               // TODO: copy value
-               std::memcpy(wal_entry->payload, key, key_length);
-               wal_entry.submit();
-            }
-         } else {
-            jumpmu_return OP_RESULT::NOT_FOUND;
-         }
-         if (c_x_guard->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-            c_guard = std::move(c_x_guard);
-            c_guard.unlock();
-            jumpmuTry() { tryMerge(*c_guard.bf); }
-            jumpmuCatch()
-            {
-               // nothing, it is fine not to merge
-            }
-         }
-         jumpmu_return OP_RESULT::OK;
+   Slice key(key_ptr, key_length);
+   jumpmuTry()
+   {
+      BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
+      auto ret = iterator.seekExact(key);
+      if (ret != OP_RESULT::OK) {
+         jumpmu_return ret;
       }
-      jumpmuCatch() {}
+      Slice value = iterator.value();
+      if (FLAGS_wal) {
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALRemove>(key_length);
+         wal_entry->type = WAL_LOG_TYPE::WALRemove;
+         wal_entry->key_length = key_length;
+         std::memcpy(wal_entry->payload, key.data(), key.length());
+         std::memcpy(wal_entry->payload + key_length, value.data(), value.length());
+         wal_entry.submit();
+      }
+      ret = iterator.removeCurrent();
+      ensure(ret == OP_RESULT::OK);
+      iterator.mergeIfNeeded();
+      jumpmu_return OP_RESULT::OK;
    }
+   jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
 u64 BTreeLL::countEntries()
