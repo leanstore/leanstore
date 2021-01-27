@@ -60,10 +60,11 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
                            std::function<bool(const u8* key, u16 key_length, const u8* payload, u16 payload_length)> callback,
                            function<void()>)
 {
+   Slice key(start_key, key_length);
    jumpmuTry()
    {
       BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
-      auto ret = iterator.seek(Slice(start_key, key_length));
+      auto ret = iterator.seek(key);
       if (ret != OP_RESULT::OK) {
          jumpmu_return ret;
       }
@@ -84,10 +85,11 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
+   Slice key(start_key, key_length);
    jumpmuTry()
    {
       BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
-      auto ret = iterator.seekForPrev(Slice(start_key, key_length));
+      auto ret = iterator.seekForPrev(key);
       if (ret != OP_RESULT::OK) {
          jumpmu_return ret;
       }
@@ -106,21 +108,23 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
    jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeLL::insert(u8* key, u16 key_length, u8* value, u16 value_length)
+OP_RESULT BTreeLL::insert(u8* key_ptr, u16 key_length, u8* value_ptr, u16 value_length)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   Slice key(key_ptr, key_length);
+   Slice value(value_ptr, value_length);
    jumpmuTry()
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
-      auto ret = iterator.insertKV(Slice(key, key_length), Slice(value, value_length));
+      auto ret = iterator.insertKV(key, value);
       ensure(ret == OP_RESULT::OK);
       if (FLAGS_wal) {
          auto wal_entry = iterator.leaf.reserveWALEntry<WALInsert>(key_length + value_length);
          wal_entry->type = WAL_LOG_TYPE::WALInsert;
          wal_entry->key_length = key_length;
          wal_entry->value_length = value_length;
-         std::memcpy(wal_entry->payload, key, key_length);
-         std::memcpy(wal_entry->payload + key_length, value, value_length);
+         std::memcpy(wal_entry->payload, key.data(), key.length());
+         std::memcpy(wal_entry->payload + key_length, value.data(), value.length());
          wal_entry.submit();
       }
       jumpmu_return OP_RESULT::OK;
@@ -128,16 +132,17 @@ OP_RESULT BTreeLL::insert(u8* key, u16 key_length, u8* value, u16 value_length)
    jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeLL::updateSameSize(u8* key,
+OP_RESULT BTreeLL::updateSameSize(u8* key_ptr,
                                   u16 key_length,
                                   function<void(u8* payload, u16 payload_size)> callback,
                                   WALUpdateGenerator wal_update_generator)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   Slice key(key_ptr, key_length);
    jumpmuTry()
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
-      auto ret = iterator.seekExact(Slice(key, key_length));
+      auto ret = iterator.seekExact(key);
       if (ret != OP_RESULT::OK) {
          jumpmu_return ret;
       }
@@ -148,7 +153,7 @@ OP_RESULT BTreeLL::updateSameSize(u8* key,
          auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdate>(key_length + wal_update_generator.entry_size);
          wal_entry->type = WAL_LOG_TYPE::WALUpdate;
          wal_entry->key_length = key_length;
-         std::memcpy(wal_entry->payload, key, key_length);
+         std::memcpy(wal_entry->payload, key.data(), key.length());
          wal_update_generator.before(iterator.valuePtr(), wal_entry->payload + key_length);
          // The actual update by the client
          callback(iterator.valuePtr(), iterator.valueLength());

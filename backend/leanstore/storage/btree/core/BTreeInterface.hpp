@@ -55,4 +55,13 @@ class BTreeInterface
 // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage
+using Slice = std::basic_string_view<u8>;
+using StringU = std::basic_string<u8>;
+struct MutableSlice {
+   u8* ptr;
+   u64 len;
+   MutableSlice(u8* ptr, u64 len) : ptr(ptr), len(len) {}
+   u64 length() { return len; }
+   u8* data() { return ptr; }
+};
 }  // namespace leanstore

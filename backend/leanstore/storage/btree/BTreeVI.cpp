@@ -1,5 +1,6 @@
 #include "BTreeVI.hpp"
 
+#include "core/BTreeGenericIterator.hpp"
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
@@ -20,149 +21,139 @@ namespace storage
 namespace btree
 {
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
+OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
 {
-   bool found = false, called = false;
-   s16 payload_length = -1;
-   u16 counter = 0;
-   std::unique_ptr<u8[]> payload(nullptr);
-   BTreeLL::scanAsc(
-       key, key_length,
-       [&](const u8* s_key, u16 s_key_length, const u8* s_payload, u16 s_payload_length) {
-          if (std::memcmp(s_key, key, key_length) != 0) {
-             found = false;
-             called = false;
-             return false;
-          }
-          ensure(s_key_length > 8);
-          const u64 version = *reinterpret_cast<const u64*>(s_key + s_key_length - 8);
-          if (counter++ == 0) {
-             ensure(version == 0);
-          }
-          auto& version_meta = *reinterpret_cast<const PrimaryVersion*>(s_payload + s_payload_length - sizeof(PrimaryVersion));
-          if (version == 0) {
-             if (isVisibleForMe(version_meta.worker_id, version_meta.tts)) {
-                payload_callback(s_payload, s_payload_length - sizeof(PrimaryVersion));
-                called = true;
-                found = true;
-             } else {
-                payload_length = s_payload_length - sizeof(PrimaryVersion);
-                payload = std::make_unique<u8[]>(payload_length);
-                std::memcpy(payload.get(), s_payload, payload_length);
-             }
-          } else {
-             ensure(counter > 0);
-             // Apply delta
-             u16 delta_ptr = 0;
-             while (delta_ptr < payload_length) {
-                const u16 offset = *reinterpret_cast<const u16*>(s_payload + delta_ptr);
-                delta_ptr += 2;
-                const u16 size = *reinterpret_cast<const u16*>(s_payload + delta_ptr);
-                delta_ptr += 2;
-                std::memcpy(payload.get() + offset, s_payload + delta_ptr, size);
-                delta_ptr += size;
-             }
-             if (isVisibleForMe(version_meta.worker_id, version_meta.tts)) {
-                found = true;
-                called = true;
-                return false;
-             }
-          }
-          return true;
-       },
-       [&]() {});
-   if (found && called) {
-      return OP_RESULT::OK;
-   } else if (found && !called) {
-      payload_callback(payload.get(), payload_length);
-      return OP_RESULT::OK;
-   } else {
-      return OP_RESULT::NOT_FOUND;
-   }
-}
-// -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::updateSameSize(u8* k, u16 kl, function<void(u8* value, u16 value_size)> callback, WALUpdateGenerator wal_update_generator)
-{
-   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   u8 key[kl + sizeof(u64)];
-   u16 key_length = kl + sizeof(u64);
-   std::memcpy(key, k, kl);
-   *reinterpret_cast<u64*>(key + kl) = 0;
-   // -------------------------------------------------------------------------------------
-   while (true) {
-      jumpmuTry()
-      {
-         HybridPageGuard<BTreeNode> leaf;
-         findLeafCanJump(leaf, key, key_length);
-         // -------------------------------------------------------------------------------------
-         auto leaf_ex = ExclusivePageGuard(std::move(leaf));
-         const s32 head_pos = leaf->lowerBound<true>(key, key_length);
-         if (head_pos != -1) {  // TODO:
-            ensure(false);
-         } else {
-            auto& head_meta =
-                *reinterpret_cast<PrimaryVersion*>(leaf_ex->getPayload(head_pos) + leaf_ex->getPayloadLength(head_pos) - sizeof(PrimaryVersion));
-            const u16 secondary_payload_length = wal_update_generator.entry_size + sizeof(SecondaryVersion);
-            *reinterpret_cast<u64*>(key + kl) = head_meta.next_version--;
-            if (leaf_ex->prepareInsert(key, key_length, secondary_payload_length)) {
-               s16 delta_pos = leaf_ex->insertDoNotCopyPayload(key, key_length, secondary_payload_length);
-               u8* delta_payload = leaf_ex->getPayload(delta_pos);
-               wal_update_generator.after(leaf_ex->getPayload(head_pos), delta_payload);
-               new (delta_payload + wal_update_generator.entry_size) SecondaryVersion(myWorkerID(), myTTS(), false, true);
+   u16 key_length = o_key_length + sizeof(SN);
+   u8 key_buffer[key_length];
+   std::memcpy(key_buffer, o_key, o_key_length);
+   Slice key(key_buffer, key_length);
+   StringU value;
+   jumpmuTry()
+   {
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
+      auto ret = iterator.seekExact(key);
+      if (ret != OP_RESULT::OK) {
+         jumpmu_return OP_RESULT::NOT_FOUND;
+      }
+      Slice key = iterator.key();
+      Slice payload = iterator.value();
+      SN sn = swap(*reinterpret_cast<const SN*>(key.data() + key.length() - sizeof(SN)));
+      while (true) {
+         if (sn == 0) {
+            const auto& version_meta = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
+            if (isVisibleForMe(version_meta.worker_id, version_meta.tts)) {
+               payload_callback(payload.data(), payload.length() - sizeof(PrimaryVersion));
                jumpmu_return OP_RESULT::OK;
             } else {
-               // -------------------------------------------------------------------------------------
-               // Release lock
-               leaf = std::move(leaf_ex);
-               leaf.unlock();
-               // -------------------------------------------------------------------------------------
-               trySplit(*leaf.bf);
-               // -------------------------------------------------------------------------------------
-               jumpmu_continue;
+               value = StringU(payload.data(), payload.length() - sizeof(PrimaryVersion));
+            }
+         } else {
+            const auto& version_meta = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
+            u16 delta_offset = 0;
+            const u16 delta_length = payload.length() - sizeof(SecondaryVersion);
+            while (delta_offset < delta_length) {
+               const u16 offset = *reinterpret_cast<const u16*>(payload.data() + delta_offset);
+               delta_offset += 2;
+               const u16 size = *reinterpret_cast<const u16*>(payload.data() + delta_offset);
+               delta_offset += 2;
+               std::memcpy(value.data() + offset, value.data() + delta_offset, size);
+               delta_offset += size;
+            }
+            if (isVisibleForMe(version_meta.worker_id, version_meta.tts)) {
+               payload_callback(value.data(), value.length());
+               jumpmu_return OP_RESULT::OK;
             }
          }
+         ret = iterator.next();
+         if (ret == OP_RESULT::OK) {
+            key = iterator.key();
+            payload = iterator.value();
+            sn = swap(*reinterpret_cast<const SN*>(key.data() + key.length() - sizeof(SN)));
+            if (sn == 0) {
+               jumpmu_return OP_RESULT::NOT_FOUND;
+            }
+         } else {
+            jumpmu_return OP_RESULT::NOT_FOUND;
+         }
       }
-      jumpmuCatch() {}
    }
+   jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::insert(u8* k, u16 kl, u8* value, u16 value_length)
+OP_RESULT BTreeVI::updateSameSize(u8* o_key,
+                                  u16 o_key_length,
+                                  function<void(u8* value, u16 value_size)> callback,
+                                  WALUpdateGenerator wal_update_generator)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   u8 key[kl + sizeof(u64)];
-   u16 key_length = kl + sizeof(u64);
-   std::memcpy(key, k, kl);
-   *reinterpret_cast<u64*>(key + kl) = 0;
+   const u16 key_length = o_key_length + sizeof(SN);
+   u8 key_buffer[key_length];
+   std::memcpy(key_buffer, o_key, key_length);
+   SN& sn = *reinterpret_cast<SN*>(key_buffer + key_length - sizeof(SN));
+   sn = 0;
+   Slice key(key_buffer, key_length);
    // -------------------------------------------------------------------------------------
    while (true) {
       jumpmuTry()
       {
-         HybridPageGuard<BTreeNode> leaf;
-         findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key, key_length);
-         // -------------------------------------------------------------------------------------
-         auto leaf_ex = ExclusivePageGuard(std::move(leaf));
-         const s32 pos = leaf->lowerBound<true>(key, key_length);
-         if (pos != -1) {  // TODO:
-            ensure(false);
-         } else {
-            const u16 payload_length = value_length + sizeof(PrimaryVersion);
-            if (leaf_ex->prepareInsert(key, key_length, payload_length)) {
-               s16 pos = leaf_ex->insertDoNotCopyPayload(key, key_length, payload_length);
-               std::memcpy(leaf_ex->getPayload(pos), value, value_length);
-               new (leaf_ex->getPayload(pos) + value_length) PrimaryVersion(myWorkerID(), myTTS(), std::numeric_limits<u64>::max(), false, true);
-               jumpmu_return OP_RESULT::OK;
-            }
-            // -------------------------------------------------------------------------------------
-            // Release lock
-            leaf = std::move(leaf_ex);
-            leaf.unlock();
-            // -------------------------------------------------------------------------------------
-            trySplit(*leaf.bf);
-            // -------------------------------------------------------------------------------------
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
+         auto ret = iterator.seekExact(key);
+         if (ret != OP_RESULT::OK) {
+            jumpmu_return ret;
+         }
+         auto primary_payload = iterator.mutableValue();
+         auto& version_meta = *reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
+         if (!isVisibleForMe(version_meta.worker_id, version_meta.tts)) {
+            jumpmu_return OP_RESULT::ABORT_TX;
+         }
+         const u16 secondary_payload_length = wal_update_generator.entry_size + sizeof(SecondaryVersion);
+         if (iterator.canInsertInCurrentNode(key, secondary_payload_length) == OP_RESULT::NOT_FOUND) {
+            iterator.splitForKey(key);
             jumpmu_continue;
          }
+         sn = version_meta.next_version--;
+         u8 secondary_payload[secondary_payload_length];
+         new (secondary_payload) SecondaryVersion(myWorkerID(), myTTS(), false, true);
+         wal_update_generator.before(primary_payload.data(), secondary_payload);
+         iterator.insertInCurrentNode(key, Slice(secondary_payload, secondary_payload_length));
+         callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
+         // TODO: WAL
+         jumpmu_return OP_RESULT::OK;
       }
-      jumpmuCatch() {}
+      jumpmuCatch() { ensure(false); }
+   }
+}
+// -------------------------------------------------------------------------------------
+OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_length)
+{
+   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   const u16 key_length = o_key_length + sizeof(SN);
+   u8 key_buffer[key_length];
+   std::memcpy(key_buffer, o_key, key_length);
+   SN& sn = *reinterpret_cast<SN*>(key_buffer + key_length - sizeof(SN));
+   sn = 0;
+   Slice key(key_buffer, key_length);
+   // -------------------------------------------------------------------------------------
+   while (true) {
+      jumpmuTry()
+      {
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
+         iterator.seekToInsert(key);
+         if (iterator.isKeyEqualTo(key)) {
+            ensure(false);  // not implemented
+         }
+         auto ret = iterator.canInsertInCurrentNode(key, value_length);
+         if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
+            iterator.splitForKey(key);
+            jumpmu_continue;
+         }
+         iterator.insertInCurrentNode(key, value_length);
+         auto payload = iterator.mutableValue();
+         std::memcpy(payload.data(), value, value_length);
+         new (payload.data() + payload.length() - sizeof(PrimaryVersion)) PrimaryVersion(myWorkerID(), myTTS());
+         jumpmu_return OP_RESULT::OK;
+      }
+      jumpmuCatch() { ensure(false); }
    }
 }
 // -------------------------------------------------------------------------------------

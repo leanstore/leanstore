@@ -158,20 +158,25 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    virtual void seekToInsert(Slice key)
    {
       btree.findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.data(), key.length());
-      cur = 0;
+      cur = leaf->lowerBound<false>(key.data(), key.length());
    }
-   virtual OP_RESULT canInsertInCurrentNode(Slice key, Slice value)
+   virtual OP_RESULT canInsertInCurrentNode(Slice key, const u16 value_length)
    {
-      if (leaf->prepareInsert(key.data(), key.length(), value.length())) {
+      if (leaf->prepareInsert(key.data(), key.length(), value_length) {
          return OP_RESULT::OK;
       } else {
          return OP_RESULT::NOT_ENOUGH_SPACE;
       }
    }
+   virtual void insertInCurrentNode(Slice key, u16 value_length)
+   {
+      DEBUG_BLOCK() { assert(canInsertInCurrentNode(key, value_length) == OP_RESULT::OK); }
+      cur = leaf->insertDoNotCopyPayload(key.data(), key.length(), value_length);
+   }
    virtual void insertInCurrentNode(Slice key, Slice value)
    {
-      DEBUG_BLOCK() { assert(canInsertInCurrentNode(key, value) == OP_RESULT::OK); }
-      leaf->insert(key.data(), key.length(), value.data(), value.length());
+      DEBUG_BLOCK() { assert(canInsertInCurrentNode(key, value.length()) == OP_RESULT::OK); }
+      cur = leaf->insert(key.data(), key.length(), value.data(), value.length());
    }
    virtual OP_RESULT splitForKey(Slice key)
    {
@@ -183,7 +188,6 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
             leaf.unlock();
             // -------------------------------------------------------------------------------------
             btree.trySplit(*bf);
-            seekToInsert(key);
             jumpmu_return OP_RESULT::OK;
          }
          jumpmuCatch() {}
@@ -193,7 +197,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    {
    restart : {
       seekToInsert(key);
-      auto ret = canInsertInCurrentNode(key, value);
+      auto ret = canInsertInCurrentNode(key, value.length());
       if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
          splitForKey(key);
          goto restart;
@@ -208,18 +212,22 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT replaceKV(Slice key, Slice value)
    {
+   restart : {
       auto ret = seekExact(key);
       if (ret != OP_RESULT::OK) {
          return ret;
       }
       removeCurrent();
-      if (canInsertInCurrentNode(key, value) != OP_RESULT::OK) {
+      if (canInsertInCurrentNode(key, value.length()) != OP_RESULT::OK) {
          splitForKey(key);
+         goto restart;
       }
       insertInCurrentNode(key, value);
       return OP_RESULT::OK;
    }
-   virtual u8* valuePtr() { return leaf->getPayload(cur); }
+   }
+   // -------------------------------------------------------------------------------------
+   virtual MutableSlice mutableValue() { return MutableSlice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }
    // -------------------------------------------------------------------------------------
    virtual void contentionSplit()
    {

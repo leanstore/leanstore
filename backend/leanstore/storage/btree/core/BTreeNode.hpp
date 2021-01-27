@@ -249,8 +249,8 @@ struct BTreeNode : public BTreeNodeHeader {
    // -------------------------------------------------------------------------------------
    void updateHint(u16 slotId);
    // -------------------------------------------------------------------------------------
-   s16 insertDoNotCopyPayload(u8* key, u16 key_len, u16 payload_len);
-   void insert(const u8* key, u16 key_len, const u8* payload, u16 payload_len);
+   s16 insertDoNotCopyPayload(const u8* key, u16 key_len, u16 payload_len);
+   s32 insert(const u8* key, u16 key_len, const u8* payload, u16 payload_len);
    static u16 spaceNeeded(u16 keyLength, u16 payload_len, u16 prefixLength);
    u16 spaceNeeded(u16 key_length, u16 payload_len);
    bool canInsert(u16 key_length, u16 payload_len);
