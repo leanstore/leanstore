@@ -55,7 +55,7 @@ bool BTreeNode::prepareInsert(const u8* key, u16 key_len, u16 payload_len)
 {
    DEBUG_BLOCK()
    {
-      [[maybe_unused]] s32 sanity_check_result = sanityCheck(key, key_len);
+      [[maybe_unused]] s32 sanity_check_result = compareKeyWithBoundaries(key, key_len);
       assert(sanity_check_result == 0);
    }
    // -------------------------------------------------------------------------------------
@@ -331,7 +331,7 @@ void BTreeNode::getSep(u8* sepKeyOut, BTreeNodeHeader::SeparatorInfo info)
    }
 }
 // -------------------------------------------------------------------------------------
-s32 BTreeNode::sanityCheck(const u8* key, u16 keyLength)
+s32 BTreeNode::compareKeyWithBoundaries(const u8* key, u16 keyLength)
 {
    // Lower Bound exclusive, upper bound inclusive
    if (lower_fence.offset) {

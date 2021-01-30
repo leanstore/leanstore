@@ -165,7 +165,7 @@ struct BTreeNode : public BTreeNodeHeader {
    }
    void makeHint();
    // -------------------------------------------------------------------------------------
-   s32 sanityCheck(const u8* key, u16 keyLength);
+   s32 compareKeyWithBoundaries(const u8* key, u16 keyLength);
    // -------------------------------------------------------------------------------------
    void searchHint(u32 keyHead, unsigned& pos, unsigned& pos2)
    {
@@ -177,6 +177,9 @@ struct BTreeNode : public BTreeNodeHeader {
             break;
    }
    // -------------------------------------------------------------------------------------
+   // Returns the position where the key[pos] (if exists) >= key (not less than the given key)
+   // Asc: (2) (2) (1) -> (2) (2) (1) (0) -> (2) (2) (1) (0) (0) -> ...  -> (2) (2) (2)
+   // Desc: (2) (2) (1) -> (2) (2) (0) -> (2) (2) -> (2) (1)
    template <bool equalityOnly = false>
    s16 lowerBound(const u8* key, u16 keyLength, bool* is_equal = nullptr)
    {

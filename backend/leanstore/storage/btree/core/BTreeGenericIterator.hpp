@@ -27,8 +27,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
   public:
    BTreePessimisticIterator(BTreeGeneric& btree) : btree(btree) {}
-   // TODO: What if the current node got merged after we release the latch
-   bool nextPage()
+   bool nextLeaf()
    {
       if (leaf->upper_fence.length == 0) {
          return false;
@@ -39,10 +38,11 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          key[key_length - 1] = 0;
          leaf.unlock();
          btree.findLeafAndLatch<mode>(leaf, key, key_length);
+         cur = leaf->lowerBound<false>(key, key_length);
          return true;
       }
    }
-   bool prevPage()
+   bool prevLeaf()
    {
       if (leaf->lower_fence.length == 0) {
          return false;
@@ -52,6 +52,10 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          std::memcpy(key, leaf->getLowerFenceKey(), leaf->lower_fence.length);
          leaf.unlock();
          btree.findLeafAndLatch<mode>(leaf, key, key_length);
+         cur = leaf->lowerBound<false>(key, key_length);
+         if (cur == leaf->count) {
+            cur -= 1;
+         }
          return true;
       }
    }
@@ -59,7 +63,9 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
   public:
    virtual OP_RESULT seekExact(Slice key) override
    {
-      btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+      if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
+         btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+      }
       cur = leaf->lowerBound<true>(key.data(), key.length());
       if (cur != -1) {
          return OP_RESULT::OK;
@@ -70,34 +76,28 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT seek(Slice key) override
    {
-      btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
-      bool is_equal = false;
-      cur = leaf->lowerBound<false>(key.data(), key.length(), &is_equal);
-      if (is_equal == true) {
-         return OP_RESULT::OK;
-      } else if ((cur + 1) >= leaf->count) {
-         if (nextPage() && leaf->count > 0) {
-            cur = 0;
-            return OP_RESULT::OK;
-         } else {
-            return OP_RESULT::NOT_FOUND;
-         }
+      if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
+         btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+      }
+      cur = leaf->lowerBound<false>(key.data(), key.length());
+      if (cur == leaf->count) {
+         return OP_RESULT::NOT_FOUND;
       } else {
-         cur += 1;
          return OP_RESULT::OK;
       }
    }
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT seekForPrev(Slice key) override
    {
-      btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+      if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
+         btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+      }
       bool is_equal = false;
       cur = leaf->lowerBound<false>(key.data(), key.length(), &is_equal);
       if (is_equal == true) {
          return OP_RESULT::OK;
       } else if (cur == 0) {
-         if (prevPage() && leaf->count > 0) {
-            cur = leaf->count - 1;
+         if (prevLeaf() && cur < leaf->count) {
             return OP_RESULT::OK;
          } else {
             return OP_RESULT::NOT_FOUND;
@@ -114,8 +114,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          cur += 1;
          return OP_RESULT::OK;
       } else {
-         if (nextPage() && leaf->count > 0) {
-            cur = 0;
+         if (nextLeaf() && leaf->count > 0) {
             return OP_RESULT::OK;
          } else {
             return OP_RESULT::NOT_FOUND;
@@ -129,7 +128,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          cur -= 1;
          return OP_RESULT::OK;
       } else {
-         if (prevPage() && leaf->count > 0) {
+         if (prevLeaf() && leaf->count > 0) {
             cur = leaf->count - 1;
             return OP_RESULT::OK;
          } else {
@@ -148,7 +147,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    virtual Slice keyWithoutPrefix() override { return Slice(leaf->getKey(cur), leaf->getKeyLen(cur)); }
    virtual u16 valueLength() { return leaf->getPayloadLength(cur); }
    virtual Slice value() override { return Slice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }
-};
+};  // namespace btree
 // -------------------------------------------------------------------------------------
 using BTreeSharedIterator = BTreePessimisticIterator<LATCH_FALLBACK_MODE::SHARED>;
 class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>
@@ -157,12 +156,14 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    BTreeExclusiveIterator(BTreeGeneric& btree) : BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>(btree) {}
    virtual void seekToInsert(Slice key)
    {
-      btree.findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.data(), key.length());
+      if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
+         btree.findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.data(), key.length());
+      }
       cur = leaf->lowerBound<false>(key.data(), key.length());
    }
    virtual OP_RESULT canInsertInCurrentNode(Slice key, const u16 value_length)
    {
-      if (leaf->prepareInsert(key.data(), key.length(), value_length) {
+      if (leaf->prepareInsert(key.data(), key.length(), value_length)) {
          return OP_RESULT::OK;
       } else {
          return OP_RESULT::NOT_ENOUGH_SPACE;
@@ -183,9 +184,12 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
       while (true) {
          jumpmuTry()
          {
-            btree.findLeafCanJump<LATCH_FALLBACK_MODE::SHARED>(leaf, key.data(), key.length());
+            if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
+               btree.findLeafCanJump<LATCH_FALLBACK_MODE::SHARED>(leaf, key.data(), key.length());
+            }
             auto bf = leaf.bf;
             leaf.unlock();
+            cur = -1;
             // -------------------------------------------------------------------------------------
             btree.trySplit(*bf);
             jumpmu_return OP_RESULT::OK;
@@ -247,6 +251,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
             if (last_modified_pos != cur && normalized_restarts >= FLAGS_cm_slowpath_threshold && leaf->count > 2) {
                s16 split_pos = std::min<s16>(last_modified_pos, cur);
                leaf.unlock();
+               cur = -1;
                jumpmuTry()
                {
                   btree.trySplit(*leaf.bf, split_pos);
@@ -281,6 +286,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    {
       if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
          leaf.unlock();
+         cur = -1;
          jumpmuTry() { btree.tryMerge(*leaf.bf); }
          jumpmuCatch()
          {

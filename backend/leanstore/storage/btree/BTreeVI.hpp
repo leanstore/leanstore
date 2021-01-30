@@ -1,5 +1,6 @@
 #pragma once
 #include "BTreeLL.hpp"
+#include "core/BTreeGenericIterator.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
@@ -27,10 +28,7 @@ class BTreeVI : public BTreeLL
       u64 next_version : 64;
       u8 is_removed : 1;
       u8 is_final : 1;
-      PrimaryVersion(u8 worker_id, u64 tts)
-          : tts(tts), worker_id(worker_id), next_version(std::numeric_limits<u64>::max()), is_final(true)
-      {
-      }
+      PrimaryVersion(u8 worker_id, u64 tts) : tts(tts), worker_id(worker_id), next_version(std::numeric_limits<u64>::max()), is_final(true) {}
    };
    struct __attribute__((packed)) SecondaryVersion {
       u64 tts : 56;
@@ -103,7 +101,9 @@ class BTreeVI : public BTreeLL
    inline bool isVisibleForMe(u64 wtts) { return cr::Worker::my().isVisibleForMe(wtts); }
    inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
    // -------------------------------------------------------------------------------------
-   static void applyDelta(u8* dst, u8* delta, u16 delta_size);
+   inline SN readSN(Slice key) { return swap(*reinterpret_cast<const SN*>(key.data() + key.length() - sizeof(SN))); }
+   static void applyDelta(u8* dst, const u8* delta, u16 delta_size);
+   void reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(MutableSlice value)> callback);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace btree

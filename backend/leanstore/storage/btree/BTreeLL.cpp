@@ -28,7 +28,7 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
          // -------------------------------------------------------------------------------------
          DEBUG_BLOCK()
          {
-            s16 sanity_check_result = leaf->sanityCheck(key, key_length);
+            s16 sanity_check_result = leaf->compareKeyWithBoundaries(key, key_length);
             leaf.recheck_done();
             if (sanity_check_result != 0) {
                cout << leaf->count << endl;
@@ -146,6 +146,7 @@ OP_RESULT BTreeLL::updateSameSize(u8* key_ptr,
       if (ret != OP_RESULT::OK) {
          jumpmu_return ret;
       }
+      auto current_value = iterator.mutableValue();
       if (FLAGS_wal) {
          // if it is a secondary index, then we can not use updateSameSize
          assert(wal_update_generator.entry_size > 0);
@@ -154,13 +155,13 @@ OP_RESULT BTreeLL::updateSameSize(u8* key_ptr,
          wal_entry->type = WAL_LOG_TYPE::WALUpdate;
          wal_entry->key_length = key_length;
          std::memcpy(wal_entry->payload, key.data(), key.length());
-         wal_update_generator.before(iterator.valuePtr(), wal_entry->payload + key_length);
+         wal_update_generator.before(current_value.data(), wal_entry->payload + key_length);
          // The actual update by the client
-         callback(iterator.valuePtr(), iterator.valueLength());
-         wal_update_generator.after(iterator.valuePtr(), wal_entry->payload + key_length);
+         callback(current_value.data(), current_value.length());
+         wal_update_generator.after(current_value.data(), wal_entry->payload + key_length);
          wal_entry.submit();
       } else {
-         callback(iterator.valuePtr(), iterator.valueLength());
+         callback(current_value.data(), current_value.length());
       }
       iterator.contentionSplit();
       jumpmu_return OP_RESULT::OK;

@@ -1,6 +1,5 @@
 #include "BTreeVI.hpp"
 
-#include "core/BTreeGenericIterator.hpp"
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
@@ -49,16 +48,8 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
             }
          } else {
             const auto& version_meta = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
-            u16 delta_offset = 0;
             const u16 delta_length = payload.length() - sizeof(SecondaryVersion);
-            while (delta_offset < delta_length) {
-               const u16 offset = *reinterpret_cast<const u16*>(payload.data() + delta_offset);
-               delta_offset += 2;
-               const u16 size = *reinterpret_cast<const u16*>(payload.data() + delta_offset);
-               delta_offset += 2;
-               std::memcpy(value.data() + offset, value.data() + delta_offset, size);
-               delta_offset += size;
-            }
+            applyDelta(value.data(), payload.data(), delta_length);
             if (isVisibleForMe(version_meta.worker_id, version_meta.tts)) {
                payload_callback(value.data(), value.length());
                jumpmu_return OP_RESULT::OK;
@@ -402,29 +393,87 @@ struct DTRegistry::DTMeta BTreeVI::getMeta()
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::scanDesc(u8* k, u16 kl, [[maybe_ununsed]] function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
+OP_RESULT BTreeVI::scanDesc(u8* o_key, u16 o_key_length, [[maybe_ununsed]] function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
    ensure(false);
    return OP_RESULT::OK;
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::scanAsc(u8* start_key,
-                           u16 key_length,
-                           function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
+OP_RESULT BTreeVI::scanAsc(u8* o_key,
+                           u16 o_key_length,
+                           function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback,
                            function<void()>)
 {
-   ensure(false);
-   return OP_RESULT::OK;
+   u16 key_length = o_key_length + sizeof(SN);
+   u8 key_buffer[key_length];
+   std::memcpy(key_buffer, o_key, o_key_length);
+   *reinterpret_cast<SN*>(key_buffer + o_key_length) = 0;
+   Slice key(key_buffer, key_length);
+   StringU value;
+   jumpmuTry()
+   {
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
+      auto ret = iterator.seek(key);
+      if (ret != OP_RESULT::OK) {
+         jumpmu_return OP_RESULT::NOT_FOUND;
+      }
+      // -------------------------------------------------------------------------------------
+      bool skip = false;
+      Slice key = iterator.key();
+      Slice payload = iterator.value();
+      SN sn = readSN(key);
+      ensure(sn == 0);
+      while (true) {
+         if (sn == 0) {
+            skip = false;
+            const auto& primrary_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
+            if (isVisibleForMe(primrary_version.worker_id, primrary_version.tts)) {
+               callback(key.data(), key.length(), payload.data(), payload.length() - sizeof(PrimaryVersion));
+               skip = true;
+            } else {
+               value = StringU(payload.data(), payload.length() - sizeof(PrimaryVersion));
+            }
+         } else {
+            const auto& secondary_version = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
+            const u16 delta_length = payload.length() - sizeof(SecondaryVersion);
+            applyDelta(value.data(), payload.data(), delta_length);
+            if (isVisibleForMe(secondary_version.worker_id, secondary_version.tts)) {
+               callback(key.data(), key.length(), payload.data(), payload.length() - sizeof(PrimaryVersion));
+               skip = true;
+            }
+         }
+      next : {
+         ret = iterator.next();
+         if (ret == OP_RESULT::OK) {
+            key = iterator.key();
+            payload = iterator.value();
+            sn = readSN(key);
+            if (skip && sn != 0) {
+               goto next;
+            }
+         } else {
+            ensure(skip);
+            break;
+         }
+      }
+      }
+      jumpmu_return OP_RESULT::OK;
+   }
+   jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
-void BTreeVI::applyDelta(u8* dst, u8* delta_beginning, u16 delta_size)
+void BTreeVI::reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(MutableSlice value)> callback) {
+
+}
+// -------------------------------------------------------------------------------------
+void BTreeVI::applyDelta(u8* dst, const u8* delta_beginning, u16 delta_size)
 {
    // TODO:
-   u8* delta_ptr = delta_beginning;
+   const u8* delta_ptr = delta_beginning;
    while (delta_ptr - delta_beginning < delta_size) {
-      const u16 offset = *reinterpret_cast<u16*>(delta_ptr);
+      const u16 offset = *reinterpret_cast<const u16*>(delta_ptr);
       delta_ptr += 2;
-      const u16 size = *reinterpret_cast<u16*>(delta_ptr);
+      const u16 size = *reinterpret_cast<const u16*>(delta_ptr);
       delta_ptr += 2;
       std::memcpy(dst + offset, delta_ptr, size);
       delta_ptr += size;
