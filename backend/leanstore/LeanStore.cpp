@@ -31,7 +31,7 @@ LeanStore::LeanStore()
 {
    // -------------------------------------------------------------------------------------
    // Check if configurations make sense
-   ensure(!FLAGS_si || FLAGS_wal);
+   ensure(!FLAGS_vw || FLAGS_wal);
    // -------------------------------------------------------------------------------------
    // Set the default logger to file logger
    // Init SSD pool

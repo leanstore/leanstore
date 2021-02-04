@@ -1,5 +1,4 @@
 #include "CRMG.hpp"
-#include "leanstore/LeanStore.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"

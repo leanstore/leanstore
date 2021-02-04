@@ -119,7 +119,13 @@ struct BTreeNode : public BTreeNodeHeader {
    inline u16 getKeyLen(u16 slotId) { return slot[slotId].key_len; }
    inline u16 getFullKeyLen(u16 slotId) { return prefix_length + getKeyLen(slotId); }
    inline u16 getPayloadLength(u16 slotId) { return slot[slotId].payload_len; }
-   inline void setPayloadLength(u16 slotId, u16 len) { slot[slotId].payload_len = len; }
+   inline void shortenPayload(u16 slotId, u16 len)
+   {
+      assert(len < slot[slotId].payload_len);
+      const u16 freed_space = slot[slotId].payload_len - len;
+      space_used -= freed_space;
+      slot[slotId].payload_len = len;
+   }
    inline u8* getPayload(u16 slotId) { return ptr() + slot[slotId].offset + slot[slotId].key_len; }
    inline SwipType& getChild(u16 slotId) { return *reinterpret_cast<SwipType*>(getPayload(slotId)); }
    // -------------------------------------------------------------------------------------
@@ -179,7 +185,6 @@ struct BTreeNode : public BTreeNodeHeader {
    // -------------------------------------------------------------------------------------
    // Returns the position where the key[pos] (if exists) >= key (not less than the given key)
    // Asc: (2) (2) (1) -> (2) (2) (1) (0) -> (2) (2) (1) (0) (0) -> ...  -> (2) (2) (2)
-   // Desc: (2) (2) (1) -> (2) (2) (0) -> (2) (2) -> (2) (1)
    template <bool equalityOnly = false>
    s16 lowerBound(const u8* key, u16 keyLength, bool* is_equal = nullptr)
    {

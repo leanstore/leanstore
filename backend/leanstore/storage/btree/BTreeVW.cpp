@@ -349,7 +349,7 @@ OP_RESULT BTreeVW::remove(u8* key, u16 key_length)
                   version.is_removed = true;
                   // -------------------------------------------------------------------------------------
                   leaf_ex_guard->space_used -= leaf_ex_guard->getPayloadLength(pos) - VW_PAYLOAD_OFFSET;
-                  leaf_ex_guard->setPayloadLength(pos, VW_PAYLOAD_OFFSET);
+                  leaf_ex_guard->shortenPayload(pos, VW_PAYLOAD_OFFSET);
                   leaf_guard = std::move(leaf_ex_guard);
                   jumpmu_return OP_RESULT::OK;
                }
@@ -504,7 +504,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                                                         });
                   // -------------------------------------------------------------------------------------
                   leaf_ex_guard->space_used -= leaf_ex_guard->getPayloadLength(pos) - VW_PAYLOAD_OFFSET;
-                  leaf_ex_guard->setPayloadLength(pos, VW_PAYLOAD_OFFSET);
+                  leaf_ex_guard->shortenPayload(pos, VW_PAYLOAD_OFFSET);
                   jumpmu_return;
                }
                // -------------------------------------------------------------------------------------
