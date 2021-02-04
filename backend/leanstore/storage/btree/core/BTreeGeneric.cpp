@@ -497,7 +497,7 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
    // -------------------------------------------------------------------------------------
    // check if bf is the root node
    if (c_swip->bfPtrAsHot() == &to_find) {
-      p_guard.recheck_done();
+      p_guard.recheck();
       return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = btree.meta_node_bf};
    }
    // -------------------------------------------------------------------------------------
@@ -527,7 +527,7 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
    }
    p_guard.unlock();
    const bool found = c_swip->bfPtrAsHot() == &to_find;
-   c_guard.recheck_done();
+   c_guard.recheck();
    if (!found) {
       jumpmu::jump();
    }
@@ -562,13 +562,13 @@ s64 BTreeGeneric::iterateAllPagesRec(HybridPageGuard<BTreeNode>& node_guard,
    for (u16 i = 0; i < node_guard->count; i++) {
       Swip<BTreeNode>& c_swip = node_guard->getChild(i);
       auto c_guard = HybridPageGuard(node_guard, c_swip);
-      c_guard.recheck_done();
+      c_guard.recheck();
       res += iterateAllPagesRec(c_guard, inner, leaf);
    }
    // -------------------------------------------------------------------------------------
    Swip<BTreeNode>& c_swip = node_guard->upper;
    auto c_guard = HybridPageGuard(node_guard, c_swip);
-   c_guard.recheck_done();
+   c_guard.recheck();
    res += iterateAllPagesRec(c_guard, inner, leaf);
    // -------------------------------------------------------------------------------------
    return res;

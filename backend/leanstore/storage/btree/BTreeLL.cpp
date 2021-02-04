@@ -29,7 +29,7 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
          DEBUG_BLOCK()
          {
             s16 sanity_check_result = leaf->compareKeyWithBoundaries(key, key_length);
-            leaf.recheck_done();
+            leaf.recheck();
             if (sanity_check_result != 0) {
                cout << leaf->count << endl;
             }
@@ -39,10 +39,10 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
          s16 pos = leaf->lowerBound<true>(key, key_length);
          if (pos != -1) {
             payload_callback(leaf->getPayload(pos), leaf->getPayloadLength(pos));
-            leaf.recheck_done();
+            leaf.recheck();
             jumpmu_return OP_RESULT::OK;
          } else {
-            leaf.recheck_done();
+            leaf.recheck();
             raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }

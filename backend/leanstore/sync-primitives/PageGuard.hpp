@@ -25,7 +25,6 @@ class HybridPageGuard
   public:
    BufferFrame* bf = nullptr;
    Guard guard;
-   bool manually_checked = false;
    bool keep_alive = true;
    // -------------------------------------------------------------------------------------
    // Constructors
@@ -100,7 +99,6 @@ class HybridPageGuard
       bf = other.bf;
       guard = std::move(other.guard);
       keep_alive = other.keep_alive;
-      manually_checked = other.manually_checked;
       return *this;
    }
    // -------------------------------------------------------------------------------------
@@ -133,11 +131,6 @@ class HybridPageGuard
    inline bool hasFacedContention() { return guard.faced_contention; }
    inline void unlock() { guard.unlock(); }
    inline void recheck() { guard.recheck(); }
-   inline void recheck_done()
-   {
-      manually_checked = true;
-      guard.recheck();
-   }
    // -------------------------------------------------------------------------------------
    inline T& ref() { return *reinterpret_cast<T*>(bf->page.dt); }
    inline T* ptr() { return reinterpret_cast<T*>(bf->page.dt); }

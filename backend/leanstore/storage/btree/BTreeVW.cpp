@@ -115,14 +115,14 @@ OP_RESULT BTreeVW::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
             auto version = *reinterpret_cast<Version*>(leaf->getPayload(pos));
             u8* payload = leaf->getPayload(pos) + VW_PAYLOAD_OFFSET;
             u16 payload_length = leaf->getPayloadLength(pos) - VW_PAYLOAD_OFFSET;
-            leaf.recheck_done();
+            leaf.recheck();
             if (isVisibleForMe(version.worker_id, version.tts)) {
                if (version.is_removed) {
                   raise(SIGTRAP);
                   jumpmu_return OP_RESULT::NOT_FOUND;
                } else {
                   payload_callback(payload, payload_length);
-                  leaf.recheck_done();
+                  leaf.recheck();
                   jumpmu_return OP_RESULT::OK;
                }
             } else {
@@ -132,7 +132,7 @@ OP_RESULT BTreeVW::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
                } else {
                   u8 reconstructed_payload[PAGE_SIZE];
                   std::memcpy(reconstructed_payload, payload, payload_length);
-                  leaf.recheck_done();
+                  leaf.recheck();
                   leaf.unlock();
                   const bool exists =
                       reconstructTuple(reconstructed_payload, payload_length, version.worker_id, version.lsn, version.in_memory_offset);
@@ -146,7 +146,7 @@ OP_RESULT BTreeVW::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
                }
             }
          } else {
-            leaf.recheck_done();
+            leaf.recheck();
             raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
