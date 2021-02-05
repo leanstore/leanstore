@@ -1,5 +1,5 @@
 #include "Units.hpp"
-#include "leanstore/storage/btree/BTree.hpp"
+#include "leanstore/storage/btree/BTreeLL.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -35,6 +35,7 @@ struct BTreeInterface {
    virtual void update(Key k, Payload& v) = 0;
 };
 // -------------------------------------------------------------------------------------
+using OP_RESULT = leanstore::storage::btree::OP_RESULT;
 template <typename Key, typename Payload>
 struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
    leanstore::storage::btree::BTreeInterface& btree;
@@ -44,17 +45,18 @@ struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
    bool lookup(Key k, Payload& v) override
    {
       u8 key_bytes[sizeof(Key)];
-      return btree.lookupOneLL(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16 payload_length) { memcpy(&v, payload, payload_length); });
+      return btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16 payload_length) { memcpy(&v, payload, payload_length); }) ==
+            OP_RESULT::OK;
    }
    void insert(Key k, Payload& v) override
    {
       u8 key_bytes[sizeof(Key)];
-      btree.insertLL(key_bytes, fold(key_bytes, k), sizeof(v), reinterpret_cast<u8*>(&v));
+      btree.insert(key_bytes, fold(key_bytes, k), reinterpret_cast<u8*>(&v), sizeof(v));
    }
    void update(Key k, Payload& v) override
    {
       u8 key_bytes[sizeof(Key)];
-      btree.updateSameSizeLL(key_bytes, fold(key_bytes, k), [&](u8* payload, u16 payload_length) { memcpy(payload, &v, payload_length); });
+      btree.updateSameSize(key_bytes, fold(key_bytes, k), [&](u8* payload, u16 payload_length) { memcpy(payload, &v, payload_length); });
    }
 };
 // -------------------------------------------------------------------------------------
