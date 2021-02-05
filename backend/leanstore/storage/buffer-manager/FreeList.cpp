@@ -48,7 +48,7 @@ struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<std::mutex>>& lock)
       lock->unlock();
       jumpmu::jump();
    }
-   return *free_bf;  // unreachable
+   return *free_bf;
 }
 // -------------------------------------------------------------------------------------
 struct BufferFrame& FreeList::pop()

@@ -311,7 +311,7 @@ s16 BTreeGeneric::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
    u8 new_left_uf_key[new_left_uf_length];
    from_left->copyFullKey(till_slot_id - 1, new_left_uf_key);
    // -------------------------------------------------------------------------------------
-   if (!parent->prepareInsert(new_left_uf_key, new_left_uf_length, 0))
+   if (!parent->prepareInsert(new_left_uf_length, 0))
       return 0;  // false
    // -------------------------------------------------------------------------------------
    // cout << till_slot_id << '\t' << from_left->count << '\t' << to_right->count << endl;
@@ -339,7 +339,7 @@ s16 BTreeGeneric::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
       assert(from_left->compareKeyWithBoundaries(new_left_uf_key, new_left_uf_length) == 0);
       // -------------------------------------------------------------------------------------
       parent->removeSlot(left_pos);
-      ensure(parent->prepareInsert(from_left->getUpperFenceKey(), from_left->upper_fence.length, sizeof(SwipType)));
+      ensure(parent->prepareInsert(from_left->upper_fence.length, sizeof(SwipType)));
       auto swip = from_left.swip();
       parent->insert(from_left->getUpperFenceKey(), from_left->upper_fence.length, reinterpret_cast<u8*>(&swip), sizeof(SwipType));
    }

@@ -102,6 +102,7 @@ class HybridPageGuard
       return *this;
    }
    // -------------------------------------------------------------------------------------
+   inline void incrementGSN() { bf->page.GSN++; }
    // WAL
    inline void syncGSN()
    {
@@ -174,9 +175,8 @@ class ExclusivePageGuard
    {
       ref_guard.guard.toExclusive();
       if (!FLAGS_wal) {
-         ref_guard.bf->page.GSN++;
+         ref_guard.incrementGSN();
       }
-      WorkerCounters::myCounters().tmp++;
    }
    // -------------------------------------------------------------------------------------
    template <typename WT>

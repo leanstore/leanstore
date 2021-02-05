@@ -51,14 +51,8 @@ bool BTreeNode::canInsert(u16 key_len, u16 payload_len)
       return true;
 }
 // -------------------------------------------------------------------------------------
-bool BTreeNode::prepareInsert(const u8* key, u16 key_len, u16 payload_len)
+bool BTreeNode::prepareInsert(u16 key_len, u16 payload_len)
 {
-   DEBUG_BLOCK()
-   {
-      [[maybe_unused]] s32 sanity_check_result = compareKeyWithBoundaries(key, key_len);
-      assert(sanity_check_result == 0);
-   }
-   // -------------------------------------------------------------------------------------
    const u16 space_needed = spaceNeeded(key_len, payload_len);
    if (!requestSpaceFor(space_needed))
       return false;  // no space, insert fails
@@ -68,6 +62,9 @@ bool BTreeNode::prepareInsert(const u8* key, u16 key_len, u16 payload_len)
 // -------------------------------------------------------------------------------------
 s16 BTreeNode::insertDoNotCopyPayload(const u8* key, u16 key_len, u16 payload_length)
 {
+   assert(canInsert(key_len, payload_length));
+   prepareInsert(key_len, payload_length);
+   // -------------------------------------------------------------------------------------
    s32 slotId = lowerBound<false>(key, key_len);
    memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
    // -------------------------------------------------------------------------------------
@@ -92,12 +89,13 @@ s32 BTreeNode::insert(const u8* key, u16 key_len, const u8* payload, u16 payload
 {
    DEBUG_BLOCK()
    {
-      assert(prepareInsert(key, key_len, payload_length));
+      assert(canInsert(key_len, payload_length));
       s32 exact_pos = lowerBound<true>(key, key_len);
       static_cast<void>(exact_pos);
       assert(exact_pos == -1);  // assert for duplicates
    }
    // -------------------------------------------------------------------------------------
+   prepareInsert(key_len, payload_length);
    s32 slotId = lowerBound<false>(key, key_len);
    memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
    storeKeyValue(slotId, key, key_len, payload, payload_length);

@@ -169,25 +169,22 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    }
    virtual OP_RESULT canInsertInCurrentNode(Slice key, const u16 value_length)
    {
-      assert(keyFitsInCurrentNode(key));
-      if (leaf->prepareInsert(key.data(), key.length(), value_length)) {
-         return OP_RESULT::OK;
-      } else {
-         return OP_RESULT::NOT_ENOUGH_SPACE;
-      }
+      return (leaf->canInsert(key.length(), value_length)) ? OP_RESULT::OK : OP_RESULT::NOT_ENOUGH_SPACE;
    }
    virtual void insertInCurrentNode(Slice key, u16 value_length)
    {
-      DEBUG_BLOCK() { assert(canInsertInCurrentNode(key, value_length) == OP_RESULT::OK); }
+      assert(keyFitsInCurrentNode(key));
+      assert(canInsertInCurrentNode(key, value_length) == OP_RESULT::OK);
       cur = leaf->insertDoNotCopyPayload(key.data(), key.length(), value_length);
    }
    virtual void insertInCurrentNode(Slice key, Slice value)
    {
-      DEBUG_BLOCK() { assert(canInsertInCurrentNode(key, value.length()) == OP_RESULT::OK); }
+      assert(keyFitsInCurrentNode(key));
+      assert(canInsertInCurrentNode(key, value.length()) == OP_RESULT::OK);
       cur = leaf->insert(key.data(), key.length(), value.data(), value.length());
    }
    virtual bool keyFitsInCurrentNode(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
-   virtual OP_RESULT splitForKey(Slice key)
+   virtual void splitForKey(Slice key)
    {
       while (true) {
          jumpmuTry()
@@ -200,7 +197,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
             cur = -1;
             // -------------------------------------------------------------------------------------
             btree.trySplit(*bf);
-            jumpmu_return OP_RESULT::OK;
+            jumpmu_break;
          }
          jumpmuCatch() {}
       }

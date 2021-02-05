@@ -34,7 +34,7 @@ OP_RESULT BTreeVW::insert(u8* key, u16 key_length, u8* value_orig, u16 value_len
          s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
          if (pos == -1) {
             // Really new
-            if (leaf_ex_guard->prepareInsert(key, key_length, value_length)) {
+            if (leaf_ex_guard->prepareInsert(key_length, value_length)) {
                // -------------------------------------------------------------------------------------
                // WAL
                auto wal_entry = leaf_ex_guard.reserveWALEntry<WALInsert>(key_length + value_length_orig);
@@ -58,7 +58,7 @@ OP_RESULT BTreeVW::insert(u8* key, u16 key_length, u8* value_orig, u16 value_len
             if (isVisibleForMe(version.worker_id, version.tts)) {
                if (version.is_removed) {
                   raise(SIGTRAP);
-                  if (leaf_ex_guard->prepareInsert(key, key_length, value_length)) {
+                  if (leaf_ex_guard->prepareInsert(key_length, value_length)) {
                      // -------------------------------------------------------------------------------------
                      // WAL
                      auto wal_entry = leaf_ex_guard.reserveWALEntry<WALInsert>(key_length + value_length_orig);

@@ -533,8 +533,8 @@ void orderStatusId(Integer w_id, Integer d_id, Integer c_id)
              return true;
           },
           [&]() {});
-      ensure(o_id > -1);
    }
+   ensure(o_id > -1);
    // -------------------------------------------------------------------------------------
    Timestamp o_entry_d;
    Integer o_carrier_id;
