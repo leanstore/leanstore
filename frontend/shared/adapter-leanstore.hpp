@@ -38,6 +38,7 @@ struct LeanStoreAdapter {
    }
    // -------------------------------------------------------------------------------------
    void printTreeHeight() { cout << name << " height = " << btree->getHeight() << endl; }
+   uint64_t count() { return btree->countEntries(); }
    // -------------------------------------------------------------------------------------
    // Functions for interaction with Leanstore
    // -------------------------------------------------------------------------------------
@@ -85,7 +86,6 @@ struct LeanStoreAdapter {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, rec_key);
       const auto res = btree->insert(folded_key, folded_key_len, (u8*)(&record), sizeof(Record));
-
       ensure(res == btree::OP_RESULT::OK || res == btree::OP_RESULT::ABORT_TX);
       if (res == btree::OP_RESULT::ABORT_TX) {
          cr::Worker::my().abortTX();
