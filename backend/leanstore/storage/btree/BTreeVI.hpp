@@ -26,20 +26,22 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) PrimaryVersion {
       u64 tts : 56;
       u8 worker_id : 8;
-      u64 first_version : 64;  // oldest
-      u64 next_version : 64;   // the latest to be
+      SN first_sn;  // oldest
+      SN next_sn;   // the latest to be
       u8 write_locked : 1;
       u8 is_removed : 1;
       PrimaryVersion(u8 worker_id, u64 tts)
           : tts(tts),
             worker_id(worker_id),
-            first_version(std::numeric_limits<u64>::max()),
-            next_version(std::numeric_limits<u64>::max()),
+            first_sn(10),
+            next_sn(10),
+            // first_sn(std::numeric_limits<SN>::max()),
+            // next_sn(std::numeric_limits<SN>::max()),
             write_locked(false),
             is_removed(false)
       {
       }
-      bool isFinal() const { return first_version == next_version; }
+      bool isFinal() const { return first_sn == next_sn; }
       bool isWriteLocked() const { return write_locked; }
       void writeLock() { write_locked = true; }
       void unlock() { write_locked = false; }
@@ -149,16 +151,20 @@ class BTreeVI : public BTreeLL
             // -------------------------------------------------------------------------------------
             std::memcpy(key_buffer, key.data(), key.length());
             s_key = MutableSlice(key_buffer, key.length());
-            ret = reconstructTuple(iterator, s_key, [&](Slice value) {
+            u16 chain_length = std::get<1>(reconstructTuple(iterator, s_key, [&](Slice value) {
                keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
                counter++;
-            });
+            }));
             if (!keep_scanning) {
                jumpmu_return;
             }
-            setSN(s_key, 0);
-            ret = iterator.seekExact(Slice(s_key.data(), s_key.length()));
-            ensure(ret == OP_RESULT::OK);
+            if (chain_length > 1) {
+               ensure(false);
+               setSN(s_key, 0);
+               ret = iterator.seekExact(Slice(s_key.data(), s_key.length()));
+               ensure(ret == OP_RESULT::OK);
+            }
+            // -------------------------------------------------------------------------------------
             if (asc) {
                ret = iterator.next();
             } else {
@@ -169,14 +175,7 @@ class BTreeVI : public BTreeLL
       }
       jumpmuCatch() { ensure(false); }
    }
-   inline u8 myWorkerID()
-   {
-      auto tmpo = cr::Worker::tls_ptr;
-      if (tmpo == nullptr) {
-         raise(SIGTRAP);
-      }
-      return cr::Worker::my().worker_id;
-   }
+   inline u8 myWorkerID() { return cr::Worker::my().worker_id; }
    inline u64 myTTS() { return cr::Worker::my().active_tx.tts; }
    inline u64 myWTTS() { return myWorkerID() | (myTTS() << 8); }
    inline bool isVisibleForMe(u8 worker_id, u64 tts) { return cr::Worker::my().isVisibleForMe(worker_id, tts); }
@@ -188,9 +187,24 @@ class BTreeVI : public BTreeLL
    {
       return swap(*reinterpret_cast<const SN*>(key.data() + key.length() - sizeof(SN)));
    }
-   inline SN setSN(MutableSlice key, SN sn) { return *reinterpret_cast<SN*>(key.data() + key.length() - sizeof(SN)) = swap(sn); }
+   inline void setSN(MutableSlice key, SN sn) { *reinterpret_cast<SN*>(key.data() + key.length() - sizeof(SN)) = swap(sn); }
    static void applyDelta(u8* dst, const u8* delta, u16 delta_size);
-   OP_RESULT reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback);
+   inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback)
+   {
+      Slice payload = iterator.value();
+      assert(getSN(key) == 0);
+      const auto primary_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
+      if (isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
+         if (primary_version.is_removed) {
+            return {OP_RESULT::NOT_FOUND, 1};
+         }
+         callback(payload.substr(0, payload.length() - sizeof(PrimaryVersion)));
+         return {OP_RESULT::OK, 1};
+      } else {
+         return reconstructTupleSlowPath(iterator, key, callback);
+      }
+   }
+   std::tuple<OP_RESULT, u16> reconstructTupleSlowPath(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace btree

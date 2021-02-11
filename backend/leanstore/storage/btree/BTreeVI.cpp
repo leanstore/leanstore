@@ -35,8 +35,8 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
          raise(SIGTRAP);
          jumpmu_return OP_RESULT::NOT_FOUND;
       }
-      ret = reconstructTuple(iterator, key, [&](Slice value) { payload_callback(value.data(), value.length()); });
-      if (ret != OP_RESULT::OK) {
+      ret = std::get<0>(reconstructTuple(iterator, key, [&](Slice value) { payload_callback(value.data(), value.length()); }));
+      if (ret != OP_RESULT::OK) { // For debugging
          raise(SIGTRAP);
          jumpmu_return OP_RESULT::NOT_FOUND;
       }
@@ -71,7 +71,7 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
             jumpmu_return ret;
          }
          auto primary_payload = iterator.mutableValue();
-         if (0) {
+         if (1) {
             callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
             jumpmu_return OP_RESULT::OK;
          }
@@ -79,12 +79,40 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
          if (!isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
             jumpmu_return OP_RESULT::ABORT_TX;
          }
-         primary_version.writeLock();
-         secondary_sn = primary_version.next_version;
+         // -------------------------------------------------------------------------------------
+         secondary_sn = primary_version.next_sn;
          const u16 secondary_payload_length = wal_update_generator.entry_size + sizeof(SecondaryVersion);
          // -------------------------------------------------------------------------------------
+         // Temporary
+         if ((primary_version.first_sn - 1) == primary_version.next_sn) {
+            ensure(secondary_sn == primary_version.next_sn);
+            u8 secondary_payload[secondary_payload_length];
+            new (secondary_payload + wal_update_generator.entry_size) SecondaryVersion(primary_version.worker_id, primary_version.tts, false, true);
+            wal_update_generator.before(primary_payload.data(), secondary_payload);
+            callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
+            SN recent_sn = primary_version.first_sn;
+            // -------------------------------------------------------------------------------------
+            // Reuse recent version
+            setSN(m_key, recent_sn);
+            ret = iterator.seekExact(key);
+            ensure(ret == OP_RESULT::OK);
+            ensure(iterator.mutableValue().length() >= secondary_payload_length);
+            std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
+            // -------------------------------------------------------------------------------------
+            setSN(m_key, 0);
+            ret = iterator.seekExact(key);
+            ensure(ret == OP_RESULT::OK);
+            auto primary_payload = iterator.mutableValue();
+            auto& primary_version = *reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
+            primary_version.worker_id = myWorkerID();
+            primary_version.tts = myTTS();
+            primary_version.unlock();
+            jumpmu_return OP_RESULT::OK;
+         }
+         // -------------------------------------------------------------------------------------
+         primary_version.writeLock();
          setSN(m_key, secondary_sn);
-         if (iterator.keyFitsInCurrentNode(key) && iterator.canInsertInCurrentNode(key, secondary_payload_length) == OP_RESULT::OK) {
+         if (0 && iterator.keyFitsInCurrentNode(key) && iterator.canInsertInCurrentNode(key, secondary_payload_length) == OP_RESULT::OK) {
             iterator.insertInCurrentNode(key, secondary_payload_length);
             auto secondary_payload = iterator.mutableValue();
             new (secondary_payload.data() + wal_update_generator.entry_size) SecondaryVersion(myWorkerID(), myTTS(), false, true);
@@ -95,15 +123,18 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
             wal_update_generator.before(primary_payload.data(), secondary_payload.data());
             callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
             auto& primary_version = *reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
-            primary_version.next_version--;
+            primary_version.next_sn--;
             primary_version.unlock();
          } else {
-            u8 secondary_payload[secondary_payload_length];
-            new (secondary_payload + wal_update_generator.entry_size) SecondaryVersion(myWorkerID(), myTTS(), false, true);
+            const u64 buffer_zone_size = primary_payload.length() * 2;
+            u8 secondary_payload[secondary_payload_length + buffer_zone_size];
+            new (secondary_payload + wal_update_generator.entry_size + buffer_zone_size)
+                SecondaryVersion(primary_version.worker_id, primary_version.tts, false, true);
             wal_update_generator.before(primary_payload.data(), secondary_payload);
             callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
             // -------------------------------------------------------------------------------------
-            ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
+            setSN(m_key, secondary_sn);
+            ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length + buffer_zone_size));
             ensure(ret == OP_RESULT::OK);
             // -------------------------------------------------------------------------------------
             setSN(m_key, 0);
@@ -111,13 +142,16 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
             ensure(ret == OP_RESULT::OK);
             auto primary_payload = iterator.mutableValue();
             auto& primary_version = *reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
-            primary_version.next_version--;
+            primary_version.worker_id = myWorkerID();
+            primary_version.tts = myTTS();
+            primary_version.next_sn--;
             primary_version.unlock();
          }
          // TODO: WAL
          jumpmu_return OP_RESULT::OK;
       }
       jumpmuCatch() { ensure(false); }
+      ensure(false);
    }
 }
 // -------------------------------------------------------------------------------------
@@ -183,7 +217,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
                jumpmu_return OP_RESULT::ABORT_TX;
             }
             primary_version.writeLock();
-            secondary_sn = primary_version.next_version;
+            secondary_sn = primary_version.next_sn;
             const u16 value_length = primary_payload.length() - sizeof(PrimaryVersion);
             const u16 secondary_payload_length = value_length + sizeof(SecondaryVersion);
             u8 secondary_payload[secondary_payload_length];
@@ -207,7 +241,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
             primary_version.worker_id = myWorkerID();
             primary_version.tts = myTTS();
             primary_version.is_removed = true;
-            primary_version.next_version--;
+            primary_version.next_sn--;
             primary_version.unlock();
          }
          jumpmu_return OP_RESULT::OK;
@@ -216,8 +250,10 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
    }
 }
 // -------------------------------------------------------------------------------------
-void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
+void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 {
+   // TODO:
+   ensure(false);
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
    switch (entry.type) {
@@ -289,7 +325,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                auto& primary_version = *reinterpret_cast<PrimaryVersion*>(primary_payload + primary_payload_length - sizeof(PrimaryVersion));
                primary_version.worker_id = secondary_version.worker_id;
                primary_version.tts = secondary_version.tts;
-               primary_version.next_version++;
+               primary_version.next_sn++;
                applyDelta(primary_payload, materialized_delta, delta_length);
                jumpmu_return;
             }
@@ -316,7 +352,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
                u8* secondary_payload = secondary_x_guard->getPayload(secondary_pos);
                ensure(secondary_pos >= 0);
                const u16 value_length = secondary_x_guard->getPayloadLength(secondary_pos) - sizeof(SecondaryVersion);
-               auto secondary_version = *reinterpret_cast<SecondaryVersion*>(secondary_payload + value_length);
+               // auto secondary_version = *reinterpret_cast<SecondaryVersion*>(secondary_payload + value_length);
                u8 materialized_value[value_length];
                std::memcpy(materialized_value, secondary_payload, value_length);
                c_guard = std::move(secondary_x_guard);
@@ -372,47 +408,43 @@ OP_RESULT BTreeVI::scanAsc(u8* o_key,
    return OP_RESULT::OK;
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback)
+std::tuple<OP_RESULT, u16> BTreeVI::reconstructTupleSlowPath(BTreeSharedIterator& iterator,
+                                                             MutableSlice key,
+                                                             std::function<void(Slice value)> callback)
 {
+   raise(SIGTRAP);
+   u16 chain_length = 1;
    Slice payload = iterator.value();
    ensure(getSN(key) == 0);
    const auto primary_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
-   if (isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
-      if (primary_version.is_removed) {
-         return OP_RESULT::NOT_FOUND;
-      }
-      callback(payload.substr(0, payload.length() - sizeof(PrimaryVersion)));
-      return OP_RESULT::OK;
-   } else {
-      raise(SIGTRAP);
-      if (primary_version.isFinal()) {
-         return OP_RESULT::NOT_FOUND;
-      }
-      const u16 value_length = payload.length() - sizeof(PrimaryVersion);
-      u8 value[value_length];
-      std::memcpy(value, payload.data(), value_length);
-      SN sn = primary_version.next_version + 1;
-      setSN(key, sn);
-      while (iterator.seekExact(Slice(key.data(), key.length())) == OP_RESULT::OK) {
-         payload = iterator.value();
-         const auto& secondary_version = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
-         ensure(secondary_version.is_delta);
-         // Apply delta
-         applyDelta(value, payload.data(), value_length);
-         if (isVisibleForMe(secondary_version.worker_id, secondary_version.tts)) {
-            if (secondary_version.is_removed) {
-               return OP_RESULT::NOT_FOUND;
-            }
-            callback(Slice(value, value_length));
-            return OP_RESULT::OK;
-         }
-         if (sn == std::numeric_limits<SN>::max()) {
-            return OP_RESULT::NOT_FOUND;
-         }
-         setSN(key, ++sn);
-      }
-      return OP_RESULT::NOT_FOUND;
+   if (primary_version.isFinal()) {
+      return {OP_RESULT::NOT_FOUND, chain_length};
    }
+   const u16 value_length = payload.length() - sizeof(PrimaryVersion);
+   u8 value[value_length];
+   std::memcpy(value, payload.data(), value_length);
+   SN sn = primary_version.next_sn + 1;
+   setSN(key, sn);
+   while (iterator.seekExact(Slice(key.data(), key.length())) == OP_RESULT::OK) {
+      chain_length++;
+      payload = iterator.value();
+      const auto& secondary_version = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
+      ensure(secondary_version.is_delta);
+      // Apply delta
+      applyDelta(value, payload.data(), value_length);
+      if (isVisibleForMe(secondary_version.worker_id, secondary_version.tts)) {
+         if (secondary_version.is_removed) {
+            return {OP_RESULT::NOT_FOUND, chain_length};
+         }
+         callback(Slice(value, value_length));
+         return {OP_RESULT::OK, chain_length};
+      }
+      if (sn == std::numeric_limits<SN>::max()) {
+         return {OP_RESULT::NOT_FOUND, chain_length};
+      }
+      setSN(key, ++sn);
+   }
+   return {OP_RESULT::NOT_FOUND, chain_length};
 }
 // -------------------------------------------------------------------------------------
 void BTreeVI::applyDelta(u8* dst, const u8* delta_beginning, u16 delta_size)
