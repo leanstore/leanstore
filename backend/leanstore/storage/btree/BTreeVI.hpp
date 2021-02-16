@@ -33,10 +33,8 @@ class BTreeVI : public BTreeLL
       PrimaryVersion(u8 worker_id, u64 tts)
           : tts(tts),
             worker_id(worker_id),
-            first_sn(10),
-            next_sn(10),
-            // first_sn(std::numeric_limits<SN>::max()),
-            // next_sn(std::numeric_limits<SN>::max()),
+            first_sn(std::numeric_limits<SN>::max()),
+            next_sn(std::numeric_limits<SN>::max()),
             write_locked(false),
             is_removed(false)
       {
@@ -120,7 +118,7 @@ class BTreeVI : public BTreeLL
       std::memcpy(key_buffer, o_key, o_key_length);
       MutableSlice s_key(key_buffer, key_length);
       setSN(s_key, 0);
-      bool keep_scanning = true;
+      volatile bool keep_scanning = true;
       // -------------------------------------------------------------------------------------
       jumpmuTry()
       {
@@ -151,18 +149,31 @@ class BTreeVI : public BTreeLL
             // -------------------------------------------------------------------------------------
             std::memcpy(key_buffer, key.data(), key.length());
             s_key = MutableSlice(key_buffer, key.length());
-            u16 chain_length = std::get<1>(reconstructTuple(iterator, s_key, [&](Slice value) {
-               keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
-               counter++;
-            }));
-            if (!keep_scanning) {
-               jumpmu_return;
-            }
-            if (chain_length > 1) {
-               ensure(false);
-               setSN(s_key, 0);
-               ret = iterator.seekExact(Slice(s_key.data(), s_key.length()));
-               ensure(ret == OP_RESULT::OK);
+            if (0) {
+               Slice payload = iterator.value();
+               assert(getSN(key) == 0);
+               const auto primary_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
+               if (isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
+                  keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), payload.data(), payload.length() - sizeof(PrimaryVersion));
+               }
+               if (!keep_scanning) {
+                  jumpmu_return;
+               }
+            } else {
+               // costs 2K
+               const u16 chain_length = std::get<1>(reconstructTuple(iterator, s_key, [&](Slice value) {
+                  keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
+                  counter++;
+               }));
+               if (!keep_scanning) {
+                  jumpmu_return;
+               }
+               if (chain_length > 1) {
+                  ensure(false);
+                  setSN(s_key, 0);
+                  ret = iterator.seekExact(Slice(s_key.data(), s_key.length()));
+                  ensure(ret == OP_RESULT::OK);
+               }
             }
             // -------------------------------------------------------------------------------------
             if (asc) {
@@ -175,6 +186,7 @@ class BTreeVI : public BTreeLL
       }
       jumpmuCatch() { ensure(false); }
    }
+   // -------------------------------------------------------------------------------------
    inline u8 myWorkerID() { return cr::Worker::my().worker_id; }
    inline u64 myTTS() { return cr::Worker::my().active_tx.tts; }
    inline u64 myWTTS() { return myWorkerID() | (myTTS() << 8); }

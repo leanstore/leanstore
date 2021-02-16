@@ -184,6 +184,49 @@ struct BTreeNode : public BTreeNodeHeader {
             break;
    }
    // -------------------------------------------------------------------------------------
+   template <bool equality_only = false>
+   s16 linearSearchWithHint(const u8* key, u16 key_length, u16 start_pos, bool higher = true)
+   {
+      // EXP
+      assert((key_length >= prefix_length) && (bcmp(key, getLowerFenceKey(), prefix_length) == 0));
+      // the compared key has the same prefix
+      key += prefix_length;
+      key_length -= prefix_length;
+
+      if (higher) {
+         assert(cmpKeys(key, getKey(start_pos), key_length, getKeyLen(start_pos)) >= 0);
+         u16 cur = start_pos + 1;
+         for (; cur < count; cur++) {
+            int cmp = cmpKeys(key, getKey(cur), key_length, getKeyLen(cur));
+            if (cmp == 0) {
+               return cur;
+            } else {
+               break;
+            }
+         }
+         if (equality_only) {
+            return -1;
+         } else {
+            return cur;
+         }
+      } else {
+         u16 cur = start_pos - 1;
+         for (; cur >= 0; cur--) {
+            int cmp = cmpKeys(key, getKey(cur), key_length, getKeyLen(cur));
+            if (cmp == 0) {
+               return cur;
+            } else {
+               break;
+            }
+         }
+         if (equality_only) {
+            return -1;
+         } else {
+            return cur;
+         }
+      }
+   }
+   // -------------------------------------------------------------------------------------
    // Returns the position where the key[pos] (if exists) >= key (not less than the given key)
    // Asc: (2) (2) (1) -> (2) (2) (1) (0) -> (2) (2) (1) (0) (0) -> ...  -> (2) (2) (2)
    template <bool equalityOnly = false>
@@ -258,7 +301,7 @@ struct BTreeNode : public BTreeNodeHeader {
    // -------------------------------------------------------------------------------------
    void updateHint(u16 slotId);
    // -------------------------------------------------------------------------------------
-   s16 insertDoNotCopyPayload(const u8* key, u16 key_len, u16 payload_len);
+   s16 insertDoNotCopyPayload(const u8* key, u16 key_len, u16 payload_len, s32 pos = -1);
    s32 insert(const u8* key, u16 key_len, const u8* payload, u16 payload_len);
    static u16 spaceNeeded(u16 keyLength, u16 payload_len, u16 prefixLength);
    u16 spaceNeeded(u16 key_length, u16 payload_len);
@@ -290,7 +333,7 @@ struct BTreeNode : public BTreeNodeHeader {
    // Not synchronized or todo section
    bool removeSlot(u16 slotId);
    bool remove(const u8* key, const u16 keyLength);
-};
+};  // namespace btree
 // -------------------------------------------------------------------------------------
 static_assert(sizeof(BTreeNode) == EFFECTIVE_PAGE_SIZE, "BTreeNode must be equal to one page");
 // -------------------------------------------------------------------------------------
