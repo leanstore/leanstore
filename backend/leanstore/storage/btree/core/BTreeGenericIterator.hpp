@@ -23,7 +23,16 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    BTreeGeneric& btree;
    HybridPageGuard<BTreeNode> leaf;
    s32 cur = -1;
-   u8 buffer[1024];
+   u8 buffer[PAGE_SIZE];
+   bool prefix_copied = false;
+   // -------------------------------------------------------------------------------------
+  protected:
+   void gotoPage(const Slice& key)
+   {
+      leaf.unlock();
+      btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+      prefix_copied = false;
+   }
    // -------------------------------------------------------------------------------------
   public:
    BTreePessimisticIterator(BTreeGeneric& btree) : btree(btree) {}
@@ -36,8 +45,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          u8 key[key_length];
          std::memcpy(key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
          key[key_length - 1] = 0;
-         leaf.unlock();
-         btree.findLeafAndLatch<mode>(leaf, key, key_length);
+         gotoPage(Slice(key, key_length));
          cur = leaf->lowerBound<false>(key, key_length);
          return true;
       }
@@ -50,8 +58,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          const u16 key_length = leaf->lower_fence.length;
          u8 key[key_length];
          std::memcpy(key, leaf->getLowerFenceKey(), leaf->lower_fence.length);
-         leaf.unlock();
-         btree.findLeafAndLatch<mode>(leaf, key, key_length);
+         gotoPage(Slice(key, key_length));
          cur = leaf->lowerBound<false>(key, key_length);
          if (cur == leaf->count) {
             cur -= 1;
@@ -61,10 +68,20 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    }
 
   public:
+   OP_RESULT seekExactWithHint(Slice key, bool higher = true)  // EXP
+   {
+      ensure(cur != -1);
+      cur = leaf->linearSearchWithHint(key.data(), key.length(), cur, higher);
+      if (cur == -1) {
+         return seekExact(key);
+      } else {
+         return OP_RESULT::OK;
+      }
+   }
    virtual OP_RESULT seekExact(Slice key) override
    {
       if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
-         btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+         gotoPage(key);
       }
       cur = leaf->lowerBound<true>(key.data(), key.length());
       if (cur != -1) {
@@ -77,7 +94,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    virtual OP_RESULT seek(Slice key) override
    {
       if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
-         btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+         gotoPage(key);
       }
       cur = leaf->lowerBound<false>(key.data(), key.length());
       if (cur == leaf->count) {
@@ -90,7 +107,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    virtual OP_RESULT seekForPrev(Slice key) override
    {
       if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
-         btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+         gotoPage(key);
       }
       bool is_equal = false;
       cur = leaf->lowerBound<false>(key.data(), key.length(), &is_equal);
@@ -148,9 +165,15 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       }
    }
    // -------------------------------------------------------------------------------------
+   virtual u8* keyBuffer() { return buffer; }
+   // -------------------------------------------------------------------------------------
    virtual Slice key() override
    {
-      leaf->copyFullKey(cur, buffer);
+      if (!prefix_copied) {
+         leaf->copyPrefix(buffer);
+         prefix_copied = true;
+      }
+      leaf->copyKeyWithoutPrefix(cur, buffer + leaf->prefix_length);
       return Slice(buffer, leaf->getFullKeyLen(cur));
    }
    virtual bool isKeyEqualTo(Slice other) override { return other == key(); }
@@ -158,17 +181,27 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    virtual Slice keyWithoutPrefix() override { return Slice(leaf->getKey(cur), leaf->getKeyLen(cur)); }
    virtual u16 valueLength() { return leaf->getPayloadLength(cur); }
    virtual Slice value() override { return Slice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }
-};  // namespace btree
+};
 // -------------------------------------------------------------------------------------
 using BTreeSharedIterator = BTreePessimisticIterator<LATCH_FALLBACK_MODE::SHARED>;
 class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>
 {
   public:
    BTreeExclusiveIterator(BTreeGeneric& btree) : BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>(btree) {}
+   virtual OP_RESULT seekToInsertWithHint(Slice key, bool higher = true)
+   {
+      ensure(cur != -1);
+      cur = leaf->linearSearchWithHint(key.data(), key.length(), cur, higher);
+      if (cur == -1) {
+         return seekToInsert(key);
+      } else {
+        return OP_RESULT::OK;
+      }
+   }
    virtual OP_RESULT seekToInsert(Slice key)
    {
-      if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
-         btree.findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.data(), key.length());
+      if (cur == -1 || !keyInCurrentBoundaries(key)) {
+         gotoPage(key);
       }
       bool is_equal = false;
       cur = leaf->lowerBound<false>(key.data(), key.length(), &is_equal);
@@ -178,29 +211,31 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
          return OP_RESULT::OK;
       }
    }
-   virtual OP_RESULT canInsertInCurrentNode(Slice key, const u16 value_length)
+   virtual OP_RESULT enoughSpaceInCurrentNode(Slice key, const u16 value_length)
    {
       return (leaf->canInsert(key.length(), value_length)) ? OP_RESULT::OK : OP_RESULT::NOT_ENOUGH_SPACE;
    }
    virtual void insertInCurrentNode(Slice key, u16 value_length)
    {
-      assert(keyFitsInCurrentNode(key));
-      assert(canInsertInCurrentNode(key, value_length) == OP_RESULT::OK);
-      cur = leaf->insertDoNotCopyPayload(key.data(), key.length(), value_length);
+      assert(keyInCurrentBoundaries(key));
+      assert(enoughSpaceInCurrentNode(key, value_length) == OP_RESULT::OK);
+      cur = leaf->insertDoNotCopyPayload(key.data(), key.length(), value_length, cur);
    }
    virtual void insertInCurrentNode(Slice key, Slice value)
    {
-      assert(keyFitsInCurrentNode(key));
-      assert(canInsertInCurrentNode(key, value.length()) == OP_RESULT::OK);
-      cur = leaf->insert(key.data(), key.length(), value.data(), value.length());
+      assert(keyInCurrentBoundaries(key));
+      assert(enoughSpaceInCurrentNode(key, value.length()) == OP_RESULT::OK);
+      assert(cur != -1);
+      cur = leaf->insertDoNotCopyPayload(key.data(), key.length(), value.length(), cur);
+      std::memcpy(leaf->getPayload(cur), value.data(), value.length());
    }
-   virtual bool keyFitsInCurrentNode(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
+   virtual bool keyInCurrentBoundaries(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
    virtual void splitForKey(Slice key)
    {
       while (true) {
          jumpmuTry()
          {
-            if (cur == -1 || !keyFitsInCurrentNode(key)) {
+            if (cur == -1 || !keyInCurrentBoundaries(key)) {
                btree.findLeafCanJump<LATCH_FALLBACK_MODE::SHARED>(leaf, key.data(), key.length());
             }
             BufferFrame* bf = leaf.bf;
@@ -221,7 +256,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
       if (ret != OP_RESULT::OK) {
          return ret;
       }
-      ret = canInsertInCurrentNode(key, value.length());
+      ret = enoughSpaceInCurrentNode(key, value.length());
       if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
          splitForKey(key);
          goto restart;
@@ -234,21 +269,10 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    }
    }
    // -------------------------------------------------------------------------------------
-   virtual OP_RESULT replaceKV(Slice key, Slice value)
+   virtual OP_RESULT replaceKV(Slice, Slice)
    {
-   restart : {
-      auto ret = seekExact(key);
-      if (ret != OP_RESULT::OK) {
-         return ret;
-      }
-      removeCurrent();
-      if (canInsertInCurrentNode(key, value.length()) != OP_RESULT::OK) {
-         splitForKey(key);
-         goto restart;
-      }
-      insertInCurrentNode(key, value);
-      return OP_RESULT::OK;
-   }
+      ensure(false);
+      return OP_RESULT::NOT_FOUND;
    }
    // -------------------------------------------------------------------------------------
    virtual void shorten(const u16 new_size) { leaf->shortenPayload(cur, new_size); }

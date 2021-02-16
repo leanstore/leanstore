@@ -60,12 +60,12 @@ bool BTreeNode::prepareInsert(u16 key_len, u16 payload_len)
       return true;
 }
 // -------------------------------------------------------------------------------------
-s16 BTreeNode::insertDoNotCopyPayload(const u8* key, u16 key_len, u16 payload_length)
+s16 BTreeNode::insertDoNotCopyPayload(const u8* key, u16 key_len, u16 payload_length, s32 pos)
 {
    assert(canInsert(key_len, payload_length));
    prepareInsert(key_len, payload_length);
    // -------------------------------------------------------------------------------------
-   s32 slotId = lowerBound<false>(key, key_len);
+   s32 slotId = (pos == -1) ? lowerBound<false>(key, key_len) : pos;
    memmove(slot + slotId + 1, slot + slotId, sizeof(Slot) * (count - slotId));
    // -------------------------------------------------------------------------------------
    // StoreKeyValue
