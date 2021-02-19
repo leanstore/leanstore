@@ -1,8 +1,8 @@
 #pragma once
-#include "BTreeInterface.hpp"
 #include "BTreeIteratorInterface.hpp"
 #include "BTreeNode.hpp"
 #include "leanstore/Config.hpp"
+#include "leanstore/KVInterface.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "leanstore/sync-primitives/PageGuard.hpp"
@@ -19,6 +19,18 @@ namespace storage
 namespace btree
 {
 // -------------------------------------------------------------------------------------
+enum class WAL_LOG_TYPE : u8 {
+   WALInsert = 1,
+   WALUpdate = 2,
+   WALRemove = 3,
+   WALAfterBeforeImage = 4,
+   WALAfterImage = 5,
+   WALLogicalSplit = 10,
+   WALInitPage = 11
+};
+struct WALEntry {
+   WAL_LOG_TYPE type;
+};
 struct WALInitPage : WALEntry {
    DTID dt_id;
 };

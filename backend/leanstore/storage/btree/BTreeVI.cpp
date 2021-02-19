@@ -8,7 +8,7 @@
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::storage;
-using OP_RESULT = leanstore::storage::btree::OP_RESULT;
+using OP_RESULT = leanstore::OP_RESULT;
 // -------------------------------------------------------------------------------------
 // Assumptions made in this implementation:
 // 1) We don't insert an already removed key

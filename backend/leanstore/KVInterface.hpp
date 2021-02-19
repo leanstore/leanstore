@@ -1,28 +1,12 @@
 #pragma once
-#include "BTreeNode.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <functional>
 // -------------------------------------------------------------------------------------
-using namespace leanstore::storage;
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-namespace storage
-{
-namespace btree
-{
-enum class WAL_LOG_TYPE : u8 {
-   WALInsert = 1,
-   WALUpdate = 2,
-   WALRemove = 3,
-   WALAfterBeforeImage = 4,
-   WALAfterImage = 5,
-   WALLogicalSplit = 10,
-   WALInitPage = 11
-};
-struct WALEntry {
-   WAL_LOG_TYPE type;
-};
 // -------------------------------------------------------------------------------------
 enum class OP_RESULT : u8 { OK = 0, NOT_FOUND = 1, DUPLICATE = 2, ABORT_TX = 3, NOT_ENOUGH_SPACE = 4, OTHER = 5 };
 struct WALUpdateGenerator {
@@ -32,29 +16,27 @@ struct WALUpdateGenerator {
 };
 // -------------------------------------------------------------------------------------
 // Interface
-class BTreeInterface
+class KVInterface
 {
   public:
-   virtual OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) = 0;
+   virtual OP_RESULT lookup(u8* key, u16 key_length, std::function<void(const u8*, u16)> payload_callback) = 0;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) = 0;
-   virtual OP_RESULT updateSameSize(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0}) = 0;
+   virtual OP_RESULT updateSameSize(u8* key, u16 key_length, std::function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0}) = 0;
    virtual OP_RESULT remove(u8* key, u16 key_length) = 0;
    virtual OP_RESULT scanAsc(u8* start_key,
                              u16 key_length,
-                             function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
-                             function<void()>) = 0;
+                             std::function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
+                             std::function<void()>) = 0;
    virtual OP_RESULT scanDesc(u8* start_key,
                               u16 key_length,
-                              function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
-                              function<void()>) = 0;
+                              std::function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
+                              std::function<void()>) = 0;
    // -------------------------------------------------------------------------------------
    virtual u64 countPages() = 0;
    virtual u64 countEntries() = 0;
    virtual u64 getHeight() = 0;
 };
 // -------------------------------------------------------------------------------------
-}  // namespace btree
-}  // namespace storage
 using Slice = std::basic_string_view<u8>;
 using StringU = std::basic_string<u8>;
 struct MutableSlice {

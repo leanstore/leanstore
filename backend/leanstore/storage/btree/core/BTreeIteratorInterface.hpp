@@ -1,8 +1,8 @@
 #pragma once
-#include "BTreeInterface.hpp"
+#include "leanstore/KVInterface.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-using namespace leanstore::storage;
+#include <functional>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {

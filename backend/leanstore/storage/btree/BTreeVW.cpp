@@ -10,7 +10,7 @@
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::storage;
-using OP_RESULT = leanstore::storage::btree::OP_RESULT;
+using OP_RESULT = leanstore::OP_RESULT;
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {

@@ -2,9 +2,13 @@
 #include "Schema.hpp"
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
+#include "leanstore/Config.hpp"
+#include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
+#include <vector>
+using std::vector;
 // -------------------------------------------------------------------------------------
 template <template <typename> class AdapterType>
 class TPCCWorkload

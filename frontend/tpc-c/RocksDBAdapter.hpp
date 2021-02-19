@@ -1,7 +1,7 @@
 #pragma once
 #include "Types.hpp"
 // -------------------------------------------------------------------------------------
-#include "leanstore/storage/btree/core/BTreeInterface.hpp"
+#include "leanstore/KVInterface.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "rocksdb/db.h"
 // -------------------------------------------------------------------------------------
@@ -92,7 +92,7 @@ struct RocksDBAdapter {
    }
    // -------------------------------------------------------------------------------------
    template <class Fn>
-   void update1(const typename Record::Key& key, const Fn& fn, leanstore::storage::btree::WALUpdateGenerator)
+   void update1(const typename Record::Key& key, const Fn& fn, leanstore::WALUpdateGenerator)
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);

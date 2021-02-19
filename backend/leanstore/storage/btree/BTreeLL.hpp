@@ -1,7 +1,7 @@
 #pragma once
 #include "core/BTreeGeneric.hpp"
-#include "core/BTreeInterface.hpp"
 #include "leanstore/Config.hpp"
+#include "leanstore/KVInterface.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "leanstore/sync-primitives/PageGuard.hpp"
@@ -18,7 +18,7 @@ namespace storage
 namespace btree
 {
 // -------------------------------------------------------------------------------------
-class BTreeLL : public BTreeInterface, public BTreeGeneric
+class BTreeLL : public KVInterface, public BTreeGeneric
 {
   public:
    struct WALBeforeAfterImage : WALEntry {

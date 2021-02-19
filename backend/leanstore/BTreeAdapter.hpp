@@ -35,18 +35,18 @@ struct BTreeInterface {
    virtual void update(Key k, Payload& v) = 0;
 };
 // -------------------------------------------------------------------------------------
-using OP_RESULT = leanstore::storage::btree::OP_RESULT;
+using OP_RESULT = leanstore::OP_RESULT;
 template <typename Key, typename Payload>
 struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
-   leanstore::storage::btree::BTreeInterface& btree;
+   leanstore::KVInterface& btree;
 
-   BTreeVSAdapter(leanstore::storage::btree::BTreeInterface& btree) : btree(btree) {}
+   BTreeVSAdapter(leanstore::KVInterface& btree) : btree(btree) {}
 
    bool lookup(Key k, Payload& v) override
    {
       u8 key_bytes[sizeof(Key)];
       return btree.lookup(key_bytes, fold(key_bytes, k), [&](const u8* payload, u16 payload_length) { memcpy(&v, payload, payload_length); }) ==
-            OP_RESULT::OK;
+             OP_RESULT::OK;
    }
    void insert(Key k, Payload& v) override
    {
