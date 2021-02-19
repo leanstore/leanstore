@@ -1,5 +1,5 @@
 #pragma once
-#include "types.hpp"
+#include "Types.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
@@ -7,14 +7,12 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
-#include <map>
 #include <string>
 
 using namespace leanstore;
 template <class Record>
 struct LeanStoreAdapter {
    storage::btree::BTreeInterface* btree;
-   std::map<std::string, Record> map;
    string name;
    LeanStoreAdapter()
    {

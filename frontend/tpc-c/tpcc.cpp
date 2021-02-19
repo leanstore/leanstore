@@ -1,4 +1,7 @@
-#include "adapter.hpp"
+#include "LeanStoreAdapter.hpp"
+#include "TPCCWorkload.hpp"
+#include "Schema.hpp"
+// -------------------------------------------------------------------------------------
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -6,8 +9,6 @@
 #include "leanstore/utils/Parallelize.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ZipfGenerator.hpp"
-#include "schema.hpp"
-#include "types.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 
@@ -26,30 +27,10 @@ DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
 DEFINE_bool(tpcc_fast_load, false, "");
 DEFINE_bool(tpcc_remove, true, "");
+DEFINE_bool(order_wdc_index, true, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
-// -------------------------------------------------------------------------------------
-LeanStoreAdapter<warehouse_t> warehouse;
-LeanStoreAdapter<district_t> district;
-LeanStoreAdapter<customer_t> customer;
-LeanStoreAdapter<customer_wdl_t> customerwdl;
-LeanStoreAdapter<history_t> history;
-LeanStoreAdapter<neworder_t> neworder;
-LeanStoreAdapter<order_t> order;
-LeanStoreAdapter<order_wdc_t> order_wdc;
-LeanStoreAdapter<orderline_t> orderline;
-LeanStoreAdapter<item_t> item;
-LeanStoreAdapter<stock_t> stock;
-// -------------------------------------------------------------------------------------
-// yeah, dirty include...
-#include "tpcc_workload.hpp"
-// -------------------------------------------------------------------------------------
-double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
-{
-   double tps = ((factor * 1.0 / (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0)));
-   return (tps / 1000000.0);
-}
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
@@ -57,9 +38,19 @@ int main(int argc, char** argv)
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
    LeanStore db;
+   LeanStoreAdapter<warehouse_t> warehouse;
+   LeanStoreAdapter<district_t> district;
+   LeanStoreAdapter<customer_t> customer;
+   LeanStoreAdapter<customer_wdl_t> customerwdl;
+   LeanStoreAdapter<history_t> history;
+   LeanStoreAdapter<neworder_t> neworder;
+   LeanStoreAdapter<order_t> order;
+   LeanStoreAdapter<order_wdc_t> order_wdc;
+   LeanStoreAdapter<orderline_t> orderline;
+   LeanStoreAdapter<item_t> item;
+   LeanStoreAdapter<stock_t> stock;
    auto& crm = db.getCRManager();
    // -------------------------------------------------------------------------------------
-   warehouseCount = FLAGS_tpcc_warehouse_count;
    crm.scheduleJobSync(0, [&]() {
       warehouse = LeanStoreAdapter<warehouse_t>(db, "warehouse");
       district = LeanStoreAdapter<district_t>(db, "district");
@@ -78,12 +69,13 @@ int main(int argc, char** argv)
    db.registerConfigEntry("tpcc_warehouse_affinity", FLAGS_tpcc_warehouse_affinity);
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
    // -------------------------------------------------------------------------------------
-   // const u64 load_threads = (FLAGS_tpcc_fast_load) ? thread::hardware_concurrency() : FLAGS_worker_threads;
+   TPCCWorkload<LeanStoreAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
+                                       FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove);
    {
       crm.scheduleJobSync(0, [&]() {
          cr::Worker::my().startTX();
-         loadItem();
-         loadWarehouse();
+         tpcc.loadItem();
+         tpcc.loadWarehouse();
          cr::Worker::my().commitTX();
       });
       std::atomic<u32> g_w_id = 1;
@@ -95,11 +87,11 @@ int main(int argc, char** argv)
                   return;
                }
                cr::Worker::my().startTX();
-               loadStock(w_id);
-               loadDistrinct(w_id);
+               tpcc.loadStock(w_id);
+               tpcc.loadDistrinct(w_id);
                for (Integer d_id = 1; d_id <= 10; d_id++) {
-                  loadCustomer(w_id, d_id);
-                  loadOrders(w_id, d_id);
+                  tpcc.loadCustomer(w_id, d_id);
+                  tpcc.loadOrders(w_id, d_id);
                }
                cr::Worker::my().commitTX();
             }
@@ -132,10 +124,10 @@ int main(int argc, char** argv)
                if (FLAGS_tpcc_warehouse_affinity) {
                   w_id = t_i + 1;
                } else {
-                  w_id = urand(1, FLAGS_tpcc_warehouse_count);
+                  w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
                }
-               tx(w_id);
-               if (FLAGS_tpcc_abort_pct && urand(0, 100) <= FLAGS_tpcc_abort_pct) {
+               tpcc.tx(w_id);
+               if (FLAGS_tpcc_abort_pct && tpcc.urand(0, 100) <= FLAGS_tpcc_abort_pct) {
                   cr::Worker::my().abortTX();
                } else {
                   cr::Worker::my().commitTX();
