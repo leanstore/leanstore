@@ -3,10 +3,7 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
-#include "leanstore/utils/Misc.hpp"
-#include "leanstore/utils/Parallelize.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
-#include "leanstore/utils/ZipfGenerator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 template <template <typename> class AdapterType>
@@ -290,7 +287,7 @@ class TPCCWorkload
          // order.scan({w_id, d_id, o_id}, [&](const order_t& rec) { ol_cnt = rec.o_ol_cnt; c_id = rec.o_c_id; return false; });
          // if (ol_cnt == minInteger)
          // continue;
-         Integer ol_cnt, c_id;
+         Integer ol_cnt = -1, c_id = -1;
 
          bool is_safe_to_continue = false;
          order.scan(
@@ -627,8 +624,8 @@ class TPCCWorkload
       }
 
       Varchar<24> h_new_data = Varchar<24>(w_name) || Varchar<24>("    ") || d_name;
-      Integer t_id = (Integer)WorkerCounters::myCounters().t_id.load();
-      Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
+      Integer t_id = (Integer)leanstore::WorkerCounters::myCounters().t_id.load();
+      Integer h_id = (Integer)leanstore::WorkerCounters::myCounters().variable_for_workload++;
       history.insert({t_id, h_id}, {c_id, c_d_id, c_w_id, d_id, w_id, datetime, h_amount, h_new_data});
    }
    // -------------------------------------------------------------------------------------
@@ -743,8 +740,8 @@ class TPCCWorkload
       }
 
       Varchar<24> h_new_data = Varchar<24>(w_name) || Varchar<24>("    ") || d_name;
-      Integer t_id = Integer(WorkerCounters::myCounters().t_id.load());
-      Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
+      Integer t_id = Integer(leanstore::WorkerCounters::myCounters().t_id.load());
+      Integer h_id = (Integer)leanstore::WorkerCounters::myCounters().variable_for_workload++;
       history.insert({t_id, h_id}, {c_id, c_d_id, c_w_id, d_id, w_id, datetime, h_amount, h_new_data});
    }
    // -------------------------------------------------------------------------------------
@@ -843,8 +840,8 @@ class TPCCWorkload
                                                randomastring<2>(2, 2), randomzip(), randomnstring(16, 16), now, c_credit, 50000.00,
                                                randomNumeric(0.0000, 0.5000), -10.00, 1, 0, 0, randomastring<500>(300, 500)});
          customerwdl.insert({w_id, d_id, c_last, c_first}, {i + 1});
-         Integer t_id = (Integer)WorkerCounters::myCounters().t_id;
-         Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
+         Integer t_id = (Integer)leanstore::WorkerCounters::myCounters().t_id;
+         Integer h_id = (Integer)leanstore::WorkerCounters::myCounters().variable_for_workload++;
          history.insert({t_id, h_id}, {i + 1, d_id, w_id, d_id, w_id, now, 10.00, randomastring<24>(12, 24)});
       }
    }

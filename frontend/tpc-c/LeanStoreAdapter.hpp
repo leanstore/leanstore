@@ -35,7 +35,7 @@ struct LeanStoreAdapter {
    void scanDesc(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
    {
       u8 folded_key[Record::maxFoldLength()];
-      u16 folded_key_len = Record::foldRecord(folded_key, key);
+      u16 folded_key_len = Record::foldKey(folded_key, key);
       btree->scanDesc(
           folded_key, folded_key_len,
           [&](const u8* key, [[maybe_unused]] u16 key_length, const u8* payload, [[maybe_unused]] u16 payload_length) {
@@ -43,17 +43,17 @@ struct LeanStoreAdapter {
                 return false;
              }
              typename Record::Key typed_key;
-             Record::unfoldRecord(key, typed_key);
+             Record::unfoldKey(key, typed_key);
              const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
              return fn(typed_key, typed_payload);
           },
           undo);
    }
    // -------------------------------------------------------------------------------------
-   void insert(const typename Record::Key& rec_key, const Record& record)
+   void insert(const typename Record::Key& key, const Record& record)
    {
       u8 folded_key[Record::maxFoldLength()];
-      u16 folded_key_len = Record::foldRecord(folded_key, rec_key);
+      u16 folded_key_len = Record::foldKey(folded_key, key);
       const auto res = btree->insert(folded_key, folded_key_len, (u8*)(&record), sizeof(Record));
       ensure(res == btree::OP_RESULT::OK || res == btree::OP_RESULT::ABORT_TX);
       if (res == btree::OP_RESULT::ABORT_TX) {
@@ -65,7 +65,7 @@ struct LeanStoreAdapter {
    void lookup1(const typename Record::Key& key, const Fn& fn)
    {
       u8 folded_key[Record::maxFoldLength()];
-      u16 folded_key_len = Record::foldRecord(folded_key, key);
+      u16 folded_key_len = Record::foldKey(folded_key, key);
       const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          static_cast<void>(payload_length);
          const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
@@ -79,7 +79,7 @@ struct LeanStoreAdapter {
    void update1(const typename Record::Key& key, const Fn& fn, storage::btree::WALUpdateGenerator wal_update_generator)
    {
       u8 folded_key[Record::maxFoldLength()];
-      u16 folded_key_len = Record::foldRecord(folded_key, key);
+      u16 folded_key_len = Record::foldKey(folded_key, key);
       const auto res = btree->updateSameSize(
           folded_key, folded_key_len,
           [&](u8* payload, u16 payload_length) {
@@ -95,10 +95,10 @@ struct LeanStoreAdapter {
       }
    }
 
-   bool erase(const typename Record::Key& key)
+   void erase(const typename Record::Key& key)
    {
       u8 folded_key[Record::maxFoldLength()];
-      u16 folded_key_len = Record::foldRecord(folded_key, key);
+      u16 folded_key_len = Record::foldKey(folded_key, key);
       const auto res = btree->remove(folded_key, folded_key_len);
       if (res == btree::OP_RESULT::ABORT_TX) {
          cr::Worker::my().abortTX();
@@ -110,7 +110,7 @@ struct LeanStoreAdapter {
    void scan(const typename Record::Key& key, const Fn& fn, std::function<void()> undo)
    {
       u8 folded_key[Record::maxFoldLength()];
-      u16 folded_key_len = Record::foldRecord(folded_key, key);
+      u16 folded_key_len = Record::foldKey(folded_key, key);
       btree->scanAsc(
           folded_key, folded_key_len,
           [&](const u8* key, u16 key_length, const u8* payload, u16 payload_length) {
@@ -119,7 +119,7 @@ struct LeanStoreAdapter {
              }
              static_cast<void>(payload_length);
              typename Record::Key typed_key;
-             Record::unfoldRecord(key, typed_key);
+             Record::unfoldKey(key, typed_key);
              const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
              return fn(typed_key, typed_payload);
           },
@@ -130,7 +130,7 @@ struct LeanStoreAdapter {
    auto lookupField(const typename Record::Key& key, Field Record::*f)
    {
       u8 folded_key[Record::maxFoldLength()];
-      u16 folded_key_len = Record::foldRecord(folded_key, key);
+      u16 folded_key_len = Record::foldKey(folded_key, key);
       Field local_f;
       const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          static_cast<void>(payload_length);
