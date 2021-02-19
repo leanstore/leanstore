@@ -1,5 +1,5 @@
 #include "Units.hpp"
-#include "leanstore/BTreeAdapter.hpp"
+#include "YcsbAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
