@@ -1,16 +1,16 @@
 #pragma once
 #include "BufferFrame.hpp"
-#include "DTTypes.hpp"
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <functional>
+#include <mutex>
 #include <tuple>
 #include <unordered_map>
-#include <mutex>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
+using DTType = u8;
 namespace storage
 {
 // -------------------------------------------------------------------------------------

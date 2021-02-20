@@ -43,9 +43,9 @@ DECLARE_uint64(backoff_strategy);
 // -------------------------------------------------------------------------------------
 DECLARE_uint64(backoff);
 // -------------------------------------------------------------------------------------
-DECLARE_uint64(x);
-DECLARE_uint64(y);
-DECLARE_double(d);
+DECLARE_double(tmp1);
+DECLARE_double(tmp2);
+DECLARE_double(tmp3);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(bstar);
 DECLARE_bool(bulk_insert);
@@ -68,4 +68,5 @@ DECLARE_bool(vw_todo);
 DECLARE_bool(vi);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
-DECLARE_uint64(tmp);
+DECLARE_bool(store);
+DECLARE_bool(load);

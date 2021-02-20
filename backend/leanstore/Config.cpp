@@ -46,9 +46,9 @@ DEFINE_double(xmerge_target_pct, 80, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff, 512, "");
 // -------------------------------------------------------------------------------------
-DEFINE_uint64(x, 512, "");
-DEFINE_uint64(y, 100, "");
-DEFINE_double(d, 0.0, "");
+DEFINE_double(tmp1, 0.0, "for ad-hoc experiments");
+DEFINE_double(tmp2, 0.0, "");
+DEFINE_double(tmp3, 0.0, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(bulk_insert, false, "");
 // -------------------------------------------------------------------------------------
@@ -70,5 +70,6 @@ DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(vw_todo, false, "");
 DEFINE_bool(vi, false, "BTree with SI using in-place version");
 // -------------------------------------------------------------------------------------
+DEFINE_bool(store, false, "");
+DEFINE_bool(load, false, "");
 DEFINE_bool(persist, false, "");
-DEFINE_uint64(tmp, 0, "");

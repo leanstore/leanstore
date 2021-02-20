@@ -60,6 +60,10 @@ LeanStore::LeanStore()
    DTRegistry::global_dt_registry.registerDatastructureType(1, storage::btree::BTreeVW::getMeta());
    DTRegistry::global_dt_registry.registerDatastructureType(2, storage::btree::BTreeVI::getMeta());
    // -------------------------------------------------------------------------------------
+   if (FLAGS_load) {
+      // TODO:
+   }
+   // -------------------------------------------------------------------------------------
    u64 end_of_block_device;
    if (FLAGS_wal_offset_gib == 0) {
       ioctl(ssd_fd, BLKGETSIZE64, &end_of_block_device);
@@ -76,7 +80,10 @@ LeanStore::~LeanStore()
    while (bg_threads_counter) {
       MYPAUSE();
    }
-   //  close(ssd_fd);
+   if (FLAGS_store) {
+      buffer_manager->writeAllBufferFrames();
+      // TODO:
+   }
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::startProfilingThread()
@@ -241,14 +248,18 @@ LeanStore::GlobalStats LeanStore::getGlobalStats()
    return global_stats;
 }
 // -------------------------------------------------------------------------------------
-void LeanStore::persist()
+void LeanStore::serializeState()
 {
-   // TODO
+   // Serialize data structure instances
+   std::ofstream json_file;
+   json_file.open("leanstore.json", ios::trunc);
+
 }
 // -------------------------------------------------------------------------------------
-void LeanStore::restore()
+void LeanStore::deserializeState()
 {
-   // TODO
+   std::ofstream json_file;
+   json_file.open("leanstore.json", ios::trunc);
 }
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore

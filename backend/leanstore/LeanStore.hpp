@@ -38,6 +38,7 @@ class LeanStore
    // -------------------------------------------------------------------------------------
   public:
    LeanStore();
+   ~LeanStore();
    // -------------------------------------------------------------------------------------
    template <typename T>
    void registerConfigEntry(string name, T value)
@@ -58,10 +59,10 @@ class LeanStore
    cr::CRManager& getCRManager() { return *cr_manager; }
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
-   void persist();
-   void restore();
    // -------------------------------------------------------------------------------------
-   ~LeanStore();
+  private:
+   void serializeState();
+   void deserializeState();
 };
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore
