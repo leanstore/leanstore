@@ -97,29 +97,25 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
    }
 }
 // -------------------------------------------------------------------------------------
-void BufferManager::clearSSD()
-{
-   // TODO
-}
-// -------------------------------------------------------------------------------------
 void BufferManager::writeAllBufferFrames()
 {
    stopBackgroundThreads();
    ensure(!FLAGS_out_of_place);
    utils::Parallelize::parallelRange(dram_pool_size, [&](u64 bf_b, u64 bf_e) {
+      BufferFrame::Page page;
       for (u64 bf_i = bf_b; bf_i < bf_e; bf_i++) {
          auto& bf = bfs[bf_i];
          bf.header.latch.mutex.lock();
-         s64 ret = pwrite(ssd_fd, bf.page, PAGE_SIZE, bf.header.pid * PAGE_SIZE);
-         ensure(ret == PAGE_SIZE);
+         if (bf.page.dt_id < 999) {
+            page.dt_id = bf.page.dt_id;
+            page.magic_debugging_number = bf.header.pid;
+            DTRegistry::global_dt_registry.checkpoint(bf.page.dt_id, bf, page.dt);
+            s64 ret = pwrite(ssd_fd, page, PAGE_SIZE, bf.header.pid * PAGE_SIZE);
+            ensure(ret == PAGE_SIZE);
+         }
          bf.header.latch.mutex.unlock();
       }
    });
-}
-// -------------------------------------------------------------------------------------
-void BufferManager::restore()
-{
-   // TODO
 }
 // -------------------------------------------------------------------------------------
 u64 BufferManager::consumedPages()
@@ -207,18 +203,18 @@ void BufferManager::reclaimPage(BufferFrame& bf)
 BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
 {
    if (swip_value.isHOT()) {
-      BufferFrame& bf = swip_value.bfRef();
+      BufferFrame& bf = swip_value.asBufferFrame();
       swip_guard.recheck();
       return bf;
    } else if (swip_value.isCOOL()) {
-      BufferFrame* bf = swip_value.bfPtrAsHot();
+      BufferFrame* bf = &swip_value.asBufferFrameMasked();
       swip_guard.recheck();
       OptimisticGuard bf_guard(bf->header.latch, true);
       ExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);  // parent
       ExclusiveGuard bf_x_guard(bf_guard);                // child
       bf->header.state = BufferFrame::STATE::HOT;
       swip_value.warm();
-      return swip_value.bfRef();
+      return swip_value.asBufferFrame();
    }
    // -------------------------------------------------------------------------------------
    swip_guard.unlock();  // otherwise we would get a deadlock, P->G, G->P
@@ -244,7 +240,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       readPageSync(pid, bf.page);
       COUNTERS_BLOCK()
       {
-        // WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
+         // WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
          if (FLAGS_trace_dt_id >= 0 && bf.page.dt_id == FLAGS_trace_dt_id &&
              utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
             utils::printBackTrace();

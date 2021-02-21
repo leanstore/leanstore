@@ -64,6 +64,9 @@ class BTreeLL : public KVInterface, public BTreeGeneric
    static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
    static void todo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
+   static void checkpoint(void*, BufferFrame& bf, u8* dest);
+   static std::unordered_map<std::string, std::string> serialize(void* btree_object);
+   static void deserialize(void* btree_object, std::unordered_map<std::string, std::string> serialized);
    static DTRegistry::DTMeta getMeta();
 };
 // -------------------------------------------------------------------------------------

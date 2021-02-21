@@ -79,7 +79,7 @@ class BufferManager
    inline BufferFrame& tryFastResolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
    {
       if (swip_value.isHOT()) {
-         BufferFrame& bf = swip_value.bfRef();
+         BufferFrame& bf = swip_value.asBufferFrame();
          swip_guard.recheck();
          return bf;
       } else {
@@ -89,7 +89,6 @@ class BufferManager
    BufferFrame& resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value);
    void reclaimPage(BufferFrame& bf);
    // -------------------------------------------------------------------------------------
-   void stopBackgroundThreads();
    /*
     * Life cycle of a fix:
     * 1- Check if the pid is swizzled, if yes then store the BufferFrame address
@@ -103,8 +102,7 @@ class BufferManager
    void readPageAsync(PID pid, u8* destination, std::function<void()> callback);
    void fDataSync();
    // -------------------------------------------------------------------------------------
-   void clearSSD();
-   void restore();
+   void stopBackgroundThreads();
    void writeAllBufferFrames();
    // -------------------------------------------------------------------------------------
    u64 getPoolSize() { return dram_pool_size; }

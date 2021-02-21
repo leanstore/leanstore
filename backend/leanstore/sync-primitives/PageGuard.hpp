@@ -44,7 +44,7 @@ class HybridPageGuard
    }
    // -------------------------------------------------------------------------------------
    // I: Root case
-   HybridPageGuard(BufferFrame* bf) : bf(bf), guard(bf->header.latch)
+   HybridPageGuard(Swip<BufferFrame> sentinal_swip) : bf(&sentinal_swip.asBufferFrame()), guard(bf->header.latch)
    {
       guard.toOptimisticSpin();
       syncGSN();

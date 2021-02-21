@@ -90,9 +90,10 @@ struct BTreeNode : public BTreeNodeHeader {
          u8 head_bytes[4];
       };
    };
-   static constexpr u64 pure_slots_capacity = (EFFECTIVE_PAGE_SIZE - sizeof(BTreeNodeHeader)) / (sizeof(Slot));
+   // Just to make sizeof(BTreeNode) == EFFECTIVE_PAGE_SIZE
+   static constexpr u64 max_theorical_slots_capacity = (EFFECTIVE_PAGE_SIZE - sizeof(BTreeNodeHeader)) / (sizeof(Slot));
    static constexpr u64 left_space_to_waste = (EFFECTIVE_PAGE_SIZE - sizeof(BTreeNodeHeader)) % (sizeof(Slot));
-   Slot slot[pure_slots_capacity];
+   Slot slot[max_theorical_slots_capacity];
    u8 padding[left_space_to_waste];
 
    BTreeNode(bool is_leaf) : BTreeNodeHeader(is_leaf) {}

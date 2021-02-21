@@ -127,7 +127,7 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
          std::memcpy(wal_entry->payload + key.length(), value.data(), value.length());
          wal_entry.submit();
       } else {
-        iterator.leaf.incrementGSN();
+         iterator.leaf.incrementGSN();
       }
       jumpmu_return OP_RESULT::OK;
    }
@@ -231,13 +231,30 @@ struct DTRegistry::DTMeta BTreeLL::getMeta()
                                     .check_space_utilization = checkSpaceUtilization,
                                     .checkpoint = checkpoint,
                                     .undo = undo,
-                                    .todo = todo};
+                                    .todo = todo,
+                                    .serialize = serialize,
+                                    .deserialize = deserialize};
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------
 struct ParentSwipHandler BTreeLL::findParent(void* btree_object, BufferFrame& to_find)
 {
    return BTreeGeneric::findParent(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
+}
+// -------------------------------------------------------------------------------------
+void BTreeLL::checkpoint(void* btree_object, BufferFrame& bf, u8* dest)
+{
+   return BTreeGeneric::checkpoint(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), bf, dest);
+}
+// -------------------------------------------------------------------------------------
+std::unordered_map<std::string, std::string> BTreeLL::serialize(void* btree_object)
+{
+   return BTreeGeneric::serialize(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)));
+}
+// -------------------------------------------------------------------------------------
+void BTreeLL::deserialize(void* btree_object, std::unordered_map<std::string, std::string> serialized)
+{
+   BTreeGeneric::deserialize(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), serialized);
 }
 // -------------------------------------------------------------------------------------
 }  // namespace btree

@@ -68,5 +68,4 @@ DECLARE_bool(vw_todo);
 DECLARE_bool(vi);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
-DECLARE_bool(store);
-DECLARE_bool(load);
+DECLARE_bool(recover);

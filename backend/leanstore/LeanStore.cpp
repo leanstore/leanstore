@@ -11,6 +11,10 @@
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
+#include "rapidjson/document.h"
+#include "rapidjson/istreamwrapper.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "tabulate/table.hpp"
 // -------------------------------------------------------------------------------------
 #include <linux/fs.h>
@@ -24,6 +28,7 @@
 // -------------------------------------------------------------------------------------
 using namespace tabulate;
 using leanstore::utils::threadlocal::sum;
+namespace rs = rapidjson;
 namespace leanstore
 {
 // -------------------------------------------------------------------------------------
@@ -60,8 +65,8 @@ LeanStore::LeanStore()
    DTRegistry::global_dt_registry.registerDatastructureType(1, storage::btree::BTreeVW::getMeta());
    DTRegistry::global_dt_registry.registerDatastructureType(2, storage::btree::BTreeVI::getMeta());
    // -------------------------------------------------------------------------------------
-   if (FLAGS_load) {
-      // TODO:
+   if (FLAGS_recover) {
+      deserializeState();
    }
    // -------------------------------------------------------------------------------------
    u64 end_of_block_device;
@@ -80,9 +85,9 @@ LeanStore::~LeanStore()
    while (bg_threads_counter) {
       MYPAUSE();
    }
-   if (FLAGS_store) {
+   if (FLAGS_persist) {
+      serializeState();
       buffer_manager->writeAllBufferFrames();
-      // TODO:
    }
 }
 // -------------------------------------------------------------------------------------
@@ -200,12 +205,7 @@ storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name)
    assert(btrees_ll.find(name) == btrees_ll.end());
    auto& btree = btrees_ll[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(0, reinterpret_cast<void*>(&btree), name);
-   auto& bf = buffer_manager->allocatePage();
-   Guard guard(bf.header.latch, GUARD_STATE::EXCLUSIVE);
-   bf.header.keep_in_memory = true;
-   bf.page.dt_id = dtid;
-   guard.unlock();
-   btree.create(dtid, &bf);
+   btree.create(dtid);
    return btree;
 }
 
@@ -215,12 +215,7 @@ storage::btree::BTreeVW& LeanStore::registerBTreeVW(string name)
    assert(btrees_vw.find(name) == btrees_vw.end());
    auto& btree = btrees_vw[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(1, reinterpret_cast<void*>(&btree), name);
-   auto& bf = buffer_manager->allocatePage();
-   Guard guard(bf.header.latch, GUARD_STATE::EXCLUSIVE);
-   bf.header.keep_in_memory = true;
-   bf.page.dt_id = dtid;
-   guard.unlock();
-   btree.create(dtid, &bf);
+   btree.create(dtid);
    return btree;
 }
 // -------------------------------------------------------------------------------------
@@ -229,12 +224,7 @@ storage::btree::BTreeVI& LeanStore::registerBTreeVI(string name)
    assert(btrees_vi.find(name) == btrees_vi.end());
    auto& btree = btrees_vi[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(2, reinterpret_cast<void*>(&btree), name);
-   auto& bf = buffer_manager->allocatePage();
-   Guard guard(bf.header.latch, GUARD_STATE::EXCLUSIVE);
-   bf.header.keep_in_memory = true;
-   bf.page.dt_id = dtid;
-   guard.unlock();
-   btree.create(dtid, &bf);
+   btree.create(dtid);
    return btree;
 }
 // -------------------------------------------------------------------------------------
@@ -253,14 +243,74 @@ void LeanStore::serializeState()
    // Serialize data structure instances
    std::ofstream json_file;
    json_file.open("leanstore.json", ios::trunc);
-
+   rapidjson::Document d;
+   rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+   d.SetObject();
+   // -------------------------------------------------------------------------------------
+   rapidjson::Value dts(rapidjson::kArrayType);
+   for (auto& dt : DTRegistry::global_dt_registry.dt_instances_ht) {
+      rs::Value dt_json_object(rs::kObjectType);
+      const DTID dt_id = dt.first;
+      rs::Value name;
+      name.SetString(std::get<2>(dt.second).c_str(), std::get<2>(dt.second).length(), allocator);
+      dt_json_object.AddMember("name", name, allocator);
+      dt_json_object.AddMember("type", rs::Value(std::get<0>(dt.second)), allocator);
+      dt_json_object.AddMember("id", rs::Value(dt_id), allocator);
+      // -------------------------------------------------------------------------------------
+      std::unordered_map<std::string, std::string> serialized_dt_map = DTRegistry::global_dt_registry.serialize(dt_id);
+      rs::Value dt_serialized(rs::kObjectType);
+      for (const auto& [key, value] : serialized_dt_map) {
+         rs::Value k, v;
+         k.SetString(key.c_str(), key.length(), allocator);
+         v.SetString(value.c_str(), value.length(), allocator);
+         dt_serialized.AddMember(k, v, allocator);
+      }
+      dt_json_object.AddMember("serialized", dt_serialized, allocator);
+      // -------------------------------------------------------------------------------------
+      dts.PushBack(dt_json_object, allocator);
+   }
+   d.AddMember("registered_datastructures", dts, allocator);
+   // -------------------------------------------------------------------------------------
+   rapidjson::StringBuffer sb;
+   rapidjson::Writer<rapidjson::StringBuffer> writer(sb);
+   d.Accept(writer);
+   json_file << sb.GetString();
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::deserializeState()
 {
-   std::ofstream json_file;
-   json_file.open("leanstore.json", ios::trunc);
+   std::ifstream json_file;
+   json_file.open("leanstore.json");
+   rs::IStreamWrapper isw(json_file);
+   rs::Document d;
+   d.ParseStream(isw);
+   const rs::Value& dts = d["registered_datastructures"];
+   assert(dts.IsArray());
+   for (auto& dt : dts.GetArray()) {
+      assert(dt.IsObject());
+      const DTID dt_id = dt["id"].GetInt();
+      const DTType dt_type = dt["type"].GetInt();
+      const std::string dt_name = dt["name"].GetString();
+      std::unordered_map<std::string, std::string> serialized_dt_map;
+      const rs::Value& serialized_object = dt["serialized"];
+      for (rs::Value::ConstMemberIterator itr = serialized_object.MemberBegin(); itr != serialized_object.MemberEnd(); ++itr) {
+         serialized_dt_map[itr->name.GetString()] = itr->value.GetString();
+      }
+      // -------------------------------------------------------------------------------------
+      if (dt_type == 0) {
+         auto& btree = btrees_ll[dt_name];
+         DTRegistry::global_dt_registry.registerDatastructureInstance(0, reinterpret_cast<void*>(&btree), dt_name, dt_id);
+      } else if (dt_type == 1) {
+         auto& btree = btrees_vw[dt_name];
+         DTRegistry::global_dt_registry.registerDatastructureInstance(1, reinterpret_cast<void*>(&btree), dt_name, dt_id);
+      } else if (dt_type == 2) {
+         auto& btree = btrees_vi[dt_name];
+         DTRegistry::global_dt_registry.registerDatastructureInstance(2, reinterpret_cast<void*>(&btree), dt_name, dt_id);
+      } else {
+         ensure(false);
+      }
+      DTRegistry::global_dt_registry.deserialize(dt_id, serialized_dt_map);
+   }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore
-// -------------------------------------------------------------------------------------

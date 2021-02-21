@@ -26,7 +26,11 @@ struct LeanStoreAdapter {
       } else if (FLAGS_vi) {
          btree = &db.registerBTreeVI(name);
       } else {
-         btree = &db.registerBTreeLL(name);
+         if (!FLAGS_recover) {
+            btree = &db.registerBTreeLL(name);
+         } else {
+            btree = &db.retrieveBTreeLL(name);
+         }
       }
    }
    // -------------------------------------------------------------------------------------

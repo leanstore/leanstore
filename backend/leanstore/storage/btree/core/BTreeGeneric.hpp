@@ -48,13 +48,13 @@ class BTreeGeneric
    template <LATCH_FALLBACK_MODE mode>
    friend class BTreePessimisticIterator;
    // -------------------------------------------------------------------------------------
-   BufferFrame* meta_node_bf;  // kept in memory
+   Swip<BufferFrame> meta_node_bf;  // kept in memory
    atomic<u64> height = 1;
    DTID dt_id;
    // -------------------------------------------------------------------------------------
    BTreeGeneric();
    // -------------------------------------------------------------------------------------
-   void create(DTID dtid, BufferFrame* meta_bf);
+   void create(DTID dtid);
    // -------------------------------------------------------------------------------------
    bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
    // -------------------------------------------------------------------------------------
@@ -70,7 +70,11 @@ class BTreeGeneric
    static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);
    static ParentSwipHandler findParent(BTreeGeneric& btree_object, BufferFrame& to_find);
    static void iterateChildrenSwips(void* btree_object, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback);
-   static void checkpoint(void*, BufferFrame& bf, u8* dest);
+   static void checkpoint(BTreeGeneric&, BufferFrame& bf, u8* dest);
+   static std::unordered_map<std::string, std::string> serialize(BTreeGeneric&);
+   static void deserialize(BTreeGeneric&, std::unordered_map<std::string, std::string>);
+   // -------------------------------------------------------------------------------------
+
    // -------------------------------------------------------------------------------------
    ~BTreeGeneric();
    // -------------------------------------------------------------------------------------

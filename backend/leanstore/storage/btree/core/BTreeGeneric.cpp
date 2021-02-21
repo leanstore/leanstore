@@ -19,16 +19,22 @@ namespace btree
 // -------------------------------------------------------------------------------------
 BTreeGeneric::BTreeGeneric() {}
 // -------------------------------------------------------------------------------------
-void BTreeGeneric::create(DTID dtid, BufferFrame* meta_bf)
+void BTreeGeneric::create(DTID dtid)
 {
+   this->dt_id = dtid;
+   meta_node_bf = &BMC::global_bf->allocatePage();
+   Guard guard(meta_node_bf.asBufferFrame().header.latch, GUARD_STATE::EXCLUSIVE);
+   meta_node_bf.asBufferFrame().header.keep_in_memory = true;
+   meta_node_bf.asBufferFrame().page.dt_id = dtid;
+   guard.unlock();
+   // -------------------------------------------------------------------------------------
    auto root_write_guard_h = HybridPageGuard<BTreeNode>(dtid);
    auto root_write_guard = ExclusivePageGuard<BTreeNode>(std::move(root_write_guard_h));
    root_write_guard.init(true);
    // -------------------------------------------------------------------------------------
-   this->meta_node_bf = meta_bf;
-   this->dt_id = dtid;
-   HybridPageGuard<BTreeNode> meta_guard(meta_bf);
+   HybridPageGuard<BTreeNode> meta_guard(meta_node_bf);
    ExclusivePageGuard meta_page(std::move(meta_guard));
+   meta_page->is_leaf = false;
    meta_page->upper = root_write_guard.bf();  // HACK: use upper of meta node as a swip to the storage root
 }
 // -------------------------------------------------------------------------------------
@@ -120,7 +126,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          p_x_guard->requestSpaceFor(space_needed_for_separator);
-         assert(meta_node_bf != p_x_guard.bf());
+         assert(&meta_node_bf.asBufferFrame() != p_x_guard.bf());
          assert(!p_x_guard->is_leaf);
          // -------------------------------------------------------------------------------------
          auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
@@ -232,7 +238,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
       // -------------------------------------------------------------------------------------
-      assert(p_x_guard->getChild(pos).bfPtr() == c_x_guard.bf());
+      assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf());
       if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
          p_guard = std::move(p_x_guard);
          c_guard = std::move(c_x_guard);
@@ -457,23 +463,44 @@ bool BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Op
    return false;
 }
 // -------------------------------------------------------------------------------------
-void BTreeGeneric::checkpoint(void*, BufferFrame& bf, u8* dest)
+// pre: source buffer frame is shared latched
+void BTreeGeneric::checkpoint(BTreeGeneric& btree, BufferFrame& bf, u8* dest)
 {
    std::memcpy(dest, bf.page.dt, EFFECTIVE_PAGE_SIZE);
-   auto node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
-   auto dest_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
-   if (!node.is_leaf) {
+   auto& dest_node = *reinterpret_cast<BTreeNode*>(dest);
+   // root node is handled as inner
+   if (dest_node.isInner()) {
       for (u64 t_i = 0; t_i < dest_node.count; t_i++) {
          if (!dest_node.getChild(t_i).isEVICTED()) {
-            auto& bf = dest_node.getChild(t_i).bfRefAsHot();
-            dest_node.getChild(t_i).evict(bf.header.pid);
+            auto& child_bf = dest_node.getChild(t_i).asBufferFrameMasked();
+            dest_node.getChild(t_i).evict(child_bf.header.pid);
          }
       }
       if (!dest_node.upper.isEVICTED()) {
-         auto& bf = dest_node.upper.bfRefAsHot();
-         dest_node.upper.evict(bf.header.pid);
+         auto& child_bf = dest_node.upper.asBufferFrameMasked();
+         dest_node.upper.evict(child_bf.header.pid);
       }
    }
+}
+// -------------------------------------------------------------------------------------
+std::unordered_map<std::string, std::string> BTreeGeneric::serialize(BTreeGeneric& btree)
+{
+   assert(btree.meta_node_bf.asBufferFrame().page.dt_id == btree.dt_id);
+   return {{"dt_id", std::to_string(btree.dt_id)},
+           {"height", std::to_string(btree.height.load())},
+           {"meta_pid", std::to_string(btree.meta_node_bf.asBufferFrame().header.pid)}};
+}
+// -------------------------------------------------------------------------------------
+void BTreeGeneric::deserialize(BTreeGeneric& btree, std::unordered_map<std::string, std::string> map)
+{
+   btree.dt_id = std::stod(map["dt_id"]);
+   btree.height = std::stod(map["height"]);
+   btree.meta_node_bf.evict(std::stod(map["meta_pid"]));
+   HybridLatch dummy_latch;
+   Guard dummy_guard(&dummy_latch);
+   dummy_guard.toOptimisticSpin();
+   btree.meta_node_bf = &BMC::global_bf->resolveSwip(dummy_guard, btree.meta_node_bf);
+   assert(btree.meta_node_bf.asBufferFrame().page.dt_id == btree.dt_id);
 }
 // -------------------------------------------------------------------------------------
 // TODO: Refactor
@@ -496,9 +523,9 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
    u8* key = c_node.getUpperFenceKey();
    // -------------------------------------------------------------------------------------
    // check if bf is the root node
-   if (c_swip->bfPtrAsHot() == &to_find) {
+   if (&c_swip->asBufferFrameMasked() == &to_find) {
       p_guard.recheck();
-      return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = btree.meta_node_bf};
+      return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = &btree.meta_node_bf.asBufferFrame()};
    }
    // -------------------------------------------------------------------------------------
    HybridPageGuard c_guard(p_guard, p_guard->upper);  // the parent of the bf we are looking for (to_find)
@@ -515,7 +542,7 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
             c_swip = &(c_guard->getChild(pos));
          }
       }
-      return (c_swip->bfPtrAsHot() != &to_find);
+      return (&c_swip->asBufferFrameMasked() != &to_find);
    };
    while (!c_guard->is_leaf && search_condition()) {
       p_guard = std::move(c_guard);
@@ -526,7 +553,7 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
       level++;
    }
    p_guard.unlock();
-   const bool found = c_swip->bfPtrAsHot() == &to_find;
+   const bool found = &c_swip->asBufferFrameMasked() == &to_find;
    c_guard.recheck();
    if (!found) {
       jumpmu::jump();

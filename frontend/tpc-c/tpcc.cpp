@@ -1,6 +1,6 @@
 #include "LeanStoreAdapter.hpp"
-#include "TPCCWorkload.hpp"
 #include "Schema.hpp"
+#include "TPCCWorkload.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
@@ -71,7 +71,7 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    TPCCWorkload<LeanStoreAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
                                        FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove);
-   {
+   if (!FLAGS_recover) {
       crm.scheduleJobSync(0, [&]() {
          cr::Worker::my().startTX();
          tpcc.loadItem();
@@ -170,9 +170,5 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << endl << "consumed space in GiB = " << gib << endl;
-   // -------------------------------------------------------------------------------------
-   if (FLAGS_persist) {
-      db.getBufferManager().writeAllBufferFrames();
-   }
    return 0;
 }

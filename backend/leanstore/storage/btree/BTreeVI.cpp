@@ -351,7 +351,9 @@ struct DTRegistry::DTMeta BTreeVI::getMeta()
                                     .check_space_utilization = checkSpaceUtilization,
                                     .checkpoint = checkpoint,
                                     .undo = undo,
-                                    .todo = todo};
+                                    .todo = todo,
+                                    .serialize = serialize,
+                                    .deserialize = deserialize};
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------
