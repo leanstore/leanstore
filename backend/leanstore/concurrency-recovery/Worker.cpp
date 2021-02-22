@@ -151,10 +151,7 @@ void Worker::startTX()
       active_tx.min_gsn = clock_gsn;
       if (FLAGS_si) {
          if (FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
-            for (u64 w = 0; w < workers_count; w++) {
-               my_snapshot[w] = all_workers[w]->high_water_mark;
-               all_workers[w]->lower_water_marks[worker_id * 8].store(my_snapshot[w], std::memory_order_release);
-            }
+           refreshSnapshot();
          }
          active_tx.tts = next_tts++;
          if (FLAGS_vw && FLAGS_vw_todo && todo_list.size()) {  // Cleanup
