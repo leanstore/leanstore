@@ -818,7 +818,7 @@ class TPCCWorkload
              return false;
           },
           []() {});
-      leanstore::WorkerCounters::myCounters().variable_for_workload = h_id + 1;
+      leanstore::WorkerCounters::myCounters().variable_for_workload = h_id;
    }
    // -------------------------------------------------------------------------------------
    void loadStock(Integer w_id)
