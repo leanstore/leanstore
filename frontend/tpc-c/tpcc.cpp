@@ -98,8 +98,8 @@ int main(int argc, char** argv)
          });
       }
       crm.joinAll();
+      sleep(2);
    }
-   sleep(2);
    // -------------------------------------------------------------------------------------
    double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << "data loaded - consumed space in GiB = " << gib << endl;
@@ -114,6 +114,7 @@ int main(int argc, char** argv)
    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
+         tpcc.prepare();
          volatile u64 tx_acc = 0;
          cr::Worker::my().refreshSnapshot();
          while (keep_running) {

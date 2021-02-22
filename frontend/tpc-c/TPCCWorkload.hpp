@@ -3,8 +3,8 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/Config.hpp"
-#include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
+#include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include <vector>
@@ -806,6 +806,20 @@ class TPCCWorkload
    Integer randomId(Integer fromId, Integer toId) { return leanstore::utils::RandomGenerator::getRand(fromId, toId + 1); }
    // [low, high]
    Integer urand(Integer low, Integer high) { return rnd(high - low + 1) + low; }
+   // -------------------------------------------------------------------------------------
+   void prepare()
+   {
+      Integer t_id = Integer(leanstore::WorkerCounters::myCounters().t_id.load());
+      Integer h_id = 0;
+      history.scanDesc(
+          {t_id, std::numeric_limits<Integer>::max()},
+          [&](const history_t::Key& key, const history_t&) {
+             h_id = key.h_pk + 1;
+             return false;
+          },
+          []() {});
+      leanstore::WorkerCounters::myCounters().variable_for_workload = h_id + 1;
+   }
    // -------------------------------------------------------------------------------------
    void loadStock(Integer w_id)
    {

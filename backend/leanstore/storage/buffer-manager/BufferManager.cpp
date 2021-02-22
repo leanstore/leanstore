@@ -97,6 +97,27 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
    }
 }
 // -------------------------------------------------------------------------------------
+std::unordered_map<std::string, std::string> BufferManager::serialize()
+{
+   // TODO: correctly serialize ranges of used pages
+   std::unordered_map<std::string, std::string> map;
+   PID max_pid = 0;
+   for (u64 p_i = 0; p_i < partitions_count; p_i++) {
+      max_pid = std::max<PID>(partitions[p_i].next_pid, max_pid);
+   }
+   map["max_pid"] = std::to_string(max_pid);
+   return map;
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::deserialize(std::unordered_map<std::string, std::string> map)
+{
+   PID max_pid = std::stod(map["max_pid"]);
+   max_pid = (max_pid + (partitions_count - 1)) & ~(partitions_count - 1);
+   for (u64 p_i = 0; p_i < partitions_count; p_i++) {
+      partitions[p_i].next_pid = max_pid + p_i;
+   }
+}
+// -------------------------------------------------------------------------------------
 void BufferManager::writeAllBufferFrames()
 {
    stopBackgroundThreads();

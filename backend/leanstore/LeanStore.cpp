@@ -247,6 +247,16 @@ void LeanStore::serializeState()
    rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
    d.SetObject();
    // -------------------------------------------------------------------------------------
+   std::unordered_map<std::string, std::string> serialized_bm_map = buffer_manager->serialize();
+   rs::Value bm_serialized(rs::kObjectType);
+   for (const auto& [key, value] : serialized_bm_map) {
+      rs::Value k, v;
+      k.SetString(key.c_str(), key.length(), allocator);
+      v.SetString(value.c_str(), value.length(), allocator);
+      bm_serialized.AddMember(k, v, allocator);
+   }
+   d.AddMember("buffer_manager", bm_serialized, allocator);
+   // -------------------------------------------------------------------------------------
    rapidjson::Value dts(rapidjson::kArrayType);
    for (auto& dt : DTRegistry::global_dt_registry.dt_instances_ht) {
       rs::Value dt_json_object(rs::kObjectType);
@@ -284,6 +294,14 @@ void LeanStore::deserializeState()
    rs::IStreamWrapper isw(json_file);
    rs::Document d;
    d.ParseStream(isw);
+   // -------------------------------------------------------------------------------------
+   const rs::Value& bm = d["buffer_manager"];
+   std::unordered_map<std::string, std::string> serialized_bm_map;
+   for (rs::Value::ConstMemberIterator itr = bm.MemberBegin(); itr != bm.MemberEnd(); ++itr) {
+      serialized_bm_map[itr->name.GetString()] = itr->value.GetString();
+   }
+   buffer_manager->deserialize(serialized_bm_map);
+   // -------------------------------------------------------------------------------------
    const rs::Value& dts = d["registered_datastructures"];
    assert(dts.IsArray());
    for (auto& dt : dts.GetArray()) {
