@@ -19,6 +19,7 @@ namespace cr
 {
 // -------------------------------------------------------------------------------------
 thread_local Worker* Worker::tls_ptr = nullptr;
+atomic<u64> Worker::global_tts = 0;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
     : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), ssd_fd(fd)
@@ -26,7 +27,8 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
-   my_snapshot = make_unique<u64[]>(workers_count);
+   my_snapshot = make_unique<atomic<u64>[]>(workers_count);
+   sorted_active_workers = make_unique<u64[]>(workers_count);
    lower_water_marks = static_cast<atomic<u64>*>(std::aligned_alloc(64, 8 * sizeof(u64) * workers_count));
    for (u64 w = 0; w < workers_count; w++) {
       lower_water_marks[w * 8] = 0;
@@ -134,8 +136,13 @@ void Worker::submitDTEntry(u64 total_size)
 void Worker::refreshSnapshot()
 {
    for (u64 w = 0; w < workers_count; w++) {
-      my_snapshot[w] = all_workers[w]->high_water_mark;
+      my_snapshot[w].store(all_workers[w]->high_water_mark, std::memory_order_release);
       all_workers[w]->lower_water_marks[worker_id * 8].store(my_snapshot[w], std::memory_order_release);
+   }
+   // TODO: Optimize
+   std::sort(sorted_active_workers.get(), sorted_active_workers.get() + workers_count, std::greater<int>());
+   for (u64 w = 0; w < workers_count; w++) {
+      sorted_active_workers[w] &= WORKERS_MASK;
    }
 }
 // -------------------------------------------------------------------------------------
@@ -151,10 +158,10 @@ void Worker::startTX()
       active_tx.min_gsn = clock_gsn;
       if (FLAGS_si) {
          if (FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
-           refreshSnapshot();
+            refreshSnapshot();
          }
-         active_tx.tts = next_tts++;
-         if (FLAGS_vw && FLAGS_vw_todo && todo_list.size()) {  // Cleanup
+         active_tx.tts = Worker::global_tts.fetch_add(1);
+         if (FLAGS_todo && todo_list.size()) {  // Cleanup
             {
                u64 min = std::numeric_limits<u64>::max();
                for (u64 w = 0; w < workers_count; w++) {
@@ -165,10 +172,8 @@ void Worker::startTX()
             while (todo_list.size()) {
                auto& todo = todo_list.front();
                if (todo.tts < lower_water_mark) {
-                  getWALEntry(todo.lsn, todo.in_memory_offset, [&](WALEntry* entry) {
-                     const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(entry);
-                     leanstore::storage::DTRegistry::global_dt_registry.todo(dt_entry.dt_id, dt_entry.payload, todo.tts);
-                  });
+                  const auto& todo = todo_list.front();
+                  leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry.get(), todo.tts);
                   todo_list.pop();
                } else {
                   break;
@@ -350,9 +355,10 @@ outofmemory : {
 }
 }
 // -------------------------------------------------------------------------------------
-void Worker::addTODO(u64 tts, LID lsn, u32 in_memory_offset)
+void Worker::addTODO(u64 tts, DTID dt_id, u64 size, std::function<void(u8* entry)> cb)
 {
-   todo_list.push({tts, lsn, in_memory_offset});
+   todo_list.push({tts, dt_id, std::make_unique<u8[]>(size)});
+   cb(todo_list.back().entry.get());
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

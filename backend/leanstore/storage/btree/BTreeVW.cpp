@@ -339,7 +339,11 @@ OP_RESULT BTreeVW::remove(u8* key, u16 key_length)
                   std::memcpy(wal_entry->payload + key_length, payload, payload_length);
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
-                  cr::Worker::my().addTODO(myTTS(), wal_entry.lsn, wal_entry.in_memory_offset);
+                  cr::Worker::my().addTODO(myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
+                     auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
+                     todo_entry.key_length = key_length;
+                     std::memcpy(todo_entry.key, key, key_length);
+                  });
                   // -------------------------------------------------------------------------------------
                   version.in_memory_offset = wal_entry.in_memory_offset;
                   version.worker_id = myWorkerID();
@@ -614,40 +618,27 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 }
 // -------------------------------------------------------------------------------------
 // For Transaction abort and not for recovery
-void BTreeVW::todo(void* btree_object, const u8* wal_entry_ptr, const u64 tts)
+void BTreeVW::todo(void* btree_object, const u8* entry_ptr, const u64 tts)
 {
    auto& btree = *reinterpret_cast<BTreeVW*>(btree_object);
-   const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
-   switch (entry.type) {
-      case WAL_LOG_TYPE::WALRemove: {
-         // Prev was insert or update
-         const auto& remove_entry = *reinterpret_cast<const WALRemove*>(&entry);
-         while (true) {
-            jumpmuTry()
-            {
-               const u8* key = remove_entry.payload;
-               const u16 key_length = remove_entry.key_length;
-               HybridPageGuard<BTreeNode> leaf_guard;
-               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf_guard, key, key_length);
-               auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
-               const s16 pos = leaf_ex_guard->lowerBound<true>(key, key_length);
-               if (pos != -1) {
-                  auto& version = *reinterpret_cast<Version*>(leaf_ex_guard->getPayload(pos));
-                  if (version.tts == tts) {
-                     leaf_ex_guard->removeSlot(pos);
-                  }
-               }
-               leaf_guard = std::move(leaf_ex_guard);
-               jumpmu_return;
+   const auto& entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
+   while (true) {
+      jumpmuTry()
+      {
+         HybridPageGuard<BTreeNode> leaf_guard;
+         btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf_guard, entry.key, entry.key_length);
+         auto leaf_ex_guard = ExclusivePageGuard(std::move(leaf_guard));
+         const s16 pos = leaf_ex_guard->lowerBound<true>(entry.key, entry.key_length);
+         if (pos != -1) {
+            auto& version = *reinterpret_cast<Version*>(leaf_ex_guard->getPayload(pos));
+            if (version.tts == tts) {
+               leaf_ex_guard->removeSlot(pos);
             }
-            jumpmuCatch() {}
          }
-         break;
+         leaf_guard = std::move(leaf_ex_guard);
+         jumpmu_return;
       }
-      default: {
-         ensure(false);
-         break;
-      }
+      jumpmuCatch() {}
    }
 }
 // -------------------------------------------------------------------------------------

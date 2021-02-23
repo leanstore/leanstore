@@ -43,6 +43,10 @@ struct alignas(512) WALChunk {
 struct Worker {
    // Static
    static thread_local Worker* tls_ptr;
+   static atomic<u64> global_tts;
+   // -------------------------------------------------------------------------------------
+   static constexpr u64 WORKERS_BITS = 8;
+   static constexpr u64 WORKERS_MASK = (1 < WORKERS_BITS) - 1;
    // -------------------------------------------------------------------------------------
    const u64 worker_id;
    Worker** all_workers;
@@ -54,22 +58,21 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    u64 next_tts = 0;
    // Shared with all workers
-   u8 padding_1[64];
-   atomic<u64> high_water_mark = 0;  // High water mark, exclusive: TS < mark are visible
-   u8 padding_2[64];
+   alignas(64) atomic<u64> high_water_mark = 0;  // High water mark, exclusive: TS < mark are visible
    // -------------------------------------------------------------------------------------
    // Garbage Collect (is_removed) when the is_removed version visible for all
    u64 lower_water_mark = 0;  // Safe to garbage collect
    atomic<u64>* lower_water_marks;
-   struct TODO {
+   struct TODO {  // In-memory
       u64 tts;
-      LID lsn;
-      u64 in_memory_offset;
+      DTID dt_id;
+      unique_ptr<u8[]> entry;
    };
    std::queue<TODO> todo_list;
-   void addTODO(u64 tts, LID lsn, u32 in_memory_offset);
+   void addTODO(u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    // -------------------------------------------------------------------------------------
-   unique_ptr<u64[]> my_snapshot;
+   unique_ptr<atomic<u64>[]> my_snapshot;
+   unique_ptr<u64[]> sorted_active_workers;
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------

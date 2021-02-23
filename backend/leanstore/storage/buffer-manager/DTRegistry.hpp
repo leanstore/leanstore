@@ -61,7 +61,7 @@ struct DTRegistry {
    void checkpoint(DTID dt_id, BufferFrame& bf, u8*);
    // Recovery / SI
    void undo(DTID dt_id, const u8* wal_entry, u64 tts);
-   void todo(DTID dt_id, const u8* wal_entry, u64 tts);
+   void todo(DTID dt_id, const u8* entry, u64 tts);
    // Serialization
    std::unordered_map<std::string, std::string> serialize(DTID dt_id);
    void deserialize(DTID dt_id, std::unordered_map<std::string, std::string> map);

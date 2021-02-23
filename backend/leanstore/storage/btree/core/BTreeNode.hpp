@@ -188,6 +188,9 @@ struct BTreeNode : public BTreeNodeHeader {
    s16 linearSearchWithHint(const u8* key, u16 key_length, u16 start_pos, bool higher = true)
    {
       // EXP
+      if (key_length < prefix_length || (bcmp(key, getLowerFenceKey(), prefix_length) != 0)) {
+         return -1;
+      }
       assert((key_length >= prefix_length) && (bcmp(key, getLowerFenceKey(), prefix_length) == 0));
       // the compared key has the same prefix
       key += prefix_length;
