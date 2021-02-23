@@ -1,10 +1,7 @@
 #pragma once
 #include "Adapter.hpp"
-#include "Types.hpp"
 // -------------------------------------------------------------------------------------
-#include "leanstore/KVInterface.hpp"
 #include "leanstore/LeanStore.hpp"
-#include "leanstore/storage/btree/core/WALMacros.hpp"
 // -------------------------------------------------------------------------------------
 #include <cassert>
 #include <cstdint>

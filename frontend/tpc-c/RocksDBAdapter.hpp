@@ -1,9 +1,7 @@
 #pragma once
-#include "../shared/Types.hpp"
+#include "../shared/Adapter.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/Config.hpp"
-#include "leanstore/KVInterface.hpp"
-#include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "rocksdb/db.h"
 // -------------------------------------------------------------------------------------
 #include <cassert>
@@ -42,7 +40,7 @@ struct RocksDB {
 };
 // -------------------------------------------------------------------------------------
 template <class Record>
-struct RocksDBAdapter {
+struct RocksDBAdapter : public Adapter<Record> {
    using SEP = u32;  // use 32-bits integer as separator instead of column family
    RocksDB& map;
    RocksDBAdapter(RocksDB& map) : map(map) {}
@@ -62,8 +60,7 @@ struct RocksDBAdapter {
       assert(s.ok());
    }
    // -------------------------------------------------------------------------------------
-   template <class Fn>
-   void lookup1(const typename Record::Key& key, const Fn& fn)
+   void lookup1(const typename Record::Key& key, const std::function<void(const Record&)>& fn)
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -125,8 +122,7 @@ struct RocksDBAdapter {
       return __builtin_bswap32(*reinterpret_cast<const uint32_t*>(str.data())) ^ (1ul << 31);
    }
    //             [&](const neworder_t::Key& key, const neworder_t&) {
-   template <class Fn>
-   void scan(const typename Record::Key& key, const Fn& fn, std::function<void()>)
+   void scan(const typename Record::Key& key, const std::function<bool(const typename Record::Key&, const Record&)>& fn, std::function<void()> undo)
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -143,8 +139,9 @@ struct RocksDBAdapter {
       delete it;
    }
    // -------------------------------------------------------------------------------------
-   template <class Fn>
-   void scanDesc(const typename Record::Key& key, const Fn& fn, std::function<void()>)
+   void scanDesc(const typename Record::Key& key,
+                 const std::function<bool(const typename Record::Key&, const Record&)>& fn,
+                 std::function<void()> undo)
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
