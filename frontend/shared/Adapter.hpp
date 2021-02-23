@@ -6,7 +6,8 @@
 
 #pragma once
 #include "Types.hpp"
-#include "leanstore/LeanStore.hpp"
+#include "leanstore/KVInterface.hpp"
+#include "leanstore/storage/btree/core/WALMacros.hpp"
 // -------------------------------------------------------------------------------------
 #include <cassert>
 #include <cstdint>
@@ -91,9 +92,7 @@ class Adapter
          found = true;
          local_f = (record).*f;
       });
-      ensure(found);
+      assert(found);
       return local_f;
    }
-
-   virtual uint64_t count() = 0;
 };
