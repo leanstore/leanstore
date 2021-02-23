@@ -1,4 +1,4 @@
-#include "LeanStoreAdapter.hpp"
+#include "../shared/LeanStoreAdapter.hpp"
 #include "Schema.hpp"
 #include "TPCCWorkload.hpp"
 // -------------------------------------------------------------------------------------
