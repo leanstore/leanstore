@@ -1,5 +1,5 @@
 #pragma once
-#include "../shared/Adapter.hpp"
+#include "Adapter.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/Config.hpp"
 #include "rocksdb/db.h"
