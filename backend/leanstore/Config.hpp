@@ -64,7 +64,7 @@ DECLARE_bool(wal_fsync);
 DECLARE_bool(si);
 DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
-DECLARE_bool(vw_todo);
+DECLARE_bool(todo);
 DECLARE_bool(vi);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);

@@ -71,7 +71,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    OP_RESULT seekExactWithHint(Slice key, bool higher = true)  // EXP
    {
       ensure(cur != -1);
-      cur = leaf->linearSearchWithHint(key.data(), key.length(), cur, higher);
+      cur = leaf->linearSearchWithHint<true>(key.data(), key.length(), cur, higher);
       if (cur == -1) {
          return seekExact(key);
       } else {
@@ -195,7 +195,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
       if (cur == -1) {
          return seekToInsert(key);
       } else {
-        return OP_RESULT::OK;
+         return OP_RESULT::OK;
       }
    }
    virtual OP_RESULT seekToInsert(Slice key)

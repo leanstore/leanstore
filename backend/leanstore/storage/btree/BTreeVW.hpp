@@ -79,6 +79,10 @@ class BTreeVW : public BTreeLL
       u16 payload_length;
       u8 payload[];
    };
+   struct TODOEntry {  // In-memory
+      u16 key_length;
+      u8 key[];
+   };
    static_assert(sizeof(Version) == (20), "");
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;

@@ -22,24 +22,19 @@ namespace btree
 class BTreeVI : public BTreeLL
 {
   public:
-   using SN = u64;
+   using SN = u16;
    struct __attribute__((packed)) PrimaryVersion {
       u64 tts : 56;
       u8 worker_id : 8;
-      SN first_sn;  // oldest
-      SN next_sn;   // the latest to be
       u8 write_locked : 1;
       u8 is_removed : 1;
-      PrimaryVersion(u8 worker_id, u64 tts)
-          : tts(tts),
-            worker_id(worker_id),
-            first_sn(std::numeric_limits<SN>::max()),
-            next_sn(std::numeric_limits<SN>::max()),
-            write_locked(false),
-            is_removed(false)
-      {
-      }
-      bool isFinal() const { return first_sn == next_sn; }
+      u8 is_gc_scheduled : 1;
+      // -------------------------------------------------------------------------------------
+      SN next_sn = 0, prev_sn = 0;
+      u32 versions_counter = 0;  // For debugging
+      // -------------------------------------------------------------------------------------
+      PrimaryVersion(u8 worker_id, u64 tts) : tts(tts), worker_id(worker_id), write_locked(false), is_removed(false), is_gc_scheduled(false) {}
+      bool isFinal() const { return next_sn == 0; }
       bool isWriteLocked() const { return write_locked; }
       void writeLock() { write_locked = true; }
       void unlock() { write_locked = false; }
@@ -47,13 +42,15 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) SecondaryVersion {
       u8 worker_id : 8;
       u64 tts : 56;
+      SN next_sn, prev_sn;
       u8 is_removed : 1;
       u8 is_delta : 1;      // TODO: atm, always true
       u8 is_skippable : 1;  // TODO: atm, not used
-      SecondaryVersion(u8 worker_id, u64 tts, bool is_removed, bool is_delta)
-          : worker_id(worker_id), tts(tts), is_removed(is_removed), is_delta(is_delta)
+      SecondaryVersion(u8 worker_id, u64 tts, bool is_removed, bool is_delta, SN next_sn = 0, SN prev_sn = 0)
+          : worker_id(worker_id), tts(tts), is_removed(is_removed), is_delta(is_delta), next_sn(next_sn), prev_sn(prev_sn)
       {
       }
+      bool isFinal() const { return next_sn == 0; }
    };
    struct WALBeforeAfterImage : WALEntry {
       u16 image_size;
@@ -89,6 +86,12 @@ class BTreeVI : public BTreeLL
       u8 payload[];
    };
    // -------------------------------------------------------------------------------------
+   struct TODOEntry {
+      u16 key_length;
+      SN sn;
+      u8 key[];
+   };
+   // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
    OP_RESULT updateSameSize(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0}) override;
@@ -103,7 +106,7 @@ class BTreeVI : public BTreeLL
                       function<void()>) override;
    // -------------------------------------------------------------------------------------
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
-   static void todo(void*, const u8*, const u64);
+   static void todo(void* btree_object, const u8* wal_entry_ptr, const u64);
    static void deserialize(void*, std::unordered_map<std::string, std::string>) {}      // TODO:
    static std::unordered_map<std::string, std::string> serialize(void*) { return {}; }  // TODO:
    static DTRegistry::DTMeta getMeta();
