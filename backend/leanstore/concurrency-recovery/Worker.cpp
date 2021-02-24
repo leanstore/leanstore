@@ -172,7 +172,6 @@ void Worker::startTX()
             while (todo_list.size()) {
                auto& todo = todo_list.front();
                if (todo.tts < lower_water_mark) {
-                  const auto& todo = todo_list.front();
                   leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry.get(), todo.tts);
                   todo_list.pop();
                } else {
