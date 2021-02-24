@@ -74,6 +74,7 @@ int main(int argc, char** argv)
                                        FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove, FLAGS_tpcc_analytical_weight);
    if (!FLAGS_recover) {
       crm.scheduleJobSync(0, [&]() {
+         cr::Worker::my().refreshSnapshot();
          cr::Worker::my().startTX();
          tpcc.loadItem();
          tpcc.loadWarehouse();
@@ -82,6 +83,7 @@ int main(int argc, char** argv)
       std::atomic<u32> g_w_id = 1;
       for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
          crm.scheduleJobAsync(t_i, [&]() {
+            cr::Worker::my().refreshSnapshot();
             while (true) {
                u32 w_id = g_w_id++;
                if (w_id > FLAGS_tpcc_warehouse_count) {
@@ -114,9 +116,10 @@ int main(int argc, char** argv)
    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
+         cr::Worker::my().refreshSnapshot();
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         cr::Worker::my().refreshSnapshot();
+         cout << t_i << "si:" << cr::Worker::my().my_snapshot[0] << "," << cr::Worker::my().my_snapshot[1] << endl;
          while (keep_running) {
             jumpmuTry()
             {

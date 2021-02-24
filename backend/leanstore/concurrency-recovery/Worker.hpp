@@ -60,16 +60,14 @@ struct Worker {
    // Shared with all workers
    alignas(64) atomic<u64> high_water_mark = 0;  // High water mark, exclusive: TS < mark are visible
    // -------------------------------------------------------------------------------------
-   // Garbage Collect (is_removed) when the is_removed version visible for all
-   u64 lower_water_mark = 0;  // Safe to garbage collect
-   atomic<u64>* lower_water_marks;
    struct TODO {  // In-memory
+      u8 worker_id;
       u64 tts;
       DTID dt_id;
       unique_ptr<u8[]> entry;
    };
    std::queue<TODO> todo_list;
-   void addTODO(u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
+   void addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    // -------------------------------------------------------------------------------------
    unique_ptr<atomic<u64>[]> my_snapshot;
    unique_ptr<u64[]> sorted_active_workers;
@@ -179,12 +177,15 @@ struct Worker {
    void startTX();
    void commitTX();
    void abortTX();
-   bool isVisibleForMe(u8 worker_id, u64 tts);
-   bool isVisibleForMe(u64 tts);
+   // -------------------------------------------------------------------------------------
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
    void refreshSnapshot();
+   bool isVisibleForAll(u8 worker_id, u64 tts);
+   bool isVisibleForMe(u8 worker_id, u64 tts);
+   bool isVisibleForMe(u64 tts);
+   u64 getLowerWaterMark(const u8 other_worker_id);
    // -------------------------------------------------------------------------------------
    void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);

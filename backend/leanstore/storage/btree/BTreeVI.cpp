@@ -106,7 +106,7 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
          }
          PrimaryVersion* primary_version =
              reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
-         if (!isVisibleForMe(primary_version->worker_id, primary_version->tts)) {
+         if (primary_version->isWriteLocked() || !isVisibleForMe(primary_version->worker_id, primary_version->tts)) {
             jumpmu_return OP_RESULT::ABORT_TX;
          }
          // -------------------------------------------------------------------------------------
@@ -122,6 +122,8 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
          // -------------------------------------------------------------------------------------
          if (1 || primary_version->isFinal()) {
             // Create new version
+            secondary_version.worker_id = primary_version->worker_id;
+            secondary_version.tts = primary_version->tts;
             secondary_version.next_sn = primary_version->next_sn;
             secondary_version.prev_sn = 0;
             do {
@@ -144,7 +146,7 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
             }
             // -------------------------------------------------------------------------------------
             if (!primary_version->is_gc_scheduled) {
-               cr::Worker::my().addTODO(myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
+               cr::Worker::my().addTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
                   auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
                   todo_entry.key_length = o_key_length;
                   todo_entry.sn = secondary_sn;
@@ -324,7 +326,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       }
       jumpmuCatch() { ensure(false); }
       // -------------------------------------------------------------------------------------
-      cr::Worker::my().addTODO(myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
+      cr::Worker::my().addTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
          auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
          todo_entry.key_length = o_key_length;
          std::memcpy(todo_entry.key, o_key, o_key_length);
@@ -341,115 +343,12 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
    const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
    switch (entry.type) {
       case WAL_LOG_TYPE::WALInsert: {  // Assuming on insert after remove
-         auto& insert_entry = *reinterpret_cast<const WALInsert*>(&entry);
-         u16 key_length = insert_entry.key_length + 8;
-         u8 key[key_length];
-         std::memcpy(key, insert_entry.payload, insert_entry.key_length);
-         *reinterpret_cast<u64*>(key + insert_entry.key_length) = 0;
-         while (true) {
-            jumpmuTry()
-            {
-               HybridPageGuard<BTreeNode> c_guard;
-               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
-               auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-               const bool ret = c_x_guard->remove(key, key_length);
-               ensure(ret);
-               jumpmu_return;
-            }
-            jumpmuCatch() {}
-         }
          break;
       }
       case WAL_LOG_TYPE::WALUpdate: {
-         const auto& update_entry = *reinterpret_cast<const WALUpdate*>(&entry);
-         u16 key_length = update_entry.key_length + 8;
-         u8 key[key_length];
-         std::memcpy(key, update_entry.payload, update_entry.key_length);
-         auto& sn = *reinterpret_cast<u64*>(key + update_entry.key_length);
-         sn = update_entry.before_image_seq;
-         // -------------------------------------------------------------------------------------
-         u8 materialized_delta[PAGE_SIZE];
-         u16 delta_length;
-         SecondaryVersion secondary_version(0, 0, 0, 0);
-         while (true) {
-            jumpmuTry()
-            {
-               HybridPageGuard<BTreeNode> c_guard;
-               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
-               auto secondary_x_guard = ExclusivePageGuard(std::move(c_guard));
-               const s16 secondary_pos = secondary_x_guard->lowerBound<true>(key, key_length);
-               ensure(secondary_pos >= 0);
-               u8* secondary_payload = secondary_x_guard->getPayload(secondary_pos);
-               const u16 secondary_payload_length = secondary_x_guard->getPayloadLength(secondary_pos);
-               secondary_version =
-                   *reinterpret_cast<const SecondaryVersion*>(secondary_payload + secondary_payload_length - sizeof(SecondaryVersion));
-               const bool is_delta = secondary_version.is_delta;
-               ensure(is_delta);
-               delta_length = secondary_payload_length - sizeof(SecondaryVersion);
-               std::memcpy(materialized_delta, secondary_payload, delta_length);
-               // -------------------------------------------------------------------------------------
-               secondary_x_guard->removeSlot(secondary_pos);
-               c_guard = std::move(secondary_x_guard);
-            }
-            jumpmuCatch() {}
-         }
-         while (true) {
-            jumpmuTry()
-            {
-               // Go to primary version
-               HybridPageGuard<BTreeNode> c_guard;
-               sn = 0;
-               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
-               auto primary_x_guard = ExclusivePageGuard(std::move(c_guard));
-               const s16 primary_pos = primary_x_guard->lowerBound<true>(key, key_length);
-               ensure(primary_pos >= 0);
-               u8* primary_payload = primary_x_guard->getPayload(primary_pos);
-               const u16 primary_payload_length = primary_x_guard->getPayloadLength(primary_pos);
-               auto& primary_version = *reinterpret_cast<PrimaryVersion*>(primary_payload + primary_payload_length - sizeof(PrimaryVersion));
-               primary_version.worker_id = secondary_version.worker_id;
-               primary_version.tts = secondary_version.tts;
-               primary_version.next_sn++;
-               applyDelta(primary_payload, materialized_delta, delta_length);
-               jumpmu_return;
-            }
-            jumpmuCatch() {}
-         }
          break;
       }
-      case WAL_LOG_TYPE::WALRemove: {  // TODO:
-         const auto& remove_entry = *reinterpret_cast<const WALRemove*>(&entry);
-         u16 key_length = remove_entry.key_length + 8;
-         u8 key[key_length];
-         std::memcpy(key, remove_entry.payload, remove_entry.key_length);
-         auto& sn = *reinterpret_cast<u64*>(key + remove_entry.key_length);
-         sn = remove_entry.before_image_seq;
-         while (true) {
-            jumpmuTry()
-            {
-               HybridPageGuard<BTreeNode> c_guard;
-               // -------------------------------------------------------------------------------------
-               // Get secondary version
-               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
-               auto secondary_x_guard = ExclusivePageGuard(std::move(c_guard));
-               const s32 secondary_pos = secondary_x_guard->lowerBound<true>(key, key_length);
-               u8* secondary_payload = secondary_x_guard->getPayload(secondary_pos);
-               ensure(secondary_pos >= 0);
-               const u16 value_length = secondary_x_guard->getPayloadLength(secondary_pos) - sizeof(SecondaryVersion);
-               // auto secondary_version = *reinterpret_cast<SecondaryVersion*>(secondary_payload + value_length);
-               u8 materialized_value[value_length];
-               std::memcpy(materialized_value, secondary_payload, value_length);
-               c_guard = std::move(secondary_x_guard);
-               // -------------------------------------------------------------------------------------
-               // Go to primary version
-               sn = 0;
-               btree.findLeafCanJump<LATCH_FALLBACK_MODE::EXCLUSIVE>(c_guard, key, key_length);
-               auto primary_x_guard = ExclusivePageGuard(std::move(c_guard));
-               const s32 primary_pos = primary_x_guard->lowerBound<true>(key, key_length);
-               ensure(primary_pos >= 0);
-               jumpmu_return;
-            }
-            jumpmuCatch() {}
-         }
+      case WAL_LOG_TYPE::WALRemove: {
          break;
       }
       default: {
@@ -482,9 +381,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 tts)
          PrimaryVersion* primary_version =
              reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
          if (primary_version->is_removed && primary_version->tts == tts) {
-            const u64 oldest_worker_id = cr::Worker::my().sorted_active_workers[cr::Worker::my().workers_count - 1];
-            const bool safe_to_remove =
-                cr::Worker::my().all_workers[oldest_worker_id]->my_snapshot[primary_version->worker_id] > primary_version->tts;
+            const bool safe_to_remove = cr::Worker::my().isVisibleForAll(primary_version->worker_id, primary_version->tts);
             if (safe_to_remove) {
                ret = iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);
@@ -494,9 +391,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 tts)
             }
          } else {
             // TODO: High-water mark GC not only for main version
-            const u64 oldest_worker_id = cr::Worker::my().sorted_active_workers[cr::Worker::my().workers_count - 1];
-            const bool safe_to_remove =
-                cr::Worker::my().all_workers[oldest_worker_id]->my_snapshot[primary_version->worker_id] > primary_version->tts;
+            const bool safe_to_remove = cr::Worker::my().isVisibleForAll(primary_version->worker_id, primary_version->tts);
             if (safe_to_remove) {  // Delete all older version
                primary_version->writeLock();
                SN next_sn = primary_version->next_sn;
@@ -533,7 +428,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 tts)
                jumpmu_return;
             } else {
                // TODO: Reschedule
-               ensure(false);
+               // ensure(false);
             }
          }
       }
@@ -573,26 +468,28 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructTupleSlowPath(BTreeSharedIterator
                                                              MutableSlice key,
                                                              std::function<void(Slice value)> callback)
 {
-   raise(SIGTRAP);
    u16 chain_length = 1;
+   OP_RESULT ret;
    Slice payload = iterator.value();
    assert(getSN(key) == 0);
-   const auto primary_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
-   if (primary_version.isFinal()) {
+   const PrimaryVersion* primary_version = reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
+   if (primary_version->isFinal()) {
       return {OP_RESULT::NOT_FOUND, chain_length};
    }
    const u16 materialized_value_length = payload.length() - sizeof(PrimaryVersion);
    u8 materialized_value[materialized_value_length];
    std::memcpy(materialized_value, payload.data(), materialized_value_length);
-   SN sn = primary_version.next_sn;
-   setSN(key, sn);
-   while (iterator.seekExact(Slice(key.data(), key.length())) == OP_RESULT::OK) {
+   SN sn = primary_version->next_sn;
+   while (sn != 0) {
+      setSN(key, sn);
+      ret = iterator.seekExact(Slice(key.data(), key.length()));
+      ensure(ret == OP_RESULT::OK);
       chain_length++;
       payload = iterator.value();
       const auto& secondary_version = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
       ensure(secondary_version.is_delta);  // TODO: fine for now
       // Apply delta
-      applyDelta(materialized_value, payload.data(), materialized_value_length);
+      applyDelta(materialized_value, materialized_value_length, payload.data(), payload.length() - sizeof(SecondaryVersion));
       if (isVisibleForMe(secondary_version.worker_id, secondary_version.tts)) {
          if (secondary_version.is_removed) {
             return {OP_RESULT::NOT_FOUND, chain_length};
@@ -601,16 +498,17 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructTupleSlowPath(BTreeSharedIterator
          return {OP_RESULT::OK, chain_length};
       }
       if (secondary_version.isFinal()) {
+         raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, chain_length};
       } else {
          sn = secondary_version.next_sn;
       }
-      setSN(key, sn);
    }
+   raise(SIGTRAP);
    return {OP_RESULT::NOT_FOUND, chain_length};
 }
 // -------------------------------------------------------------------------------------
-void BTreeVI::applyDelta(u8* dst, const u8* delta_beginning, u16 delta_size)
+void BTreeVI::applyDelta(u8* materialized_value, u16 materialized_value_size, const u8* delta_beginning, u16 delta_size)
 {
    const u8* delta_ptr = delta_beginning;
    while (delta_ptr - delta_beginning < delta_size) {
@@ -618,7 +516,8 @@ void BTreeVI::applyDelta(u8* dst, const u8* delta_beginning, u16 delta_size)
       delta_ptr += 2;
       const u16 size = *reinterpret_cast<const u16*>(delta_ptr);
       delta_ptr += 2;
-      std::memcpy(dst + offset, delta_ptr, size);
+      assert((offset + size) <= materialized_value_size);
+      std::memcpy(materialized_value + offset, delta_ptr, size);
       delta_ptr += size;
    }
 }
