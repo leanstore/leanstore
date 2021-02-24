@@ -29,14 +29,9 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
    my_snapshot = make_unique<atomic<u64>[]>(workers_count);
    sorted_active_workers = make_unique<u64[]>(workers_count);
-   lower_water_marks = static_cast<atomic<u64>*>(std::aligned_alloc(64, 8 * sizeof(u64) * workers_count));
-   for (u64 w = 0; w < workers_count; w++) {
-      lower_water_marks[w * 8] = 0;
-   }
 }
 Worker::~Worker()
 {
-   std::free(lower_water_marks);
    // static std::mutex m;
    // std::unique_lock guard(m);
    // cout << "WorkerID = " << worker_id << endl;
@@ -137,7 +132,6 @@ void Worker::refreshSnapshot()
 {
    for (u64 w = 0; w < workers_count; w++) {
       my_snapshot[w].store(all_workers[w]->high_water_mark, std::memory_order_release);
-      all_workers[w]->lower_water_marks[worker_id * 8].store(my_snapshot[w], std::memory_order_release);
    }
    // TODO: Optimize
    std::sort(sorted_active_workers.get(), sorted_active_workers.get() + workers_count, std::greater<int>());
@@ -162,16 +156,9 @@ void Worker::startTX()
          }
          active_tx.tts = Worker::global_tts.fetch_add(1);
          if (FLAGS_todo && todo_list.size()) {  // Cleanup
-            {
-               u64 min = std::numeric_limits<u64>::max();
-               for (u64 w = 0; w < workers_count; w++) {
-                  min = std::min<u64>(min, lower_water_marks[w * 8]);
-               }
-               lower_water_mark = min;
-            }
             while (todo_list.size()) {
                auto& todo = todo_list.front();
-               if (todo.tts < lower_water_mark) {
+               if (isVisibleForAll(worker_id, todo.tts)) {
                   leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry.get(), todo.tts);
                   todo_list.pop();
                } else {
@@ -234,6 +221,17 @@ bool Worker::isVisibleForMe(u64 wtts)
    const u64 other_worker_id = wtts % workers_count;
    const u64 tts = wtts & ~(255ull << 56);
    return isVisibleForMe(other_worker_id, tts);
+}
+// -------------------------------------------------------------------------------------
+u64 Worker::getLowerWaterMark(const u8 other_worker_id)
+{
+   const u64 oldest_worker_id = sorted_active_workers[workers_count - 1];
+   return all_workers[oldest_worker_id]->my_snapshot[other_worker_id];  // > primary_version->tts;
+}
+// -------------------------------------------------------------------------------------
+bool Worker::isVisibleForAll(u8 other_worker_id, u64 tts)
+{
+   return getLowerWaterMark(other_worker_id) > tts;
 }
 // -------------------------------------------------------------------------------------
 // Called by worker, so concurrent writes on the buffer
@@ -354,9 +352,9 @@ outofmemory : {
 }
 }
 // -------------------------------------------------------------------------------------
-void Worker::addTODO(u64 tts, DTID dt_id, u64 size, std::function<void(u8* entry)> cb)
+void Worker::addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* entry)> cb)
 {
-   todo_list.push({tts, dt_id, std::make_unique<u8[]>(size)});
+   todo_list.push({worker_id, tts, dt_id, std::make_unique<u8[]>(size)});
    cb(todo_list.back().entry.get());
 }
 // -------------------------------------------------------------------------------------

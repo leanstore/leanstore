@@ -203,12 +203,12 @@ class BTreeVI : public BTreeLL
       return swap(*reinterpret_cast<const SN*>(key.data() + key.length() - sizeof(SN)));
    }
    inline void setSN(MutableSlice key, SN sn) { *reinterpret_cast<SN*>(key.data() + key.length() - sizeof(SN)) = swap(sn); }
-   static void applyDelta(u8* dst, const u8* delta, u16 delta_size);
+   static void applyDelta(u8* dst, u16 value_size, const u8* delta, u16 delta_size);
    inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback)
    {
       Slice payload = iterator.value();
       assert(getSN(key) == 0);
-      const auto primary_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
+      const PrimaryVersion& primary_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
       if (isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
          if (primary_version.is_removed) {
             return {OP_RESULT::NOT_FOUND, 1};
@@ -216,7 +216,11 @@ class BTreeVI : public BTreeLL
          callback(payload.substr(0, payload.length() - sizeof(PrimaryVersion)));
          return {OP_RESULT::OK, 1};
       } else {
-         return reconstructTupleSlowPath(iterator, key, callback);
+         if (primary_version.isFinal()) {
+            return {OP_RESULT::NOT_FOUND, 1};
+         } else {
+            return reconstructTupleSlowPath(iterator, key, callback);
+         }
       }
    }
    std::tuple<OP_RESULT, u16> reconstructTupleSlowPath(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback);
