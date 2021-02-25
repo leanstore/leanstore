@@ -74,8 +74,6 @@ class BTreeGeneric
    static std::unordered_map<std::string, std::string> serialize(BTreeGeneric&);
    static void deserialize(BTreeGeneric&, std::unordered_map<std::string, std::string>);
    // -------------------------------------------------------------------------------------
-
-   // -------------------------------------------------------------------------------------
    ~BTreeGeneric();
    // -------------------------------------------------------------------------------------
    // Helpers

@@ -46,7 +46,10 @@ class BTreeLL : public KVInterface, public BTreeGeneric
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
-   virtual OP_RESULT updateSameSize(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0}) override;
+   virtual OP_RESULT updateSameSizeInPlace(u8* key,
+                                           u16 key_length,
+                                           function<void(u8* value, u16 value_size)>,
+                                           UpdateSameSizeInPlaceDescriptor) override;
    virtual OP_RESULT remove(u8* key, u16 key_length) override;
    virtual OP_RESULT scanAsc(u8* start_key,
                              u16 key_length,
@@ -68,6 +71,12 @@ class BTreeLL : public KVInterface, public BTreeGeneric
    static std::unordered_map<std::string, std::string> serialize(void* btree_object);
    static void deserialize(void* btree_object, std::unordered_map<std::string, std::string> serialized);
    static DTRegistry::DTMeta getMeta();
+   // -------------------------------------------------------------------------------------
+  protected:
+   // WAL / CC
+   u64 calculateDeltaSize(const UpdateSameSizeInPlaceDescriptor& update_descriptor);
+   void deltaBeforeImage(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
+   void deltaXOR(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace btree

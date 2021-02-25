@@ -81,11 +81,11 @@ struct LeanStoreAdapter {
    }
 
    template <class Fn>
-   void update1(const typename Record::Key& key, const Fn& fn, WALUpdateGenerator wal_update_generator)
+   void update1(const typename Record::Key& key, const Fn& fn, UpdateSameSizeInPlaceDescriptor update_descriptor)
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
-      const auto res = btree->updateSameSize(
+      const auto res = btree->updateSameSizeInPlace(
           folded_key, folded_key_len,
           [&](u8* payload, u16 payload_length) {
              static_cast<void>(payload_length);
@@ -93,7 +93,7 @@ struct LeanStoreAdapter {
              Record& typed_payload = *reinterpret_cast<Record*>(payload);
              fn(typed_payload);
           },
-          wal_update_generator);
+          update_descriptor);
       ensure(res != leanstore::OP_RESULT::NOT_FOUND);
       if (res == leanstore::OP_RESULT::ABORT_TX) {
          cr::Worker::my().abortTX();
