@@ -56,7 +56,7 @@ struct BTreeVSAdapter : BTreeInterface<Key, Payload> {
    void update(Key k, Payload& v) override
    {
       u8 key_bytes[sizeof(Key)];
-      btree.updateSameSize(key_bytes, fold(key_bytes, k), [&](u8* payload, u16 payload_length) { memcpy(payload, &v, payload_length); });
+      btree.updateSameSizeInPlace(key_bytes, fold(key_bytes, k), [&](u8* payload, u16 payload_length) { memcpy(payload, &v, payload_length); });
    }
 };
 // -------------------------------------------------------------------------------------

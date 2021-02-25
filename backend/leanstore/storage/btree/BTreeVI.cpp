@@ -74,10 +74,10 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
    }
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::updateSameSize(u8* o_key,
-                                  u16 o_key_length,
-                                  function<void(u8* value, u16 value_size)> callback,
-                                  WALUpdateGenerator wal_update_generator)
+OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
+                                         u16 o_key_length,
+                                         function<void(u8* value, u16 value_size)> callback,
+                                         UpdateSameSizeInPlaceDescriptor update_descriptor)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    const u16 key_length = o_key_length + sizeof(SN);
@@ -111,14 +111,19 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
          }
          // -------------------------------------------------------------------------------------
          primary_version->writeLock();
-         const u64 buffer_zone_size = primary_payload.length() * 0;
-         const u16 secondary_payload_length = wal_update_generator.entry_size + sizeof(SecondaryVersion);
+         const u16 delta_and_descriptor_size = update_descriptor.size() + BTreeLL::calculateDeltaSize(update_descriptor);
+         const u16 secondary_payload_length = delta_and_descriptor_size + sizeof(SecondaryVersion);
          // -------------------------------------------------------------------------------------
-         u8 secondary_payload[secondary_payload_length + buffer_zone_size];
-         SecondaryVersion& secondary_version = *new (secondary_payload + wal_update_generator.entry_size + buffer_zone_size)
-                                                   SecondaryVersion(primary_version->worker_id, primary_version->tts, false, true);
-         wal_update_generator.before(primary_payload.data(), secondary_payload);
+         u8 secondary_payload[secondary_payload_length];
+         SecondaryVersion& secondary_version =
+             *new (secondary_payload + delta_and_descriptor_size) SecondaryVersion(primary_version->worker_id, primary_version->tts, false, true);
+         std::memcpy(secondary_payload, &update_descriptor, update_descriptor.size());
+         BTreeLL::deltaBeforeImage(update_descriptor, secondary_payload + update_descriptor.size(), primary_payload.data());
          callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
+         // -------------------------------------------------------------------------------------
+         if (FLAGS_wal) {
+            // BTreeLL::generateDeltaafterimagexor
+         }
          // -------------------------------------------------------------------------------------
          if (1 || primary_version->isFinal()) {
             // Create new version
@@ -130,7 +135,7 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
                secondary_sn = leanstore::utils::RandomGenerator::getRand<SN>(0, std::numeric_limits<SN>::max());
                // -------------------------------------------------------------------------------------
                setSN(m_key, secondary_sn);
-               ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length + buffer_zone_size));
+               ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
             } while (ret != OP_RESULT::OK);
             // -------------------------------------------------------------------------------------
             setSN(m_key, 0);
@@ -166,64 +171,6 @@ OP_RESULT BTreeVI::updateSameSize(u8* o_key,
             ret = iterator.seekExactWithHint(key, true);
             ensure(ret == OP_RESULT::OK);
          }
-         // -------------------------------------------------------------------------------------
-         // Old
-         // Temporary
-         if (1 && !primary_version->isFinal()) {
-            ensure(secondary_sn == primary_version->next_sn);
-            u8 secondary_payload[secondary_payload_length];
-            new (secondary_payload + wal_update_generator.entry_size) SecondaryVersion(primary_version->worker_id, primary_version->tts, false, true);
-            wal_update_generator.before(primary_payload.data(), secondary_payload);
-            callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
-            SN recent_sn = primary_version->next_sn;
-            // -------------------------------------------------------------------------------------
-            // Reuse recent version
-            setSN(m_key, recent_sn);
-            ret = iterator.seekExactWithHint(key, true);
-            // ret = iterator.seekExact(key);
-            ensure(ret == OP_RESULT::OK);
-            if (iterator.mutableValue().length() >= secondary_payload_length) {
-               ensure(iterator.mutableValue().length() >= secondary_payload_length);
-               std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
-               // -------------------------------------------------------------------------------------
-               setSN(m_key, 0);
-               ret = iterator.seekExactWithHint(key, false);
-               // ret = iterator.seekExact(key);
-               ensure(ret == OP_RESULT::OK);
-               primary_payload = iterator.mutableValue();
-               primary_version = reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
-               primary_version->worker_id = myWorkerID();
-               primary_version->tts = myTTS();
-               primary_version->unlock();
-               jumpmu_return OP_RESULT::OK;
-            } else {
-               iterator.removeCurrent();
-               setSN(m_key, 0);
-               ret = iterator.seekExactWithHint(key, false);
-               ensure(ret == OP_RESULT::OK);
-            }
-         }
-         // -------------------------------------------------------------------------------------
-         primary_version->writeLock();
-         setSN(m_key, secondary_sn);
-         if (0 && iterator.keyInCurrentBoundaries(key) && iterator.enoughSpaceInCurrentNode(key, secondary_payload_length) == OP_RESULT::OK) {
-            iterator.seekToInsertWithHint(key, true);
-            iterator.insertInCurrentNode(key, secondary_payload_length);
-            auto secondary_payload = iterator.mutableValue();
-            new (secondary_payload.data() + wal_update_generator.entry_size) SecondaryVersion(myWorkerID(), myTTS(), false, true);
-            setSN(m_key, 0);
-            ret = iterator.seekExactWithHint(key, false);
-            ensure(ret == OP_RESULT::OK);
-            primary_payload = iterator.mutableValue();
-            wal_update_generator.before(primary_payload.data(), secondary_payload.data());
-            callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
-            primary_version = reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
-            primary_version->next_sn--;
-            primary_version->unlock();
-         } else {
-         }
-         // TODO: WAL
-         jumpmu_return OP_RESULT::OK;
       }
       jumpmuCatch() { ensure(false); }
       ensure(false);
@@ -340,6 +287,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
    // TODO:
    ensure(false);
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
+   static_cast<void>(btree);
    const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
    switch (entry.type) {
       case WAL_LOG_TYPE::WALInsert: {  // Assuming on insert after remove
@@ -489,7 +437,8 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructTupleSlowPath(BTreeSharedIterator
       const auto& secondary_version = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
       ensure(secondary_version.is_delta);  // TODO: fine for now
       // Apply delta
-      applyDelta(materialized_value, materialized_value_length, payload.data(), payload.length() - sizeof(SecondaryVersion));
+      const auto &update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload.data());
+      BTreeLL::deltaBeforeImage(update_descriptor, materialized_value, payload.data() + update_descriptor.size());
       if (isVisibleForMe(secondary_version.worker_id, secondary_version.tts)) {
          if (secondary_version.is_removed) {
             return {OP_RESULT::NOT_FOUND, chain_length};
@@ -506,20 +455,6 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructTupleSlowPath(BTreeSharedIterator
    }
    raise(SIGTRAP);
    return {OP_RESULT::NOT_FOUND, chain_length};
-}
-// -------------------------------------------------------------------------------------
-void BTreeVI::applyDelta(u8* materialized_value, u16 materialized_value_size, const u8* delta_beginning, u16 delta_size)
-{
-   const u8* delta_ptr = delta_beginning;
-   while (delta_ptr - delta_beginning < delta_size) {
-      const u16 offset = *reinterpret_cast<const u16*>(delta_ptr);
-      delta_ptr += 2;
-      const u16 size = *reinterpret_cast<const u16*>(delta_ptr);
-      delta_ptr += 2;
-      assert((offset + size) <= materialized_value_size);
-      std::memcpy(materialized_value + offset, delta_ptr, size);
-      delta_ptr += size;
-   }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace btree

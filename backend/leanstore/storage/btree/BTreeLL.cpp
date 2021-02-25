@@ -134,10 +134,10 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
    jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeLL::updateSameSize(u8* o_key,
-                                  u16 o_key_length,
-                                  function<void(u8* payload, u16 payload_size)> callback,
-                                  WALUpdateGenerator wal_update_generator)
+OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
+                                         u16 o_key_length,
+                                         function<void(u8* payload, u16 payload_size)> callback,
+                                         UpdateSameSizeInPlaceDescriptor update_descriptor)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    Slice key(o_key, o_key_length);
@@ -150,17 +150,20 @@ OP_RESULT BTreeLL::updateSameSize(u8* o_key,
       }
       auto current_value = iterator.mutableValue();
       if (FLAGS_wal) {
-         // if it is a secondary index, then we can not use updateSameSize
-         assert(wal_update_generator.entry_size > 0);
+         assert(update_descriptor.count > 0);  // if it is a secondary index, then we can not use updateSameSize
          // -------------------------------------------------------------------------------------
-         auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdate>(key.length() + wal_update_generator.entry_size);
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdate>(key.length() + update_descriptor.size() + calculateDeltaSize(update_descriptor));
          wal_entry->type = WAL_LOG_TYPE::WALUpdate;
          wal_entry->key_length = key.length();
-         std::memcpy(wal_entry->payload, key.data(), key.length());
-         wal_update_generator.before(current_value.data(), wal_entry->payload + key.length());
+         u8* wal_ptr = wal_entry->payload;
+         std::memcpy(wal_ptr, key.data(), key.length());
+         wal_ptr += key.length();
+         std::memcpy(wal_ptr, &update_descriptor, update_descriptor.size());
+         wal_ptr += update_descriptor.size();
+         deltaBeforeImage(update_descriptor, wal_ptr, current_value.data());
          // The actual update by the client
          callback(current_value.data(), current_value.length());
-         wal_update_generator.after(current_value.data(), wal_entry->payload + key.length());
+         deltaXOR(update_descriptor, wal_ptr, current_value.data());
          wal_entry.submit();
       } else {
          callback(current_value.data(), current_value.length());
@@ -255,6 +258,33 @@ std::unordered_map<std::string, std::string> BTreeLL::serialize(void* btree_obje
 void BTreeLL::deserialize(void* btree_object, std::unordered_map<std::string, std::string> serialized)
 {
    BTreeGeneric::deserialize(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), serialized);
+}
+// -------------------------------------------------------------------------------------
+u64 BTreeLL::calculateDeltaSize(const UpdateSameSizeInPlaceDescriptor& update_descriptor)
+{
+   u64 total_size = 0;
+   for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
+      total_size += update_descriptor.slots[a_i].size;
+   }
+   return total_size;
+}
+// -------------------------------------------------------------------------------------
+void BTreeLL::deltaBeforeImage(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
+{
+   for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
+      auto& slot = update_descriptor.slots[a_i];
+      std::memcpy(dst + slot.offset, src + slot.offset, slot.size);
+   }
+}
+// -------------------------------------------------------------------------------------
+void BTreeLL::deltaXOR(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
+{
+   for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
+      auto& slot = update_descriptor.slots[a_i];
+      for (u64 b_i = 0; b_i < slot.size; b_i++) {
+         *(dst + slot.offset + b_i) ^= *(src + slot.offset + b_i);
+      }
+   }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace btree

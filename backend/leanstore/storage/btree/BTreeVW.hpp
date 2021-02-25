@@ -71,7 +71,6 @@ class BTreeVW : public BTreeLL
    };
    struct WALUpdate : WALVWEntry {
       u16 key_length;
-      u16 delta_length;
       u8 payload[];
    };
    struct WALRemove : WALVWEntry {
@@ -87,7 +86,7 @@ class BTreeVW : public BTreeLL
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
-   virtual OP_RESULT updateSameSize(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0}) override;
+   virtual OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor) override;
    virtual OP_RESULT remove(u8* key, u16 key_length) override;
    virtual OP_RESULT scanAsc(u8* start_key,
                              u16 key_length,

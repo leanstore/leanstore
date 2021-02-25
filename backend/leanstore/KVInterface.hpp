@@ -14,6 +14,15 @@ struct WALUpdateGenerator {
    void (*after)(u8* tuple, u8* entry);
    u16 entry_size;
 };
+struct UpdateSameSizeInPlaceDescriptor {
+   u8 count = 0;
+   struct Slot {
+      u16 offset;
+      u16 size;
+   };
+   Slot slots[];
+   u64 size() const { return sizeof(UpdateSameSizeInPlaceDescriptor) + (count * sizeof(UpdateSameSizeInPlaceDescriptor::Slot)); }
+};
 // -------------------------------------------------------------------------------------
 // Interface
 class KVInterface
@@ -21,7 +30,7 @@ class KVInterface
   public:
    virtual OP_RESULT lookup(u8* key, u16 key_length, std::function<void(const u8*, u16)> payload_callback) = 0;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) = 0;
-   virtual OP_RESULT updateSameSize(u8* key, u16 key_length, std::function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0}) = 0;
+   virtual OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, std::function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor);
    virtual OP_RESULT remove(u8* key, u16 key_length) = 0;
    virtual OP_RESULT scanAsc(u8* start_key,
                              u16 key_length,

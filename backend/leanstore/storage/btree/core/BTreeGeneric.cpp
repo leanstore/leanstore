@@ -464,7 +464,7 @@ bool BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Op
 }
 // -------------------------------------------------------------------------------------
 // pre: source buffer frame is shared latched
-void BTreeGeneric::checkpoint(BTreeGeneric& btree, BufferFrame& bf, u8* dest)
+void BTreeGeneric::checkpoint(BTreeGeneric&, BufferFrame& bf, u8* dest)
 {
    std::memcpy(dest, bf.page.dt, EFFECTIVE_PAGE_SIZE);
    auto& dest_node = *reinterpret_cast<BTreeNode*>(dest);

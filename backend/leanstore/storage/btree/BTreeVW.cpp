@@ -187,7 +187,8 @@ bool BTreeVW::reconstructTuple(u8* payload, u16& payload_length, u8 start_worker
             }
             case WAL_LOG_TYPE::WALUpdate: {
                auto& update_entry = *reinterpret_cast<WALUpdate*>(entry);
-               applyDelta(payload, payload_length, update_entry.payload + update_entry.key_length, update_entry.delta_length);
+               const auto& update_descriptor = *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(update_entry.payload + update_entry.key_length);
+               deltaXOR(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
                is_removed = false;
                break;
             }
@@ -210,10 +211,10 @@ bool BTreeVW::reconstructTuple(u8* payload, u16& payload_length, u8 start_worker
    return !is_removed;
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVW::updateSameSize(u8* key,
-                                  u16 key_length,
-                                  function<void(u8* value, u16 value_size)> callback,
-                                  WALUpdateGenerator wal_update_generator)
+OP_RESULT BTreeVW::updateSameSizeInPlace(u8* key,
+                                         u16 key_length,
+                                         function<void(u8* value, u16 value_size)> callback,
+                                         UpdateSameSizeInPlaceDescriptor update_descriptor)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    // -------------------------------------------------------------------------------------
@@ -239,20 +240,24 @@ OP_RESULT BTreeVW::updateSameSize(u8* key,
                } else {
                   // We can update
                   // -------------------------------------------------------------------------------------
-                  // If it is a secondary index, then we can not use updateSameSize
-                  assert(wal_update_generator.entry_size > 0);
+                  assert(update_descriptor.count > 0);  // If it is a secondary index, then we can not use updateSameSize
                   // -------------------------------------------------------------------------------------
-                  auto wal_entry = leaf_ex_guard.reserveWALEntry<WALUpdate>(key_length + wal_update_generator.entry_size);
+                  const u16 descriptor_size = update_descriptor.size();
+                  const u16 delta_size = calculateDeltaSize(update_descriptor);
+                  auto wal_entry = leaf_ex_guard.reserveWALEntry<WALUpdate>(key_length + descriptor_size + delta_size);
                   wal_entry->type = WAL_LOG_TYPE::WALUpdate;
                   wal_entry->key_length = key_length;
-                  wal_entry->delta_length = wal_update_generator.entry_size;
                   wal_entry->prev_version = version;
                   // -------------------------------------------------------------------------------------
-                  std::memcpy(wal_entry->payload, key, key_length);
-                  wal_update_generator.before(payload, wal_entry->payload + key_length);
+                  u8* wal_ptr = wal_entry->payload;
+                  std::memcpy(wal_ptr, key, key_length);
+                  wal_ptr += key_length;
+                  std::memcpy(wal_ptr, &update_descriptor, descriptor_size);
+                  wal_ptr += descriptor_size;
+                  deltaBeforeImage(update_descriptor, wal_ptr, payload);
                   // The actual update by the client
                   callback(payload, payload_length);
-                  wal_update_generator.after(payload, wal_entry->payload + key_length);
+                  deltaXOR(update_descriptor, wal_ptr, payload);
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
                   version.worker_id = myWorkerID();
@@ -441,30 +446,6 @@ OP_RESULT BTreeVW::scanDesc(u8* start_key,
    return res;
 }
 // -------------------------------------------------------------------------------------
-// TODO: Works only for same size
-void BTreeVW::applyDelta(u8* dst, u16 dst_size, const u8* delta_beginning, u16 delta_size)
-{
-   static_cast<void>(dst_size);
-   const u8* delta_ptr = delta_beginning;
-   while (delta_ptr - delta_beginning < delta_size) {
-      const u16 offset = *reinterpret_cast<const u16*>(delta_ptr);
-      delta_ptr += sizeof(offset);
-      const u16 size = *reinterpret_cast<const u16*>(delta_ptr);
-      delta_ptr += sizeof(size);
-#ifdef DELTA_COPY
-      std::memcpy(dst + offset, delta_ptr, size);
-      delta_ptr += 2 * size;
-#endif
-#ifdef DELTA_XOR
-      for (u64 b_i = 0; b_i < size; b_i++) {
-         *reinterpret_cast<u8*>(dst + offset + b_i) ^= *reinterpret_cast<const u8*>(delta_ptr + b_i);
-         assert(offset + b_i < dst_size);
-      }
-      delta_ptr += size;
-#endif
-   }
-}
-// -------------------------------------------------------------------------------------
 // For Transaction abort and not for recovery
 void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 {
@@ -534,8 +515,9 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                // -------------------------------------------------------------------------------------
                // Apply delta
                u8* payload = leaf_ex_guard->getPayload(pos) + VW_PAYLOAD_OFFSET;
-               applyDelta(payload, leaf_ex_guard->getPayloadLength(pos) - VW_PAYLOAD_OFFSET, update_entry.payload + update_entry.key_length,
-                          update_entry.delta_length);
+               const auto& update_descriptor =
+                   *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(update_entry.payload + update_entry.key_length);
+               btree.deltaXOR(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
                // -------------------------------------------------------------------------------------
                version.tts = update_entry.prev_version.tts;
                version.worker_id = update_entry.prev_version.worker_id;

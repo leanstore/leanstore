@@ -94,7 +94,7 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
-   OP_RESULT updateSameSize(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, WALUpdateGenerator = {{}, {}, 0}) override;
+   OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor) override;
    OP_RESULT remove(u8* key, u16 key_length) override;
    OP_RESULT scanAsc(u8* start_key,
                      u16 key_length,
@@ -203,7 +203,7 @@ class BTreeVI : public BTreeLL
       return swap(*reinterpret_cast<const SN*>(key.data() + key.length() - sizeof(SN)));
    }
    inline void setSN(MutableSlice key, SN sn) { *reinterpret_cast<SN*>(key.data() + key.length() - sizeof(SN)) = swap(sn); }
-   static void applyDelta(u8* dst, u16 value_size, const u8* delta, u16 delta_size);
+   static void applyDelta(u8* dst, const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* src);
    inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback)
    {
       Slice payload = iterator.value();
