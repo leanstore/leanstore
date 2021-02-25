@@ -119,7 +119,6 @@ int main(int argc, char** argv)
          cr::Worker::my().refreshSnapshot();
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         cout << t_i << "si:" << cr::Worker::my().my_snapshot[0] << "," << cr::Worker::my().my_snapshot[1] << endl;
          while (keep_running) {
             jumpmuTry()
             {

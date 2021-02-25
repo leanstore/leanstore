@@ -49,7 +49,7 @@ class BTreeLL : public KVInterface, public BTreeGeneric
    virtual OP_RESULT updateSameSizeInPlace(u8* key,
                                            u16 key_length,
                                            function<void(u8* value, u16 value_size)>,
-                                           UpdateSameSizeInPlaceDescriptor) override;
+                                           UpdateSameSizeInPlaceDescriptor&) override;
    virtual OP_RESULT remove(u8* key, u16 key_length) override;
    virtual OP_RESULT scanAsc(u8* start_key,
                              u16 key_length,

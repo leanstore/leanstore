@@ -64,23 +64,18 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
    jumpmuTry()
    {
       BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
-      auto ret = iterator.seek(key);
-      if (ret != OP_RESULT::OK) {
-         jumpmu_return ret;
-      }
-      while (true) {
+      OP_RESULT ret = iterator.seek(key);
+      while (ret == OP_RESULT::OK) {
          auto key = iterator.key();
          auto value = iterator.value();
          if (!callback(key.data(), key.length(), value.data(), value.length())) {
-            jumpmu_return OP_RESULT::OK;
-         } else {
-            if (iterator.next() != OP_RESULT::OK) {
-               jumpmu_return OP_RESULT::NOT_FOUND;
-            }
+            break;
          }
+         ret = iterator.next();
       }
+      jumpmu_return OP_RESULT::OK;
    }
-   jumpmuCatch() { ensure(false); }
+   jumpmuCatch() { return OP_RESULT::OTHER; }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
@@ -105,7 +100,7 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
          }
       }
    }
-   jumpmuCatch() { ensure(false); }
+   jumpmuCatch() { return OP_RESULT::OTHER; }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_length)
@@ -131,13 +126,13 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
       }
       jumpmu_return OP_RESULT::OK;
    }
-   jumpmuCatch() { ensure(false); }
+   jumpmuCatch() { return OP_RESULT::OTHER; }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
                                          u16 o_key_length,
                                          function<void(u8* payload, u16 payload_size)> callback,
-                                         UpdateSameSizeInPlaceDescriptor update_descriptor)
+                                         UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    Slice key(o_key, o_key_length);
@@ -172,7 +167,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
       iterator.contentionSplit();
       jumpmu_return OP_RESULT::OK;
    }
-   jumpmuCatch() { ensure(false); }
+   jumpmuCatch() { return OP_RESULT::OTHER; }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
@@ -203,6 +198,7 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
       jumpmu_return OP_RESULT::OK;
    }
    jumpmuCatch() { ensure(false); }
+   jumpmu_return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 u64 BTreeLL::countEntries()

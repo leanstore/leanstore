@@ -10,6 +10,37 @@
 #include <vector>
 using std::vector;
 // -------------------------------------------------------------------------------------
+#define UpdateDescriptorInit(Name, Count)                                                                                                     \
+   u8 Name##_buffer[sizeof(leanstore::UpdateSameSizeInPlaceDescriptor) + (sizeof(leanstore::UpdateSameSizeInPlaceDescriptor::Slot) * Count)]; \
+   auto& Name = *reinterpret_cast<leanstore::UpdateSameSizeInPlaceDescriptor*>(Name##_buffer);                                                \
+   Name.count = Count;
+
+#define UpdateDescriptorFillSlot(Name, Index, Type, Attribute) \
+   Name.slots[Index].offset = offsetof(Type, Attribute);       \
+   Name.slots[Index].size = sizeof(Type::Attribute);
+
+#define UpdateDescriptorGenerator1(Name, Type, A0) \
+   UpdateDescriptorInit(Name, 1);                  \
+   UpdateDescriptorFillSlot(Name, 0, Type, A0);
+
+#define UpdateDescriptorGenerator2(Name, Type, A0, A1) \
+   UpdateDescriptorInit(Name, 2);                      \
+   UpdateDescriptorFillSlot(Name, 0, Type, A0);        \
+   UpdateDescriptorFillSlot(Name, 1, Type, A1);
+
+#define UpdateDescriptorGenerator3(Name, Type, A0, A1, A2) \
+   UpdateDescriptorInit(Name, 3);                          \
+   UpdateDescriptorFillSlot(Name, 0, Type, A0);            \
+   UpdateDescriptorFillSlot(Name, 1, Type, A1);            \
+   UpdateDescriptorFillSlot(Name, 2, Type, A2);
+
+#define UpdateDescriptorGenerator4(Name, Type, A0, A1, A2, A3) \
+   UpdateDescriptorInit(Name, 4);                              \
+   UpdateDescriptorFillSlot(Name, 0, Type, A0);                \
+   UpdateDescriptorFillSlot(Name, 1, Type, A1);                \
+   UpdateDescriptorFillSlot(Name, 2, Type, A2);                \
+   UpdateDescriptorFillSlot(Name, 3, Type, A3);
+// -------------------------------------------------------------------------------------
 template <template <typename> class AdapterType>
 class TPCCWorkload
 {
@@ -152,13 +183,14 @@ class TPCCWorkload
       Numeric d_tax;
       Integer o_id;
 
+      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_next_o_id);
       district.update1(
           {w_id, d_id},
           [&](district_t& rec) {
              d_tax = rec.d_tax;
              o_id = rec.d_next_o_id++;
           },
-          WALUpdate1(district_t, d_next_o_id));
+          district_update_descriptor);
 
       Numeric all_local = 1;
       for (Integer sw : supwares)
@@ -174,6 +206,7 @@ class TPCCWorkload
 
       for (unsigned i = 0; i < lineNumbers.size(); i++) {
          Integer qty = qtys[i];
+         UpdateDescriptorGenerator3(stock_update_descriptor, stock_t, s_remote_cnt, s_order_cnt, s_ytd);
          stock.update1(
              {supwares[i], itemids[i]},
              [&](stock_t& rec) {
@@ -183,7 +216,7 @@ class TPCCWorkload
                 rec.s_order_cnt++;
                 rec.s_ytd += qty;
              },
-             WALUpdate3(stock_t, s_remote_cnt, s_order_cnt, s_ytd));
+             stock_update_descriptor);
       }
 
       for (unsigned i = 0; i < lineNumbers.size(); i++) {
@@ -313,8 +346,10 @@ class TPCCWorkload
              [&]() { is_safe_to_continue = false; });
          if (!is_safe_to_continue)
             continue;
+         // -------------------------------------------------------------------------------------
+         UpdateDescriptorGenerator1(order_update_descriptor, order_t, o_carrier_id);
          order.update1(
-             {w_id, d_id, o_id}, [&](order_t& rec) { rec.o_carrier_id = carrier_id; }, WALUpdate1(order_t, o_carrier_id));
+             {w_id, d_id, o_id}, [&](order_t& rec) { rec.o_carrier_id = carrier_id; }, order_update_descriptor);
          // -------------------------------------------------------------------------------------
          // First check if all orderlines have been inserted, a hack because of the missing transaction and concurrency control
          orderline.scan(
@@ -334,22 +369,23 @@ class TPCCWorkload
          // -------------------------------------------------------------------------------------
          Numeric ol_total = 0;
          for (Integer ol_number = 1; ol_number <= ol_cnt; ol_number++) {
+            UpdateDescriptorGenerator1(orderline_update_descriptor, orderline_t, ol_delivery_d);
             orderline.update1(
                 {w_id, d_id, o_id, ol_number},
                 [&](orderline_t& rec) {
                    ol_total += rec.ol_amount;
                    rec.ol_delivery_d = datetime;
                 },
-                WALUpdate1(orderline_t, ol_delivery_d));
+                orderline_update_descriptor);
          }
-
+         UpdateDescriptorGenerator2(customer_update_descriptor, customer_t, c_balance, c_delivery_cnt);
          customer.update1(
              {w_id, d_id, c_id},
              [&](customer_t& rec) {
                 rec.c_balance += ol_total;
                 rec.c_delivery_cnt++;
              },
-             WALUpdate2(customer_t, c_balance, c_delivery_cnt));
+             customer_update_descriptor);
       }
    }
    // -------------------------------------------------------------------------------------
@@ -567,8 +603,10 @@ class TPCCWorkload
          w_zip = rec.w_zip;
          w_ytd = rec.w_ytd;
       });
+      // -------------------------------------------------------------------------------------
+      UpdateDescriptorGenerator1(warehouse_update_descriptor, warehouse_t, w_ytd);
       warehouse.update1(
-          {w_id}, [&](warehouse_t& rec) { rec.w_ytd += h_amount; }, WALUpdate1(warehouse_t, w_ytd));
+          {w_id}, [&](warehouse_t& rec) { rec.w_ytd += h_amount; }, warehouse_update_descriptor);
       Varchar<10> d_name;
       Varchar<20> d_street_1;
       Varchar<20> d_street_2;
@@ -585,8 +623,9 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
+      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
       district.update1(
-          {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, WALUpdate1(district_t, d_ytd));
+          {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
       Varchar<500> c_data;
       Varchar<2> c_credit;
@@ -611,6 +650,8 @@ class TPCCWorkload
          c_new_data.length = numChars;
          if (c_new_data.length > 500)
             c_new_data.length = 500;
+         // -------------------------------------------------------------------------------------
+         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
@@ -619,8 +660,9 @@ class TPCCWorkload
                 rec.c_ytd_payment = c_new_ytd_payment;
                 rec.c_payment_cnt = c_new_payment_cnt;
              },
-             WALUpdate4(customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt));
+             customer_update_descriptor);
       } else {
+         UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
@@ -628,7 +670,7 @@ class TPCCWorkload
                 rec.c_ytd_payment = c_new_ytd_payment;
                 rec.c_payment_cnt = c_new_payment_cnt;
              },
-             WALUpdate3(customer_t, c_balance, c_ytd_payment, c_payment_cnt));
+             customer_update_descriptor);
       }
 
       Varchar<24> h_new_data = Varchar<24>(w_name) || Varchar<24>("    ") || d_name;
@@ -662,9 +704,11 @@ class TPCCWorkload
          w_zip = rec.w_zip;
          w_ytd = rec.w_ytd;
       });
-
+      // -------------------------------------------------------------------------------------
+      UpdateDescriptorGenerator1(warehouse_update_descriptor, warehouse_t, w_ytd);
       warehouse.update1(
-          {w_id}, [&](warehouse_t& rec) { rec.w_ytd += h_amount; }, WALUpdate1(warehouse_t, w_ytd));
+          {w_id}, [&](warehouse_t& rec) { rec.w_ytd += h_amount; }, warehouse_update_descriptor);
+      // -------------------------------------------------------------------------------------
       Varchar<10> d_name;
       Varchar<20> d_street_1;
       Varchar<20> d_street_2;
@@ -681,8 +725,9 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
+      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
       district.update1(
-          {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, WALUpdate1(district_t, d_ytd));
+          {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
       // Get customer id by name
       vector<Integer> ids;
@@ -727,6 +772,8 @@ class TPCCWorkload
          c_new_data.length = numChars;
          if (c_new_data.length > 500)
             c_new_data.length = 500;
+         // -------------------------------------------------------------------------------------
+         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
@@ -735,8 +782,9 @@ class TPCCWorkload
                 rec.c_ytd_payment = c_new_ytd_payment;
                 rec.c_payment_cnt = c_new_payment_cnt;
              },
-             WALUpdate4(customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt));
+             customer_update_descriptor);
       } else {
+         UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
@@ -744,7 +792,7 @@ class TPCCWorkload
                 rec.c_ytd_payment = c_new_ytd_payment;
                 rec.c_payment_cnt = c_new_payment_cnt;
              },
-             WALUpdate3(customer_t, c_balance, c_ytd_payment, c_payment_cnt));
+             customer_update_descriptor);
       }
 
       Varchar<24> h_new_data = Varchar<24>(w_name) || Varchar<24>("    ") || d_name;

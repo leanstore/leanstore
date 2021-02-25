@@ -77,7 +77,7 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
 OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                                          u16 o_key_length,
                                          function<void(u8* value, u16 value_size)> callback,
-                                         UpdateSameSizeInPlaceDescriptor update_descriptor)
+                                         UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    const u16 key_length = o_key_length + sizeof(SN);
@@ -437,7 +437,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructTupleSlowPath(BTreeSharedIterator
       const auto& secondary_version = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
       ensure(secondary_version.is_delta);  // TODO: fine for now
       // Apply delta
-      const auto &update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload.data());
+      const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload.data());
       BTreeLL::deltaBeforeImage(update_descriptor, materialized_value, payload.data() + update_descriptor.size());
       if (isVisibleForMe(secondary_version.worker_id, secondary_version.tts)) {
          if (secondary_version.is_removed) {
