@@ -92,7 +92,7 @@ struct RocksDBAdapter {
    }
    // -------------------------------------------------------------------------------------
    template <class Fn>
-   void update1(const typename Record::Key& key, const Fn& fn, leanstore::UpdateSameSizeInPlaceDescriptor)
+   void update1(const typename Record::Key& key, const Fn& fn, leanstore::UpdateSameSizeInPlaceDescriptor&)
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);

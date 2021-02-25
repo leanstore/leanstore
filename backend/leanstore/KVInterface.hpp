@@ -30,7 +30,10 @@ class KVInterface
   public:
    virtual OP_RESULT lookup(u8* key, u16 key_length, std::function<void(const u8*, u16)> payload_callback) = 0;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) = 0;
-   virtual OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, std::function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor);
+   virtual OP_RESULT updateSameSizeInPlace(u8* key,
+                                           u16 key_length,
+                                           std::function<void(u8* value, u16 value_size)>,
+                                           UpdateSameSizeInPlaceDescriptor&) = 0;
    virtual OP_RESULT remove(u8* key, u16 key_length) = 0;
    virtual OP_RESULT scanAsc(u8* start_key,
                              u16 key_length,

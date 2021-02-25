@@ -94,7 +94,7 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
-   OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor) override;
+   OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor&) override;
    OP_RESULT remove(u8* key, u16 key_length) override;
    OP_RESULT scanAsc(u8* start_key,
                      u16 key_length,

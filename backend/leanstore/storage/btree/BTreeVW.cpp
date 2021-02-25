@@ -214,7 +214,7 @@ bool BTreeVW::reconstructTuple(u8* payload, u16& payload_length, u8 start_worker
 OP_RESULT BTreeVW::updateSameSizeInPlace(u8* key,
                                          u16 key_length,
                                          function<void(u8* value, u16 value_size)> callback,
-                                         UpdateSameSizeInPlaceDescriptor update_descriptor)
+                                         UpdateSameSizeInPlaceDescriptor &update_descriptor)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    // -------------------------------------------------------------------------------------
