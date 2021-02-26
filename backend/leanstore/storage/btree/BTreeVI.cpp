@@ -22,56 +22,29 @@ namespace btree
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
 {
-   if (0) {
-      u16 key_length = o_key_length + sizeof(SN);
-      u8 key_buffer[key_length];
-      std::memcpy(key_buffer, o_key, o_key_length);
-      MutableSlice key(key_buffer, key_length);
-      setSN(key, 0);
-      while (true) {
-         jumpmuTry()
-         {
-            HybridPageGuard<BTreeNode> leaf;
-            findLeafCanJump(leaf, key_buffer, key_length);
-            // -------------------------------------------------------------------------------------
-            s16 pos = leaf->lowerBound<true>(key_buffer, key_length);
-            if (pos != -1) {
-               payload_callback(leaf->getPayload(pos), leaf->getPayloadLength(pos) - sizeof(PrimaryVersion));
-               leaf.recheck();
-               jumpmu_return OP_RESULT::OK;
-            } else {
-               leaf.recheck();
-               raise(SIGTRAP);
-               jumpmu_return OP_RESULT::NOT_FOUND;
-            }
-         }
-         jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
+   // TODO: use optimistic latches for leaf 5K (optimistic scans)
+   // -------------------------------------------------------------------------------------
+   u16 key_length = o_key_length + sizeof(SN);
+   u8 key_buffer[key_length];
+   std::memcpy(key_buffer, o_key, o_key_length);
+   MutableSlice key(key_buffer, key_length);
+   setSN(key, 0);
+   jumpmuTry()
+   {
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
+      auto ret = iterator.seekExact(Slice(key.data(), key.length()));
+      if (ret != OP_RESULT::OK) {
+         raise(SIGTRAP);
+         jumpmu_return OP_RESULT::NOT_FOUND;
       }
-   } else {
-      // 5K
-      // -------------------------------------------------------------------------------------
-      u16 key_length = o_key_length + sizeof(SN);
-      u8 key_buffer[key_length];
-      std::memcpy(key_buffer, o_key, o_key_length);
-      MutableSlice key(key_buffer, key_length);
-      setSN(key, 0);
-      jumpmuTry()
-      {
-         BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
-         auto ret = iterator.seekExact(Slice(key.data(), key.length()));
-         if (ret != OP_RESULT::OK) {
-            raise(SIGTRAP);
-            jumpmu_return OP_RESULT::NOT_FOUND;
-         }
-         ret = std::get<0>(reconstructTuple(iterator, key, [&](Slice value) { payload_callback(value.data(), value.length()); }));
-         if (ret != OP_RESULT::OK) {  // For debugging
-            raise(SIGTRAP);
-            jumpmu_return OP_RESULT::NOT_FOUND;
-         }
-         jumpmu_return ret;
+      ret = std::get<0>(reconstructTuple(iterator, key, [&](Slice value) { payload_callback(value.data(), value.length()); }));
+      if (ret != OP_RESULT::OK) {  // For debugging
+         raise(SIGTRAP);
+         jumpmu_return OP_RESULT::NOT_FOUND;
       }
-      jumpmuCatch() { ensure(false); }
+      jumpmu_return ret;
    }
+   jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
@@ -100,10 +73,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             jumpmu_return ret;
          }
          auto primary_payload = iterator.mutableValue();
-         if (0) {
-            callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
-            jumpmu_return OP_RESULT::OK;
-         }
          PrimaryVersion* primary_version =
              reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
          if (primary_version->isWriteLocked() || !isVisibleForMe(primary_version->worker_id, primary_version->tts)) {
@@ -164,12 +133,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          } else {
             // TODO: garbage collection/recycling
             // Here is the only place where we need an invasive garbage collection
-            // TODO uses an easy high water mark process
-            secondary_sn = primary_version->next_sn;
             secondary_sn = primary_version->next_sn;
             setSN(m_key, secondary_sn);
             ret = iterator.seekExactWithHint(key, true);
             ensure(ret == OP_RESULT::OK);
+
          }
       }
       jumpmuCatch() { ensure(false); }
