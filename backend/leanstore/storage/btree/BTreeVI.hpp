@@ -42,9 +42,9 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) SecondaryVersion {
       u8 worker_id : 8;
       u64 tts : 56;
-      SN next_sn, prev_sn;
       u8 is_removed : 1;
-      u8 is_delta : 1;      // TODO: atm, always true
+      u8 is_delta : 1;  // TODO: atm, always true
+      SN next_sn, prev_sn;
       u8 is_skippable : 1;  // TODO: atm, not used
       SecondaryVersion(u8 worker_id, u64 tts, bool is_removed, bool is_delta, SN next_sn = 0, SN prev_sn = 0)
           : worker_id(worker_id), tts(tts), is_removed(is_removed), is_delta(is_delta), next_sn(next_sn), prev_sn(prev_sn)
