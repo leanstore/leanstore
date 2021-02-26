@@ -152,31 +152,19 @@ class BTreeVI : public BTreeLL
             // -------------------------------------------------------------------------------------
             std::memcpy(key_buffer, key.data(), key.length());
             s_key = MutableSlice(key_buffer, key.length());
-            if (0) {
-               Slice payload = iterator.value();
-               assert(getSN(key) == 0);
-               const auto primary_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
-               if (isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
-                  keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), payload.data(), payload.length() - sizeof(PrimaryVersion));
-               }
-               if (!keep_scanning) {
-                  jumpmu_return;
-               }
-            } else {
-               // costs 2K
-               const u16 chain_length = std::get<1>(reconstructTuple(iterator, s_key, [&](Slice value) {
-                  keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
-                  counter++;
-               }));
-               if (!keep_scanning) {
-                  jumpmu_return;
-               }
-               if (chain_length > 1) {
-                  ensure(false);
-                  setSN(s_key, 0);
-                  ret = iterator.seekExact(Slice(s_key.data(), s_key.length()));
-                  ensure(ret == OP_RESULT::OK);
-               }
+            // costs 2K
+            const u16 chain_length = std::get<1>(reconstructTuple(iterator, s_key, [&](Slice value) {
+               keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
+               counter++;
+            }));
+            if (!keep_scanning) {
+               jumpmu_return;
+            }
+            if (chain_length > 1) {
+               ensure(false);
+               setSN(s_key, 0);
+               ret = iterator.seekExact(Slice(s_key.data(), s_key.length()));
+               ensure(ret == OP_RESULT::OK);
             }
             // -------------------------------------------------------------------------------------
             if (asc) {
