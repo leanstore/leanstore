@@ -267,19 +267,23 @@ u64 BTreeLL::calculateDeltaSize(const UpdateSameSizeInPlaceDescriptor& update_de
 // -------------------------------------------------------------------------------------
 void BTreeLL::deltaBeforeImage(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
 {
+   u64 dst_offset = 0;
    for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
-      auto& slot = update_descriptor.slots[a_i];
-      std::memcpy(dst + slot.offset, src + slot.offset, slot.size);
+      const auto& slot = update_descriptor.slots[a_i];
+      std::memcpy(dst + dst_offset, src + slot.offset, slot.size);
+      dst_offset += slot.size;
    }
 }
 // -------------------------------------------------------------------------------------
 void BTreeLL::deltaXOR(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
 {
+   u64 dst_offset = 0;
    for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
-      auto& slot = update_descriptor.slots[a_i];
+      const auto& slot = update_descriptor.slots[a_i];
       for (u64 b_i = 0; b_i < slot.size; b_i++) {
          *(dst + slot.offset + b_i) ^= *(src + slot.offset + b_i);
       }
+      dst_offset += slot.size;
    }
 }
 // -------------------------------------------------------------------------------------
