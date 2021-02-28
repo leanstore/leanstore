@@ -86,15 +86,94 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          u8 secondary_payload[secondary_payload_length];
          SecondaryVersion& secondary_version =
              *new (secondary_payload + delta_and_descriptor_size) SecondaryVersion(primary_version->worker_id, primary_version->tts, false, true);
+         // -------------------------------------------------------------------------------------
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
+         std::memcpy(wal_entry->payload, o_key, o_key_length);
          std::memcpy(secondary_payload, &update_descriptor, update_descriptor.size());
          BTreeLL::deltaBeforeImage(update_descriptor, secondary_payload + update_descriptor.size(), primary_payload.data());
+         std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
          callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
+         BTreeLL::deltaXOR(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), primary_payload.data());
+         wal_entry.submit();
          // -------------------------------------------------------------------------------------
-         if (FLAGS_wal) {
-            // BTreeLL::generateDeltaafterimagexor
+         // Precise garbage collection TODO: recycling if it is worth it
+         if (0) {
+            auto getNextVisibleVersion = [&](u8 cur_worker_id, const SN start_sn) {
+               SN trav_sn = start_sn;
+               u64 versions_in_between = 0;
+               while (true) {
+                  setSN(m_key, trav_sn);
+                  ret = iterator.seekExact(key);
+                  ensure(ret == OP_RESULT::OK);
+                  auto payload = iterator.value();
+                  // -------------------------------------------------------------------------------------
+                  u8 gc_worker_id;
+                  u64 gc_tts;
+                  SN next_sn;
+                  bool is_final;
+                  if (trav_sn == 0) {
+                     auto& gc_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
+                     gc_worker_id = gc_version.worker_id;
+                     gc_tts = gc_version.tts;
+                     next_sn = gc_version.next_sn;
+                     is_final = gc_version.isFinal();
+                  } else {
+                     auto& gc_version = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
+                     gc_worker_id = gc_version.worker_id;
+                     gc_tts = gc_version.tts;
+                     next_sn = gc_version.next_sn;
+                     is_final = gc_version.isFinal();
+                  }
+                  // -------------------------------------------------------------------------------------
+                  if (cr::Worker::my().isVisibleForIt(cur_worker_id, gc_worker_id, gc_tts) || is_final) {
+                     return std::tuple<SN, u64>{trav_sn, versions_in_between};
+                  } else {
+                     trav_sn = next_sn;
+                  }
+                  versions_in_between++;
+               }
+            };
+            SN current_sn = 0, visible_sn = primary_version->next_sn, prev_sn = current_sn;
+            bool end_reached = false;
+            for (u64 w_i = 0; !end_reached && w_i < cr::Worker::my().workers_count; w_i++) {
+               const u8 sorted_w_id = cr::Worker::my().sorted_active_workers[w_i];
+               auto next = getNextVisibleVersion(sorted_w_id, current_sn);
+               SN next_sn = std::get<0>(next);
+               u64 versions_in_between = std::get<1>(next);
+               if (versions_in_between--) {
+                  // Prune
+                  setSN(m_key, prev_sn);
+                  ret = iterator.seekExact(key);
+                  ensure(ret == OP_RESULT::OK);
+                  if (prev_sn == 0) {
+                     next_sn = (reinterpret_cast<const PrimaryVersion*>(iterator.value().data()))->next_sn;
+                  } else {
+                     next_sn = (reinterpret_cast<const SecondaryVersion*>(iterator.value().data()))->next_sn;
+                  }
+                  // -------------------------------------------------------------------------------------
+                  setSN(m_key, next_sn);
+                  ret = iterator.seekExact(key);
+                  ensure(ret == OP_RESULT::OK);
+                  // -------------------------------------------------------------------------------------
+                  // Delete
+                  const SN collected_next_sn = reinterpret_cast<const SecondaryVersion*>(iterator.value().data())->next_sn;
+                  iterator.removeCurrent();
+                  // -------------------------------------------------------------------------------------
+                  setSN(m_key, prev_sn);
+                  ret = iterator.seekExact(key);
+                  ensure(ret == OP_RESULT::OK);
+                  if (prev_sn == 0) {
+                     reinterpret_cast<PrimaryVersion*>(iterator.mutableValue().data())->next_sn = collected_next_sn;
+                  } else {
+                     reinterpret_cast<SecondaryVersion*>(iterator.mutableValue().data())->next_sn = collected_next_sn;
+                  }
+               } else {
+                  current_sn = visible_sn;
+               }
+            }
          }
          // -------------------------------------------------------------------------------------
-         if (1 || primary_version->isFinal()) {
+         {
             // Create new version
             secondary_version.worker_id = primary_version->worker_id;
             secondary_version.tts = primary_version->tts;
@@ -130,19 +209,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             }
             primary_version->unlock();
             jumpmu_return OP_RESULT::OK;
-         } else {
-            // TODO: garbage collection/recycling
-            // Here is the only place where we need an invasive garbage collection
-            secondary_sn = primary_version->next_sn;
-            setSN(m_key, secondary_sn);
-            ret = iterator.seekExactWithHint(key, true);
-            ensure(ret == OP_RESULT::OK);
-
          }
       }
       jumpmuCatch() { ensure(false); }
-      ensure(false);
    }
+   ensure(false);
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_length)
