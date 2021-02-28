@@ -183,6 +183,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    void refreshSnapshot();
    bool isVisibleForAll(u8 worker_id, u64 tts);
+   bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
    bool isVisibleForMe(u8 worker_id, u64 tts);
    bool isVisibleForMe(u64 tts);
    u64 getLowerWaterMark(const u8 other_worker_id);

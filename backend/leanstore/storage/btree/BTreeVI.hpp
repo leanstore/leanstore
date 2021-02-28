@@ -74,9 +74,9 @@ class BTreeVI : public BTreeLL
       u16 value_length;
       u8 payload[];
    };
-   struct WALUpdate : WALEntry {
+   struct WALUpdateSSIP : WALEntry {
       u16 key_length;
-      u64 before_image_seq;
+      u64 delta_length;
       u8 payload[];
    };
    struct WALRemove : WALEntry {

@@ -211,6 +211,11 @@ void Worker::abortTX()
    jumpmu::jump();
 }
 // -------------------------------------------------------------------------------------
+bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
+{
+   return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->my_snapshot[what_worker_id] > tts);
+}
+// -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
 {
    return worker_id == other_worker_id || my_snapshot[other_worker_id] > tts;
