@@ -87,12 +87,13 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          SecondaryVersion& secondary_version =
              *new (secondary_payload + delta_and_descriptor_size) SecondaryVersion(primary_version->worker_id, primary_version->tts, false, true);
          // -------------------------------------------------------------------------------------
+         // WAL
          auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
          std::memcpy(wal_entry->payload, o_key, o_key_length);
          std::memcpy(secondary_payload, &update_descriptor, update_descriptor.size());
          BTreeLL::deltaBeforeImage(update_descriptor, secondary_payload + update_descriptor.size(), primary_payload.data());
          std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
-         callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));
+         callback(primary_payload.data(), primary_payload.length() - sizeof(PrimaryVersion));  // Update
          BTreeLL::deltaXOR(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), primary_payload.data());
          wal_entry.submit();
          // -------------------------------------------------------------------------------------
@@ -239,6 +240,15 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
             iterator.splitForKey(key);
             jumpmu_continue;
          }
+         // -------------------------------------------------------------------------------------
+         // WAL
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALInsert>(o_key_length + value_length);
+         wal_entry->key_length = o_key_length;
+         wal_entry->value_length = value_length;
+         std::memcpy(wal_entry->payload, o_key, o_key_length);
+         std::memcpy(wal_entry->payload + o_key_length, iterator.value().data(), value_length);
+         wal_entry.submit();
+         // -------------------------------------------------------------------------------------
          iterator.insertInCurrentNode(key, payload_length);
          auto payload = iterator.mutableValue();
          std::memcpy(payload.data(), value, value_length);
@@ -267,10 +277,15 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          if (ret != OP_RESULT::OK) {
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
-         if (0) {
-            iterator.removeCurrent();
-            jumpmu_return OP_RESULT::OK;
-         }
+         const u16 value_length = iterator.value().length() - sizeof(PrimaryVersion);
+         // -------------------------------------------------------------------------------------
+         // WAL
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALRemove>(o_key_length + value_length);
+         wal_entry->key_length = o_key_length;
+         wal_entry->value_length = value_length;
+         std::memcpy(wal_entry->payload, o_key, o_key_length);
+         std::memcpy(wal_entry->payload + o_key_length, iterator.value().data(), value_length);
+         wal_entry.submit();
          // -------------------------------------------------------------------------------------
          SN secondary_sn;
          {
@@ -280,7 +295,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
                jumpmu_return OP_RESULT::ABORT_TX;
             }
             primary_version.writeLock();
-            const u16 value_length = primary_payload.length() - sizeof(PrimaryVersion);
             const u16 secondary_payload_length = value_length + sizeof(SecondaryVersion);
             u8 secondary_payload[secondary_payload_length];
             std::memcpy(secondary_payload, primary_payload.data(), value_length);
