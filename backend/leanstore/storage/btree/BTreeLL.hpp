@@ -36,6 +36,7 @@ class BTreeLL : public KVInterface, public BTreeGeneric
    };
    struct WALUpdate : WALEntry {
       u16 key_length;
+      u16 delta_length;
       u8 payload[];
    };
    struct WALRemove : WALEntry {

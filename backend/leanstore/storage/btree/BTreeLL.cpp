@@ -147,9 +147,11 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
       if (FLAGS_wal) {
          assert(update_descriptor.count > 0);  // if it is a secondary index, then we can not use updateSameSize
          // -------------------------------------------------------------------------------------
-         auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdate>(key.length() + update_descriptor.size() + calculateDeltaSize(update_descriptor));
+         const u16 delta_length = update_descriptor.size() + calculateDeltaSize(update_descriptor);
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdate>(key.length() + delta_length);
          wal_entry->type = WAL_LOG_TYPE::WALUpdate;
          wal_entry->key_length = key.length();
+         wal_entry->delta_length = delta_length;
          u8* wal_ptr = wal_entry->payload;
          std::memcpy(wal_ptr, key.data(), key.length());
          wal_ptr += key.length();
@@ -183,9 +185,10 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
       }
       Slice value = iterator.value();
       if (FLAGS_wal) {
-         auto wal_entry = iterator.leaf.reserveWALEntry<WALRemove>(o_key_length);
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALRemove>(o_key_length + value.length());
          wal_entry->type = WAL_LOG_TYPE::WALRemove;
          wal_entry->key_length = o_key_length;
+         wal_entry->value_length = value.length();
          std::memcpy(wal_entry->payload, key.data(), key.length());
          std::memcpy(wal_entry->payload + o_key_length, value.data(), value.length());
          wal_entry.submit();
@@ -281,7 +284,7 @@ void BTreeLL::deltaXOR(const UpdateSameSizeInPlaceDescriptor& update_descriptor,
    for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
       const auto& slot = update_descriptor.slots[a_i];
       for (u64 b_i = 0; b_i < slot.size; b_i++) {
-         *(dst + slot.offset + b_i) ^= *(src + slot.offset + b_i);
+         *(dst + dst_offset + b_i) ^= *(src + slot.offset + b_i);
       }
       dst_offset += slot.size;
    }
