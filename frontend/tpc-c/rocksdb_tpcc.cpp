@@ -1,11 +1,11 @@
-#include "Units.hpp"
-#include "TPCCWorkload.hpp"
 #include "RocksDBAdapter.hpp"
+#include "TPCCWorkload.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
+#include <rocksdb/db.h>
 
 #include "leanstore/Config.hpp"
-#include <rocksdb/db.h>
 // -------------------------------------------------------------------------------------
 
 #include <chrono>
@@ -63,6 +63,7 @@ int main(int argc, char** argv)
    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       threads.emplace_back([&]() {
          running_threads_counter++;
+         tpcc.prepare();
          while (keep_running) {
             Integer w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
             tpcc.tx(w_id);
