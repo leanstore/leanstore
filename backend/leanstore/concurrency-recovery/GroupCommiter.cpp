@@ -91,8 +91,8 @@ void CRManager::groupCommiter()
                const u64 size = worker.group_commit_data.wt_cursor_to_flush - worker.wal_ww_cursor;
                const u64 size_aligned = upper_offset - lower_offset;
                // -------------------------------------------------------------------------------------
-               ssd_offset -= size_aligned;
                if (!FLAGS_wal_io_hack) {
+                  ssd_offset -= size_aligned;
                   add_pwrite(worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
                }
                // -------------------------------------------------------------------------------------
@@ -110,8 +110,8 @@ void CRManager::groupCommiter()
                   const u64 size = worker.group_commit_data.wt_cursor_to_flush;
                   const u64 size_aligned = upper_offset - lower_offset;
                   // -------------------------------------------------------------------------------------
-                  ssd_offset -= size_aligned;
                   if (!FLAGS_wal_io_hack) {
+                     ssd_offset -= size_aligned;
                      add_pwrite(worker.wal_buffer, size_aligned, ssd_offset);
                   }
                   COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
@@ -124,8 +124,8 @@ void CRManager::groupCommiter()
                   const u64 size = Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor;
                   const u64 size_aligned = upper_offset - lower_offset;
                   // -------------------------------------------------------------------------------------
-                  ssd_offset -= size_aligned;
                   if (!FLAGS_wal_io_hack) {
+                     ssd_offset -= size_aligned;
                      add_pwrite(worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
                   }
                   COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
