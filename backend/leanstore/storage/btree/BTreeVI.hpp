@@ -22,14 +22,14 @@ namespace btree
 class BTreeVI : public BTreeLL
 {
   public:
-   using SN = u64;
+   using SN = u32;
    struct __attribute__((packed)) PrimaryVersion {
       u64 tts : 56;
       u8 worker_id : 8;
       u8 write_locked : 1;
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
-      u8 tmp;
+      u64 tmp = 0;
       // -------------------------------------------------------------------------------------
       SN next_sn = 0, prev_sn = 0;
       u32 versions_counter = 0;  // For debugging
@@ -167,7 +167,6 @@ class BTreeVI : public BTreeLL
                jumpmu_return;
             }
             if (chain_length > 1) {
-               ensure(false);
                setSN(s_key, 0);
                ret = iterator.seekExact(Slice(s_key.data(), s_key.length()));
                ensure(ret == OP_RESULT::OK);
