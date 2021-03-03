@@ -98,7 +98,6 @@ int main(int argc, char** argv)
          });
       }
       crm.joinAll();
-      sleep(2);
    }
    // -------------------------------------------------------------------------------------
    double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
