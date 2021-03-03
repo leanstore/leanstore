@@ -36,6 +36,7 @@ class TPCCWorkload
    const bool order_wdc_index = true;
    const Integer warehouseCount;
    const Integer tpcc_remove;
+   const u64 analytical_query_pct;
    // -------------------------------------------------------------------------------------
    Integer urandexcept(Integer low, Integer high, Integer v)
    {
@@ -768,6 +769,18 @@ class TPCCWorkload
       }
    }
    // -------------------------------------------------------------------------------------
+   void analyticalQuery()
+   {
+      Integer sum = 0;
+      stock.scan(
+          {1, 0},
+          [&](const stock_t::Key&, const stock_t& rec) {
+             sum += rec.s_order_cnt;
+             return true;
+          },
+          [&]() {});
+   }
+   // -------------------------------------------------------------------------------------
   public:
    TPCCWorkload(AdapterType<warehouse_t>& w,
                 AdapterType<district_t>& d,
@@ -782,7 +795,8 @@ class TPCCWorkload
                 AdapterType<stock_t>& stock,
                 bool order_wdc_index,
                 Integer warehouse_count,
-                bool tpcc_remove)
+                bool tpcc_remove,
+                bool analytical = 0)
        : warehouse(w),
          district(d),
          customer(customer),
@@ -796,7 +810,8 @@ class TPCCWorkload
          stock(stock),
          order_wdc_index(order_wdc_index),
          warehouseCount(warehouse_count),
-         tpcc_remove(tpcc_remove)
+         tpcc_remove(tpcc_remove),
+         analytical_query_pct(analytical)
    {
    }
    // -------------------------------------------------------------------------------------
@@ -919,7 +934,11 @@ class TPCCWorkload
    int tx(Integer w_id)
    {
       // micro-optimized version of weighted distribution
-      int rnd = leanstore::utils::RandomGenerator::getRand(0, 10000);
+      u64 rnd = leanstore::utils::RandomGenerator::getRand(0, 10000);
+      if (rnd < analytical_query_pct) {
+         analyticalQuery();
+         return 5;
+      }
       if (rnd < 4300) {
          paymentRnd(w_id);
          return 0;
