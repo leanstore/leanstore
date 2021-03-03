@@ -486,7 +486,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
    }
 }  // namespace btree
 // -------------------------------------------------------------------------------------
-void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
+void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 tts)
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    const TODOEntry& todo_entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
@@ -515,6 +515,11 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
       const bool safe_to_remove = cr::Worker::my().isVisibleForAll(primary_version->worker_id, primary_version->tts);
       SN next_sn = primary_version->next_sn;
       if (safe_to_remove) {
+         // if (primary_version->tts != tts) {
+         //   cout << primary_version->tts << "," << tts << ","<< cr::Worker::my().lower_water_mark << endl;
+         //    ensure(false);
+         // }
+         // ensure(primary_version->tts == tts);
          if (primary_version->is_removed) {
             ret = iterator.removeCurrent();
             ensure(ret == OP_RESULT::OK);

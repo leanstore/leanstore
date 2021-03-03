@@ -29,6 +29,7 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
    my_snapshot = make_unique<atomic<u64>[]>(workers_count);
    oldest_snapshot = make_unique<u64[]>(workers_count);
+   my_snapshot_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
 }
 Worker::~Worker()
 {
@@ -130,15 +131,16 @@ void Worker::submitDTEntry(u64 total_size)
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshot()
 {
+   my_snapshot_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
 restart : {
-   // my_snapshot_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
    // u64 oldest_order = std::numeric_limits<u64>::max();
    // u8 oldest_worker_id = 0;
    lower_water_mark = std::numeric_limits<u64>::max();
    for (u64 w = 0; w < workers_count; w++) {
       my_snapshot[w].store(all_workers[w]->high_water_mark, std::memory_order_release);
-      if (all_workers[w]->my_snapshot[worker_id] < lower_water_mark) {
-         lower_water_mark = all_workers[w]->my_snapshot[worker_id];
+      const u64 tmp = all_workers[w]->my_snapshot[worker_id];
+      if (tmp < lower_water_mark) {
+         lower_water_mark = tmp;
       }
       // const u64 its_snapshot_order = all_workers[w]->my_snapshot_order;
       // if (its_snapshot_order < oldest_order) {
@@ -147,9 +149,7 @@ restart : {
       // }
    }
    // -------------------------------------------------------------------------------------
-   // for (u64 w = 0; w < workers_count; w++) {
-   //    oldest_snapshot[w] = all_workers[oldest_worker_id]->my_snapshot[w];
-   // }
+   // lower_water_mark = all_workers[oldest_worker_id]->my_snapshot[worker_id];
    // if (all_workers[oldest_worker_id]->my_snapshot_order != oldest_order) {
    //    //      raise(SIGTRAP);
    //    //  cout << "restart " << endl;
@@ -178,6 +178,7 @@ void Worker::startTX()
          if (FLAGS_todo && todo_list.size()) {  // Cleanup
             while (todo_list.size()) {
                auto& todo = todo_list.front();
+               // if (todo.tts < lower_water_mark) {
                if (todo.tts < lower_water_mark) {
                   leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry.get(), todo.tts);
                   todo_list.pop();
@@ -250,7 +251,8 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 u64 Worker::getLowerWaterMark(const u8 other_worker_id)
 {
-   // ensure(other_worker_id == worker_id);
+   ensure(other_worker_id == worker_id);
+   return lower_water_mark;
    // return oldest_snapshot[other_worker_id];
    //   u64 min = std::numeric_limits<u64>::max();
    // for (u64 w = 0; w < workers_count; w++) {
