@@ -10,7 +10,7 @@ ExternalProject_Add(
         rapidjson_src
         PREFIX "vendor/rapidjson"
         GIT_REPOSITORY "https://github.com/tencent/rapidjson"
-        GIT_TAG v1.1.0
+        GIT_TAG 1c2c8e085a8b2561dff17bedb689d2eb0609b689
         TIMEOUT 10
         CONFIGURE_COMMAND ""
         BUILD_COMMAND ""
