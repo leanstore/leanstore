@@ -99,7 +99,7 @@ void CRManager::groupCommiter()
                COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                chunk.slot[w_i].offset = ssd_offset + (worker.wal_ww_cursor - lower_offset);
                chunk.slot[w_i].length = size;
-               assert(chunk.slot[w_i].offset < end_of_block_device);
+               ensure(chunk.slot[w_i].offset < end_of_block_device);
                chunk.total_size += size_aligned;
                ensure(chunk.slot[w_i].offset >= ssd_offset);
             } else if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_ww_cursor) {
@@ -160,7 +160,7 @@ void CRManager::groupCommiter()
       }
       // -------------------------------------------------------------------------------------
       // Flush
-      if (chunk.total_size > sizeof(WALChunk)) {
+      if (!FLAGS_wal_io_hack && chunk.total_size > sizeof(WALChunk)) {
          ensure(ssd_offset % 512 == 0);
          ssd_offset -= sizeof(WALChunk);
          if (!FLAGS_wal_io_hack) {
