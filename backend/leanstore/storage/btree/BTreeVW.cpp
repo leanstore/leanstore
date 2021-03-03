@@ -188,7 +188,7 @@ bool BTreeVW::reconstructTuple(u8* payload, u16& payload_length, u8 start_worker
             case WAL_LOG_TYPE::WALUpdate: {
                auto& update_entry = *reinterpret_cast<WALUpdate*>(entry);
                const auto& update_descriptor = *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(update_entry.payload + update_entry.key_length);
-               deltaXOR(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
+               XORDiffTo(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
                is_removed = false;
                break;
             }
@@ -254,10 +254,10 @@ OP_RESULT BTreeVW::updateSameSizeInPlace(u8* key,
                   wal_ptr += key_length;
                   std::memcpy(wal_ptr, &update_descriptor, descriptor_size);
                   wal_ptr += descriptor_size;
-                  deltaBeforeImage(update_descriptor, wal_ptr, payload);
+                  copyDiffTo(update_descriptor, wal_ptr, payload);
                   // The actual update by the client
                   callback(payload, payload_length);
-                  deltaXOR(update_descriptor, wal_ptr, payload);
+                  XORDiffTo(update_descriptor, wal_ptr, payload);
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
                   version.worker_id = myWorkerID();
@@ -517,7 +517,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                u8* payload = leaf_ex_guard->getPayload(pos) + VW_PAYLOAD_OFFSET;
                const auto& update_descriptor =
                    *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(update_entry.payload + update_entry.key_length);
-               btree.deltaXOR(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
+               btree.XORDiffTo(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
                // -------------------------------------------------------------------------------------
                version.tts = update_entry.prev_version.tts;
                version.worker_id = update_entry.prev_version.worker_id;
