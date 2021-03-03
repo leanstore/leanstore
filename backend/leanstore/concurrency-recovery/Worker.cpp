@@ -28,7 +28,7 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    CRCounters::myCounters().worker_id = worker_id;
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
    my_snapshot = make_unique<atomic<u64>[]>(workers_count);
-   oldest_snapshot = make_unique<u64[]>(workers_count);
+   sorted_workers = make_unique<u64[]>(workers_count);
    my_snapshot_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
 }
 Worker::~Worker()
@@ -131,32 +131,24 @@ void Worker::submitDTEntry(u64 total_size)
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshot()
 {
-   my_snapshot_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
-restart : {
-   // u64 oldest_order = std::numeric_limits<u64>::max();
-   // u8 oldest_worker_id = 0;
-   lower_water_mark = std::numeric_limits<u64>::max();
+   my_snapshot_order.store(std::numeric_limits<u64>::max(), std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
       my_snapshot[w].store(all_workers[w]->high_water_mark, std::memory_order_release);
-      const u64 tmp = all_workers[w]->my_snapshot[worker_id];
-      if (tmp < lower_water_mark) {
-         lower_water_mark = tmp;
-      }
-      // const u64 its_snapshot_order = all_workers[w]->my_snapshot_order;
-      // if (its_snapshot_order < oldest_order) {
-      //    oldest_worker_id = w;
-      //    oldest_order = its_snapshot_order;
-      // }
    }
+   my_snapshot_order.store(global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id, std::memory_order_release);
    // -------------------------------------------------------------------------------------
-   // lower_water_mark = all_workers[oldest_worker_id]->my_snapshot[worker_id];
-   // if (all_workers[oldest_worker_id]->my_snapshot_order != oldest_order) {
-   //    //      raise(SIGTRAP);
-   //    //  cout << "restart " << endl;
-   //    goto restart;
-   // }
+restart : {
+   for (u64 w = 0; w < workers_count; w++) {
+      sorted_workers[w] = all_workers[w]->my_snapshot_order;
+   }
+   std::sort(sorted_workers.get(), sorted_workers.get() + workers_count, std::greater<u64>());
+   // -------------------------------------------------------------------------------------
+   u8 oldest_worker_id = sorted_workers[workers_count - 1] & WORKERS_MASK;
+   lower_water_mark = all_workers[oldest_worker_id]->my_snapshot[worker_id];
+   if (all_workers[oldest_worker_id]->my_snapshot_order != sorted_workers[workers_count - 1]) {
+      goto restart;
+   }
 }
-   //   lower_water_mark = getLowerWaterMark(worker_id);
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX()
@@ -178,7 +170,6 @@ void Worker::startTX()
          if (FLAGS_todo && todo_list.size()) {  // Cleanup
             while (todo_list.size()) {
                auto& todo = todo_list.front();
-               // if (todo.tts < lower_water_mark) {
                if (todo.tts < lower_water_mark) {
                   leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry.get(), todo.tts);
                   todo_list.pop();
@@ -253,20 +244,6 @@ u64 Worker::getLowerWaterMark(const u8 other_worker_id)
 {
    ensure(other_worker_id == worker_id);
    return lower_water_mark;
-   // return oldest_snapshot[other_worker_id];
-   //   u64 min = std::numeric_limits<u64>::max();
-   // for (u64 w = 0; w < workers_count; w++) {
-   //    min = std::min<u64>(min, all_workers[w]->my_snapshot_order);
-   // }
-   // const u64 o_w_id = min & WORKERS_MASK;
-   // return all_workers[o_w_id]->my_snapshot[other_worker_id];
-   u64 min = std::numeric_limits<u64>::max();
-   for (u64 w = 0; w < workers_count; w++) {
-      min = std::min<u64>(min, all_workers[w]->my_snapshot[other_worker_id]);
-   }
-   return min;
-   // const u64 oldest_worker_id = sorted_active_workers[workers_count - 1];
-   // return all_workers[oldest_worker_id]->my_snapshot[other_worker_id];  // > primary_version->tts;
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForAll(u8 other_worker_id, u64 tts)
