@@ -43,10 +43,11 @@ struct alignas(512) WALChunk {
 struct Worker {
    // Static
    static thread_local Worker* tls_ptr;
-   static atomic<u64> global_tts;
+   static atomic<u64> global_snapshot_clock;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
-   static constexpr u64 WORKERS_MASK = (1 < WORKERS_BITS) - 1;
+   static constexpr u64 WORKERS_INCREMENT = 1ull << 8;
+   static constexpr u64 WORKERS_MASK = (1ull << WORKERS_BITS) - 1;
    // -------------------------------------------------------------------------------------
    const u64 worker_id;
    Worker** all_workers;
@@ -70,7 +71,9 @@ struct Worker {
    void addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    // -------------------------------------------------------------------------------------
    unique_ptr<atomic<u64>[]> my_snapshot;
+   atomic<u64> my_snapshot_order = 0;
    unique_ptr<u64[]> sorted_active_workers;
+   u64 tmp = std::numeric_limits<u64>::max();
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------

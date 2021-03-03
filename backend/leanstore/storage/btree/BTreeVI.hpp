@@ -22,13 +22,14 @@ namespace btree
 class BTreeVI : public BTreeLL
 {
   public:
-   using SN = u16;
+   using SN = u64;
    struct __attribute__((packed)) PrimaryVersion {
       u64 tts : 56;
       u8 worker_id : 8;
       u8 write_locked : 1;
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
+      u8 tmp;
       // -------------------------------------------------------------------------------------
       SN next_sn = 0, prev_sn = 0;
       u32 versions_counter = 0;  // For debugging
@@ -77,12 +78,17 @@ class BTreeVI : public BTreeLL
    struct WALUpdateSSIP : WALEntry {
       u16 key_length;
       u64 delta_length;
+      u8 before_worker_id;
+      u8 after_worker_id;
+      u64 before_tts;
+      u64 after_tts;
       u8 payload[];
    };
    struct WALRemove : WALEntry {
       u16 key_length;
       u16 value_length;
-      u64 before_image_seq;
+      u8 before_worker_id;
+      u64 before_tts;
       u8 payload[];
    };
    // -------------------------------------------------------------------------------------

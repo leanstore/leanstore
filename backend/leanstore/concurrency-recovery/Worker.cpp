@@ -19,7 +19,7 @@ namespace cr
 {
 // -------------------------------------------------------------------------------------
 thread_local Worker* Worker::tls_ptr = nullptr;
-atomic<u64> Worker::global_tts = 0;
+atomic<u64> Worker::global_snapshot_clock = 0;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
     : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), ssd_fd(fd)
@@ -130,14 +130,19 @@ void Worker::submitDTEntry(u64 total_size)
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshot()
 {
+   tmp = std::numeric_limits<u64>::max();
+   my_snapshot_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
    for (u64 w = 0; w < workers_count; w++) {
       my_snapshot[w].store(all_workers[w]->high_water_mark, std::memory_order_release);
+      tmp = std::min<u64>(tmp, all_workers[w]->my_snapshot_order);
+      //      sorted_active_workers[w] = all_workers[w]->my_snapshot_order;
    }
+   tmp &= WORKERS_MASK;
    // TODO: Optimize
-   std::sort(sorted_active_workers.get(), sorted_active_workers.get() + workers_count, std::greater<int>());
-   for (u64 w = 0; w < workers_count; w++) {
-      sorted_active_workers[w] &= WORKERS_MASK;
-   }
+   // std::sort(sorted_active_workers.get(), sorted_active_workers.get() + workers_count, std::greater<int>());
+   // for (u64 w = 0; w < workers_count; w++) {
+   //    sorted_active_workers[w] &= WORKERS_MASK;
+   // }
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX()
@@ -154,7 +159,7 @@ void Worker::startTX()
          if (FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
             refreshSnapshot();
          }
-         active_tx.tts = Worker::global_tts.fetch_add(1);
+         active_tx.tts = high_water_mark;
          if (FLAGS_todo && todo_list.size()) {  // Cleanup
             while (todo_list.size()) {
                auto& todo = todo_list.front();
@@ -230,6 +235,18 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 u64 Worker::getLowerWaterMark(const u8 other_worker_id)
 {
+   //  return all_workers[tmp]->my_snapshot[other_worker_id];
+   // u64 min = std::numeric_limits<u64>::max();
+   // for (u64 w = 0; w < workers_count; w++) {
+   //    min = std::min<u64>(min, all_workers[w]->my_snapshot_order);
+   // }
+   // const u64 o_w_id = min & WORKERS_MASK;
+   // return all_workers[o_w_id]->my_snapshot[other_worker_id];
+   u64 min = std::numeric_limits<u64>::max();
+   for (u64 w = 0; w < workers_count; w++) {
+      min = std::min<u64>(min, all_workers[w]->my_snapshot[other_worker_id]);
+   }
+   return min;
    const u64 oldest_worker_id = sorted_active_workers[workers_count - 1];
    return all_workers[oldest_worker_id]->my_snapshot[other_worker_id];  // > primary_version->tts;
 }
