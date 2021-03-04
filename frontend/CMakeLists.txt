@@ -11,6 +11,10 @@ add_executable(tpcc tpc-c/tpcc.cpp)
 target_link_libraries(tpcc leanstore Threads::Threads)
 target_include_directories(tpcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
+add_executable(min minimalExample/main.cpp)
+target_link_libraries(min leanstore Threads::Threads)
+target_include_directories(min PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
 add_executable(rocksdb_tpcc tpc-c/rocksdb_tpcc.cpp)
 target_link_libraries(rocksdb_tpcc leanstore rocksdb Threads::Threads dl z libbz2.a lz4 snappy)
 target_include_directories(rocksdb_tpcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
