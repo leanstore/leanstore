@@ -59,7 +59,9 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    u64 next_tts = 0;
    // Shared with all workers
-   alignas(64) atomic<u64> high_water_mark = 0;  // High water mark, exclusive: TS < mark are visible
+   u64 padding1[64];
+   atomic<u64> high_water_mark = 0;  // High water mark, exclusive: TS < mark are visible
+   u64 padding2[64];
    // -------------------------------------------------------------------------------------
    struct TODO {  // In-memory
       u8 worker_id;
@@ -71,7 +73,9 @@ struct Worker {
    void addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    // -------------------------------------------------------------------------------------
    unique_ptr<atomic<u64>[]> my_snapshot;
+   u64 padding3[64];
    atomic<u64> my_snapshot_order = 0;
+   u64 padding4[64];
    unique_ptr<u64[]> sorted_workers;
    u64 lower_water_mark;
    // -------------------------------------------------------------------------------------
