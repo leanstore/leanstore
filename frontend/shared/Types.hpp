@@ -47,7 +47,7 @@ struct Varchar {
       data[length++] = x;
    };
 
-   std::string toString() { return std::string(data, length); };
+   std::string toString() const { return std::string(data, length); };
 
    template <int otherMaxLength>
    Varchar<maxLength> operator||(const Varchar<otherMaxLength>& other) const
@@ -61,6 +61,8 @@ struct Varchar {
    }
 
    bool operator==(const Varchar<maxLength>& other) const { return (length == other.length) && (memcmp(data, other.data, length) == 0); }
+
+   bool operator!=(const Varchar<maxLength>& other) const { return !operator==(other); }
 
    bool operator<(const Varchar<maxLength>& other) const
    {
