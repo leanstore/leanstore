@@ -90,3 +90,5 @@ DEFINE_uint64(chain_max_length, 10000, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
 DEFINE_bool(recover, false, "");
+DEFINE_string(persist_file, "./leanstore.json", "Where should the persist config be saved to?");
+DEFINE_string(recover_file, "./leanstore.json", "Where should the recover config be loaded from?");

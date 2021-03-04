@@ -87,3 +87,5 @@ DECLARE_uint64(chain_max_length);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
 DECLARE_bool(recover);
+DECLARE_string(persist_file);
+DECLARE_string(recover_file);

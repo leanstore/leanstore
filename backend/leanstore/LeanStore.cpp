@@ -13,8 +13,8 @@
 #include "gflags/gflags.h"
 #include "rapidjson/document.h"
 #include "rapidjson/istreamwrapper.h"
+#include "rapidjson/prettywriter.h"
 #include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
 #include "tabulate/table.hpp"
 // -------------------------------------------------------------------------------------
 #include <linux/fs.h>
@@ -32,8 +32,12 @@ namespace rs = rapidjson;
 namespace leanstore
 {
 // -------------------------------------------------------------------------------------
+void deserializeFlags();
 LeanStore::LeanStore()
 {
+   if (FLAGS_recover) {
+      deserializeFlags();
+   }
    // -------------------------------------------------------------------------------------
    // Check if configurations make sense
    ensure(!FLAGS_vw || FLAGS_wal);
@@ -243,11 +247,12 @@ LeanStore::GlobalStats LeanStore::getGlobalStats()
    return global_stats;
 }
 // -------------------------------------------------------------------------------------
+void serializeFlags(rapidjson::Document& d);
 void LeanStore::serializeState()
 {
    // Serialize data structure instances
    std::ofstream json_file;
-   json_file.open("leanstore.json", ios::trunc);
+   json_file.open(FLAGS_persist_file, ios::trunc);
    rapidjson::Document d;
    rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
    d.SetObject();
@@ -286,16 +291,24 @@ void LeanStore::serializeState()
    }
    d.AddMember("registered_datastructures", dts, allocator);
    // -------------------------------------------------------------------------------------
+   serializeFlags(d);
    rapidjson::StringBuffer sb;
-   rapidjson::Writer<rapidjson::StringBuffer> writer(sb);
+   rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
    d.Accept(writer);
    json_file << sb.GetString();
+}
+void serializeFlags(rapidjson::Document& d)
+{
+   rs::Value flags_serialized(rs::kObjectType);
+   rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+   flags_serialized.AddMember("SSD_PATH", rapidjson::Value().SetString(FLAGS_ssd_path.c_str(), FLAGS_ssd_path.length(), allocator), allocator);
+   d.AddMember("flags", flags_serialized, allocator);
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::deserializeState()
 {
    std::ifstream json_file;
-   json_file.open("leanstore.json");
+   json_file.open(FLAGS_recover_file);
    rs::IStreamWrapper isw(json_file);
    rs::Document d;
    d.ParseStream(isw);
@@ -334,6 +347,21 @@ void LeanStore::deserializeState()
       }
       DTRegistry::global_dt_registry.deserialize(dt_id, serialized_dt_map);
    }
+}
+void deserializeFlags()
+{
+   std::ifstream json_file;
+   json_file.open(FLAGS_recover_file);
+   rs::IStreamWrapper isw(json_file);
+   rs::Document d;
+   d.ParseStream(isw);
+   // -------------------------------------------------------------------------------------
+   const rs::Value& flags = d["flags"];
+   std::unordered_map<std::string, std::string> flags_serialized;
+   for (rs::Value::ConstMemberIterator itr = flags.MemberBegin(); itr != flags.MemberEnd(); ++itr) {
+      flags_serialized[itr->name.GetString()] = itr->value.GetString();
+   }
+   FLAGS_ssd_path = flags_serialized["SSD_PATH"];
 }
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore
