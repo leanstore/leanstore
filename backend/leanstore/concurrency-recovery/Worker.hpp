@@ -77,6 +77,7 @@ struct Worker {
    atomic<u64> my_snapshot_order = 0;
    u64 padding4[64];
    unique_ptr<u64[]> sorted_workers;
+   unique_ptr<u64[]> lower_water_marks;
    u64 lower_water_mark;
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)

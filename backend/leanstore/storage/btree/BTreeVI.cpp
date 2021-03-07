@@ -44,7 +44,6 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
       if (ret != OP_RESULT::OK) {  // For debugging
          cout << endl;
          cout << u64(std::get<1>(reconstruct)) << endl;
-         cout << u64(primary_version.tmp) << endl;
          raise(SIGTRAP);
          jumpmu_return OP_RESULT::NOT_FOUND;
       }
@@ -85,6 +84,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // tmp
       u8 primary_version_worker_id;
       u64 primary_version_tts;
+      u64 primary_version_next_sn;  // debug
       // -------------------------------------------------------------------------------------
       {
          auto primary_payload = iterator.mutableValue();
@@ -103,11 +103,12 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // -------------------------------------------------------------------------------------
          SecondaryVersion& secondary_version =
              *new (secondary_payload + delta_and_descriptor_size) SecondaryVersion(primary_version.worker_id, primary_version.tts, false, true);
-         secondary_version.next_sn = primary_version.next_sn;
+         secondary_version.next_sn = primary_version.next_sn;  // !: must update when purging the whole chain
          // -------------------------------------------------------------------------------------
          gc_next_sn = primary_version.next_sn;
          primary_version_worker_id = primary_version.worker_id;
          primary_version_tts = primary_version.tts;
+         primary_version_next_sn = primary_version.next_sn;
       }
       // -------------------------------------------------------------------------------------
       // TODO: As a first step
@@ -115,6 +116,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // Invariant: max (#versions) = #workers
       //
       u64 removed_versions_counter = 0;
+      bool recycled = false;
       if (FLAGS_tmp2 && gc_next_sn) {
          SN prev_sn = 0, cur_sn = gc_next_sn;
          u8 buffer[PAGE_SIZE];
@@ -132,45 +134,41 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             if (!FLAGS_tmp2 || i >= FLAGS_tmp1) {
                raise(SIGTRAP);
             }
-            if (w >= cr::Worker::my().workers_count) {  // Reached the end of the needed part of the chain
-               setSN(m_key, prev_sn);
-               ret = iterator.seekExact(key);
-               ensure(ret == OP_RESULT::OK);
+            if (w == cr::Worker::my().workers_count) {  // Reached the end of the needed part of the chain
                if (prev_sn == 0) {
                   reinterpret_cast<PrimaryVersion*>(iterator.mutableValue().data() + iterator.mutableValue().length() - sizeof(PrimaryVersion))
                       ->next_sn = 0;
-
+                  reinterpret_cast<SecondaryVersion*>(secondary_payload + delta_and_descriptor_size)->next_sn = 0;
                } else {
                   reinterpret_cast<SecondaryVersion*>(iterator.mutableValue().data() + iterator.mutableValue().length() - sizeof(SecondaryVersion))
                       ->next_sn = 0;
                }
                // Remove the rest of the chain
                while (cur_sn != 0) {
-                  next_higher = cur_sn > getSN(m_key);
+                  next_higher = cur_sn > getSN(key);
                   setSN(m_key, cur_sn);
-                  ret = iterator.seekExact(key);
-                  // ret = iterator.seekExactWithHint(key, next_higher);
-                  if (ret != OP_RESULT::OK) {
-                     break;
-                  }
+                  // ret = iterator.seekExact(key);
+                  ret = iterator.seekExactWithHint(key, next_higher);
+                  ensure(ret == OP_RESULT::OK);
                   // -------------------------------------------------------------------------------------
-                  Slice secondary_payload = iterator.value();
-                  const auto& secondary_version =
-                      *reinterpret_cast<const SecondaryVersion*>(secondary_payload.data() + secondary_payload.length() - sizeof(SecondaryVersion));
+                  auto secondary_payload = iterator.mutableValue();
+                  auto& secondary_version =
+                      *reinterpret_cast<SecondaryVersion*>(secondary_payload.data() + secondary_payload.length() - sizeof(SecondaryVersion));
                   cur_sn = secondary_version.next_sn;
-                  iterator.removeCurrent();
+                  secondary_version.next_sn = 0;
+                  ret = iterator.removeCurrent();
+                  ensure(ret == OP_RESULT::OK);
                   removed_versions_counter++;
                }
                break;
             }
             u64 cur_w = cr::Worker::my().sorted_workers[w] & cr::Worker::WORKERS_MASK;
             i++;
+            ensure(cur_sn != 0);
             next_higher = cur_sn > getSN(m_key);
             setSN(m_key, cur_sn);
             ret = iterator.seekExactWithHint(key, next_higher);
-            if (ret != OP_RESULT::OK) {
-               break;
-            }
+            ensure(ret == OP_RESULT::OK);
             // -------------------------------------------------------------------------------------
             auto gc_payload = iterator.value();
             const auto& gc_version = *reinterpret_cast<const SecondaryVersion*>(gc_payload.data() + gc_payload.length() - sizeof(SecondaryVersion));
@@ -186,32 +184,34 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                setSN(m_key, prev_sn);
                ret = iterator.seekExactWithHint(key, next_higher);
                ensure(ret == OP_RESULT::OK);
+               // -------------------------------------------------------------------------------------
                auto prev_payload = iterator.mutableValue();
-               if (prev_sn == 0) {
-                  auto& prev_version = *reinterpret_cast<PrimaryVersion*>(prev_payload.data() + prev_payload.length() - sizeof(PrimaryVersion));
-                  prev_version.next_sn = gc_next_sn;
-               } else {
-                  auto& prev_version = *reinterpret_cast<SecondaryVersion*>(prev_payload.data() + prev_payload.length() - sizeof(SecondaryVersion));
-                  auto prev_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(prev_payload.data());
-                  if (!(*prev_descriptor == *gc_descriptor)) {
-                     // Stop!
-                     prev_sn = cur_sn;
-                     cur_sn = gc_next_sn;
-                     pi++;
-                     continue;
-                  }
-                  prev_version.next_sn = gc_next_sn;
+               auto& prev_version = *reinterpret_cast<SecondaryVersion*>(prev_payload.data() + prev_payload.length() - sizeof(SecondaryVersion));
+               auto prev_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(prev_payload.data());
+               if (!(*prev_descriptor == *gc_descriptor)) {
+                  // Stop!
+                  prev_sn = cur_sn;
+                  cur_sn = gc_next_sn;
+                  pi++;
+                  continue;
                }
+               prev_version.next_sn = gc_next_sn;
+               // -------------------------------------------------------------------------------------
                next_higher = cur_sn > getSN(m_key);
                setSN(m_key, cur_sn);
                ret = iterator.seekExactWithHint(key, next_higher);
-               if (1 && ret == OP_RESULT::OK) {
+               ensure(ret == OP_RESULT::OK);
+               if (!recycled && iterator.mutableValue().length() >= secondary_payload_length) {
+                  std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
+                  secondary_sn = cur_sn;
+                  recycled = true;
+                  iterator.shorten(secondary_payload_length);
+               } else {
                   ret = iterator.removeCurrent();
                   ensure(ret == OP_RESULT::OK);
                   removed_versions_counter++;
-               } else {
-                  ensure(false);
                }
+               // -------------------------------------------------------------------------------------
                cur_sn = gc_next_sn;
             } else {
                prev_sn = cur_sn;
@@ -220,7 +220,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          }
       }
       // -------------------------------------------------------------------------------------
-      {
+      if (!recycled) {
          do {
             secondary_sn = leanstore::utils::RandomGenerator::getRand<SN>(0, std::numeric_limits<SN>::max());
             // -------------------------------------------------------------------------------------
@@ -232,6 +232,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       {
          setSN(m_key, 0);
          ret = iterator.seekExactWithHint(key, false);
+         // ret = iterator.seekExact(key);
          ensure(ret == OP_RESULT::OK);
          MutableSlice primary_payload = iterator.mutableValue();
          PrimaryVersion& primary_version =
@@ -256,7 +257,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          primary_version.tts = myTTS();
          primary_version.next_sn = secondary_sn;
          // -------------------------------------------------------------------------------------
-         if (!primary_version.is_gc_scheduled) {
+         if (FLAGS_tmp3 && !primary_version.is_gc_scheduled) {
             cr::Worker::my().addTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
                auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
                todo_entry.key_length = o_key_length;
@@ -540,7 +541,6 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                secondary_sn = primary_version.next_sn;
                if (primary_version.worker_id != btree.myWorkerID()) {
                   raise(SIGTRAP);
-                  cout << endl << u64(primary_version.tmp) << endl;
                }
                ensure(primary_version.worker_id == btree.myWorkerID());
                ensure(primary_version.tts == btree.myTTS());
@@ -636,7 +636,6 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
          } else {
             primary_version.next_sn = 0;
             primary_version.is_gc_scheduled = false;
-            primary_version.tmp = 99;
          }
          // -------------------------------------------------------------------------------------
          bool next_sn_higher = true;
@@ -765,6 +764,7 @@ restart : {
          return {OP_RESULT::OK, chain_length};
       }
       if (secondary_version.isFinal()) {
+         cout << chain_length << endl;
          raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, chain_length};
       } else {

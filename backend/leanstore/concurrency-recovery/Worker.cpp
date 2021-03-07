@@ -29,13 +29,10 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
    my_snapshot = make_unique<atomic<u64>[]>(workers_count);
    sorted_workers = make_unique<u64[]>(workers_count);
+   lower_water_marks = make_unique<u64[]>(workers_count);
    my_snapshot_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
 }
-Worker::~Worker()
-{
-   // cout << "WorkerID = " << worker_id << endl;
-   // cout << worker_id << " high = " << high_water_mark << " - low = " << lower_water_mark << " todo# " << todo_list.size() << endl;
-}
+Worker::~Worker() {}
 // -------------------------------------------------------------------------------------
 u32 Worker::walFreeSpace()
 {
@@ -137,11 +134,17 @@ void Worker::refreshSnapshot()
    // -------------------------------------------------------------------------------------
 restart : {
    for (u64 w = 0; w < workers_count; w++) {
-      sorted_workers[w] = all_workers[w]->my_snapshot_order;
+      u64 tmp = all_workers[w]->my_snapshot_order;
+      while (tmp == std::numeric_limits<u64>::max())
+         tmp = all_workers[w]->my_snapshot_order;
+      sorted_workers[w] = tmp;
    }
    std::sort(sorted_workers.get(), sorted_workers.get() + workers_count, std::greater<u64>());
    // -------------------------------------------------------------------------------------
-   u8 oldest_worker_id = sorted_workers[workers_count - 1] & WORKERS_MASK;
+   const u8 oldest_worker_id = sorted_workers[workers_count - 1] & WORKERS_MASK;
+   for (u64 w = 0; w < workers_count; w++) {
+      lower_water_marks[w] = all_workers[oldest_worker_id]->my_snapshot[w];
+   }
    lower_water_mark = all_workers[oldest_worker_id]->my_snapshot[worker_id];
    if (all_workers[oldest_worker_id]->my_snapshot_order != sorted_workers[workers_count - 1]) {
       goto restart;
@@ -241,6 +244,8 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 u64 Worker::getLowerWaterMark(const u8 other_worker_id)
 {
+   // TODO: buggy, check order first, maybe is it infinity (i.e., loading)
+   return lower_water_marks[other_worker_id];
    if (other_worker_id == worker_id) {
       return lower_water_mark;
    }
