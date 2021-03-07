@@ -22,14 +22,13 @@ namespace btree
 class BTreeVI : public BTreeLL
 {
   public:
-   using SN = u32;
+   using SN = u16;
    struct __attribute__((packed)) PrimaryVersion {
       u64 tts : 56;
       u8 worker_id : 8;
       u8 write_locked : 1;
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
-      u64 tmp = 0;
       // -------------------------------------------------------------------------------------
       SN next_sn = 0;
       // -------------------------------------------------------------------------------------
