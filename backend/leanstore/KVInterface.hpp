@@ -22,6 +22,16 @@ struct UpdateSameSizeInPlaceDescriptor {
    };
    Slot slots[];
    u64 size() const { return sizeof(UpdateSameSizeInPlaceDescriptor) + (count * sizeof(UpdateSameSizeInPlaceDescriptor::Slot)); }
+   bool operator==(const UpdateSameSizeInPlaceDescriptor& other)
+   {
+      if (count != other.count)
+         return false;
+      for (u8 i = 0; i < count; i++) {
+         if (slots[i].offset != other.slots[i].offset || slots[i].size != other.slots[i].size)
+            return false;
+      }
+      return true;
+   }
 };
 // -------------------------------------------------------------------------------------
 // Interface

@@ -33,8 +33,6 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
 }
 Worker::~Worker()
 {
-   // static std::mutex m;
-   // std::unique_lock guard(m);
    // cout << "WorkerID = " << worker_id << endl;
    // cout << worker_id << " high = " << high_water_mark << " - low = " << lower_water_mark << " todo# " << todo_list.size() << endl;
 }
@@ -170,7 +168,7 @@ void Worker::startTX()
          if (FLAGS_todo && todo_list.size()) {  // Cleanup
             while (todo_list.size()) {
                auto& todo = todo_list.front();
-               if (todo.tts < lower_water_mark) {
+               if (isVisibleForAll(todo.worker_id, todo.tts)) {
                   leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry.get(), todo.tts);
                   todo_list.pop();
                } else {
@@ -225,7 +223,8 @@ void Worker::abortTX()
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
 {
-   return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->my_snapshot[what_worker_id] > tts);
+   return whom_worker_id == std::numeric_limits<typeof(whom_worker_id)>::max() || what_worker_id == whom_worker_id ||
+          (all_workers[whom_worker_id]->my_snapshot[what_worker_id] > tts);
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
@@ -242,8 +241,16 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 u64 Worker::getLowerWaterMark(const u8 other_worker_id)
 {
-   ensure(other_worker_id == worker_id);
-   return lower_water_mark;
+   if (other_worker_id == worker_id) {
+      return lower_water_mark;
+   }
+   u64 min = std::numeric_limits<u64>::max();
+   for (u64 w = 0; w < workers_count; w++) {
+      const u64 tmp = all_workers[w]->my_snapshot[other_worker_id];
+      if (tmp < min)
+         min = tmp;
+   }
+   return min;
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForAll(u8 other_worker_id, u64 tts)
