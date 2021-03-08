@@ -183,7 +183,8 @@ class TPCCWorkload
       Numeric d_tax;
       Integer o_id;
 
-      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_next_o_id);
+      // UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_next_o_id);
+      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
       district.update1(
           {w_id, d_id},
           [&](district_t& rec) {
@@ -623,7 +624,8 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
-      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
+      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      //      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
       district.update1(
           {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
@@ -725,7 +727,8 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
-      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
+      // UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
+      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
       district.update1(
           {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
@@ -818,18 +821,6 @@ class TPCCWorkload
       } else {
          paymentById(w_id, d_id, c_w_id, c_d_id, getCustomerID(), h_date, h_amount, currentTimestamp());
       }
-   }
-   // -------------------------------------------------------------------------------------
-   void analyticalQuery()
-   {
-      Integer sum = 0;
-      stock.scan(
-          {1, 0},
-          [&](const stock_t::Key&, const stock_t& rec) {
-             sum += rec.s_order_cnt;
-             return true;
-          },
-          [&]() {});
    }
    // -------------------------------------------------------------------------------------
   public:
@@ -986,10 +977,6 @@ class TPCCWorkload
    {
       // micro-optimized version of weighted distribution
       u64 rnd = leanstore::utils::RandomGenerator::getRand(0, 10000);
-      if (rnd < analytical_query_pct) {
-         analyticalQuery();
-         return 5;
-      }
       if (rnd < 4300) {
          paymentRnd(w_id);
          return 0;
@@ -1012,5 +999,17 @@ class TPCCWorkload
       rnd -= 400;
       newOrderRnd(w_id);
       return 4;
+   }
+   // -------------------------------------------------------------------------------------
+   void analyticalQuery()
+   {
+      Integer sum = 0;
+      stock.scan(
+          {1, 0},
+          [&](const stock_t::Key&, const stock_t& rec) {
+             sum += rec.s_order_cnt;
+             return true;
+          },
+          [&]() {});
    }
 };
