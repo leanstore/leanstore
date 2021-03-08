@@ -44,6 +44,7 @@ struct Worker {
    // Static
    static thread_local Worker* tls_ptr;
    static atomic<u64> global_snapshot_clock;
+   static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << 8;
