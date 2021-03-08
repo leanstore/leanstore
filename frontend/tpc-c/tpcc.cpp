@@ -29,6 +29,7 @@ DEFINE_bool(tpcc_fast_load, false, "");
 DEFINE_bool(tpcc_remove, true, "");
 DEFINE_bool(order_wdc_index, true, "");
 DEFINE_uint64(tpcc_analytical_weight, 0, "");
+DEFINE_uint64(tpcc_ch, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -163,12 +164,21 @@ int main(int argc, char** argv)
       }
       crm.joinAll();
    }
+   cout << endl;
    {
-      cout << endl;
-      for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+      u64 total = 0;
+      for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_tpcc_ch; t_i++) {
+         total += tx_per_thread[t_i];
          cout << tx_per_thread[t_i] << ",";
       }
       cout << endl;
+      cout << "TPC-C = " << total << endl;
+      total = 0;
+      for (u64 t_i = FLAGS_worker_threads - FLAGS_tpcc_ch; t_i < FLAGS_worker_threads; t_i++) {
+         total += tx_per_thread[t_i];
+         cout << tx_per_thread[t_i] << ",";
+      }
+      cout << "CH = " << total << endl;
    }
    // -------------------------------------------------------------------------------------
    gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
