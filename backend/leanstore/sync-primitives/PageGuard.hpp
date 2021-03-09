@@ -102,7 +102,11 @@ class HybridPageGuard
       return *this;
    }
    // -------------------------------------------------------------------------------------
-   inline void incrementGSN() { bf->page.GSN++; }
+   inline void incrementGSN()
+   {
+      assert(bf != nullptr);
+      bf->page.GSN++;
+   }
    // WAL
    inline void syncGSN()
    {

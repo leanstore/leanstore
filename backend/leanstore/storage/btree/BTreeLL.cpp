@@ -66,6 +66,7 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
       BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
       OP_RESULT ret = iterator.seek(key);
       while (ret == OP_RESULT::OK) {
+         iterator.assembleKey();
          auto key = iterator.key();
          auto value = iterator.value();
          if (!callback(key.data(), key.length(), value.data(), value.length())) {
@@ -89,6 +90,7 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
          jumpmu_return ret;
       }
       while (true) {
+         iterator.assembleKey();
          auto key = iterator.key();
          auto value = iterator.value();
          if (!callback(key.data(), key.length(), value.data(), value.length())) {

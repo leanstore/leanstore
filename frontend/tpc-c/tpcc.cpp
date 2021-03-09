@@ -114,7 +114,7 @@ int main(int argc, char** argv)
    auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
    db.startProfilingThread();
    u64 tx_per_thread[FLAGS_worker_threads];
-   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+   for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_tpcc_ch; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
          cr::Worker::my().refreshSnapshot();
@@ -141,6 +141,38 @@ int main(int argc, char** argv)
             }
             jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
          }
+         cr::Worker::my().checkup();
+         // -------------------------------------------------------------------------------------
+         for (u64 w = 0; w < cr::Worker::my().workers_count; w++) {  // It should be called only when the thread is about to sleep
+            cr::Worker::my().my_snapshot[w] = std::numeric_limits<u64>::max();
+         }
+         // -------------------------------------------------------------------------------------
+         tx_per_thread[t_i] = tx_acc;
+         running_threads_counter--;
+      });
+   }
+   for (u64 t_i = FLAGS_worker_threads - FLAGS_tpcc_ch; t_i < FLAGS_worker_threads; t_i++) {
+      crm.scheduleJobAsync(t_i, [&, t_i]() {
+         running_threads_counter++;
+         cr::Worker::my().refreshSnapshot();
+         tpcc.prepare();
+         volatile u64 tx_acc = 0;
+         while (keep_running) {
+            jumpmuTry()
+            {
+               cr::Worker::my().startTX();
+               tpcc.analyticalQuery();
+               cr::Worker::my().commitTX();
+               tx_acc++;
+            }
+            jumpmuCatch() { ensure(false); }
+         }
+         cr::Worker::my().checkup();
+         // // -------------------------------------------------------------------------------------
+         for (u64 w = 0; w < cr::Worker::my().workers_count; w++) {  // It should be called only when the thread is about to sleep
+            cr::Worker::my().my_snapshot[w] = std::numeric_limits<u64>::max();
+         }
+         // -------------------------------------------------------------------------------------
          tx_per_thread[t_i] = tx_acc;
          running_threads_counter--;
       });

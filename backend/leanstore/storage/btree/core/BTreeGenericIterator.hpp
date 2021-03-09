@@ -165,18 +165,31 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       }
    }
    // -------------------------------------------------------------------------------------
-   virtual u8* keyBuffer() { return buffer; }
-   // -------------------------------------------------------------------------------------
-   virtual Slice key() override
+   virtual void assembleKey()
    {
       if (!prefix_copied) {
          leaf->copyPrefix(buffer);
          prefix_copied = true;
       }
       leaf->copyKeyWithoutPrefix(cur, buffer + leaf->prefix_length);
+   }
+   virtual Slice key() override
+   {
+      //      assembleKey();
       return Slice(buffer, leaf->getFullKeyLen(cur));
    }
-   virtual bool isKeyEqualTo(Slice other) override { return other == key(); }
+   virtual MutableSlice mutableKeyInBuffer() { return MutableSlice(buffer, leaf->getFullKeyLen(cur)); }
+   virtual MutableSlice mutableKeyInBuffer(u16 size)
+   {
+      assert(size < PAGE_SIZE);
+      return MutableSlice(buffer, size);
+   }
+   // -------------------------------------------------------------------------------------
+   virtual bool isKeyEqualTo(Slice other) override
+   {
+      ensure(false);
+      return other == key();
+   }
    virtual Slice keyPrefix() override { return Slice(leaf->getPrefix(), leaf->prefix_length); }
    virtual Slice keyWithoutPrefix() override { return Slice(leaf->getKey(cur), leaf->getKeyLen(cur)); }
    virtual u16 valueLength() { return leaf->getPayloadLength(cur); }
@@ -186,8 +199,11 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
 using BTreeSharedIterator = BTreePessimisticIterator<LATCH_FALLBACK_MODE::SHARED>;
 class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>
 {
+  private:
   public:
    BTreeExclusiveIterator(BTreeGeneric& btree) : BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>(btree) {}
+   // -------------------------------------------------------------------------------------
+   void markAsDirty() { leaf.incrementGSN(); }
    virtual OP_RESULT seekToInsertWithHint(Slice key, bool higher = true)
    {
       ensure(cur != -1);
