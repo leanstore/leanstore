@@ -46,6 +46,14 @@ struct Worker {
    static atomic<u64> global_snapshot_clock;
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
+   static unique_ptr<atomic<u64>[]> snapshot_orders;
+   static unique_ptr<atomic<u64>[]> highwater_marks;
+   // -------------------------------------------------------------------------------------
+   unique_ptr<atomic<u64>[]> my_snapshot;
+   unique_ptr<u64[]> my_sorted_workers;
+   unique_ptr<u64[]> my_lower_water_marks;
+   u64 lower_water_mark;
+   // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << 8;
    static constexpr u64 WORKERS_MASK = (1ull << WORKERS_BITS) - 1;
@@ -60,9 +68,6 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    u64 next_tts = 0;
    // Shared with all workers
-   u64 padding1[64];
-   atomic<u64> high_water_mark = 0;  // High water mark, exclusive: TS < mark are visible
-   u64 padding2[64];
    // -------------------------------------------------------------------------------------
    struct TODO {  // In-memory
       u8 worker_id;
@@ -72,14 +77,6 @@ struct Worker {
    };
    std::queue<TODO> todo_list;
    void addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
-   // -------------------------------------------------------------------------------------
-   unique_ptr<atomic<u64>[]> my_snapshot;
-   u64 padding3[64];
-   atomic<u64> my_snapshot_order = 0;
-   u64 padding4[64];
-   unique_ptr<u64[]> sorted_workers;
-   unique_ptr<u64[]> lower_water_marks;
-   u64 lower_water_mark;
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------

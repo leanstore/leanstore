@@ -125,7 +125,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          u64 i = 0, pi = 0;  // debug
          bool next_higher = true;
          // -------------------------------------------------------------------------------------
-         while (w < cr::Worker::my().workers_count && cr::Worker::my().isVisibleForIt(cr::Worker::my().sorted_workers[w] & cr::Worker::WORKERS_MASK,
+         while (w < cr::Worker::my().workers_count && cr::Worker::my().isVisibleForIt(cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK,
                                                                                       primary_version_worker_id, primary_version_tts)) {
             w++;
          }
@@ -162,7 +162,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                }
                break;
             }
-            u64 cur_w = cr::Worker::my().sorted_workers[w] & cr::Worker::WORKERS_MASK;
+            u64 cur_w = cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK;
             i++;
             ensure(cur_sn != 0);
             next_higher = cur_sn > getSN(m_key);

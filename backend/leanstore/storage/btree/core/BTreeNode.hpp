@@ -122,7 +122,7 @@ struct BTreeNode : public BTreeNodeHeader {
    inline u16 getPayloadLength(u16 slotId) { return slot[slotId].payload_len; }
    inline void shortenPayload(u16 slotId, u16 len)
    {
-      assert(len < slot[slotId].payload_len);
+      assert(len <= slot[slotId].payload_len);
       const u16 freed_space = slot[slotId].payload_len - len;
       space_used -= freed_space;
       slot[slotId].payload_len = len;
