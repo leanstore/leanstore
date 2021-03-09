@@ -49,6 +49,7 @@ struct Worker {
    static unique_ptr<atomic<u64>[]> snapshot_orders;
    static unique_ptr<atomic<u64>[]> highwater_marks;
    // -------------------------------------------------------------------------------------
+   bool force_si_refresh = false;
    unique_ptr<atomic<u64>[]> my_snapshot;
    unique_ptr<u64[]> my_sorted_workers;
    unique_ptr<u64[]> my_lower_water_marks;
@@ -183,6 +184,7 @@ struct Worker {
    void startTX();
    void commitTX();
    void abortTX();
+   void checkup();
    // -------------------------------------------------------------------------------------
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }

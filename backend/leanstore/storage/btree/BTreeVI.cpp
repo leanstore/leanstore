@@ -29,27 +29,49 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
    std::memcpy(key_buffer, o_key, o_key_length);
    MutableSlice key(key_buffer, key_length);
    setSN(key, 0);
-   jumpmuTry()
-   {
-      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
-      auto ret = iterator.seekExact(Slice(key.data(), key.length()));
-      if (ret != OP_RESULT::OK) {
-         raise(SIGTRAP);
-         jumpmu_return OP_RESULT::NOT_FOUND;
+   if (1) {
+      jumpmuTry()
+      {
+         BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
+         auto ret = iterator.seekExact(Slice(key.data(), key.length()));
+         if (ret != OP_RESULT::OK) {
+            raise(SIGTRAP);
+            jumpmu_return OP_RESULT::NOT_FOUND;
+         }
+         const auto primary_version =
+             *reinterpret_cast<const PrimaryVersion*>(iterator.value().data() + iterator.value().length() - sizeof(PrimaryVersion));
+         auto reconstruct = reconstructTuple(iterator, key, [&](Slice value) { payload_callback(value.data(), value.length()); });
+         ret = std::get<0>(reconstruct);
+         if (ret != OP_RESULT::OK) {  // For debugging
+            cout << endl;
+            cout << u64(std::get<1>(reconstruct)) << endl;
+            raise(SIGTRAP);
+            jumpmu_return OP_RESULT::NOT_FOUND;
+         }
+         jumpmu_return ret;
       }
-      const auto primary_version =
-          *reinterpret_cast<const PrimaryVersion*>(iterator.value().data() + iterator.value().length() - sizeof(PrimaryVersion));
-      auto reconstruct = reconstructTuple(iterator, key, [&](Slice value) { payload_callback(value.data(), value.length()); });
-      ret = std::get<0>(reconstruct);
-      if (ret != OP_RESULT::OK) {  // For debugging
-         cout << endl;
-         cout << u64(std::get<1>(reconstruct)) << endl;
-         raise(SIGTRAP);
-         jumpmu_return OP_RESULT::NOT_FOUND;
+      jumpmuCatch() { ensure(false); }
+   } else {
+      while (true) {
+         jumpmuTry()
+         {
+            HybridPageGuard<BTreeNode> leaf;
+            findLeafCanJump(leaf, key_buffer, key_length);
+            // -------------------------------------------------------------------------------------
+            s16 pos = leaf->lowerBound<true>(key_buffer, key_length);
+            if (pos != -1) {
+               payload_callback(leaf->getPayload(pos), leaf->getPayloadLength(pos) - sizeof(PrimaryVersion));
+               leaf.recheck();
+               jumpmu_return OP_RESULT::OK;
+            } else {
+               leaf.recheck();
+               raise(SIGTRAP);
+               jumpmu_return OP_RESULT::NOT_FOUND;
+            }
+         }
+         jumpmuCatch() { ensure(false); }
       }
-      jumpmu_return ret;
    }
-   jumpmuCatch() { ensure(false); }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
@@ -109,6 +131,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          primary_version_worker_id = primary_version.worker_id;
          primary_version_tts = primary_version.tts;
          primary_version_next_sn = primary_version.next_sn;
+         // -------------------------------------------------------------------------------------
+         iterator.markAsDirty();
       }
       // -------------------------------------------------------------------------------------
       // TODO: As a first step
@@ -125,8 +149,9 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          u64 i = 0, pi = 0;  // debug
          bool next_higher = true;
          // -------------------------------------------------------------------------------------
-         while (w < cr::Worker::my().workers_count && cr::Worker::my().isVisibleForIt(cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK,
-                                                                                      primary_version_worker_id, primary_version_tts)) {
+         while (w < cr::Worker::my().workers_count &&
+                cr::Worker::my().isVisibleForIt(cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK, primary_version_worker_id,
+                                                primary_version_tts)) {
             w++;
          }
          // -------------------------------------------------------------------------------------
@@ -151,13 +176,23 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                   ret = iterator.seekExactWithHint(key, next_higher);
                   ensure(ret == OP_RESULT::OK);
                   // -------------------------------------------------------------------------------------
-                  auto secondary_payload = iterator.mutableValue();
-                  auto& secondary_version =
-                      *reinterpret_cast<SecondaryVersion*>(secondary_payload.data() + secondary_payload.length() - sizeof(SecondaryVersion));
-                  cur_sn = secondary_version.next_sn;
-                  secondary_version.next_sn = 0;
-                  ret = iterator.removeCurrent();
-                  ensure(ret == OP_RESULT::OK);
+                  auto secondary_gc_payload = iterator.mutableValue();
+                  auto& secondary_gc_version =
+                      *reinterpret_cast<SecondaryVersion*>(secondary_gc_payload.data() + secondary_gc_payload.length() - sizeof(SecondaryVersion));
+                  // -------------------------------------------------------------------------------------
+                  if (!recycled && iterator.mutableValue().length() >= secondary_payload_length) {
+                     secondary_sn = cur_sn;
+                     cur_sn = secondary_gc_version.next_sn;
+                     // -------------------------------------------------------------------------------------
+                     recycled = true;
+                     std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
+                     iterator.shorten(secondary_payload_length);
+                  } else {
+                     cur_sn = secondary_gc_version.next_sn;
+                     ret = iterator.removeCurrent();
+                     ensure(ret == OP_RESULT::OK);
+                  }
+                  iterator.markAsDirty();
                   removed_versions_counter++;
                }
                break;
@@ -196,6 +231,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                   continue;
                }
                prev_version.next_sn = gc_next_sn;
+               iterator.markAsDirty();
                // -------------------------------------------------------------------------------------
                next_higher = cur_sn > getSN(m_key);
                setSN(m_key, cur_sn);
@@ -213,6 +249,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                }
                // -------------------------------------------------------------------------------------
                cur_sn = gc_next_sn;
+               iterator.markAsDirty();
             } else {
                prev_sn = cur_sn;
                cur_sn = gc_next_sn;
@@ -228,11 +265,12 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
          } while (ret != OP_RESULT::OK);
       }
+      iterator.markAsDirty();
       // -------------------------------------------------------------------------------------
       {
          setSN(m_key, 0);
-         ret = iterator.seekExactWithHint(key, false);
-         // ret = iterator.seekExact(key);
+         // ret = iterator.seekExactWithHint(key, false);
+         ret = iterator.seekExact(key);
          ensure(ret == OP_RESULT::OK);
          MutableSlice primary_payload = iterator.mutableValue();
          PrimaryVersion& primary_version =
@@ -354,7 +392,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
             jumpmu_return OP_RESULT::ABORT_TX;
          }
          ensure(primary_version.is_removed == false);
-         //         if()
          primary_version.writeLock();
          // -------------------------------------------------------------------------------------
          value_length = iterator.value().length() - sizeof(PrimaryVersion);
@@ -365,6 +402,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          secondary_version.worker_id = primary_version.worker_id;
          secondary_version.tts = primary_version.tts;
          secondary_version.next_sn = primary_version.next_sn;
+         iterator.markAsDirty();
       }
       // -------------------------------------------------------------------------------------
       {
@@ -375,6 +413,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
             ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
          } while (ret != OP_RESULT::OK);
       }
+      iterator.markAsDirty();
       // -------------------------------------------------------------------------------------
       {
          setSN(m_key, 0);
@@ -423,7 +462,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
 // This undo implementation works only for rollback and not for undo operations during recovery
 void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 {
-   // TODO:
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    static_cast<void>(btree);
    const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
@@ -443,7 +481,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             ensure(ret == OP_RESULT::OK);
             ret = iterator.removeCurrent();
             ensure(ret == OP_RESULT::OK);
-            iterator.leaf.incrementGSN();  // TODO: write CLS
+            iterator.markAsDirty();  // TODO: write CLS
          }
          jumpmuCatch() {}
          break;
@@ -475,6 +513,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                ensure(primary_version.tts == btree.myTTS());
                ensure(!primary_version.isWriteLocked());
                undo_sn = primary_version.next_sn;
+               iterator.markAsDirty();
             }
             {
                btree.setSN(m_key, undo_sn);
@@ -482,6 +521,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                ensure(ret == OP_RESULT::OK);
                secondary_payload_length = iterator.value().length();
                std::memcpy(secondary_payload, iterator.value().data(), secondary_payload_length);
+               iterator.markAsDirty();
             }
             {
                btree.setSN(m_key, 0);
@@ -500,7 +540,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                btree.copyDiffFrom(update_descriptor, primary_payload.data(), secondary_payload + update_descriptor.size());
                // -------------------------------------------------------------------------------------
                primary_version.unlock();
-               iterator.leaf.incrementGSN();  // TODO: write CLS
+               iterator.markAsDirty();  // TODO: write CLS
             }
             {
                btree.setSN(m_key, undo_sn);
@@ -508,6 +548,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                ensure(ret == OP_RESULT::OK);
                ret = iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);
+               iterator.markAsDirty();
             }
          }
          jumpmuCatch() { ensure(false); }
@@ -558,6 +599,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                undo_worker_id = secondary_version.worker_id;
                undo_tts = secondary_version.tts;
                undo_next_sn = secondary_version.next_sn;
+               iterator.markAsDirty();
             }
             // -------------------------------------------------------------------------------------
             {
@@ -581,6 +623,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                auto primary_version = new (primary_payload.data() + removed_value_length) PrimaryVersion(undo_worker_id, undo_tts);
                primary_version->next_sn = undo_next_sn;
                ensure(primary_version->is_removed == false);
+               iterator.markAsDirty();
             }
             // -------------------------------------------------------------------------------------
             {
@@ -589,6 +632,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                ensure(ret == OP_RESULT::OK);
                ret = iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);
+               iterator.markAsDirty();
             }
          }
          jumpmuCatch() { ensure(false); }
@@ -637,12 +681,12 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
             primary_version.next_sn = 0;
             primary_version.is_gc_scheduled = false;
          }
+         iterator.markAsDirty();
          // -------------------------------------------------------------------------------------
          bool next_sn_higher = true;
          while (next_sn != 0) {
             btree.setSN(m_key, next_sn);
             ret = iterator.seekExact(key);
-            // ret = iterator.seekExactWithHint(key, next_sn_higher);
             if (ret != OP_RESULT::OK) {
                break;
             }
@@ -654,15 +698,16 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
             next_sn = secondary_version.next_sn;
             iterator.removeCurrent();
             removed_versions_counter++;
+            iterator.markAsDirty();
          }
-      } else {
-         //         jumpmu_return;
-         if (primary_version.worker_id == btree.myWorkerID()) {  // TODO: cross workers todo
-            cr::Worker::my().addTODO(btree.myWorkerID(), primary_version.tts, btree.dt_id, todo_entry.key_length + sizeof(TODOEntry), [&](u8* entry) {
-               auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(entry);
-               new_todo_entry.key_length = todo_entry.key_length;
-               std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
-            });
+      } else {  // TODO: cross workers todo
+         if (primary_version.worker_id == btree.myWorkerID()) {
+            cr::Worker::my().addTODO(primary_version.worker_id, primary_version.tts, btree.dt_id, todo_entry.key_length + sizeof(TODOEntry),
+                                     [&](u8* entry) {
+                                        auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(entry);
+                                        new_todo_entry.key_length = todo_entry.key_length;
+                                        std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
+                                     });
             primary_version.is_gc_scheduled = true;
          } else {
             primary_version.is_gc_scheduled = false;
@@ -736,6 +781,7 @@ restart : {
       setSN(key, secondary_sn);
       ret = iterator.seekExactWithHint(Slice(key.data(), key.length()), next_sn_higher);
       if (ret != OP_RESULT::OK) {
+         // Happens either due to undo or garbage collection
          setSN(key, 0);
          ret = iterator.seekExact(Slice(key.data(), key.length()));
          ensure(ret == OP_RESULT::OK);

@@ -162,23 +162,29 @@ void Worker::startTX()
       entry.type = WALEntry::TYPE::TX_START;
       submitWALMetaEntry();
       assert(active_tx.state != Transaction::STATE::STARTED);
-      const bool last_time_was_abort = active_tx.state == Transaction::STATE::ABORTED;
       active_tx.state = Transaction::STATE::STARTED;
       active_tx.min_gsn = clock_gsn;
-      if (FLAGS_si) {
-         if (last_time_was_abort || FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
-            refreshSnapshot();
-         }
-         active_tx.tts = highwater_marks[worker_id];
-         if (FLAGS_todo && todo_list.size()) {  // Cleanup
-            while (todo_list.size()) {
-               auto& todo = todo_list.front();
-               if (isVisibleForAll(todo.worker_id, todo.tts)) {
-                  leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry.get(), todo.tts);
-                  todo_list.pop();
-               } else {
-                  break;
-               }
+      // -------------------------------------------------------------------------------------
+      checkup();
+   }
+}
+// -------------------------------------------------------------------------------------
+void Worker::checkup()
+{
+   if (FLAGS_si) {
+      if (force_si_refresh || FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
+         refreshSnapshot();
+      }
+      force_si_refresh = false;
+      active_tx.tts = highwater_marks[worker_id];
+      if (FLAGS_todo && todo_list.size()) {  // Cleanup
+         while (todo_list.size()) {
+            auto& todo = todo_list.front();
+            if (isVisibleForAll(todo.worker_id, todo.tts)) {
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry.get(), todo.tts);
+               todo_list.pop();
+            } else {
+               break;
             }
          }
       }
@@ -222,6 +228,7 @@ void Worker::abortTX()
       entry.type = WALEntry::TYPE::TX_ABORT;
       submitWALMetaEntry();
       active_tx.state = Transaction::STATE::ABORTED;
+      force_si_refresh = true;
    }
    jumpmu::jump();
 }
@@ -245,7 +252,6 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 u64 Worker::getLowerWaterMark(const u8 other_worker_id)
 {
-   // TODO: buggy, check order first, maybe is it infinity (i.e., loading)
    return my_lower_water_marks[other_worker_id];
 }
 // -------------------------------------------------------------------------------------

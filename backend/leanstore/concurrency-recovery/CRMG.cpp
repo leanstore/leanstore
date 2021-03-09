@@ -32,6 +32,8 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
          Worker::tls_ptr = workers[t_i];
          // -------------------------------------------------------------------------------------
          running_threads++;
+         while (running_threads != (FLAGS_worker_threads + FLAGS_wal))
+            ;
          auto& meta = worker_threads_meta[t_i];
          while (keep_running) {
             std::unique_lock guard(meta.mutex);

@@ -22,7 +22,7 @@ namespace btree
 class BTreeVI : public BTreeLL
 {
   public:
-   using SN = u16;
+   using SN = u32;
    struct __attribute__((packed)) PrimaryVersion {
       u64 tts : 56;
       u8 worker_id : 8;
@@ -120,16 +120,14 @@ class BTreeVI : public BTreeLL
    void scan(u8* o_key, u16 o_key_length, function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback)
    {
       u64 counter = 0;
-      const u16 key_length = o_key_length + sizeof(SN);
-      u8 key_buffer[PAGE_SIZE];
-      std::memcpy(key_buffer, o_key, o_key_length);
-      MutableSlice s_key(key_buffer, key_length);
-      setSN(s_key, 0);
       volatile bool keep_scanning = true;
       // -------------------------------------------------------------------------------------
       jumpmuTry()
       {
          BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
+         MutableSlice s_key = iterator.mutableKeyInBuffer(o_key_length + sizeof(SN));
+         std::memcpy(s_key.data(), o_key, o_key_length);
+         setSN(s_key, 0);
          OP_RESULT ret;
          if (asc) {
             ret = iterator.seek(Slice(s_key.data(), s_key.length()));
@@ -140,7 +138,9 @@ class BTreeVI : public BTreeLL
             if (ret != OP_RESULT::OK) {
                jumpmu_return;
             }
+            iterator.assembleKey();
             Slice key = iterator.key();
+            s_key = iterator.mutableKeyInBuffer();
             // -------------------------------------------------------------------------------------
             while (getSN(key) != 0) {
                if (asc) {
@@ -151,11 +151,11 @@ class BTreeVI : public BTreeLL
                if (ret != OP_RESULT::OK) {
                   jumpmu_return;
                }
+               iterator.assembleKey();
                key = iterator.key();
+               s_key = iterator.mutableKeyInBuffer();
             }
             // -------------------------------------------------------------------------------------
-            std::memcpy(key_buffer, key.data(), key.length());
-            s_key = MutableSlice(key_buffer, key.length());
             // costs 2K
             const u16 chain_length = std::get<1>(reconstructTuple(iterator, s_key, [&](Slice value) {
                keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
