@@ -134,10 +134,7 @@ class BTreeVI : public BTreeLL
          } else {
             ret = iterator.seekForPrev(Slice(s_key.data(), s_key.length()));
          }
-         while (true) {
-            if (ret != OP_RESULT::OK) {
-               jumpmu_return;
-            }
+         while (ret == OP_RESULT::OK) {
             iterator.assembleKey();
             Slice key = iterator.key();
             s_key = iterator.mutableKeyInBuffer();
