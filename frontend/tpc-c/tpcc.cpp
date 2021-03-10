@@ -136,7 +136,7 @@ int main(int argc, char** argv)
                } else {
                   cr::Worker::my().commitTX();
                }
-               // WorkerCounters::myCounters().tx++;
+               WorkerCounters::myCounters().tx++;
                tx_acc++;
             }
             jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
@@ -164,7 +164,6 @@ int main(int argc, char** argv)
                cr::Worker::my().startTX();
                tpcc.analyticalQuery();
                cr::Worker::my().commitTX();
-               WorkerCounters::myCounters().tx++;
                tx_acc++;
             }
             jumpmuCatch() { ensure(false); }

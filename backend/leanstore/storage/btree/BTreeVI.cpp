@@ -13,6 +13,7 @@ using OP_RESULT = leanstore::OP_RESULT;
 // Assumptions made in this implementation:
 // 1) We don't insert an already removed key
 // 2) Secondary Versions contain delta
+// Keep in mind that garbage collection may leave pages completely empty
 namespace leanstore
 {
 namespace storage
@@ -670,9 +671,8 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
           *reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
       const bool safe_to_remove =
           !primary_version.isWriteLocked() && cr::Worker::my().isVisibleForAll(primary_version.worker_id, primary_version.tts);
-      SN next_sn = primary_version.next_sn;
       if (safe_to_remove) {
-         u64 removed_versions_counter = 0;
+         SN next_sn = primary_version.next_sn;
          const bool is_removed = primary_version.is_removed;
          if (is_removed) {
             ret = iterator.removeCurrent();
@@ -683,35 +683,29 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
          }
          iterator.markAsDirty();
          // -------------------------------------------------------------------------------------
-         bool next_sn_higher = true;
          while (next_sn != 0) {
             btree.setSN(m_key, next_sn);
             ret = iterator.seekExact(key);
             if (ret != OP_RESULT::OK) {
+               raise(SIGTRAP);
                break;
             }
             // -------------------------------------------------------------------------------------
             Slice secondary_payload = iterator.value();
             const auto& secondary_version =
                 *reinterpret_cast<const SecondaryVersion*>(secondary_payload.data() + secondary_payload.length() - sizeof(SecondaryVersion));
-            next_sn_higher = secondary_version.next_sn > next_sn;
             next_sn = secondary_version.next_sn;
             iterator.removeCurrent();
-            removed_versions_counter++;
             iterator.markAsDirty();
          }
       } else {  // TODO: cross workers todo
-         if (primary_version.worker_id == btree.myWorkerID()) {
-            cr::Worker::my().addTODO(primary_version.worker_id, primary_version.tts, btree.dt_id, todo_entry.key_length + sizeof(TODOEntry),
-                                     [&](u8* entry) {
-                                        auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(entry);
-                                        new_todo_entry.key_length = todo_entry.key_length;
-                                        std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
-                                     });
-            primary_version.is_gc_scheduled = true;
-         } else {
-            primary_version.is_gc_scheduled = false;
-         }
+         cr::Worker::my().addTODO(primary_version.worker_id, primary_version.tts, btree.dt_id, todo_entry.key_length + sizeof(TODOEntry),
+                                  [&](u8* new_entry) {
+                                     auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
+                                     new_todo_entry.key_length = todo_entry.key_length;
+                                     std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
+                                  });
+         primary_version.is_gc_scheduled = true;
       }
    }
    jumpmuCatch() { ensure(false); }

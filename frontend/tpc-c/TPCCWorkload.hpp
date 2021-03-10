@@ -1003,14 +1003,21 @@ class TPCCWorkload
    // -------------------------------------------------------------------------------------
    void analyticalQuery()
    {
-      Integer sum = 0;
+      Integer sum = 0, last_w = 0, last_i = 0;
       stock.scan(
           {1, 0},
-          [&](const stock_t::Key&, const stock_t& rec) {
+          [&](const stock_t::Key& key, const stock_t&) {
              sum++;
+             ensure(key.s_w_id >= last_w);
+             last_w = key.s_w_id;
+             last_i = key.s_i_id;
              return true;
           },
           [&]() {});
-      ensure(sum == warehouseCount * 100000);
+      if (sum != warehouseCount * 100000) {
+         cout << "#stocks = " << sum << endl;
+         cout << last_w << "," << last_i << endl;
+         ensure(false);
+      }
    }
 };
