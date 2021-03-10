@@ -185,6 +185,7 @@ struct Worker {
    void commitTX();
    void abortTX();
    void checkup();
+   void shutdown();
    // -------------------------------------------------------------------------------------
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }

@@ -141,23 +141,21 @@ int main(int argc, char** argv)
             }
             jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
          }
-         cr::Worker::my().checkup();
-         // -------------------------------------------------------------------------------------
-         cr::Worker::snapshot_orders[t_i] = std::numeric_limits<u64>::max() - 1;
-         for (u64 w = 0; w < cr::Worker::my().workers_count; w++) {  // It should be called only when the thread is about to sleep
-            cr::Worker::my().my_snapshot[w] = std::numeric_limits<u64>::max();
-         }
+         cr::Worker::my().shutdown();
          // -------------------------------------------------------------------------------------
          tx_per_thread[t_i] = tx_acc;
          running_threads_counter--;
       });
    }
+   sleep(1);
    for (u64 t_i = FLAGS_worker_threads - FLAGS_tpcc_ch; t_i < FLAGS_worker_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
          cr::Worker::my().refreshSnapshot();
          tpcc.prepare();
          volatile u64 tx_acc = 0;
+         cr::Worker::my().startTX();
+         cr::Worker::my().commitTX();
          while (FLAGS_tmp5 && keep_running) {
             jumpmuTry()
             {
@@ -168,11 +166,7 @@ int main(int argc, char** argv)
             }
             jumpmuCatch() { ensure(false); }
          }
-         cr::Worker::my().checkup();
-         // // -------------------------------------------------------------------------------------
-         for (u64 w = 0; w < cr::Worker::my().workers_count; w++) {  // It should be called only when the thread is about to sleep
-            cr::Worker::my().my_snapshot[w] = std::numeric_limits<u64>::max();
-         }
+         cr::Worker::my().shutdown();
          // -------------------------------------------------------------------------------------
          tx_per_thread[t_i] = tx_acc;
          running_threads_counter--;
