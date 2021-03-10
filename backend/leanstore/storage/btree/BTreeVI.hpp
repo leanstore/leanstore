@@ -22,7 +22,7 @@ namespace btree
 class BTreeVI : public BTreeLL
 {
   public:
-   using SN = u32;
+   using SN = u64;
    struct __attribute__((packed)) PrimaryVersion {
       u64 tts : 56;
       u8 worker_id : 8;

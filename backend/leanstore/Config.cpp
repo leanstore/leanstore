@@ -49,6 +49,10 @@ DEFINE_uint64(backoff, 512, "");
 DEFINE_double(tmp1, 0.0, "for ad-hoc experiments");
 DEFINE_double(tmp2, 0.0, "");
 DEFINE_double(tmp3, 0.0, "");
+DEFINE_double(tmp4, 0.0, "");
+DEFINE_double(tmp5, 0.0, "");
+DEFINE_double(tmp6, 0.0, "");
+DEFINE_double(tmp7, 0.0, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(bulk_insert, false, "");
 // -------------------------------------------------------------------------------------
