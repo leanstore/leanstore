@@ -198,7 +198,7 @@ struct BTreeNode : public BTreeNodeHeader {
 
       if (higher) {
          assert(cmpKeys(key, getKey(start_pos), key_length, getKeyLen(start_pos)) >= 0);
-         u16 cur = start_pos + 1;
+         s32 cur = start_pos + 1;
          for (; cur < count; cur++) {
             int cmp = cmpKeys(key, getKey(cur), key_length, getKeyLen(cur));
             if (cmp == 0) {
@@ -213,7 +213,7 @@ struct BTreeNode : public BTreeNodeHeader {
             return cur;
          }
       } else {
-         u16 cur = start_pos - 1;
+         s32 cur = start_pos - 1;
          for (; cur >= 0; cur--) {
             int cmp = cmpKeys(key, getKey(cur), key_length, getKeyLen(cur));
             if (cmp == 0) {
