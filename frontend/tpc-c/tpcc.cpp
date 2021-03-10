@@ -120,7 +120,7 @@ int main(int argc, char** argv)
          cr::Worker::my().refreshSnapshot();
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         while (keep_running) {
+         while (FLAGS_tmp4 && keep_running) {
             jumpmuTry()
             {
                cr::Worker::my().startTX();
@@ -136,13 +136,14 @@ int main(int argc, char** argv)
                } else {
                   cr::Worker::my().commitTX();
                }
-               WorkerCounters::myCounters().tx++;
+               // WorkerCounters::myCounters().tx++;
                tx_acc++;
             }
             jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
          }
          cr::Worker::my().checkup();
          // -------------------------------------------------------------------------------------
+         cr::Worker::snapshot_orders[t_i] = std::numeric_limits<u64>::max() - 1;
          for (u64 w = 0; w < cr::Worker::my().workers_count; w++) {  // It should be called only when the thread is about to sleep
             cr::Worker::my().my_snapshot[w] = std::numeric_limits<u64>::max();
          }
@@ -157,12 +158,13 @@ int main(int argc, char** argv)
          cr::Worker::my().refreshSnapshot();
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         while (keep_running) {
+         while (FLAGS_tmp5 && keep_running) {
             jumpmuTry()
             {
                cr::Worker::my().startTX();
                tpcc.analyticalQuery();
                cr::Worker::my().commitTX();
+               WorkerCounters::myCounters().tx++;
                tx_acc++;
             }
             jumpmuCatch() { ensure(false); }

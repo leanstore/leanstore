@@ -46,6 +46,10 @@ DECLARE_uint64(backoff);
 DECLARE_double(tmp1);
 DECLARE_double(tmp2);
 DECLARE_double(tmp3);
+DECLARE_double(tmp4);
+DECLARE_double(tmp5);
+DECLARE_double(tmp6);
+DECLARE_double(tmp7);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(bstar);
 DECLARE_bool(bulk_insert);

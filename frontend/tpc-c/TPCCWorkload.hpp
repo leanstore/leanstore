@@ -1007,9 +1007,10 @@ class TPCCWorkload
       stock.scan(
           {1, 0},
           [&](const stock_t::Key&, const stock_t& rec) {
-             sum += rec.s_order_cnt;
+             sum++;
              return true;
           },
           [&]() {});
+      ensure(sum == warehouseCount * 100000);
    }
 };
