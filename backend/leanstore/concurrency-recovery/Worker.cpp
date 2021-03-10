@@ -169,6 +169,17 @@ void Worker::startTX()
    }
 }
 // -------------------------------------------------------------------------------------
+void Worker::shutdown()
+{
+   checkup();
+   // -------------------------------------------------------------------------------------
+   snapshot_orders[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+   for (u64 w = 0; w < workers_count; w++) {
+      my_snapshot[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+   }
+   snapshot_orders[worker_id].store(std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id, std::memory_order_release);
+}
+// -------------------------------------------------------------------------------------
 void Worker::checkup()
 {
    if (FLAGS_si) {
