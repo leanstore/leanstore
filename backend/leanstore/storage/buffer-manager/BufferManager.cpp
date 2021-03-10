@@ -376,7 +376,7 @@ void BufferManager::readPageSync(u64 pid, u8* destination)
    s64 bytes_left = PAGE_SIZE;
    do {
       const int bytes_read = pread(ssd_fd, destination, bytes_left, pid * PAGE_SIZE + (PAGE_SIZE - bytes_left));
-      assert(bytes_left > 0);
+      assert(bytes_read > 0);  // call was successfull?
       bytes_left -= bytes_read;
    } while (bytes_left > 0);
    // -------------------------------------------------------------------------------------
