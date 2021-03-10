@@ -114,11 +114,17 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          cur += 1;
          return OP_RESULT::OK;
       } else {
-         if (nextLeaf() && leaf->count > 0) {
-            return OP_RESULT::OK;
-         } else {
+      retry : {
+         if (!nextLeaf()) {
             return OP_RESULT::NOT_FOUND;
+         } else {
+            if (leaf->count == 0) {
+               goto retry;
+            } else {
+               return OP_RESULT::OK;
+            }
          }
+      }
       }
    }
    // -------------------------------------------------------------------------------------
@@ -128,12 +134,17 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          cur -= 1;
          return OP_RESULT::OK;
       } else {
-         if (prevLeaf() && leaf->count > 0) {
-            cur = leaf->count - 1;
-            return OP_RESULT::OK;
-         } else {
+      retry : {
+         if (!prevLeaf()) {
             return OP_RESULT::NOT_FOUND;
+         } else {
+            if (leaf->count == 0) {
+               goto retry;
+            } else {
+               return OP_RESULT::OK;
+            }
          }
+      }
       }
    }
    // -------------------------------------------------------------------------------------
