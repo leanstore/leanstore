@@ -75,10 +75,11 @@ void CRManager::groupCommiter()
       for (u32 w_i = 0; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
          {
+            const u128 worker_atomic = worker.wal_gct.load();
+            worker.group_commit_data.gsn_to_flush = worker_atomic >> 64;
+            worker.group_commit_data.wt_cursor_to_flush = worker.wal_wt_cursor & ((u128(1) << 64) - 1);
             std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
             worker.group_commit_data.ready_to_commit_cut = worker.ready_to_commit_queue.size();
-            worker.group_commit_data.gsn_to_flush = worker.wal_max_gsn;
-            worker.group_commit_data.wt_cursor_to_flush = worker.wal_wt_cursor;
          }
          {
             auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.wal_buffer + worker.wal_ww_cursor);
@@ -221,11 +222,6 @@ void CRManager::groupCommiter()
                } else {
                   break;
                }
-            }
-            if (0 && tx_i > 0) {  // TODO: verify the latency optimization
-               const u64 high_water_mark = worker.ready_to_commit_queue[tx_i - 1].tts + 1;
-               worker.highwater_marks[w_i].store(high_water_mark, std::memory_order_release);
-               // cout << "HighWaterMark[" << w_i << "] = " << worker.high_water_mark << endl;
             }
             worker.ready_to_commit_queue.erase(worker.ready_to_commit_queue.begin(), worker.ready_to_commit_queue.begin() + tx_i);
             worker.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();

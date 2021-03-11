@@ -70,6 +70,8 @@ DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
 DECLARE_bool(todo);
 DECLARE_bool(vi);
+DECLARE_bool(pgc);;
+DECLARE_uint64(chain_max_length);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
 DECLARE_bool(recover);
