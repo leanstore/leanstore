@@ -183,8 +183,8 @@ class TPCCWorkload
       Numeric d_tax;
       Integer o_id;
 
-      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_next_o_id);
-      // UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      // UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_next_o_id);
+      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
       district.update1(
           {w_id, d_id},
           [&](district_t& rec) {
@@ -624,8 +624,8 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
-      // UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
-      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
+      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      //      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
       district.update1(
           {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
@@ -727,8 +727,8 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
-      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
-      // UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      // UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
+      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
       district.update1(
           {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
