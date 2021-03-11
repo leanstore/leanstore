@@ -68,7 +68,8 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
          DEBUG_BLOCK() { entry.computeCRC(); }
          // -------------------------------------------------------------------------------------
          invalidateEntriesUntil(WORKER_WAL_SIZE);
-         wal_wt_cursor.store(0, std::memory_order_release);
+         wal_wt_cursor = 0;
+         wal_gct.store(combineMaxGSNOffset(), std::memory_order_release);
          wal_next_to_clean = 0;
          wal_buffer_round++;  // Carriage Return
       }
@@ -114,17 +115,17 @@ WALMetaEntry& Worker::reserveWALMetaEntry()
 void Worker::submitWALMetaEntry()
 {
    DEBUG_BLOCK() { active_mt_entry->computeCRC(); }
-   const u64 next_wal_wt_cursor = wal_wt_cursor + sizeof(WALMetaEntry);
-   wal_wt_cursor.store(next_wal_wt_cursor, std::memory_order_release);
+   wal_wt_cursor += sizeof(WALMetaEntry);
+   wal_gct.store(combineMaxGSNOffset(), std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::submitDTEntry(u64 total_size)
 {
    DEBUG_BLOCK() { active_dt_entry->computeCRC(); }
-   std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
-   const u64 next_wt_cursor = wal_wt_cursor + total_size;
-   wal_wt_cursor.store(next_wt_cursor, std::memory_order_release);
-   wal_max_gsn.store(clock_gsn, std::memory_order_release);
+   // std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
+   wal_wt_cursor += total_size;
+   wal_max_gsn = clock_gsn;
+   wal_gct.store(combineMaxGSNOffset(), std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshot()

@@ -108,8 +108,10 @@ struct Worker {
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    // Published using mutex
-   atomic<u64> wal_wt_cursor = 0;  // W->GCT
-   atomic<LID> wal_max_gsn = 0;    // W->GCT, under mutex
+   u128 combineMaxGSNOffset() { return (u128(wal_max_gsn) << 64) | wal_wt_cursor; }
+   atomic<u128> wal_gct = 0;  // higher 64-bits for max gsn, lower 64-bits for last offset
+   u64 wal_wt_cursor = 0;     // W->GCT
+   LID wal_max_gsn = 0;       // W->GCT, under mutex
    u64 wal_buffer_round = 0, wal_next_to_clean = 0;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------

@@ -104,10 +104,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       SN secondary_sn;
       SN gc_next_sn = 0;
       // -------------------------------------------------------------------------------------
-      // tmp
       u8 primary_version_worker_id;
       u64 primary_version_tts;
-      u64 primary_version_next_sn;  // debug
       // -------------------------------------------------------------------------------------
       {
          auto primary_payload = iterator.mutableValue();
@@ -131,7 +129,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          gc_next_sn = primary_version.next_sn;
          primary_version_worker_id = primary_version.worker_id;
          primary_version_tts = primary_version.tts;
-         primary_version_next_sn = primary_version.next_sn;
          // -------------------------------------------------------------------------------------
          iterator.markAsDirty();
       }
@@ -142,7 +139,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       //
       u64 removed_versions_counter = 0;
       bool recycled = false;
-      if (FLAGS_tmp2 && gc_next_sn) {
+      if (FLAGS_pgc && gc_next_sn) {
          SN prev_sn = 0, cur_sn = gc_next_sn;
          u8 buffer[PAGE_SIZE];
          auto gc_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(buffer);
@@ -162,9 +159,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          if (1) {
             // -------------------------------------------------------------------------------------
             while (cur_sn != 0) {
-               if (!FLAGS_tmp2 || i >= FLAGS_tmp1) {
-                  raise(SIGTRAP);
-               }
+               ensure(i < FLAGS_chain_max_length);
                if (w == cr::Worker::my().workers_count) {  // Reached the end of the needed part of the chain
                   if (prev_sn == 0) {
                      reinterpret_cast<PrimaryVersion*>(iterator.mutableValue().data() + iterator.mutableValue().length() - sizeof(PrimaryVersion))
@@ -789,7 +784,7 @@ restart : {
          goto restart;
       }
       chain_length++;
-      ensure(chain_length < FLAGS_tmp1);
+      ensure(chain_length < FLAGS_chain_max_length);
       Slice payload = iterator.value();
       const auto& secondary_version = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));
       if (secondary_version.is_delta) {

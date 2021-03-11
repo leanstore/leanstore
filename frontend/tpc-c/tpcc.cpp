@@ -120,7 +120,7 @@ int main(int argc, char** argv)
          cr::Worker::my().refreshSnapshot();
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         while (FLAGS_tmp4 && keep_running) {
+         while (keep_running) {
             jumpmuTry()
             {
                cr::Worker::my().startTX();
@@ -147,16 +147,13 @@ int main(int argc, char** argv)
          running_threads_counter--;
       });
    }
-   sleep(1);
    for (u64 t_i = FLAGS_worker_threads - FLAGS_tpcc_ch; t_i < FLAGS_worker_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
          cr::Worker::my().refreshSnapshot();
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         cr::Worker::my().startTX();
-         cr::Worker::my().commitTX();
-         while (FLAGS_tmp5 && keep_running) {
+         while (keep_running) {
             jumpmuTry()
             {
                cr::Worker::my().startTX();
