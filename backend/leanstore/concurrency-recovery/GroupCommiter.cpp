@@ -75,9 +75,13 @@ void CRManager::groupCommiter()
       for (u32 w_i = 0; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
          {
-            const u128 worker_atomic = worker.wal_gct.load();
-            worker.group_commit_data.gsn_to_flush = worker_atomic >> 64;
-            worker.group_commit_data.wt_cursor_to_flush = worker.wal_wt_cursor & ((u128(1) << 64) - 1);
+            const u64 worker_atomic = worker.wal_gct.load();
+            if (worker_atomic & (1ull << 63)) {
+               worker.group_commit_data.gsn_to_flush = worker.wal_gct_max_gsn_1;
+            } else {
+               worker.group_commit_data.gsn_to_flush = worker.wal_gct_max_gsn_0;
+            }
+            worker.group_commit_data.wt_cursor_to_flush = worker_atomic & (~(1ull << 63));
             std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
             worker.group_commit_data.ready_to_commit_cut = worker.ready_to_commit_queue.size();
          }

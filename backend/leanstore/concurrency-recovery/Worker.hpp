@@ -108,10 +108,24 @@ struct Worker {
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    // Published using mutex
-   u128 combineMaxGSNOffset() { return (u128(wal_max_gsn) << 64) | wal_wt_cursor; }
-   atomic<u128> wal_gct = 0;  // higher 64-bits for max gsn, lower 64-bits for last offset
-   u64 wal_wt_cursor = 0;     // W->GCT
-   LID wal_max_gsn = 0;       // W->GCT, under mutex
+   atomic<u64> wal_gct_max_gsn_0 = 0;
+   atomic<u64> wal_gct_max_gsn_1 = 0;
+   atomic<u64> wal_gct = 0;  // W->GCT
+   void publishMaxGSNOffset()
+   {
+      const bool was_second_slot = wal_gct & (u64(1) << 63);
+      u64 msb;
+      if (was_second_slot) {
+         wal_gct_max_gsn_0.store(wal_max_gsn, std::memory_order_release);
+         msb = 0;
+      } else {
+         wal_gct_max_gsn_1.store(wal_max_gsn, std::memory_order_release);
+         msb = 1ull << 63;
+      }
+      wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
+   }
+   u64 wal_wt_cursor = 0;
+   LID wal_max_gsn = 0;
    u64 wal_buffer_round = 0, wal_next_to_clean = 0;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
