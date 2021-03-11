@@ -150,110 +150,117 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          u64 i = 0, pi = 0;  // debug
          bool next_higher = true;
          // -------------------------------------------------------------------------------------
-         while (w < cr::Worker::my().workers_count &&
-                cr::Worker::my().isVisibleForIt(cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK, primary_version_worker_id,
-                                                primary_version_tts)) {
-            w++;
-         }
-         // -------------------------------------------------------------------------------------
-         while (cur_sn != 0) {
-            if (!FLAGS_tmp2 || i >= FLAGS_tmp1) {
-               raise(SIGTRAP);
-            }
-            if (w == cr::Worker::my().workers_count) {  // Reached the end of the needed part of the chain
-               if (prev_sn == 0) {
-                  reinterpret_cast<PrimaryVersion*>(iterator.mutableValue().data() + iterator.mutableValue().length() - sizeof(PrimaryVersion))
-                      ->next_sn = 0;
-                  reinterpret_cast<SecondaryVersion*>(secondary_payload + delta_and_descriptor_size)->next_sn = 0;
-               } else {
-                  reinterpret_cast<SecondaryVersion*>(iterator.mutableValue().data() + iterator.mutableValue().length() - sizeof(SecondaryVersion))
-                      ->next_sn = 0;
-               }
-               // Remove the rest of the chain
-               while (cur_sn != 0) {
-                  next_higher = cur_sn > getSN(key);
-                  setSN(m_key, cur_sn);
-                  // ret = iterator.seekExact(key);
-                  ret = iterator.seekExactWithHint(key, next_higher);
-                  ensure(ret == OP_RESULT::OK);
-                  // -------------------------------------------------------------------------------------
-                  auto secondary_gc_payload = iterator.mutableValue();
-                  auto& secondary_gc_version =
-                      *reinterpret_cast<SecondaryVersion*>(secondary_gc_payload.data() + secondary_gc_payload.length() - sizeof(SecondaryVersion));
-                  // -------------------------------------------------------------------------------------
-                  if (!recycled && iterator.mutableValue().length() >= secondary_payload_length) {
-                     secondary_sn = cur_sn;
-                     cur_sn = secondary_gc_version.next_sn;
-                     // -------------------------------------------------------------------------------------
-                     recycled = true;
-                     std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
-                     iterator.shorten(secondary_payload_length);
-                  } else {
-                     cur_sn = secondary_gc_version.next_sn;
-                     ret = iterator.removeCurrent();
-                     ensure(ret == OP_RESULT::OK);
-                  }
-                  iterator.markAsDirty();
-                  removed_versions_counter++;
-               }
-               break;
-            }
-            u64 cur_w = cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK;
-            i++;
-            ensure(cur_sn != 0);
-            next_higher = cur_sn > getSN(m_key);
-            setSN(m_key, cur_sn);
-            ret = iterator.seekExactWithHint(key, next_higher);
-            ensure(ret == OP_RESULT::OK);
-            // -------------------------------------------------------------------------------------
-            auto gc_payload = iterator.value();
-            const auto& gc_version = *reinterpret_cast<const SecondaryVersion*>(gc_payload.data() + gc_payload.length() - sizeof(SecondaryVersion));
-            ensure(!gc_version.is_removed);
-            std::memcpy(buffer, gc_payload.data(), reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(gc_payload.data())->size());
-            gc_next_sn = gc_version.next_sn;
-            if (cr::Worker::my().isVisibleForIt(cur_w, gc_version.worker_id, gc_version.tts)) {
-               prev_sn = cur_sn;
-               cur_sn = gc_next_sn;
+         if (cr::Worker::my().isVisibleForAll(primary_version_worker_id, primary_version_tts)) {
+            w = cr::Worker::my().workers_count;
+         } else {
+            while (w < cr::Worker::my().workers_count &&
+                   cr::Worker::my().isVisibleForIt(cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK, primary_version_worker_id,
+                                                   primary_version_tts)) {
                w++;
-            } else if (!gc_version.isFinal() && prev_sn != 0) {
-               next_higher = prev_sn > getSN(m_key);
-               setSN(m_key, prev_sn);
-               ret = iterator.seekExactWithHint(key, next_higher);
-               ensure(ret == OP_RESULT::OK);
-               // -------------------------------------------------------------------------------------
-               auto prev_payload = iterator.mutableValue();
-               auto& prev_version = *reinterpret_cast<SecondaryVersion*>(prev_payload.data() + prev_payload.length() - sizeof(SecondaryVersion));
-               auto prev_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(prev_payload.data());
-               if (!(*prev_descriptor == *gc_descriptor)) {
-                  // Stop!
-                  prev_sn = cur_sn;
-                  cur_sn = gc_next_sn;
-                  pi++;
-                  continue;
+            }
+         }
+         if (1) {
+            // -------------------------------------------------------------------------------------
+            while (cur_sn != 0) {
+               if (!FLAGS_tmp2 || i >= FLAGS_tmp1) {
+                  raise(SIGTRAP);
                }
-               prev_version.next_sn = gc_next_sn;
-               iterator.markAsDirty();
-               // -------------------------------------------------------------------------------------
+               if (w == cr::Worker::my().workers_count) {  // Reached the end of the needed part of the chain
+                  if (prev_sn == 0) {
+                     reinterpret_cast<PrimaryVersion*>(iterator.mutableValue().data() + iterator.mutableValue().length() - sizeof(PrimaryVersion))
+                         ->next_sn = 0;
+                     reinterpret_cast<SecondaryVersion*>(secondary_payload + delta_and_descriptor_size)->next_sn = 0;
+                  } else {
+                     reinterpret_cast<SecondaryVersion*>(iterator.mutableValue().data() + iterator.mutableValue().length() - sizeof(SecondaryVersion))
+                         ->next_sn = 0;
+                  }
+                  // Remove the rest of the chain
+                  while (cur_sn != 0) {
+                     next_higher = cur_sn > getSN(key);
+                     setSN(m_key, cur_sn);
+                     // ret = iterator.seekExact(key);
+                     ret = iterator.seekExactWithHint(key, next_higher);
+                     ensure(ret == OP_RESULT::OK);
+                     // -------------------------------------------------------------------------------------
+                     auto secondary_gc_payload = iterator.mutableValue();
+                     auto& secondary_gc_version =
+                         *reinterpret_cast<SecondaryVersion*>(secondary_gc_payload.data() + secondary_gc_payload.length() - sizeof(SecondaryVersion));
+                     // -------------------------------------------------------------------------------------
+                     if (!recycled && iterator.mutableValue().length() >= secondary_payload_length) {
+                        secondary_sn = cur_sn;
+                        cur_sn = secondary_gc_version.next_sn;
+                        // -------------------------------------------------------------------------------------
+                        recycled = true;
+                        std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
+                        iterator.shorten(secondary_payload_length);
+                     } else {
+                        cur_sn = secondary_gc_version.next_sn;
+                        ret = iterator.removeCurrent();
+                        ensure(ret == OP_RESULT::OK);
+                     }
+                     iterator.markAsDirty();
+                     removed_versions_counter++;
+                  }
+                  break;
+               }
+               u64 cur_w = cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK;
+               i++;
+               ensure(cur_sn != 0);
                next_higher = cur_sn > getSN(m_key);
                setSN(m_key, cur_sn);
                ret = iterator.seekExactWithHint(key, next_higher);
                ensure(ret == OP_RESULT::OK);
-               if (!recycled && iterator.mutableValue().length() >= secondary_payload_length) {
-                  std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
-                  secondary_sn = cur_sn;
-                  recycled = true;
-                  iterator.shorten(secondary_payload_length);
-               } else {
-                  ret = iterator.removeCurrent();
-                  ensure(ret == OP_RESULT::OK);
-                  removed_versions_counter++;
-               }
                // -------------------------------------------------------------------------------------
-               cur_sn = gc_next_sn;
-               iterator.markAsDirty();
-            } else {
-               prev_sn = cur_sn;
-               cur_sn = gc_next_sn;
+               auto gc_payload = iterator.value();
+               const auto& gc_version =
+                   *reinterpret_cast<const SecondaryVersion*>(gc_payload.data() + gc_payload.length() - sizeof(SecondaryVersion));
+               ensure(!gc_version.is_removed);
+               std::memcpy(buffer, gc_payload.data(), reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(gc_payload.data())->size());
+               gc_next_sn = gc_version.next_sn;
+               if (cr::Worker::my().isVisibleForIt(cur_w, gc_version.worker_id, gc_version.tts)) {
+                  prev_sn = cur_sn;
+                  cur_sn = gc_next_sn;
+                  w++;
+               } else if (!gc_version.isFinal() && prev_sn != 0) {
+                  next_higher = prev_sn > getSN(m_key);
+                  setSN(m_key, prev_sn);
+                  ret = iterator.seekExactWithHint(key, next_higher);
+                  ensure(ret == OP_RESULT::OK);
+                  // -------------------------------------------------------------------------------------
+                  auto prev_payload = iterator.mutableValue();
+                  auto& prev_version = *reinterpret_cast<SecondaryVersion*>(prev_payload.data() + prev_payload.length() - sizeof(SecondaryVersion));
+                  auto prev_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(prev_payload.data());
+                  if (!(*prev_descriptor == *gc_descriptor)) {
+                     // Stop!
+                     prev_sn = cur_sn;
+                     cur_sn = gc_next_sn;
+                     pi++;
+                     continue;
+                  }
+                  prev_version.next_sn = gc_next_sn;
+                  iterator.markAsDirty();
+                  // -------------------------------------------------------------------------------------
+                  next_higher = cur_sn > getSN(m_key);
+                  setSN(m_key, cur_sn);
+                  ret = iterator.seekExactWithHint(key, next_higher);
+                  ensure(ret == OP_RESULT::OK);
+                  if (!recycled && iterator.mutableValue().length() >= secondary_payload_length) {
+                     std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
+                     secondary_sn = cur_sn;
+                     recycled = true;
+                     iterator.shorten(secondary_payload_length);
+                  } else {
+                     ret = iterator.removeCurrent();
+                     ensure(ret == OP_RESULT::OK);
+                     removed_versions_counter++;
+                  }
+                  // -------------------------------------------------------------------------------------
+                  cur_sn = gc_next_sn;
+                  iterator.markAsDirty();
+               } else {
+                  prev_sn = cur_sn;
+                  cur_sn = gc_next_sn;
+               }
             }
          }
       }
