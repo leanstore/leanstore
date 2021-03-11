@@ -39,6 +39,11 @@ int main(int argc, char** argv)
    gflags::SetUsageMessage("Leanstore TPC-C");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
+   // Check arguments
+   if (FLAGS_tpcc_ch >= FLAGS_worker_threads) {
+      return 0;
+   }
+   // -------------------------------------------------------------------------------------
    LeanStore db;
    LeanStoreAdapter<warehouse_t> warehouse;
    LeanStoreAdapter<district_t> district;
@@ -69,6 +74,7 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    db.registerConfigEntry("tpcc_warehouse_count", FLAGS_tpcc_warehouse_count);
    db.registerConfigEntry("tpcc_warehouse_affinity", FLAGS_tpcc_warehouse_affinity);
+   db.registerConfigEntry("tpcc_ch", FLAGS_tpcc_ch);
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
    // -------------------------------------------------------------------------------------
    TPCCWorkload<LeanStoreAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
