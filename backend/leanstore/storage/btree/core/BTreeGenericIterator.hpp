@@ -173,10 +173,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       }
       leaf->copyKeyWithoutPrefix(cur, buffer + leaf->prefix_length);
    }
-   virtual Slice key() override
-   {
-      return Slice(buffer, leaf->getFullKeyLen(cur));
-   }
+   virtual Slice key() override { return Slice(buffer, leaf->getFullKeyLen(cur)); }
    virtual MutableSlice mutableKeyInBuffer() { return MutableSlice(buffer, leaf->getFullKeyLen(cur)); }
    virtual MutableSlice mutableKeyInBuffer(u16 size)
    {

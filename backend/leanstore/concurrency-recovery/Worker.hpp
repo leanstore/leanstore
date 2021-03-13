@@ -95,7 +95,9 @@ struct Worker {
    // Shared between Group Committer and Worker
    std::mutex worker_group_commiter_mutex;
    std::vector<Transaction> ready_to_commit_queue;
+   u8 pad1[64];
    std::atomic<u64> ready_to_commit_queue_size = 0;
+   u8 pad2[64];
    struct WALFinder {
       std::mutex m;
       std::map<LID, WALChunk::Slot> ht;  // LSN->SSD Offset
@@ -109,9 +111,11 @@ struct Worker {
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    // Published using mutex
+   u8 pad3[64];
    atomic<u64> wal_gct_max_gsn_0 = 0;
    atomic<u64> wal_gct_max_gsn_1 = 0;
    atomic<u64> wal_gct = 0;  // W->GCT
+   u8 pad4[64];
    void publishOffset()
    {
       const u64 msb = wal_gct & (u64(1) << 63);
