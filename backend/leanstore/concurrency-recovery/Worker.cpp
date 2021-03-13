@@ -69,7 +69,7 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
          // -------------------------------------------------------------------------------------
          invalidateEntriesUntil(WORKER_WAL_SIZE);
          wal_wt_cursor = 0;
-         publishMaxGSNOffset();
+         publishOffset();
          wal_next_to_clean = 0;
          wal_buffer_round++;  // Carriage Return
       }
@@ -78,7 +78,7 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
 // -------------------------------------------------------------------------------------
 void Worker::invalidateEntriesUntil(u64 until)
 {
-   if (wal_buffer_round > 0) {
+   if (FLAGS_tmp7 && wal_buffer_round > 0) {
       constexpr u64 INVALIDATE_LSN = std::numeric_limits<u64>::max();
       assert(wal_next_to_clean >= wal_wt_cursor);
       assert(wal_next_to_clean <= WORKER_WAL_SIZE);
@@ -116,13 +116,12 @@ void Worker::submitWALMetaEntry()
 {
    DEBUG_BLOCK() { active_mt_entry->computeCRC(); }
    wal_wt_cursor += sizeof(WALMetaEntry);
-   publishMaxGSNOffset();
+   publishOffset();
 }
 // -------------------------------------------------------------------------------------
 void Worker::submitDTEntry(u64 total_size)
 {
    DEBUG_BLOCK() { active_dt_entry->computeCRC(); }
-   // std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
    wal_wt_cursor += total_size;
    wal_max_gsn = clock_gsn;
    publishMaxGSNOffset();
@@ -189,7 +188,7 @@ void Worker::checkup()
       }
       force_si_refresh = false;
       active_tx.tts = highwater_marks[worker_id];
-      if (FLAGS_todo && todo_list.size()) {  // Cleanup
+      if (FLAGS_todo && todo_list.size()) {  // Cleanup  && utils::RandomGenerator::getRandU64(0, 2) == 0
          while (todo_list.size()) {
             auto& todo = todo_list.front();
             if (isVisibleForAll(todo.worker_id, todo.tts)) {
@@ -217,9 +216,10 @@ void Worker::commitTX()
       if (FLAGS_si) {
          highwater_marks[worker_id].store(active_tx.tts + 1, std::memory_order_release);
       }
-      {
+      if (FLAGS_tmp5) {  // TODO: optimize
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
          ready_to_commit_queue.push_back(active_tx);
+         ready_to_commit_queue_size += 1;
       }
    }
 }

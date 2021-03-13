@@ -81,7 +81,7 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
-   Slice key(start_key, key_length);
+   const Slice key(start_key, key_length);
    jumpmuTry()
    {
       BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
@@ -107,9 +107,11 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_length)
 {
-   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   Slice key(o_key, o_key_length);
-   Slice value(o_value, o_value_length);
+   if (FLAGS_wal) {
+      cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   }
+   const Slice key(o_key, o_key_length);
+   const Slice value(o_value, o_value_length);
    jumpmuTry()
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
@@ -136,7 +138,9 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
                                          function<void(u8* payload, u16 payload_size)> callback,
                                          UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
-   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   if (FLAGS_wal) {
+      cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   }
    Slice key(o_key, o_key_length);
    jumpmuTry()
    {
@@ -176,8 +180,10 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
 {
-   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   Slice key(o_key, o_key_length);
+   if (FLAGS_wal) {
+      cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   }
+   const Slice key(o_key, o_key_length);
    jumpmuTry()
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));

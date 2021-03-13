@@ -175,7 +175,6 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    }
    virtual Slice key() override
    {
-      //      assembleKey();
       return Slice(buffer, leaf->getFullKeyLen(cur));
    }
    virtual MutableSlice mutableKeyInBuffer() { return MutableSlice(buffer, leaf->getFullKeyLen(cur)); }

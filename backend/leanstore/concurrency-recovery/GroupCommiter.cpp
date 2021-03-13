@@ -75,6 +75,7 @@ void CRManager::groupCommiter()
       for (u32 w_i = 0; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
          {
+            worker.group_commit_data.ready_to_commit_cut = worker.ready_to_commit_queue_size;
             const u64 worker_atomic = worker.wal_gct.load();
             if (worker_atomic & (1ull << 63)) {
                worker.group_commit_data.gsn_to_flush = worker.wal_gct_max_gsn_1;
@@ -82,8 +83,6 @@ void CRManager::groupCommiter()
                worker.group_commit_data.gsn_to_flush = worker.wal_gct_max_gsn_0;
             }
             worker.group_commit_data.wt_cursor_to_flush = worker_atomic & (~(1ull << 63));
-            std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
-            worker.group_commit_data.ready_to_commit_cut = worker.ready_to_commit_queue.size();
          }
          {
             auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.wal_buffer + worker.wal_ww_cursor);
@@ -212,10 +211,10 @@ void CRManager::groupCommiter()
          Worker& worker = *workers[w_i];
          {
             u64 tx_i = 0;
-            std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
             if (chunk.slot[w_i].offset) {
                worker.wal_finder.insertJumpPoint(worker.group_commit_data.first_lsn_in_chunk, chunk.slot[w_i]);
             }
+            std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
             // -------------------------------------------------------------------------------------
             worker.wal_ww_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_release);
             while (tx_i < worker.group_commit_data.ready_to_commit_cut) {
@@ -228,6 +227,7 @@ void CRManager::groupCommiter()
                }
             }
             worker.ready_to_commit_queue.erase(worker.ready_to_commit_queue.begin(), worker.ready_to_commit_queue.begin() + tx_i);
+            worker.ready_to_commit_queue_size -= tx_i;
             worker.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
          }
       }

@@ -9,6 +9,9 @@
 using namespace std;
 using namespace leanstore::storage;
 using OP_RESULT = leanstore::OP_RESULT;
+DEFINE_bool(vi_flookup, false, "");
+DEFINE_bool(vi_fremove, false, "");
+DEFINE_bool(vi_fupdate, false, "");
 // -------------------------------------------------------------------------------------
 // Assumptions made in this implementation:
 // 1) We don't insert an already removed key
@@ -25,12 +28,12 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
 {
    // TODO: use optimistic latches for leaf 5K (optimistic scans)
    // -------------------------------------------------------------------------------------
-   u16 key_length = o_key_length + sizeof(SN);
-   u8 key_buffer[key_length];
-   std::memcpy(key_buffer, o_key, o_key_length);
-   MutableSlice key(key_buffer, key_length);
-   setSN(key, 0);
-   if (1) {
+   if (!FLAGS_vi_flookup) {
+      u16 key_length = o_key_length + sizeof(SN);
+      u8 key_buffer[key_length];
+      std::memcpy(key_buffer, o_key, o_key_length);
+      MutableSlice key(key_buffer, key_length);
+      setSN(key, 0);
       jumpmuTry()
       {
          BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
@@ -57,9 +60,9 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
          jumpmuTry()
          {
             HybridPageGuard<BTreeNode> leaf;
-            findLeafCanJump(leaf, key_buffer, key_length);
+            findLeafCanJump(leaf, o_key, o_key_length);
             // -------------------------------------------------------------------------------------
-            s16 pos = leaf->lowerBound<true>(key_buffer, key_length);
+            s16 pos = leaf->lowerBound<false>(o_key, o_key_length);
             if (pos != -1) {
                payload_callback(leaf->getPayload(pos), leaf->getPayloadLength(pos) - sizeof(PrimaryVersion));
                leaf.recheck();
@@ -97,6 +100,12 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       if (ret != OP_RESULT::OK) {
          raise(SIGTRAP);
          jumpmu_return ret;
+      }
+      // -------------------------------------------------------------------------------------
+      if (FLAGS_vi_fupdate) {
+         auto current_value = iterator.mutableValue();
+         callback(current_value.data(), current_value.length());
+         jumpmu_return OP_RESULT::OK;
       }
       // -------------------------------------------------------------------------------------
       u16 delta_and_descriptor_size, secondary_payload_length;
@@ -173,7 +182,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                   while (cur_sn != 0) {
                      next_higher = cur_sn > getSN(key);
                      setSN(m_key, cur_sn);
-                     // ret = iterator.seekExact(key);
                      ret = iterator.seekExactWithHint(key, next_higher);
                      ensure(ret == OP_RESULT::OK);
                      // -------------------------------------------------------------------------------------
@@ -267,13 +275,15 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             setSN(m_key, secondary_sn);
             ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
          } while (ret != OP_RESULT::OK);
+      } else {
+        // cout << "recycled" << endl;
       }
       iterator.markAsDirty();
       // -------------------------------------------------------------------------------------
       {
          setSN(m_key, 0);
-         // ret = iterator.seekExactWithHint(key, false);
-         ret = iterator.seekExact(key);
+         ret = iterator.seekExactWithHint(key, false);
+         // ret = iterator.seekExact(key);
          ensure(ret == OP_RESULT::OK);
          MutableSlice primary_payload = iterator.mutableValue();
          PrimaryVersion& primary_version =
@@ -381,6 +391,12 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       if (ret != OP_RESULT::OK) {
          raise(SIGTRAP);
          jumpmu_return OP_RESULT::NOT_FOUND;
+      }
+      // -------------------------------------------------------------------------------------
+      if (FLAGS_vi_fremove) {
+         ret = iterator.removeCurrent();
+         ensure(ret == OP_RESULT::OK);
+         jumpmu_return OP_RESULT::OK;
       }
       // -------------------------------------------------------------------------------------
       u16 value_length, secondary_payload_length;
@@ -613,6 +629,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                   ret = iterator.enoughSpaceInCurrentNode(key, payload_length);  // TODO:
                   if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
                      iterator.splitForKey(key);
+                     cout << "mm" << endl;
                      continue;
                   }
                   break;
