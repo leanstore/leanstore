@@ -73,6 +73,7 @@ DEFINE_uint64(si_refresh_rate, 0, "");
 DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(todo, true, "");
 DEFINE_bool(vi, false, "BTree with SI using in-place version");
+DEFINE_bool(vi_utodo, true, "BTree with SI using in-place version");
 DEFINE_bool(pgc, false, "Precise garbage collection/recycling");
 DEFINE_uint64(chain_max_length, 10000, "");
 // -------------------------------------------------------------------------------------

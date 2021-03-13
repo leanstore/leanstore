@@ -308,7 +308,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          primary_version.tts = myTTS();
          primary_version.next_sn = secondary_sn;
          // -------------------------------------------------------------------------------------
-         if (FLAGS_tmp3 && !primary_version.is_gc_scheduled) {
+         if (FLAGS_vi_utodo && !primary_version.is_gc_scheduled) {
             cr::Worker::my().addTODO(primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
                auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
                todo_entry.key_length = o_key_length;
