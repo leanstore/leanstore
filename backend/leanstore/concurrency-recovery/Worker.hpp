@@ -56,7 +56,7 @@ struct Worker {
    u64 lower_water_mark;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
-   static constexpr u64 WORKERS_INCREMENT = 1ull << 8;
+   static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
    static constexpr u64 WORKERS_MASK = (1ull << WORKERS_BITS) - 1;
    // -------------------------------------------------------------------------------------
    const u64 worker_id;
@@ -76,7 +76,7 @@ struct Worker {
       DTID dt_id;
       unique_ptr<u8[]> entry;
    };
-   std::queue<TODO> todo_list;
+   std::queue<TODO> todo_list; // TODO: optimize (no need for sync)
    void addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
