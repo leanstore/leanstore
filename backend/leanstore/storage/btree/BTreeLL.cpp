@@ -117,7 +117,7 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
       OP_RESULT ret = iterator.insertKV(key, value);
       ensure(ret == OP_RESULT::OK);
-      if (FLAGS_tmp6 && FLAGS_wal) {
+      if (FLAGS_wal) {
          auto wal_entry = iterator.leaf.reserveWALEntry<WALInsert>(key.length() + value.length());
          wal_entry->type = WAL_LOG_TYPE::WALInsert;
          wal_entry->key_length = key.length();
@@ -150,7 +150,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
          jumpmu_return ret;
       }
       auto current_value = iterator.mutableValue();
-      if (FLAGS_tmp6 && FLAGS_wal) {
+      if (FLAGS_wal) {
          assert(update_descriptor.count > 0);  // if it is a secondary index, then we can not use updateSameSize
          // -------------------------------------------------------------------------------------
          const u16 delta_length = update_descriptor.size() + calculateDeltaSize(update_descriptor);
@@ -192,7 +192,7 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
          jumpmu_return ret;
       }
       Slice value = iterator.value();
-      if (FLAGS_wal && FLAGS_tmp6) {
+      if (FLAGS_wal) {
          auto wal_entry = iterator.leaf.reserveWALEntry<WALRemove>(o_key_length + value.length());
          wal_entry->type = WAL_LOG_TYPE::WALRemove;
          wal_entry->key_length = o_key_length;

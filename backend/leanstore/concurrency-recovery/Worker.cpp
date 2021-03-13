@@ -76,9 +76,10 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
    }
 }
 // -------------------------------------------------------------------------------------
+// Not need if workers will never read from other workers WAL
 void Worker::invalidateEntriesUntil(u64 until)
 {
-   if (FLAGS_tmp7 && wal_buffer_round > 0) {
+   if (FLAGS_vw && wal_buffer_round > 0) {  // ATM, needed only for VW
       constexpr u64 INVALIDATE_LSN = std::numeric_limits<u64>::max();
       assert(wal_next_to_clean >= wal_wt_cursor);
       assert(wal_next_to_clean <= WORKER_WAL_SIZE);
@@ -216,7 +217,7 @@ void Worker::commitTX()
       if (FLAGS_si) {
          highwater_marks[worker_id].store(active_tx.tts + 1, std::memory_order_release);
       }
-      if (FLAGS_tmp5) {  // TODO: optimize
+      if (!FLAGS_tmp5) {  // TODO: optimize
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
          ready_to_commit_queue.push_back(active_tx);
          ready_to_commit_queue_size += 1;
