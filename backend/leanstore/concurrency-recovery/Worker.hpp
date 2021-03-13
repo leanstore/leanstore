@@ -95,6 +95,7 @@ struct Worker {
    // Shared between Group Committer and Worker
    std::mutex worker_group_commiter_mutex;
    std::vector<Transaction> ready_to_commit_queue;
+   std::atomic<u64> ready_to_commit_queue_size = 0;
    struct WALFinder {
       std::mutex m;
       std::map<LID, WALChunk::Slot> ht;  // LSN->SSD Offset
@@ -111,6 +112,11 @@ struct Worker {
    atomic<u64> wal_gct_max_gsn_0 = 0;
    atomic<u64> wal_gct_max_gsn_1 = 0;
    atomic<u64> wal_gct = 0;  // W->GCT
+   void publishOffset()
+   {
+      const u64 msb = wal_gct & (u64(1) << 63);
+      wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
+   }
    void publishMaxGSNOffset()
    {
       const bool was_second_slot = wal_gct & (u64(1) << 63);
