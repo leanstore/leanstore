@@ -67,7 +67,7 @@ class TPCCWorkload
    const bool order_wdc_index = true;
    const Integer warehouseCount;
    const Integer tpcc_remove;
-   const u64 analytical_query_pct;
+   const bool cross_warehouses;
    // -------------------------------------------------------------------------------------
    Integer urandexcept(Integer low, Integer high, Integer v)
    {
@@ -288,7 +288,7 @@ class TPCCWorkload
       qtys.reserve(15);
       for (Integer i = 1; i <= ol_cnt; i++) {
          Integer supware = w_id;
-         if (urand(1, 100) == 1)  // remote transaction
+         if (cross_warehouses && urand(1, 100) == 1)  // ATTN:remote transaction
             supware = urandexcept(1, warehouseCount, w_id);
          Integer itemid = getItemID();
          if (false && (i == ol_cnt) && (urand(1, 100) == 1))  // invalid item => random
@@ -809,7 +809,7 @@ class TPCCWorkload
       Integer d_id = urand(1, 10);
       Integer c_w_id = w_id;
       Integer c_d_id = d_id;
-      if (urand(1, 100) > 85) {
+      if (cross_warehouses && urand(1, 100) > 85) {  // ATTN: cross warehouses
          c_w_id = urandexcept(1, warehouseCount, w_id);
          c_d_id = urand(1, 10);
       }
@@ -838,7 +838,7 @@ class TPCCWorkload
                 bool order_wdc_index,
                 Integer warehouse_count,
                 bool tpcc_remove,
-                bool analytical = 0)
+                bool cross_warehouses = true)
        : warehouse(w),
          district(d),
          customer(customer),
@@ -853,7 +853,7 @@ class TPCCWorkload
          order_wdc_index(order_wdc_index),
          warehouseCount(warehouse_count),
          tpcc_remove(tpcc_remove),
-         analytical_query_pct(analytical)
+         cross_warehouses(cross_warehouses)
    {
    }
    // -------------------------------------------------------------------------------------

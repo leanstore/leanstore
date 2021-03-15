@@ -28,6 +28,7 @@ DEFINE_bool(tpcc_warehouse_affinity, false, "");
 DEFINE_bool(tpcc_fast_load, false, "");
 DEFINE_bool(tpcc_remove, true, "");
 DEFINE_bool(order_wdc_index, true, "");
+DEFINE_bool(tpcc_cross_warehouses, true, "");
 DEFINE_uint64(tpcc_analytical_weight, 0, "");
 DEFINE_uint64(tpcc_ch, 0, "");
 // -------------------------------------------------------------------------------------
@@ -78,7 +79,7 @@ int main(int argc, char** argv)
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
    // -------------------------------------------------------------------------------------
    TPCCWorkload<LeanStoreAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
-                                       FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove, FLAGS_tpcc_analytical_weight);
+                                       FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove, FLAGS_tpcc_cross_warehouses);
    if (!FLAGS_recover) {
       crm.scheduleJobSync(0, [&]() {
          cr::Worker::my().refreshSnapshot();
