@@ -136,6 +136,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             return OP_RESULT::NOT_FOUND;
          } else {
             if (leaf->count == 0) {
+              cout <<"e" <<endl;
                goto retry;
             } else {
                return OP_RESULT::OK;
@@ -156,6 +157,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             return OP_RESULT::NOT_FOUND;
          } else {
             if (leaf->count == 0) {
+              cout <<"p" <<endl;
                goto retry;
             } else {
                return OP_RESULT::OK;

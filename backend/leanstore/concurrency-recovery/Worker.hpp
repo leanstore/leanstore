@@ -51,10 +51,10 @@ struct Worker {
    static unique_ptr<atomic<u64>[]> highwater_marks;
    // -------------------------------------------------------------------------------------
    bool force_si_refresh = false;
+   bool workers_sorted = false;
    unique_ptr<atomic<u64>[]> my_snapshot;
    unique_ptr<u64[]> my_sorted_workers;
    unique_ptr<u64[]> my_lower_water_marks;
-   u64 lower_water_mark;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
@@ -76,11 +76,9 @@ struct Worker {
       u64 tts;
       DTID dt_id;
       // -------------------------------------------------------------------------------------
-      bool is_cr;  // Carriage return
-      u32 size;
-      u8 entry[16 * 1024];  // temporary hack
+      u8 entry[64];  // temporary hack
    };
-   boost::circular_buffer<TODO> todo_queue = boost::circular_buffer<TODO>(100);  // TODO: optimize (no need for sync)
+   boost::circular_buffer<TODO> todo_queue = boost::circular_buffer<TODO>(2 * 1024);  // TODO: optimize (no need for sync)
    void addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
@@ -220,6 +218,7 @@ struct Worker {
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
+   void sortWorkers();
    void refreshSnapshot();
    bool isVisibleForAll(u8 worker_id, u64 tts);
    bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
