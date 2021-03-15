@@ -24,7 +24,7 @@ IF(SANI)
   endif ()
 ENDIF(SANI)
 
-target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic tabluate rapidjson) #tbb
+target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic tabluate rapidjson ${Boost_LIBRARIES}) #tbb
 
 # ---------------------------------------------------------------------------
 SET(COUNTERS_LEVEL "all" CACHE STRING "Which counters to leave in leanstore build")
