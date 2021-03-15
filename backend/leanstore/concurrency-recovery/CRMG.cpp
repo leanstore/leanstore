@@ -25,7 +25,9 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
       worker_threads.emplace_back([&, t_i]() {
          std::string thread_name("worker_" + std::to_string(t_i));
          pthread_setname_np(pthread_self(), thread_name.c_str());
-         utils::pinThisThread(t_i);
+         if (FLAGS_pin_threads) {
+            utils::pinThisThread(t_i);
+         }
          // -------------------------------------------------------------------------------------
          CPUCounters::registerThread(thread_name, false);
          // -------------------------------------------------------------------------------------
@@ -62,7 +64,9 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
    // -------------------------------------------------------------------------------------
    if (FLAGS_wal) {
       std::thread group_commiter([&]() {
-         utils::pinThisThread(workers_count);
+         if (FLAGS_pin_threads) {
+            utils::pinThisThread(workers_count);
+         }
          groupCommiter();
       });
       group_commiter.detach();

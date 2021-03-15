@@ -2,6 +2,7 @@
 #include "Transaction.hpp"
 #include "WALEntry.hpp"
 // -------------------------------------------------------------------------------------
+#include <boost/circular_buffer.hpp>
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <functional>
@@ -74,9 +75,12 @@ struct Worker {
       u8 worker_id;
       u64 tts;
       DTID dt_id;
-      unique_ptr<u8[]> entry;
+      // -------------------------------------------------------------------------------------
+      bool is_cr;  // Carriage return
+      u32 size;
+      u8 entry[16 * 1024];  // temporary hack
    };
-   std::queue<TODO> todo_list; // TODO: optimize (no need for sync)
+   boost::circular_buffer<TODO> todo_queue = boost::circular_buffer<TODO>(100);  // TODO: optimize (no need for sync)
    void addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
@@ -139,7 +143,7 @@ struct Worker {
    u64 wal_buffer_round = 0, wal_next_to_clean = 0;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
-   atomic<u64> wal_ww_cursor = 0;                // GCT->W
+   atomic<u64> wal_gct_cursor = 0;               // GCT->W
    alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
    LID wal_lsn_counter = 0;
    LID clock_gsn;

@@ -40,19 +40,20 @@ Worker::~Worker() {}
 u32 Worker::walFreeSpace()
 {
    // A , B , C : a - b + c % c
-   auto ww_cursor = wal_ww_cursor.load();
-   if (ww_cursor == wal_wt_cursor) {
+   const auto gct_cursor = wal_gct_cursor.load();
+   if (gct_cursor == wal_wt_cursor) {
       return WORKER_WAL_SIZE;
-   } else if (ww_cursor < wal_wt_cursor) {
-      return ww_cursor + (WORKER_WAL_SIZE - wal_wt_cursor);
+   } else if (gct_cursor < wal_wt_cursor) {
+      return gct_cursor + (WORKER_WAL_SIZE - wal_wt_cursor);
    } else {
-      return ww_cursor - wal_wt_cursor;
+      return gct_cursor - wal_wt_cursor;
    }
 }
 // -------------------------------------------------------------------------------------
 u32 Worker::walContiguousFreeSpace()
 {
-   return WORKER_WAL_SIZE - wal_wt_cursor;
+   const auto gct_cursor = wal_gct_cursor.load();
+   return (gct_cursor > wal_wt_cursor) ? gct_cursor - wal_wt_cursor : WORKER_WAL_SIZE - wal_wt_cursor;
 }
 // -------------------------------------------------------------------------------------
 void Worker::walEnsureEnoughSpace(u32 requested_size)
@@ -189,12 +190,12 @@ void Worker::checkup()
       }
       force_si_refresh = false;
       active_tx.tts = highwater_marks[worker_id];
-      if (FLAGS_todo && todo_list.size()) {  // Cleanup  && utils::RandomGenerator::getRandU64(0, 2) == 0
-         while (todo_list.size()) {
-            auto& todo = todo_list.front();
+      if (FLAGS_todo && todo_queue.size()) {  // Cleanup  && utils::RandomGenerator::getRandU64(0, 2) == 0
+         while (todo_queue.size()) {
+            auto& todo = todo_queue.front();
             if (isVisibleForAll(todo.worker_id, todo.tts)) {
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry.get(), todo.tts);
-               todo_list.pop();
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.tts);
+               todo_queue.pop_front();
             } else {
                break;
             }
@@ -393,8 +394,9 @@ outofmemory : {
 // -------------------------------------------------------------------------------------
 void Worker::addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* entry)> cb)
 {
-   todo_list.push({worker_id, tts, dt_id, std::make_unique<u8[]>(size)});
-   cb(todo_list.back().entry.get());
+   ensure(todo_queue.size() <= todo_queue.capacity());
+   todo_queue.push_back({worker_id, tts, dt_id});
+   cb(todo_queue.back().entry);
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

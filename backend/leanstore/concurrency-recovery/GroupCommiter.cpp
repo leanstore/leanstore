@@ -85,14 +85,14 @@ void CRManager::groupCommiter()
             worker.group_commit_data.wt_cursor_to_flush = worker_atomic & (~(1ull << 63));
          }
          {
-            auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.wal_buffer + worker.wal_ww_cursor);
+            auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.wal_buffer + worker.wal_gct_cursor);
             worker.group_commit_data.first_lsn_in_chunk = wal_entry.lsn;
          }
          {
-            if (worker.group_commit_data.wt_cursor_to_flush > worker.wal_ww_cursor) {
-               const u64 lower_offset = utils::downAlign(worker.wal_ww_cursor);
+            if (worker.group_commit_data.wt_cursor_to_flush > worker.wal_gct_cursor) {
+               const u64 lower_offset = utils::downAlign(worker.wal_gct_cursor);
                const u64 upper_offset = utils::upAlign(worker.group_commit_data.wt_cursor_to_flush);
-               const u64 size = worker.group_commit_data.wt_cursor_to_flush - worker.wal_ww_cursor;
+               const u64 size = worker.group_commit_data.wt_cursor_to_flush - worker.wal_gct_cursor;
                const u64 size_aligned = upper_offset - lower_offset;
                // -------------------------------------------------------------------------------------
                if (!FLAGS_wal_io_hack) {
@@ -101,12 +101,12 @@ void CRManager::groupCommiter()
                }
                // -------------------------------------------------------------------------------------
                COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
-               chunk.slot[w_i].offset = ssd_offset + (worker.wal_ww_cursor - lower_offset);
+               chunk.slot[w_i].offset = ssd_offset + (worker.wal_gct_cursor - lower_offset);
                chunk.slot[w_i].length = size;
                ensure(chunk.slot[w_i].offset < end_of_block_device);
                chunk.total_size += size_aligned;
                ensure(chunk.slot[w_i].offset >= ssd_offset);
-            } else if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_ww_cursor) {
+            } else if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_gct_cursor) {
                {
                   // XXXXXX---------------
                   const u64 lower_offset = 0;
@@ -123,9 +123,9 @@ void CRManager::groupCommiter()
                }
                {
                   // ------------XXXXXXXXX
-                  const u64 lower_offset = utils::downAlign(worker.wal_ww_cursor);
+                  const u64 lower_offset = utils::downAlign(worker.wal_gct_cursor);
                   const u64 upper_offset = Worker::WORKER_WAL_SIZE;
-                  const u64 size = Worker::WORKER_WAL_SIZE - worker.wal_ww_cursor;
+                  const u64 size = Worker::WORKER_WAL_SIZE - worker.wal_gct_cursor;
                   const u64 size_aligned = upper_offset - lower_offset;
                   // -------------------------------------------------------------------------------------
                   if (!FLAGS_wal_io_hack) {
@@ -133,7 +133,7 @@ void CRManager::groupCommiter()
                      add_pwrite(worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
                   }
                   COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
-                  chunk.slot[w_i].offset = ssd_offset + (worker.wal_ww_cursor - lower_offset);
+                  chunk.slot[w_i].offset = ssd_offset + (worker.wal_gct_cursor - lower_offset);
                   chunk.slot[w_i].length += size;
                }
                ensure(chunk.slot[w_i].offset >= ssd_offset);
@@ -211,7 +211,7 @@ void CRManager::groupCommiter()
          Worker& worker = *workers[w_i];
          {
             u64 tx_i = 0;
-            worker.wal_ww_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_release);
+            worker.wal_gct_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_release);
             worker.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
             if (chunk.slot[w_i].offset) {
                worker.wal_finder.insertJumpPoint(worker.group_commit_data.first_lsn_in_chunk, chunk.slot[w_i]);
