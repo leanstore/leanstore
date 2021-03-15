@@ -137,23 +137,34 @@ void Worker::refreshSnapshot()
    }
    snapshot_orders[worker_id].store(global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id, std::memory_order_release);
    // -------------------------------------------------------------------------------------
-restart : {
-   for (u64 w = 0; w < workers_count; w++) {
-      u64 tmp = snapshot_orders[w];
-      while (tmp == std::numeric_limits<u64>::max())
-         tmp = snapshot_orders[w];
-      my_sorted_workers[w] = tmp;
-   }
-   std::sort(my_sorted_workers.get(), my_sorted_workers.get() + workers_count, std::greater<u64>());
-   // -------------------------------------------------------------------------------------
-   const u8 oldest_worker_id = my_sorted_workers[workers_count - 1] & WORKERS_MASK;
-   for (u64 w = 0; w < workers_count; w++) {
-      my_lower_water_marks[w] = all_workers[oldest_worker_id]->my_snapshot[w];
-   }
-   if (snapshot_orders[oldest_worker_id] != my_sorted_workers[workers_count - 1]) {
-      goto restart;
+restart:
+   if (1) {
+      u64 oldest_order = std::numeric_limits<u64>::max(), oldest_worker_id = worker_id;
+      for (u64 w = 0; w < workers_count; w++) {
+         u64 tmp = snapshot_orders[w];
+         while (tmp == std::numeric_limits<u64>::max())
+            tmp = snapshot_orders[w];
+         if (tmp < oldest_order) {
+            oldest_order = tmp;
+            oldest_worker_id = w;
+         }
+         my_sorted_workers[w] = tmp;
+      }
+      for (u64 w = 0; w < workers_count; w++) {
+         my_lower_water_marks[w] = all_workers[oldest_worker_id]->my_snapshot[w];
+      }
+      if (snapshot_orders[oldest_worker_id] != my_sorted_workers[oldest_worker_id]) {
+         goto restart;
+      }
+      workers_sorted = false;
    }
 }
+// -------------------------------------------------------------------------------------
+void Worker::sortWorkers()
+{
+   if (!workers_sorted) {
+      std::sort(my_sorted_workers.get(), my_sorted_workers.get() + workers_count, std::greater<u64>());
+      workers_sorted = true;   }
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX()
@@ -368,7 +379,6 @@ outofmemory : {
    u64 offset = 0;
    u8* ptr = log_chunk + lower_bound - lower_bound_aligned;
    auto entry = reinterpret_cast<WALEntry*>(ptr + offset);
-   auto prev_entry = entry;
    while (true) {
       DEBUG_BLOCK() { entry->checkCRC(); }
       assert(entry->size > 0 && entry->lsn <= lsn);
@@ -379,7 +389,6 @@ outofmemory : {
       }
       if ((offset + entry->size) < slot.length) {
          offset += entry->size;
-         prev_entry = entry;
          entry = reinterpret_cast<WALEntry*>(ptr + offset);
       } else {
          break;
@@ -394,7 +403,8 @@ outofmemory : {
 // -------------------------------------------------------------------------------------
 void Worker::addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* entry)> cb)
 {
-   ensure(todo_queue.size() <= todo_queue.capacity());
+   ensure(todo_queue.size() < todo_queue.capacity());
+   ensure(size <= 64);
    todo_queue.push_back({worker_id, tts, dt_id});
    cb(todo_queue.back().entry);
 }

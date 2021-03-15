@@ -159,6 +159,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          if (cr::Worker::my().isVisibleForAll(primary_version_worker_id, primary_version_tts)) {
             w = cr::Worker::my().workers_count;
          } else {
+            cr::Worker::my().sortWorkers();
             while (w < cr::Worker::my().workers_count &&
                    cr::Worker::my().isVisibleForIt(cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK, primary_version_worker_id,
                                                    primary_version_tts)) {
@@ -276,7 +277,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
          } while (ret != OP_RESULT::OK);
       } else {
-        // cout << "recycled" << endl;
+         // cout << "recycled" << endl;
       }
       iterator.markAsDirty();
       // -------------------------------------------------------------------------------------
