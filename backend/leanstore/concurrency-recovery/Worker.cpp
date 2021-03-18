@@ -131,18 +131,20 @@ void Worker::submitDTEntry(u64 total_size)
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshot()
 {
-   snapshot_orders[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+   const u64 MSB = 1ull << 63;
+   const u64 my_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
+   snapshot_orders[worker_id].store(my_order | MSB, std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
       my_snapshot[w].store(highwater_marks[w], std::memory_order_release);
    }
-   snapshot_orders[worker_id].store(global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id, std::memory_order_release);
+   snapshot_orders[worker_id].store(my_order, std::memory_order_release);
    // -------------------------------------------------------------------------------------
 restart:
    if (1) {
       u64 oldest_order = std::numeric_limits<u64>::max(), oldest_worker_id = worker_id;
       for (u64 w = 0; w < workers_count; w++) {
          u64 tmp = snapshot_orders[w];
-         while (tmp == std::numeric_limits<u64>::max())
+         while (tmp & MSB)
             tmp = snapshot_orders[w];
          if (tmp < oldest_order) {
             oldest_order = tmp;
@@ -150,6 +152,7 @@ restart:
          }
          my_sorted_workers[w] = tmp;
       }
+      // for (u64 w = worker_id; w < worker_id + 1; w++) {
       for (u64 w = 0; w < workers_count; w++) {
          my_lower_water_marks[w] = all_workers[oldest_worker_id]->my_snapshot[w];
       }
@@ -164,7 +167,8 @@ void Worker::sortWorkers()
 {
    if (!workers_sorted) {
       std::sort(my_sorted_workers.get(), my_sorted_workers.get() + workers_count, std::greater<u64>());
-      workers_sorted = true;   }
+      workers_sorted = true;
+   }
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX()
@@ -190,7 +194,7 @@ void Worker::shutdown()
    for (u64 w = 0; w < workers_count; w++) {
       my_snapshot[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    }
-   snapshot_orders[worker_id].store(std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id, std::memory_order_release);
+   snapshot_orders[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63), std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::checkup()
@@ -206,7 +210,7 @@ void Worker::checkup()
             auto& todo = todo_queue.front();
             if (isVisibleForAll(todo.worker_id, todo.tts)) {
                leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.tts);
-               todo_queue.pop_front();
+               todo_queue.pop();
             } else {
                break;
             }
@@ -282,6 +286,8 @@ u64 Worker::getLowerWaterMark(const u8 other_worker_id)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForAll(u8 other_worker_id, u64 tts)
 {
+   if (FLAGS_tmp7 == 1 && other_worker_id == worker_id)
+      return true;
    return getLowerWaterMark(other_worker_id) > tts;
 }
 // -------------------------------------------------------------------------------------
@@ -403,9 +409,8 @@ outofmemory : {
 // -------------------------------------------------------------------------------------
 void Worker::addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* entry)> cb)
 {
-   ensure(todo_queue.size() < todo_queue.capacity());
    ensure(size <= 64);
-   todo_queue.push_back({worker_id, tts, dt_id});
+   todo_queue.push({worker_id, tts, dt_id, {}});
    cb(todo_queue.back().entry);
 }
 // -------------------------------------------------------------------------------------

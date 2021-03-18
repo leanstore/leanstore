@@ -45,6 +45,35 @@ void DTTable::open()
       columns.emplace("vw_version_step_" + std::to_string(i),
                       [&, i](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::vw_version_step, dt_id, i); });
    }
+   // -------------------------------------------------------------------------------------
+
+   columns.emplace("cc_read_versions_visited",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_read_versions_visited, dt_id); });
+   columns.emplace("cc_read_versions_visited_not_found",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_read_versions_visited_not_found, dt_id); });
+   columns.emplace("cc_read_chains", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_read_chains, dt_id); });
+   columns.emplace("cc_read_chains_not_found",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_read_chains_not_found, dt_id); });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("cc_update_versions_visited",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_visited, dt_id); });
+   columns.emplace("cc_update_versions_removed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_removed, dt_id); });
+   columns.emplace("cc_update_versions_skipped",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_skipped, dt_id); });
+   columns.emplace("cc_update_versions_recycled",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_recycled, dt_id); });
+   columns.emplace("cc_update_versions_created",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_created, dt_id); });
+   columns.emplace("cc_update_chains", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains, dt_id); });
+   columns.emplace("cc_update_chains_hwm", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_hwm, dt_id); });
+   columns.emplace("cc_update_chains_pgc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc, dt_id); });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("cc_todo_chains", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_chains, dt_id); });
+   columns.emplace("cc_todo_remove", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_remove, dt_id); });
+   columns.emplace("cc_todo_updates", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_updates, dt_id); });
+   columns.emplace("cc_todo_updates_versions_removed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_updates_versions_removed, dt_id); });
 }
 // -------------------------------------------------------------------------------------
 void DTTable::next()

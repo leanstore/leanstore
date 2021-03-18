@@ -325,47 +325,64 @@ class TPCCWorkload
             ensure(!FLAGS_si || ret);
          }
          // -------------------------------------------------------------------------------------
-         // Integer ol_cnt = minInteger, c_id;
-         // order.scan({w_id, d_id, o_id}, [&](const order_t& rec) { ol_cnt = rec.o_ol_cnt; c_id = rec.o_c_id; return false; });
-         // if (ol_cnt == minInteger)
-         // continue;
-         Integer ol_cnt = -1, c_id = -1;
-
-         bool is_safe_to_continue = false;
-         order.scan(
-             {w_id, d_id, o_id},
-             [&](const order_t::Key& key, const order_t& rec) {
-                if (key.o_w_id == w_id && key.o_d_id == d_id && key.o_id == o_id) {
-                   is_safe_to_continue = true;
+         Integer ol_cnt = minInteger, c_id;
+         if (FLAGS_si) {
+            order.lookup1({w_id, d_id, o_id}, [&](const order_t& rec) {
+               ol_cnt = rec.o_ol_cnt;
+               c_id = rec.o_c_id;
+            });
+         } else {
+            order.scan(
+                {w_id, d_id, o_id},
+                [&](const order_t::Key&, const order_t& rec) {
                    ol_cnt = rec.o_ol_cnt;
                    c_id = rec.o_c_id;
-                } else {
-                   is_safe_to_continue = false;
-                }
-                return false;
-             },
-             [&]() { is_safe_to_continue = false; });
-         if (!is_safe_to_continue)
-            continue;
+                   return false;
+                },
+                [&]() {});
+            if (ol_cnt == minInteger)
+               continue;
+         }
+         // -------------------------------------------------------------------------------------
+         bool is_safe_to_continue = false;
+         if (!FLAGS_si) {
+            order.scan(
+                {w_id, d_id, o_id},
+                [&](const order_t::Key& key, const order_t& rec) {
+                   if (key.o_w_id == w_id && key.o_d_id == d_id && key.o_id == o_id) {
+                      is_safe_to_continue = true;
+                      ol_cnt = rec.o_ol_cnt;
+                      c_id = rec.o_c_id;
+                   } else {
+                      is_safe_to_continue = false;
+                   }
+                   return false;
+                },
+                [&]() { is_safe_to_continue = false; });
+            if (!is_safe_to_continue)
+               continue;
+         }
          // -------------------------------------------------------------------------------------
          UpdateDescriptorGenerator1(order_update_descriptor, order_t, o_carrier_id);
          order.update1(
              {w_id, d_id, o_id}, [&](order_t& rec) { rec.o_carrier_id = carrier_id; }, order_update_descriptor);
          // -------------------------------------------------------------------------------------
          // First check if all orderlines have been inserted, a hack because of the missing transaction and concurrency control
-         orderline.scan(
-             {w_id, d_id, o_id, ol_cnt},
-             [&](const orderline_t::Key& key, const orderline_t&) {
-                if (key.ol_w_id == w_id && key.ol_d_id == d_id && key.ol_o_id == o_id && key.ol_number == ol_cnt) {
-                   is_safe_to_continue = true;
-                } else {
-                   is_safe_to_continue = false;
-                }
-                return false;
-             },
-             [&]() { is_safe_to_continue = false; });
-         if (!is_safe_to_continue) {
-            continue;
+         if (!FLAGS_si) {
+            orderline.scan(
+                {w_id, d_id, o_id, ol_cnt},
+                [&](const orderline_t::Key& key, const orderline_t&) {
+                   if (key.ol_w_id == w_id && key.ol_d_id == d_id && key.ol_o_id == o_id && key.ol_number == ol_cnt) {
+                      is_safe_to_continue = true;
+                   } else {
+                      is_safe_to_continue = false;
+                   }
+                   return false;
+                },
+                [&]() { is_safe_to_continue = false; });
+            if (!is_safe_to_continue) {
+               continue;
+            }
          }
          // -------------------------------------------------------------------------------------
          Numeric ol_total = 0;
@@ -1003,21 +1020,29 @@ class TPCCWorkload
    // -------------------------------------------------------------------------------------
    void analyticalQuery()
    {
-      Integer sum = 0, last_w = 0, last_i = 0;
-      stock.scan(
-          {1, 0},
-          [&](const stock_t::Key& key, const stock_t&) {
+      Integer sum = 0;
+      history.scan(
+          {0, 0},
+          [&](const history_t::Key&, const history_t&) {
              sum++;
-             ensure(key.s_w_id >= last_w);
-             last_w = key.s_w_id;
-             last_i = key.s_i_id;
              return true;
           },
           [&]() {});
-      if (sum != warehouseCount * 100000) {
-         cout << "#stocks = " << sum << endl;
-         cout << last_w << "," << last_i << endl;
-         ensure(false);
-      }
+      // Integer sum = 0, last_w = 0, last_i = 0;
+      // stock.scan(
+      //     {1, 0},
+      //     [&](const stock_t::Key& key, const stock_t&) {
+      //        sum++;
+      //        ensure(key.s_w_id >= last_w);
+      //        last_w = key.s_w_id;
+      //        last_i = key.s_i_id;
+      //        return true;
+      //     },
+      //     [&]() {});
+      // if (sum != warehouseCount * 100000) {
+      //    cout << "#stocks = " << sum << endl;
+      //    cout << last_w << "," << last_i << endl;
+      //    ensure(false);
+      // }
    }
 };
