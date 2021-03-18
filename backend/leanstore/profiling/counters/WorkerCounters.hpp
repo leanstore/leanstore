@@ -16,6 +16,8 @@ struct WorkerCounters {
    // -------------------------------------------------------------------------------------
    atomic<u64> t_id = 9999;                // used by tpcc
    atomic<u64> variable_for_workload = 0;  // Used by tpcc
+                                           // -------------------------------------------------------------------------------------
+   atomic<u64> worker_id = -1;
    // -------------------------------------------------------------------------------------
    atomic<u64> hot_hit_counter = 0;  // TODO: give it a try ?
    atomic<u64> cold_hit_counter = 0;
@@ -40,8 +42,28 @@ struct WorkerCounters {
    atomic<u64> dt_restarts_read[max_dt_id] = {0};
    atomic<u64> dt_researchy[max_dt_id][max_researchy_counter] = {};  // temporary counter used to track some value for an idea in my mind
    // -------------------------------------------------------------------------------------
-  constexpr static u64 VW_MAX_STEPS = 10;
-   atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {0};
+   // Concurrency control counters
+   atomic<u64> cc_read_versions_visited[max_dt_id] = {0};
+   atomic<u64> cc_read_versions_visited_not_found[max_dt_id] = {0};
+   atomic<u64> cc_read_chains_not_found[max_dt_id] = {0};
+   atomic<u64> cc_read_chains[max_dt_id] = {0};
+   // -------------------------------------------------------------------------------------
+   atomic<u64> cc_update_versions_visited[max_dt_id] = {0};
+   atomic<u64> cc_update_versions_removed[max_dt_id] = {0};
+   atomic<u64> cc_update_versions_skipped[max_dt_id] = {0};
+   atomic<u64> cc_update_versions_recycled[max_dt_id] = {0};
+   atomic<u64> cc_update_versions_created[max_dt_id] = {0};
+   atomic<u64> cc_update_chains[max_dt_id] = {0};
+   atomic<u64> cc_update_chains_hwm[max_dt_id] = {0};
+   atomic<u64> cc_update_chains_pgc[max_dt_id] = {0};
+   // -------------------------------------------------------------------------------------
+   atomic<u64> cc_todo_chains[max_dt_id] = {0};
+   atomic<u64> cc_todo_remove[max_dt_id] = {0};
+   atomic<u64> cc_todo_updates[max_dt_id] = {0};
+   atomic<u64> cc_todo_updates_versions_removed[max_dt_id] = {0};
+   // -------------------------------------------------------------------------------------
+   constexpr static u64 VW_MAX_STEPS = 10;
+   atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {{0}};
    // -------------------------------------------------------------------------------------
    // WAL
    atomic<u64> wal_read_bytes = 0;

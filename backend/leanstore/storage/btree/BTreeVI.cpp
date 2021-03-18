@@ -12,6 +12,7 @@ using OP_RESULT = leanstore::OP_RESULT;
 DEFINE_bool(vi_flookup, false, "");
 DEFINE_bool(vi_fremove, false, "");
 DEFINE_bool(vi_fupdate, false, "");
+DEFINE_uint64(vi_pgc_time, 0, "inverse of frequency");
 // -------------------------------------------------------------------------------------
 // Assumptions made in this implementation:
 // 1) We don't insert an already removed key
@@ -42,9 +43,14 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
             raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
-         const auto primary_version =
+         [[maybe_unused]] const auto primary_version =
              *reinterpret_cast<const PrimaryVersion*>(iterator.value().data() + iterator.value().length() - sizeof(PrimaryVersion));
          auto reconstruct = reconstructTuple(iterator, key, [&](Slice value) { payload_callback(value.data(), value.length()); });
+         COUNTERS_BLOCK()
+         {
+            WorkerCounters::myCounters().cc_read_chains[dt_id]++;
+            WorkerCounters::myCounters().cc_read_versions_visited[dt_id]++;
+         }
          ret = std::get<0>(reconstruct);
          if (ret != OP_RESULT::OK) {  // For debugging
             cout << endl;
@@ -141,6 +147,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // -------------------------------------------------------------------------------------
          iterator.markAsDirty();
       }
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
       // -------------------------------------------------------------------------------------
       // TODO: As a first step
       // precise garbage collection
@@ -155,10 +162,13 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          u64 w = 0;
          u64 i = 0, pi = 0;  // debug
          bool next_higher = true;
+         const bool only_fast_path = (FLAGS_vi_pgc_time == 0) ? false : utils::RandomGenerator::getRandU64(0, u64(FLAGS_vi_pgc_time) == 0);
          // -------------------------------------------------------------------------------------
          if (cr::Worker::my().isVisibleForAll(primary_version_worker_id, primary_version_tts)) {
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_hwm[dt_id]++; }
             w = cr::Worker::my().workers_count;
-         } else {
+         } else if (!only_fast_path) {
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[dt_id]++; }
             cr::Worker::my().sortWorkers();
             while (w < cr::Worker::my().workers_count &&
                    cr::Worker::my().isVisibleForIt(cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK, primary_version_worker_id,
@@ -169,7 +179,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          if (1) {
             // -------------------------------------------------------------------------------------
             while (cur_sn != 0) {
-               ensure(i < FLAGS_chain_max_length);
                if (w == cr::Worker::my().workers_count) {  // Reached the end of the needed part of the chain
                   if (prev_sn == 0) {
                      reinterpret_cast<PrimaryVersion*>(iterator.mutableValue().data() + iterator.mutableValue().length() - sizeof(PrimaryVersion))
@@ -185,6 +194,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                      setSN(m_key, cur_sn);
                      ret = iterator.seekExactWithHint(key, next_higher);
                      ensure(ret == OP_RESULT::OK);
+                     COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_visited[dt_id]++; }
                      // -------------------------------------------------------------------------------------
                      auto secondary_gc_payload = iterator.mutableValue();
                      auto& secondary_gc_version =
@@ -197,23 +207,33 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                         recycled = true;
                         std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
                         iterator.shorten(secondary_payload_length);
+                        COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_recycled[dt_id]++; }
                      } else {
                         cur_sn = secondary_gc_version.next_sn;
                         ret = iterator.removeCurrent();
                         ensure(ret == OP_RESULT::OK);
+                        COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[dt_id]++; }
                      }
                      iterator.markAsDirty();
                      removed_versions_counter++;
                   }
                   break;
                }
+               if (!only_fast_path) {
+                  break;
+               }
                u64 cur_w = cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK;
                i++;
+               if (i >= FLAGS_chain_max_length) {
+                  // cout << removed_versions_counter << "," << pi << endl;
+               }
+               // ensure(i < FLAGS_chain_max_length);
                ensure(cur_sn != 0);
                next_higher = cur_sn > getSN(m_key);
                setSN(m_key, cur_sn);
                ret = iterator.seekExactWithHint(key, next_higher);
                ensure(ret == OP_RESULT::OK);
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_visited[dt_id]++; }
                // -------------------------------------------------------------------------------------
                auto gc_payload = iterator.value();
                const auto& gc_version =
@@ -226,6 +246,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                   cur_sn = gc_next_sn;
                   w++;
                } else if (!gc_version.isFinal() && prev_sn != 0) {
+                  // We can prune this version
                   next_higher = prev_sn > getSN(m_key);
                   setSN(m_key, prev_sn);
                   ret = iterator.seekExactWithHint(key, next_higher);
@@ -239,6 +260,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                      prev_sn = cur_sn;
                      cur_sn = gc_next_sn;
                      pi++;
+                     COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_skipped[dt_id]++; }
                      continue;
                   }
                   prev_version.next_sn = gc_next_sn;
@@ -253,10 +275,12 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                      secondary_sn = cur_sn;
                      recycled = true;
                      iterator.shorten(secondary_payload_length);
+                     COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_recycled[dt_id]++; }
                   } else {
                      ret = iterator.removeCurrent();
                      ensure(ret == OP_RESULT::OK);
                      removed_versions_counter++;
+                     COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[dt_id]++; }
                   }
                   // -------------------------------------------------------------------------------------
                   cur_sn = gc_next_sn;
@@ -276,6 +300,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             setSN(m_key, secondary_sn);
             ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
          } while (ret != OP_RESULT::OK);
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
       } else {
          // cout << "recycled" << endl;
       }
@@ -464,7 +489,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.next_sn = secondary_sn;
          primary_version.unlock();
          // -------------------------------------------------------------------------------------
-         if (!primary_version.is_gc_scheduled) {
+         if (FLAGS_vi_rtodo && !primary_version.is_gc_scheduled) {
             cr::Worker::my().addTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
                auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
                todo_entry.key_length = o_key_length;
@@ -686,6 +711,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
          jumpmu_return;
       }
       // -------------------------------------------------------------------------------------
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_chains[btree.dt_id]++; }
       MutableSlice primary_payload = iterator.mutableValue();
       PrimaryVersion& primary_version =
           *reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
@@ -697,9 +723,11 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
          if (is_removed) {
             ret = iterator.removeCurrent();
             ensure(ret == OP_RESULT::OK);
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_remove[btree.dt_id]++; }
          } else {
             primary_version.next_sn = 0;
             primary_version.is_gc_scheduled = false;
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates[btree.dt_id]++; }
          }
          iterator.markAsDirty();
          // -------------------------------------------------------------------------------------
@@ -717,6 +745,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
             next_sn = secondary_version.next_sn;
             iterator.removeCurrent();
             iterator.markAsDirty();
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates_versions_removed[btree.dt_id]++; }
          }
       } else {  // TODO: cross workers todo
          cr::Worker::my().addTODO(primary_version.worker_id, primary_version.tts, btree.dt_id, todo_entry.key_length + sizeof(TODOEntry),
@@ -782,7 +811,7 @@ restart : {
          return {OP_RESULT::OK, 1};
       }
       if (primary_version.isFinal()) {
-         return {OP_RESULT::NOT_FOUND, chain_length};
+         return {OP_RESULT::NOT_FOUND, 1};
       }
       materialized_value_length = primary_payload.length() - sizeof(PrimaryVersion);
       materialized_value = std::make_unique<u8[]>(materialized_value_length);
@@ -794,14 +823,16 @@ restart : {
    while (secondary_sn != 0) {
       setSN(key, secondary_sn);
       ret = iterator.seekExactWithHint(Slice(key.data(), key.length()), next_sn_higher);
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_read_versions_visited[dt_id]++; }
       if (ret != OP_RESULT::OK) {
          // Happens either due to undo or garbage collection
          setSN(key, 0);
          ret = iterator.seekExact(Slice(key.data(), key.length()));
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_read_versions_visited[dt_id]++; }
          ensure(ret == OP_RESULT::OK);
          goto restart;
       }
-      chain_length++;
+      chain_length++;  // TODO: add average chain length to DT Table (stats)
       ensure(chain_length < FLAGS_chain_max_length);
       Slice payload = iterator.value();
       const auto& secondary_version = *reinterpret_cast<const SecondaryVersion*>(payload.data() + payload.length() - sizeof(SecondaryVersion));

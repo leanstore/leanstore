@@ -1,6 +1,7 @@
 #include "CRMG.hpp"
 
 #include "leanstore/profiling/counters/CPUCounters.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <mutex>
@@ -29,6 +30,7 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
             utils::pinThisThread(t_i);
          }
          // -------------------------------------------------------------------------------------
+         WorkerCounters::myCounters().worker_id = t_i;
          CPUCounters::registerThread(thread_name, false);
          // -------------------------------------------------------------------------------------
          workers[t_i] = new Worker(t_i, workers, workers_count, ssd_fd);

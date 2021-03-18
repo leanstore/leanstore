@@ -2,7 +2,6 @@
 #include "Transaction.hpp"
 #include "WALEntry.hpp"
 // -------------------------------------------------------------------------------------
-#include <boost/circular_buffer.hpp>
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <functional>
@@ -76,9 +75,9 @@ struct Worker {
       u64 tts;
       DTID dt_id;
       // -------------------------------------------------------------------------------------
-      u8 entry[64];  // temporary hack
+      u8 entry[64];  // TODO: dyanmically allocating buffer is costly
    };
-   boost::circular_buffer<TODO> todo_queue = boost::circular_buffer<TODO>(2 * 1024);  // TODO: optimize (no need for sync)
+   std::queue<TODO> todo_queue;  // TODO: optimize (no need for sync)
    void addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)

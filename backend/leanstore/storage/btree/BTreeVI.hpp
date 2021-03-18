@@ -154,10 +154,20 @@ class BTreeVI : public BTreeLL
             }
             // -------------------------------------------------------------------------------------
             // costs 2K
-            const u16 chain_length = std::get<1>(reconstructTuple(iterator, s_key, [&](Slice value) {
+            auto reconstruct = reconstructTuple(iterator, s_key, [&](Slice value) {
                keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
                counter++;
-            }));
+            });
+            const u16 chain_length = std::get<1>(reconstruct);
+            COUNTERS_BLOCK()
+            {
+               WorkerCounters::myCounters().cc_read_chains[dt_id]++;
+               WorkerCounters::myCounters().cc_read_versions_visited[dt_id] += chain_length;
+               if (std::get<0>(reconstruct) != OP_RESULT::OK) {
+                  WorkerCounters::myCounters().cc_read_chains_not_found[dt_id]++;
+                  WorkerCounters::myCounters().cc_read_versions_visited_not_found[dt_id] += chain_length;
+               }
+            }
             if (!keep_scanning) {
                jumpmu_return;
             }
