@@ -12,7 +12,7 @@ using OP_RESULT = leanstore::OP_RESULT;
 DEFINE_bool(vi_flookup, false, "");
 DEFINE_bool(vi_fremove, false, "");
 DEFINE_bool(vi_fupdate, false, "");
-DEFINE_uint64(vi_pgc_time, 0, "inverse of frequency");
+DEFINE_uint64(vi_hwm_pct, 0, "inverse of frequency");
 // -------------------------------------------------------------------------------------
 // Assumptions made in this implementation:
 // 1) We don't insert an already removed key
@@ -154,27 +154,29 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // Invariant: max (#versions) = #workers
       //
       u64 removed_versions_counter = 0;
-      bool recycled = false;
+      SN recycled_sn = 0;
+      bool next_higher = true;
       if (FLAGS_pgc && gc_next_sn) {
          SN prev_sn = 0, cur_sn = gc_next_sn;
          u8 buffer[PAGE_SIZE];
          auto gc_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(buffer);
          u64 w = 0;
          u64 i = 0, pi = 0;  // debug
-         bool next_higher = true;
-         const bool only_fast_path = (FLAGS_vi_pgc_time == 0) ? false : utils::RandomGenerator::getRandU64(0, u64(FLAGS_vi_pgc_time) == 0);
+         const bool only_fast_path = (FLAGS_vi_hwm_pct == 100) ? true : (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_vi_hwm_pct);
          // -------------------------------------------------------------------------------------
+         // TPC-C exp hack dt_id <= 1 || dt_id == 10 ||
          if (cr::Worker::my().isVisibleForAll(primary_version_worker_id, primary_version_tts)) {
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_hwm[dt_id]++; }
             w = cr::Worker::my().workers_count;
          } else if (!only_fast_path) {
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[dt_id]++; }
-            cr::Worker::my().sortWorkers();
+            cr::Worker::my().sortWorkers();  // TODO: 200 L1 miss!
             while (w < cr::Worker::my().workers_count &&
                    cr::Worker::my().isVisibleForIt(cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK, primary_version_worker_id,
                                                    primary_version_tts)) {
                w++;
             }
+            WorkerCounters::myCounters().cc_update_chains_pgc_skipped[dt_id] += w;
          }
          if (1) {
             // -------------------------------------------------------------------------------------
@@ -200,11 +202,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                      auto& secondary_gc_version =
                          *reinterpret_cast<SecondaryVersion*>(secondary_gc_payload.data() + secondary_gc_payload.length() - sizeof(SecondaryVersion));
                      // -------------------------------------------------------------------------------------
-                     if (!recycled && iterator.mutableValue().length() >= secondary_payload_length) {
-                        secondary_sn = cur_sn;
+                     if (recycled_sn == 0 && iterator.mutableValue().length() >= secondary_payload_length) {
+                        recycled_sn = cur_sn;
+                        secondary_sn = cur_sn;  // TODO:
                         cur_sn = secondary_gc_version.next_sn;
                         // -------------------------------------------------------------------------------------
-                        recycled = true;
                         std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
                         iterator.shorten(secondary_payload_length);
                         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_recycled[dt_id]++; }
@@ -219,7 +221,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                   }
                   break;
                }
-               if (!only_fast_path) {
+               if (1 || only_fast_path) {
                   break;
                }
                u64 cur_w = cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK;
@@ -242,10 +244,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                std::memcpy(buffer, gc_payload.data(), reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(gc_payload.data())->size());
                gc_next_sn = gc_version.next_sn;
                if (cr::Worker::my().isVisibleForIt(cur_w, gc_version.worker_id, gc_version.tts)) {
+                  COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_kept[dt_id]++; }
                   prev_sn = cur_sn;
                   cur_sn = gc_next_sn;
                   w++;
-               } else if (!gc_version.isFinal() && prev_sn != 0) {
+               } else if (!gc_version.isFinal()) {
                   // We can prune this version
                   next_higher = prev_sn > getSN(m_key);
                   setSN(m_key, prev_sn);
@@ -253,28 +256,25 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                   ensure(ret == OP_RESULT::OK);
                   // -------------------------------------------------------------------------------------
                   auto prev_payload = iterator.mutableValue();
-                  auto& prev_version = *reinterpret_cast<SecondaryVersion*>(prev_payload.data() + prev_payload.length() - sizeof(SecondaryVersion));
-                  auto prev_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(prev_payload.data());
-                  if (!(*prev_descriptor == *gc_descriptor)) {
-                     // Stop!
-                     prev_sn = cur_sn;
-                     cur_sn = gc_next_sn;
-                     pi++;
-                     COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_skipped[dt_id]++; }
-                     continue;
+                  if (prev_sn == 0) {
+                     auto& prev_version = *reinterpret_cast<PrimaryVersion*>(prev_payload.data() + prev_payload.length() - sizeof(PrimaryVersion));
+                     ensure(prev_version.next_sn == cur_sn);
+                     prev_version.next_sn = gc_next_sn;
+                     reinterpret_cast<SecondaryVersion*>(secondary_payload + delta_and_descriptor_size)->next_sn = gc_next_sn;
+                  } else {
+                     auto& prev_version =
+                         *reinterpret_cast<SecondaryVersion*>(prev_payload.data() + prev_payload.length() - sizeof(SecondaryVersion));
+                     prev_version.next_sn = gc_next_sn;
                   }
-                  prev_version.next_sn = gc_next_sn;
                   iterator.markAsDirty();
                   // -------------------------------------------------------------------------------------
                   next_higher = cur_sn > getSN(m_key);
                   setSN(m_key, cur_sn);
                   ret = iterator.seekExactWithHint(key, next_higher);
                   ensure(ret == OP_RESULT::OK);
-                  if (!recycled && iterator.mutableValue().length() >= secondary_payload_length) {
-                     std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
+                  if (recycled_sn == 0 && iterator.mutableValue().length() >= secondary_payload_length) {
+                     recycled_sn = cur_sn;
                      secondary_sn = cur_sn;
-                     recycled = true;
-                     iterator.shorten(secondary_payload_length);
                      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_recycled[dt_id]++; }
                   } else {
                      ret = iterator.removeCurrent();
@@ -286,14 +286,25 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                   cur_sn = gc_next_sn;
                   iterator.markAsDirty();
                } else {
+                  COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_kept[dt_id]++; }
                   prev_sn = cur_sn;
                   cur_sn = gc_next_sn;
                }
             }
          }
+         WorkerCounters::myCounters().cc_update_versions_kept_max[dt_id] =
+             std::max<u64>(WorkerCounters::myCounters().cc_update_versions_kept_max[dt_id], i);
       }
       // -------------------------------------------------------------------------------------
-      if (!recycled) {
+      if (recycled_sn) {
+         next_higher = recycled_sn > getSN(m_key);
+         setSN(m_key, recycled_sn);
+         ret = iterator.seekExactWithHint(key, next_higher);
+         ensure(ret == OP_RESULT::OK);
+         // -------------------------------------------------------------------------------------
+         std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
+         iterator.shorten(secondary_payload_length);
+      } else {
          do {
             secondary_sn = leanstore::utils::RandomGenerator::getRand<SN>(0, std::numeric_limits<SN>::max());
             // -------------------------------------------------------------------------------------
@@ -301,8 +312,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
          } while (ret != OP_RESULT::OK);
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
-      } else {
-         // cout << "recycled" << endl;
       }
       iterator.markAsDirty();
       // -------------------------------------------------------------------------------------
