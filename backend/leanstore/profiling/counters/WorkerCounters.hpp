@@ -50,12 +50,15 @@ struct WorkerCounters {
    // -------------------------------------------------------------------------------------
    atomic<u64> cc_update_versions_visited[max_dt_id] = {0};
    atomic<u64> cc_update_versions_removed[max_dt_id] = {0};
+   atomic<u64> cc_update_versions_kept[max_dt_id] = {0};
+   atomic<u64> cc_update_versions_kept_max[max_dt_id] = {0};
    atomic<u64> cc_update_versions_skipped[max_dt_id] = {0};
    atomic<u64> cc_update_versions_recycled[max_dt_id] = {0};
    atomic<u64> cc_update_versions_created[max_dt_id] = {0};
    atomic<u64> cc_update_chains[max_dt_id] = {0};
    atomic<u64> cc_update_chains_hwm[max_dt_id] = {0};
    atomic<u64> cc_update_chains_pgc[max_dt_id] = {0};
+   atomic<u64> cc_update_chains_pgc_skipped[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    atomic<u64> cc_todo_chains[max_dt_id] = {0};
    atomic<u64> cc_todo_remove[max_dt_id] = {0};
