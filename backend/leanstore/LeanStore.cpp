@@ -35,6 +35,13 @@ namespace leanstore
 void deserializeFlags();
 LeanStore::LeanStore()
 {
+   LeanStore::add_string_flag("SSD_PATH", &FLAGS_ssd_path);
+   if (FLAGS_recover_file != "./leanstore.json") {
+      FLAGS_recover = true;
+   }
+   if (FLAGS_persist_file != "./leanstore.json") {
+      FLAGS_persist = true;
+   }
    if (FLAGS_recover) {
       deserializeFlags();
    }
@@ -301,7 +308,17 @@ void serializeFlags(rapidjson::Document& d)
 {
    rs::Value flags_serialized(rs::kObjectType);
    rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
-   flags_serialized.AddMember("SSD_PATH", rapidjson::Value().SetString(FLAGS_ssd_path.c_str(), FLAGS_ssd_path.length(), allocator), allocator);
+   for (auto flags : LeanStore::persist_flags_string()) {
+      rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
+      auto& value = rapidjson::Value().SetString((*std::get<1>(flags)).c_str(), (*std::get<1>(flags)).length(), allocator);
+      flags_serialized.AddMember(name, value, allocator);
+   }
+   for (auto flags : LeanStore::persist_flags_s64()) {
+      rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
+      string value_string = std::to_string(*std::get<1>(flags));
+      auto& value = rapidjson::Value().SetString(value_string.c_str(), value_string.length(), allocator);
+      flags_serialized.AddMember(name, value, allocator);
+   }
    d.AddMember("flags", flags_serialized, allocator);
 }
 // -------------------------------------------------------------------------------------
@@ -361,7 +378,12 @@ void deserializeFlags()
    for (rs::Value::ConstMemberIterator itr = flags.MemberBegin(); itr != flags.MemberEnd(); ++itr) {
       flags_serialized[itr->name.GetString()] = itr->value.GetString();
    }
-   FLAGS_ssd_path = flags_serialized["SSD_PATH"];
+   for (auto flags : LeanStore::persist_flags_string()) {
+      *std::get<1>(flags) = flags_serialized[std::get<0>(flags)];
+   }
+   for (auto flags : LeanStore::persist_flags_s64()) {
+      *std::get<1>(flags) = atoi(flags_serialized[std::get<0>(flags)].c_str());
+   }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore
