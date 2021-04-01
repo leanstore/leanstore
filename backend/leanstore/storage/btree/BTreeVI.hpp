@@ -30,6 +30,7 @@ class BTreeVI : public BTreeLL
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
       // -------------------------------------------------------------------------------------
+      u64 versions_counter = 1;
       SN next_sn = 0;
       // -------------------------------------------------------------------------------------
       PrimaryVersion(u8 worker_id, u64 tts) : tts(tts), worker_id(worker_id), write_locked(false), is_removed(false), is_gc_scheduled(false) {}

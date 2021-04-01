@@ -121,6 +121,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // -------------------------------------------------------------------------------------
       u8 primary_version_worker_id;
       u64 primary_version_tts;
+      u64 primary_version_versions_counter;
       // -------------------------------------------------------------------------------------
       {
          auto primary_payload = iterator.mutableValue();
@@ -144,6 +145,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          gc_next_sn = primary_version.next_sn;
          primary_version_worker_id = primary_version.worker_id;
          primary_version_tts = primary_version.tts;
+         primary_version_versions_counter = primary_version.versions_counter;
          // -------------------------------------------------------------------------------------
          iterator.markAsDirty();
       }
@@ -162,7 +164,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          auto gc_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(buffer);
          u64 w = 0;
          u64 i = 0, pi = 0;  // debug
-         const bool only_fast_path = (FLAGS_vi_hwm_pct == 100) ? true : (utils::RandomGenerator::getRandU64(0, 100) <= FLAGS_vi_hwm_pct);
+         const bool only_fast_path = (primary_version_versions_counter >= cr::Worker::my().workers_count) ||
+                                     ((FLAGS_vi_hwm_pct == 100) ? true : (utils::RandomGenerator::getRandU64(0, 100) < FLAGS_vi_hwm_pct));
          // -------------------------------------------------------------------------------------
          // TPC-C exp hack dt_id <= 1 || dt_id == 10 ||
          if (cr::Worker::my().isVisibleForAll(primary_version_worker_id, primary_version_tts)) {
@@ -221,7 +224,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                   }
                   break;
                }
-               if (1 || only_fast_path) {
+               if (only_fast_path) {
                   break;
                }
                u64 cur_w = cr::Worker::my().my_sorted_workers[w] & cr::Worker::WORKERS_MASK;
@@ -342,6 +345,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          primary_version.worker_id = myWorkerID();
          primary_version.tts = myTTS();
          primary_version.next_sn = secondary_sn;
+         primary_version.versions_counter -= removed_versions_counter;
+         primary_version.versions_counter += (recycled_sn) ? 1 : 0;
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_utodo && !primary_version.is_gc_scheduled) {
             cr::Worker::my().addTODO(primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
@@ -734,6 +739,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
             ensure(ret == OP_RESULT::OK);
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_remove[btree.dt_id]++; }
          } else {
+            primary_version.versions_counter = 1;
             primary_version.next_sn = 0;
             primary_version.is_gc_scheduled = false;
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates[btree.dt_id]++; }

@@ -74,7 +74,8 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
       // -------------------------------------------------------------------------------------
       for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
          pp_threads.emplace_back(
-             [&](u64 t_i, u64 p_begin, u64 p_end) {
+             [&, t_i](u64 p_begin, u64 p_end) {
+                utils::pinThisThread(FLAGS_worker_threads + 1 + t_i);
                 CPUCounters::registerThread("pp_" + std::to_string(t_i));
                 // https://linux.die.net/man/2/setpriority
                 if (FLAGS_root) {
@@ -82,17 +83,12 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
                 }
                 pageProviderThread(p_begin, p_end);
              },
-             t_i, t_i * partitions_per_thread,
+             t_i * partitions_per_thread,
              ((t_i + 1) * partitions_per_thread) + ((t_i == FLAGS_pp_threads - 1) ? extra_partitions_for_last_thread : 0));
          bg_threads_counter++;
       }
-      for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
-         thread& page_provider_thread = pp_threads[t_i];
-         cpu_set_t cpuset;
-         CPU_ZERO(&cpuset);
-         CPU_SET(t_i, &cpuset);
-         posix_check(pthread_setaffinity_np(page_provider_thread.native_handle(), sizeof(cpu_set_t), &cpuset) == 0);
-         page_provider_thread.detach();
+      for (auto& thread : pp_threads) {
+         thread.detach();
       }
    }
 }
