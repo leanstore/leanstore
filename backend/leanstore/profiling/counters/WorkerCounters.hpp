@@ -59,6 +59,7 @@ struct WorkerCounters {
    atomic<u64> cc_update_chains_hwm[max_dt_id] = {0};
    atomic<u64> cc_update_chains_pgc[max_dt_id] = {0};
    atomic<u64> cc_update_chains_pgc_skipped[max_dt_id] = {0};
+   atomic<u64> cc_update_chains_pgc_workers_visited[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    atomic<u64> cc_todo_chains[max_dt_id] = {0};
    atomic<u64> cc_todo_remove[max_dt_id] = {0};
