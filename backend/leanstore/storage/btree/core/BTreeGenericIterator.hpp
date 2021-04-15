@@ -105,14 +105,10 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          gotoPage(key);
       }
       cur = leaf->lowerBound<false>(key.data(), key.length());
-      if (cur == leaf->count) {
-         if (nextLeaf() && cur < leaf->count) {
-            return OP_RESULT::OK;
-         } else {
-            return OP_RESULT::NOT_FOUND;
-         }
-      } else {
+      if (cur < leaf->count) {
          return OP_RESULT::OK;
+      } else {
+         return next();
       }
    }
    // -------------------------------------------------------------------------------------
@@ -126,11 +122,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       if (is_equal == true) {
          return OP_RESULT::OK;
       } else if (cur == 0) {
-         if (prevLeaf() && cur < leaf->count) {
-            return OP_RESULT::OK;
-         } else {
-            return OP_RESULT::NOT_FOUND;
-         }
+         return prev();
       } else {
          cur -= 1;
          return OP_RESULT::OK;
