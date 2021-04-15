@@ -51,8 +51,10 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    bool force_si_refresh = false;
    bool workers_sorted = false;
+   u64 my_snapshot_order;
    unique_ptr<atomic<u64>[]> my_snapshot;
-   unique_ptr<u64[]> my_sorted_workers;
+   unique_ptr<u64[]> my_sorted_workers_so;
+   unique_ptr<u64[]> my_workers_so;
    unique_ptr<u64[]> my_lower_water_marks;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
@@ -224,6 +226,10 @@ struct Worker {
    bool isVisibleForMe(u8 worker_id, u64 tts);
    bool isVisibleForMe(u64 tts);
    u64 getLowerWaterMark(const u8 other_worker_id);
+   // -------------------------------------------------------------------------------------
+   // Experimentell
+   bool isVisibleForItCommitedBeforeSO(u8 whom_worker_id, u64 cb_so) { return my_workers_so[whom_worker_id] > cb_so; }
+   u64 getCB(u8 from_worker_id, u64 ca_so) { return (my_workers_so[from_worker_id] > ca_so) ? my_workers_so[from_worker_id] : 0; }
    // -------------------------------------------------------------------------------------
    void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
