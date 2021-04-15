@@ -31,7 +31,8 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    CRCounters::myCounters().worker_id = worker_id;
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
    my_snapshot = make_unique<atomic<u64>[]>(workers_count);
-   my_sorted_workers = make_unique<u64[]>(workers_count);
+   my_workers_so = make_unique<u64[]>(workers_count);
+   my_sorted_workers_so = make_unique<u64[]>(workers_count);
    my_lower_water_marks = make_unique<u64[]>(workers_count);
    snapshot_orders[worker_id] = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
 }
@@ -132,12 +133,12 @@ void Worker::submitDTEntry(u64 total_size)
 void Worker::refreshSnapshot()
 {
    const u64 MSB = 1ull << 63;
-   const u64 my_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
-   snapshot_orders[worker_id].store(my_order | MSB, std::memory_order_release);
+   my_snapshot_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
+   snapshot_orders[worker_id].store(my_snapshot_order | MSB, std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
       my_snapshot[w].store(highwater_marks[w], std::memory_order_release);
    }
-   snapshot_orders[worker_id].store(my_order, std::memory_order_release);
+   snapshot_orders[worker_id].store(my_snapshot_order, std::memory_order_release);
    // -------------------------------------------------------------------------------------
 restart:
    if (1) {
@@ -150,13 +151,12 @@ restart:
             oldest_order = tmp;
             oldest_worker_id = w;
          }
-         my_sorted_workers[w] = tmp;
+         my_workers_so[w] = tmp;
       }
-      // for (u64 w = worker_id; w < worker_id + 1; w++) {
       for (u64 w = 0; w < workers_count; w++) {
          my_lower_water_marks[w] = all_workers[oldest_worker_id]->my_snapshot[w];
       }
-      if (snapshot_orders[oldest_worker_id] != my_sorted_workers[oldest_worker_id]) {
+      if (snapshot_orders[oldest_worker_id] != my_workers_so[oldest_worker_id]) {
          goto restart;
       }
       workers_sorted = false;
@@ -166,7 +166,8 @@ restart:
 void Worker::sortWorkers()
 {
    if (!workers_sorted) {
-      std::sort(my_sorted_workers.get(), my_sorted_workers.get() + workers_count, std::greater<u64>());
+      std::memcpy(my_sorted_workers_so.get(), my_workers_so.get(), workers_count * sizeof(u64));
+      std::sort(my_sorted_workers_so.get(), my_sorted_workers_so.get() + workers_count, std::greater<u64>());
       workers_sorted = true;
    }
 }

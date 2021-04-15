@@ -31,6 +31,7 @@ class BTreeVI : public BTreeLL
       u8 is_gc_scheduled : 1;
       // -------------------------------------------------------------------------------------
       u64 versions_counter = 1;
+      u64 commited_after_so;
       SN next_sn = 0;
       // -------------------------------------------------------------------------------------
       PrimaryVersion(u8 worker_id, u64 tts) : tts(tts), worker_id(worker_id), write_locked(false), is_removed(false), is_gc_scheduled(false) {}
@@ -42,6 +43,7 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) SecondaryVersion {
       u8 worker_id : 8;
       u64 tts : 56;
+      u64 commited_before_so;
       u8 is_removed : 1;
       u8 is_delta : 1;  // TODO: atm, always true
       SN next_sn;
