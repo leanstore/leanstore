@@ -38,7 +38,6 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    BTreePessimisticIterator(BTreeGeneric& btree) : btree(btree) {}
    bool nextLeaf()
    {
-   restart:
       if (leaf->upper_fence.length == 0) {
          return false;
       } else {
@@ -47,16 +46,12 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          std::memcpy(key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
          key[key_length - 1] = 0;
          gotoPage(Slice(key, key_length));
-         if (leaf->count == 0) {
-            goto restart;
-         }
          cur = leaf->lowerBound<false>(key, key_length);
          return true;
       }
    }
    bool prevLeaf()
    {
-   restart:
       if (leaf->lower_fence.length == 0) {
          return false;
       } else {
@@ -64,9 +59,6 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          u8 key[key_length];
          std::memcpy(key, leaf->getLowerFenceKey(), leaf->lower_fence.length);
          gotoPage(Slice(key, key_length));
-         if (leaf->count == 0) {
-            goto restart;
-         }
          cur = leaf->lowerBound<false>(key, key_length);
          if (cur == leaf->count) {
             cur -= 1;
@@ -78,7 +70,9 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
   public:
    OP_RESULT seekExactWithHint(Slice key, bool higher = true)  // EXP
    {
-      ensure(cur != -1);
+      if (cur == -1) {
+         return seekExact(key);
+      }
       cur = leaf->linearSearchWithHint<true>(key.data(), key.length(), cur, higher);
       if (cur == -1) {
          return seekExact(key);
@@ -140,8 +134,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             return OP_RESULT::NOT_FOUND;
          } else {
             if (leaf->count == 0) {
-               raise(SIGTRAP);
-               cout << "e" << endl;
+               WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++;
                goto retry;
             } else {
                return OP_RESULT::OK;
@@ -162,7 +155,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             return OP_RESULT::NOT_FOUND;
          } else {
             if (leaf->count == 0) {
-               cout << "p" << endl;
+               WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++;
                goto retry;
             } else {
                return OP_RESULT::OK;
@@ -331,6 +324,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    virtual OP_RESULT removeCurrent()
    {
       if (!(cur >= 0 && cur < leaf->count)) {
+         ensure(false);
          return OP_RESULT::OTHER;
       } else {
          leaf->removeSlot(cur);

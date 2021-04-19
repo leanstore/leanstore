@@ -46,16 +46,17 @@ struct Worker {
    static atomic<u64> global_snapshot_clock;
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
-   static unique_ptr<atomic<u64>[]> snapshot_orders;
-   static unique_ptr<atomic<u64>[]> highwater_marks;
+   static unique_ptr<atomic<u64>[]> global_so_starts;
+   static unique_ptr<atomic<u64>[]> global_high_water_marks;
    // -------------------------------------------------------------------------------------
+   const u64 SO_LATCHED = std::numeric_limits<u64>::max();
    bool force_si_refresh = false;
    bool workers_sorted = false;
-   u64 my_snapshot_order;
-   unique_ptr<atomic<u64>[]> my_snapshot;
-   unique_ptr<u64[]> my_sorted_workers_so;
-   unique_ptr<u64[]> my_workers_so;
-   unique_ptr<u64[]> my_lower_water_marks;
+   u64 so_start;
+   u64 oldest_so_start, oldest_so_start_worker_id;
+   unique_ptr<atomic<u64>[]> snapshot;
+   unique_ptr<u64[]> all_sorted_so_starts;
+   unique_ptr<u64[]> all_so_starts;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
@@ -225,11 +226,10 @@ struct Worker {
    bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
    bool isVisibleForMe(u8 worker_id, u64 tts);
    bool isVisibleForMe(u64 tts);
-   u64 getLowerWaterMark(const u8 other_worker_id);
    // -------------------------------------------------------------------------------------
    // Experimentell
-   bool isVisibleForItCommitedBeforeSO(u8 whom_worker_id, u64 cb_so) { return my_workers_so[whom_worker_id] > cb_so; }
-   u64 getCB(u8 from_worker_id, u64 ca_so) { return (my_workers_so[from_worker_id] > ca_so) ? my_workers_so[from_worker_id] : 0; }
+   bool isVisibleForItCommitedBeforeSO(u8 whom_worker_id, u64 cb_so) { return all_so_starts[whom_worker_id] > cb_so; }
+   u64 getCB(u8 from_worker_id, u64 ca_so) { return (all_so_starts[from_worker_id] > ca_so) ? all_so_starts[from_worker_id] : 0; }
    // -------------------------------------------------------------------------------------
    void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);

@@ -31,7 +31,8 @@ void CRTable::open()
    columns.emplace("tx", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx); });
    columns.emplace("tx_abort", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx_abort); });
    // -------------------------------------------------------------------------------------
-
+   columns.emplace("cc_snapshot_restart", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_snapshot_restart); });
+   // -------------------------------------------------------------------------------------
    columns.emplace("wal_read_gib", [&](Column& col) {
       col << (sum(WorkerCounters::worker_counters, &WorkerCounters::wal_read_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0;
    });
