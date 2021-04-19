@@ -21,8 +21,8 @@ namespace cr
 thread_local Worker* Worker::tls_ptr = nullptr;
 atomic<u64> Worker::global_snapshot_clock = 0;
 std::mutex Worker::global_mutex;
-std::unique_ptr<atomic<u64>[]> Worker::snapshot_orders;
-std::unique_ptr<atomic<u64>[]> Worker::highwater_marks;
+std::unique_ptr<atomic<u64>[]> Worker::global_so_starts;
+std::unique_ptr<atomic<u64>[]> Worker::global_high_water_marks;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
     : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), ssd_fd(fd)
@@ -30,11 +30,10 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
-   my_snapshot = make_unique<atomic<u64>[]>(workers_count);
-   my_workers_so = make_unique<u64[]>(workers_count);
-   my_sorted_workers_so = make_unique<u64[]>(workers_count);
-   my_lower_water_marks = make_unique<u64[]>(workers_count);
-   snapshot_orders[worker_id] = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
+   snapshot = make_unique<atomic<u64>[]>(workers_count);
+   all_so_starts = make_unique<u64[]>(workers_count);
+   all_sorted_so_starts = make_unique<u64[]>(workers_count);
+   global_so_starts[worker_id] = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
 }
 Worker::~Worker() {}
 // -------------------------------------------------------------------------------------
@@ -132,42 +131,33 @@ void Worker::submitDTEntry(u64 total_size)
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshot()
 {
-   const u64 MSB = 1ull << 63;
-   my_snapshot_order = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
-   snapshot_orders[worker_id].store(my_snapshot_order | MSB, std::memory_order_release);
+   so_start = global_snapshot_clock.fetch_add(WORKERS_MASK) | worker_id;
+   global_so_starts[worker_id].store(SO_LATCHED, std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
-      my_snapshot[w].store(highwater_marks[w], std::memory_order_release);
+      snapshot[w].store(global_high_water_marks[w], std::memory_order_release);
    }
-   snapshot_orders[worker_id].store(my_snapshot_order, std::memory_order_release);
+   global_so_starts[worker_id].store(so_start, std::memory_order_release);
    // -------------------------------------------------------------------------------------
-restart:
-   if (1) {
-      u64 oldest_order = std::numeric_limits<u64>::max(), oldest_worker_id = worker_id;
-      for (u64 w = 0; w < workers_count; w++) {
-         u64 tmp = snapshot_orders[w];
-         while (tmp & MSB)
-            tmp = snapshot_orders[w];
-         if (tmp < oldest_order) {
-            oldest_order = tmp;
-            oldest_worker_id = w;
-         }
-         my_workers_so[w] = tmp;
+   oldest_so_start = std::numeric_limits<u64>::max();
+   oldest_so_start_worker_id = worker_id;
+   for (u64 w = 0; w < workers_count; w++) {
+      u64 its_so_start = global_so_starts[w];
+      while (its_so_start == SO_LATCHED)
+         its_so_start = global_so_starts[w];
+      if (its_so_start < oldest_so_start) {
+         oldest_so_start = its_so_start;
+         oldest_so_start_worker_id = w;
       }
-      for (u64 w = 0; w < workers_count; w++) {
-         my_lower_water_marks[w] = all_workers[oldest_worker_id]->my_snapshot[w];
-      }
-      if (snapshot_orders[oldest_worker_id] != my_workers_so[oldest_worker_id]) {
-         goto restart;
-      }
-      workers_sorted = false;
+      all_so_starts[w] = its_so_start;
    }
+   workers_sorted = false;
 }
 // -------------------------------------------------------------------------------------
 void Worker::sortWorkers()
 {
    if (!workers_sorted) {
-      std::memcpy(my_sorted_workers_so.get(), my_workers_so.get(), workers_count * sizeof(u64));
-      std::sort(my_sorted_workers_so.get(), my_sorted_workers_so.get() + workers_count, std::greater<u64>());
+      std::memcpy(all_sorted_so_starts.get(), all_so_starts.get(), workers_count * sizeof(u64));
+      std::sort(all_sorted_so_starts.get(), all_sorted_so_starts.get() + workers_count, std::greater<u64>());
       workers_sorted = true;
    }
 }
@@ -191,11 +181,11 @@ void Worker::shutdown()
 {
    checkup();
    // -------------------------------------------------------------------------------------
-   snapshot_orders[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+   global_so_starts[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
-      my_snapshot[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+      snapshot[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    }
-   snapshot_orders[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63), std::memory_order_release);
+   global_so_starts[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63), std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::checkup()
@@ -205,7 +195,7 @@ void Worker::checkup()
          refreshSnapshot();
       }
       force_si_refresh = false;
-      active_tx.tts = highwater_marks[worker_id];
+      active_tx.tts = global_high_water_marks[worker_id];
       if (FLAGS_todo && todo_queue.size()) {  // Cleanup  && utils::RandomGenerator::getRandU64(0, 2) == 0
          while (todo_queue.size()) {
             auto& todo = todo_queue.front();
@@ -232,7 +222,7 @@ void Worker::commitTX()
       active_tx.max_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
       if (FLAGS_si) {
-         highwater_marks[worker_id].store(active_tx.tts + 1, std::memory_order_release);
+         global_high_water_marks[worker_id].store(active_tx.tts + 1, std::memory_order_release);
       }
       if (!FLAGS_tmp5) {  // TODO: optimize
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
@@ -265,12 +255,12 @@ void Worker::abortTX()
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
 {
-   return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->my_snapshot[what_worker_id] > tts);
+   return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->snapshot[what_worker_id] > tts);
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
 {
-   return worker_id == other_worker_id || my_snapshot[other_worker_id] > tts;
+   return worker_id == other_worker_id || snapshot[other_worker_id] > tts;
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u64 wtts)
@@ -280,16 +270,9 @@ bool Worker::isVisibleForMe(u64 wtts)
    return isVisibleForMe(other_worker_id, tts);
 }
 // -------------------------------------------------------------------------------------
-u64 Worker::getLowerWaterMark(const u8 other_worker_id)
+bool Worker::isVisibleForAll(u8, u64)
 {
-   return my_lower_water_marks[other_worker_id];
-}
-// -------------------------------------------------------------------------------------
-bool Worker::isVisibleForAll(u8 other_worker_id, u64 tts)
-{
-   if (FLAGS_tmp7 == 1 && other_worker_id == worker_id)
-      return true;
-   return getLowerWaterMark(other_worker_id) > tts;
+   return false;
 }
 // -------------------------------------------------------------------------------------
 // Called by worker, so concurrent writes on the buffer

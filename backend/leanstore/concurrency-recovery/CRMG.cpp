@@ -18,8 +18,8 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
    workers_count = FLAGS_worker_threads;
    ensure(workers_count < MAX_WORKER_THREADS);
    // -------------------------------------------------------------------------------------
-   Worker::snapshot_orders = std::make_unique<atomic<u64>[]>(workers_count);
-   Worker::highwater_marks = std::make_unique<atomic<u64>[]>(workers_count);
+   Worker::global_so_starts = std::make_unique<atomic<u64>[]>(workers_count);
+   Worker::global_high_water_marks = std::make_unique<atomic<u64>[]>(workers_count);
    // -------------------------------------------------------------------------------------
    worker_threads.reserve(workers_count);
    for (u64 t_i = 0; t_i < workers_count; t_i++) {

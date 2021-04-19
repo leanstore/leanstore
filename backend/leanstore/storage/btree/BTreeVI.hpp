@@ -33,6 +33,7 @@ class BTreeVI : public BTreeLL
       u64 versions_counter = 1;
       u64 commited_after_so;
       SN next_sn = 0;
+      s64 tmp = 0;
       // -------------------------------------------------------------------------------------
       PrimaryVersion(u8 worker_id, u64 tts) : tts(tts), worker_id(worker_id), write_locked(false), is_removed(false), is_gc_scheduled(false) {}
       bool isFinal() const { return next_sn == 0; }
@@ -136,6 +137,9 @@ class BTreeVI : public BTreeLL
             ret = iterator.seek(Slice(s_key.data(), s_key.length()));
          } else {
             ret = iterator.seekForPrev(Slice(s_key.data(), s_key.length()));
+         }
+         if (ret != OP_RESULT::OK && dt_id == 5) {
+            raise(SIGTRAP);
          }
          while (ret == OP_RESULT::OK) {
             iterator.assembleKey();

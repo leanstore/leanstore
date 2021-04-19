@@ -29,6 +29,9 @@ void DTTable::open()
    columns.emplace("dt_restarts_structural_change",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_structural_change, dt_id); });
    columns.emplace("dt_restarts_read", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_read, dt_id); });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("dt_empty_leaf", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_empty_leaf, dt_id); });
+   // -------------------------------------------------------------------------------------
    columns.emplace("contention_split_succ_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_succ_counter, dt_id); });
    columns.emplace("contention_split_fail_counter",
