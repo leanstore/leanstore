@@ -259,8 +259,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             ensure(!gc_version.is_removed);
             std::memcpy(buffer, gc_payload.data(), reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(gc_payload.data())->size());
             gc_next_sn = gc_version.next_sn;
-            assert(!cr::Worker::my().isVisibleForItCommitedBeforeSO(cur_w, gc_version.commited_before_so) ||
-                   cr::Worker::my().isVisibleForIt(cur_w, gc_version.worker_id, gc_version.tts));
             auto is_visible = [&]() {
                if (FLAGS_vi_pgc_so_method) {
                   return cr::Worker::my().isVisibleForItCommitedBeforeSO(cur_w, gc_version.commited_before_so);
@@ -383,7 +381,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          primary_version.tmp = 1;
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_utodo && !primary_version.is_gc_scheduled) {
-            cr::Worker::my().addTODO(primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
+            cr::Worker::my().stageTODO(primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
                auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
                todo_entry.key_length = o_key_length;
                todo_entry.sn = secondary_sn;
@@ -531,7 +529,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          iterator.shorten(sizeof(PrimaryVersion));
          primary_payload = iterator.mutableValue();
          auto& primary_version = *reinterpret_cast<PrimaryVersion*>(primary_payload.data());
-         //         auto& primary_version = *new (primary_payload.data()) PrimaryVersion(myWorkerID(), myTTS());
          primary_version = old_primary_version;
          primary_version.is_removed = true;
          primary_version.worker_id = myWorkerID();
@@ -540,7 +537,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.unlock();
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_rtodo && !primary_version.is_gc_scheduled) {
-            cr::Worker::my().addTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
+            cr::Worker::my().stageTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
                auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
                todo_entry.key_length = o_key_length;
                std::memcpy(todo_entry.key, o_key, o_key_length);
@@ -745,7 +742,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
    }
 }
 // -------------------------------------------------------------------------------------
-void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
+void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 version_tts)
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    const TODOEntry& todo_entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
@@ -770,7 +767,8 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
       MutableSlice primary_payload = iterator.mutableValue();
       PrimaryVersion& primary_version =
           *reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
-      const bool safe_to_gc = !primary_version.isWriteLocked() && cr::Worker::my().isVisibleForAll(primary_version.worker_id, primary_version.tts);
+      const bool safe_to_gc =
+          (primary_version.worker_id == version_worker_id && primary_version.tts == version_tts) && !primary_version.isWriteLocked();
       if (safe_to_gc) {
          SN next_sn = primary_version.next_sn;
          const bool is_removed = primary_version.is_removed;
@@ -807,13 +805,23 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64)
          if (is_removed) {
             iterator.mergeIfNeeded();
          }
-      } else {  // TODO: cross workers todo
-         cr::Worker::my().addTODO(primary_version.worker_id, primary_version.tts, btree.dt_id, todo_entry.key_length + sizeof(TODOEntry),
-                                  [&](u8* new_entry) {
-                                     auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
-                                     new_todo_entry.key_length = todo_entry.key_length;
-                                     std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
-                                  });
+      } else {
+         // Cross workers TODO:
+         if (cr::Worker::my().isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
+            cr::Worker::my().commitTODO(primary_version.worker_id, primary_version.tts, cr::Worker::my().so_start, btree.dt_id,
+                                        todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
+                                           auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
+                                           new_todo_entry.key_length = todo_entry.key_length;
+                                           std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
+                                        });
+         } else {
+            cr::Worker::my().commitTODO(version_worker_id, version_tts, cr::Worker::my().so_start, btree.dt_id,
+                                        todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
+                                           auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
+                                           new_todo_entry.key_length = todo_entry.key_length;
+                                           std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
+                                        });
+         }
          primary_version.is_gc_scheduled = true;
       }
    }
