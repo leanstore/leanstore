@@ -22,7 +22,7 @@ thread_local Worker* Worker::tls_ptr = nullptr;
 atomic<u64> Worker::global_snapshot_clock = 0;
 std::mutex Worker::global_mutex;
 std::unique_ptr<atomic<u64>[]> Worker::global_so_starts;
-std::unique_ptr<atomic<u64>[]> Worker::global_high_water_marks;
+std::unique_ptr<atomic<u64>[]> Worker::global_tts;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
     : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), ssd_fd(fd)
@@ -131,10 +131,10 @@ void Worker::submitDTEntry(u64 total_size)
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshot()
 {
-   so_start = global_snapshot_clock.fetch_add(WORKERS_MASK) | worker_id;
+   so_start = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
    global_so_starts[worker_id].store(SO_LATCHED, std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
-      snapshot[w].store(global_high_water_marks[w], std::memory_order_release);
+      snapshot[w].store(global_tts[w], std::memory_order_release);
    }
    global_so_starts[worker_id].store(so_start, std::memory_order_release);
    // -------------------------------------------------------------------------------------
@@ -171,6 +171,7 @@ void Worker::startTX()
       submitWALMetaEntry();
       assert(active_tx.state != Transaction::STATE::STARTED);
       active_tx.state = Transaction::STATE::STARTED;
+      active_tx.tts = global_tts[worker_id];
       active_tx.min_gsn = clock_gsn;
       // -------------------------------------------------------------------------------------
       checkup();
@@ -195,16 +196,13 @@ void Worker::checkup()
          refreshSnapshot();
       }
       force_si_refresh = false;
-      active_tx.tts = global_high_water_marks[worker_id];
-      if (FLAGS_todo && todo_queue.size()) {  // Cleanup  && utils::RandomGenerator::getRandU64(0, 2) == 0
-         while (todo_queue.size()) {
-            auto& todo = todo_queue.front();
-            if (isVisibleForAll(todo.worker_id, todo.tts)) {
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.tts);
-               todo_queue.pop();
-            } else {
-               break;
-            }
+      while (FLAGS_todo && todo_commited_queue.size()) {
+         auto& todo = todo_commited_queue.front();
+         if (todo.commited_before_so < oldest_so_start) {
+            leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
+            todo_commited_queue.pop_front();
+         } else {
+            break;
          }
       }
    }
@@ -221,13 +219,15 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       active_tx.max_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
-      if (FLAGS_si) {
-         global_high_water_marks[worker_id].store(active_tx.tts + 1, std::memory_order_release);
-      }
-      if (!FLAGS_tmp5) {  // TODO: optimize
+      {
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
          ready_to_commit_queue.push_back(active_tx);
          ready_to_commit_queue_size += 1;
+      }
+      // -------------------------------------------------------------------------------------
+      if (FLAGS_si) {
+         global_tts[worker_id].store(active_tx.tts + 1, std::memory_order_release);
+         stageTODOs(global_snapshot_clock.fetch_add(WORKERS_INCREMENT));
       }
    }
 }
@@ -391,11 +391,27 @@ outofmemory : {
 }
 }
 // -------------------------------------------------------------------------------------
-void Worker::addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* entry)> cb)
+void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8*)> cb)
 {
    ensure(size <= 64);
-   todo_queue.push({worker_id, tts, dt_id, {}});
-   cb(todo_queue.back().entry);
+   todo_staging_queue.push_back({worker_id, tts, 0, dt_id, {}});
+   cb(todo_staging_queue.back().entry);
+}
+// -------------------------------------------------------------------------------------
+void Worker::stageTODOs(u64 so)
+{
+   for (auto& todo : todo_staging_queue) {
+      todo.commited_before_so = so;
+   }
+   todo_commited_queue.splice(todo_commited_queue.end(), todo_staging_queue, todo_staging_queue.begin(), todo_staging_queue.end());
+   ensure(todo_staging_queue.size() == 0);
+}
+// -------------------------------------------------------------------------------------
+void Worker::commitTODO(u8 worker_id, u64 tts, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8*)> cb)
+{
+   ensure(size <= 64);
+   todo_commited_queue.push_back({worker_id, tts, commited_before_so, dt_id, {}});
+   cb(todo_commited_queue.back().entry);
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

@@ -344,7 +344,7 @@ OP_RESULT BTreeVW::remove(u8* key, u16 key_length)
                   std::memcpy(wal_entry->payload + key_length, payload, payload_length);
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
-                  cr::Worker::my().addTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
+                  cr::Worker::my().stageTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
                      auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
                      todo_entry.key_length = key_length;
                      std::memcpy(todo_entry.key, key, key_length);
@@ -600,7 +600,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 }
 // -------------------------------------------------------------------------------------
 // For Transaction abort and not for recovery
-void BTreeVW::todo(void* btree_object, const u8* entry_ptr, const u64 tts)
+void BTreeVW::todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 tts)
 {
    auto& btree = *reinterpret_cast<BTreeVW*>(btree_object);
    const auto& entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);

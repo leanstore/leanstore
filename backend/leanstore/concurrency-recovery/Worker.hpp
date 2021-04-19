@@ -5,9 +5,9 @@
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <functional>
+#include <list>
 #include <map>
 #include <mutex>
-#include <queue>
 #include <vector>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -47,7 +47,7 @@ struct Worker {
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_so_starts;
-   static unique_ptr<atomic<u64>[]> global_high_water_marks;
+   static unique_ptr<atomic<u64>[]> global_tts;
    // -------------------------------------------------------------------------------------
    const u64 SO_LATCHED = std::numeric_limits<u64>::max();
    bool force_si_refresh = false;
@@ -74,14 +74,17 @@ struct Worker {
    // Shared with all workers
    // -------------------------------------------------------------------------------------
    struct TODO {  // In-memory
-      u8 worker_id;
-      u64 tts;
+      u8 version_worker_id;
+      u64 version_tts;
+      u64 commited_before_so;
       DTID dt_id;
       // -------------------------------------------------------------------------------------
       u8 entry[64];  // TODO: dyanmically allocating buffer is costly
    };
-   std::queue<TODO> todo_queue;  // TODO: optimize (no need for sync)
-   void addTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
+   std::list<TODO> todo_commited_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
+   void stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
+   void commitTODO(u8 worker_id, u64 tts, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
+   void stageTODOs(u64 so);
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------
