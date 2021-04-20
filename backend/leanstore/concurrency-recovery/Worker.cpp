@@ -132,18 +132,15 @@ void Worker::submitDTEntry(u64 total_size)
 void Worker::refreshSnapshot()
 {
    so_start = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
-   global_so_starts[worker_id].store(SO_LATCHED, std::memory_order_release);
+   global_so_starts[worker_id].store(so_start, std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
       snapshot[w].store(global_tts[w], std::memory_order_release);
    }
-   global_so_starts[worker_id].store(so_start, std::memory_order_release);
    // -------------------------------------------------------------------------------------
    oldest_so_start = std::numeric_limits<u64>::max();
    oldest_so_start_worker_id = worker_id;
    for (u64 w = 0; w < workers_count; w++) {
       u64 its_so_start = global_so_starts[w];
-      while (its_so_start == SO_LATCHED)
-         its_so_start = global_so_starts[w];
       if (its_so_start < oldest_so_start) {
          oldest_so_start = its_so_start;
          oldest_so_start_worker_id = w;
