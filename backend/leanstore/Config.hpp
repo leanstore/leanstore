@@ -69,10 +69,18 @@ DECLARE_bool(si);
 DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
 DECLARE_bool(todo);
+// -------------------------------------------------------------------------------------
 DECLARE_bool(vi);
 DECLARE_bool(vi_utodo);
 DECLARE_bool(vi_rtodo);
-DECLARE_bool(pgc);;
+DECLARE_bool(vi_flookup);
+DECLARE_bool(vi_fremove);
+DECLARE_bool(vi_fupdate);
+DECLARE_uint64(vi_pgc_batch_size);
+DECLARE_bool(vi_pgc_so_method);
+DECLARE_bool(vi_skip_trash_leaves);
+// -------------------------------------------------------------------------------------
+DECLARE_bool(pgc);
 DECLARE_uint64(chain_max_length);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);

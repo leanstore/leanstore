@@ -72,9 +72,17 @@ DEFINE_bool(si, false, "");
 DEFINE_uint64(si_refresh_rate, 0, "");
 DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(todo, true, "");
+// -------------------------------------------------------------------------------------
 DEFINE_bool(vi, false, "BTree with SI using in-place version");
 DEFINE_bool(vi_utodo, true, "");
 DEFINE_bool(vi_rtodo, true, "");
+DEFINE_bool(vi_flookup, false, "");
+DEFINE_bool(vi_fremove, false, "");
+DEFINE_bool(vi_fupdate, false, "");
+DEFINE_uint64(vi_pgc_batch_size, 0, "");
+DEFINE_bool(vi_pgc_so_method, false, "");
+DEFINE_bool(vi_skip_trash_leaves, false, "");
+// -------------------------------------------------------------------------------------
 DEFINE_bool(pgc, false, "Precise garbage collection/recycling");
 DEFINE_uint64(chain_max_length, 10000, "");
 // -------------------------------------------------------------------------------------

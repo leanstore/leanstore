@@ -100,6 +100,12 @@ class BTreeVI : public BTreeLL
       u8 key[];
    };
    // -------------------------------------------------------------------------------------
+   struct LeafStatistics {
+      u64 skip_if_gsn_equal = 0;  // And
+      u64 skip_if_your_so_start_older = 0;
+   };
+   static_assert(sizeof(LeafStatistics) <= 64, "");
+   // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
    OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor&) override;
@@ -118,6 +124,7 @@ class BTreeVI : public BTreeLL
    static void deserialize(void*, std::unordered_map<std::string, std::string>) {}      // TODO:
    static std::unordered_map<std::string, std::string> serialize(void*) { return {}; }  // TODO:
    static DTRegistry::DTMeta getMeta();
+   // -------------------------------------------------------------------------------------
 
   private:
    template <bool asc = true>
@@ -129,6 +136,36 @@ class BTreeVI : public BTreeLL
       jumpmuTry()
       {
          BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
+         // -------------------------------------------------------------------------------------
+         u64 found_chains = 0, not_found_chains = 0;
+         if (FLAGS_vi_skip_trash_leaves) {
+            iterator.registerBeforeChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
+               if (found_chains == 0 && not_found_chains > 0) {
+                  auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
+                  leaf.bf->header.meta_data_in_shared_mode_mutex.lock();
+                  if (leaf_statistics.skip_if_gsn_equal < leaf.bf->page.GSN) {
+                     leaf_statistics.skip_if_gsn_equal = leaf.bf->page.GSN;
+                     leaf_statistics.skip_if_your_so_start_older = cr::Worker::my().so_start;
+                  }
+                  leaf.bf->header.meta_data_in_shared_mode_mutex.unlock();
+               }
+               found_chains = 0;
+               not_found_chains = 0;
+            });
+            iterator.registerConditionalLeafSkip([&](HybridPageGuard<BTreeNode>& leaf) {
+               auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
+               leaf.bf->header.meta_data_in_shared_mode_mutex.lock_shared();
+               if (leaf_statistics.skip_if_gsn_equal == leaf.bf->page.GSN &&
+                   leaf_statistics.skip_if_your_so_start_older < cr::Worker::my().so_start) {
+                  leaf.bf->header.meta_data_in_shared_mode_mutex.unlock_shared();
+                  COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
+                  return true;
+               }
+               leaf.bf->header.meta_data_in_shared_mode_mutex.unlock_shared();
+               return false;
+            });
+         }
+         // -------------------------------------------------------------------------------------
          MutableSlice s_key = iterator.mutableKeyInBuffer(o_key_length + sizeof(SN));
          std::memcpy(s_key.data(), o_key, o_key_length);
          setSN(s_key, 0);
@@ -165,6 +202,11 @@ class BTreeVI : public BTreeLL
                keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
                counter++;
             });
+            if (std::get<0>(reconstruct) == OP_RESULT::NOT_FOUND) {
+               not_found_chains++;
+            } else {
+               found_chains++;
+            }
             const u16 chain_length = std::get<1>(reconstruct);
             COUNTERS_BLOCK()
             {
