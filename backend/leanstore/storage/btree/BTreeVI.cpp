@@ -9,11 +9,6 @@
 using namespace std;
 using namespace leanstore::storage;
 using OP_RESULT = leanstore::OP_RESULT;
-DEFINE_bool(vi_flookup, false, "");
-DEFINE_bool(vi_fremove, false, "");
-DEFINE_bool(vi_fupdate, false, "");
-DEFINE_uint64(vi_pgc_batch_size, 0, "");
-DEFINE_bool(vi_pgc_so_method, false, "");
 // -------------------------------------------------------------------------------------
 // Assumptions made in this implementation:
 // 1) We don't insert an already removed key

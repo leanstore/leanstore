@@ -39,6 +39,7 @@ struct BufferFrame {
       // -------------------------------------------------------------------------------------
       BufferFrame* next_free_bf = nullptr;
       ContentionTracker contention_tracker;
+      std::shared_mutex meta_data_in_shared_mode_mutex;
       // -------------------------------------------------------------------------------------
       u64 debug;
    };
