@@ -176,11 +176,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          u64 i = 0, pi = 0;  // debug
          const bool enable_pgc = FLAGS_pgc && primary_version_versions_counter >= FLAGS_vi_pgc_batch_size;
          // -------------------------------------------------------------------------------------
-         // TPC-C exp hack dt_id <= 1 || dt_id == 10 ||
-         if (cr::Worker::my().isVisibleForAll(primary_version_worker_id, primary_version_tts)) {
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_hwm[dt_id]++; }
-            w = cr::Worker::my().workers_count;
-         } else if (enable_pgc) {
+         if (enable_pgc) {
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[dt_id]++; }
             cr::Worker::my().sortWorkers();  // TODO: 200 L1 miss!
             auto is_visible = [&]() {
