@@ -31,7 +31,7 @@ class BTreeVI : public BTreeLL
       u8 is_gc_scheduled : 1;
       // -------------------------------------------------------------------------------------
       u64 versions_counter = 1;
-      u64 commited_after_so;
+      u64 commited_after_so = 0;
       SN next_sn = 0;
       s64 tmp = 0;
       // -------------------------------------------------------------------------------------
@@ -137,10 +137,10 @@ class BTreeVI : public BTreeLL
       {
          BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
          // -------------------------------------------------------------------------------------
-         u64 found_chains = 0, not_found_chains = 0;
+         u64 found_chains = 0, invisible_versions = 0;
          if (FLAGS_vi_skip_trash_leaves) {
             iterator.registerBeforeChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
-               if (found_chains == 0 && not_found_chains > 0) {
+               if (found_chains == 0 && invisible_versions == leaf->count) {
                   auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
                   leaf.bf->header.meta_data_in_shared_mode_mutex.lock();
                   if (leaf_statistics.skip_if_gsn_equal < leaf.bf->page.GSN) {
@@ -150,7 +150,7 @@ class BTreeVI : public BTreeLL
                   leaf.bf->header.meta_data_in_shared_mode_mutex.unlock();
                }
                found_chains = 0;
-               not_found_chains = 0;
+               invisible_versions = 0;
             });
             iterator.registerConditionalLeafSkip([&](HybridPageGuard<BTreeNode>& leaf) {
                auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
@@ -202,12 +202,12 @@ class BTreeVI : public BTreeLL
                keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
                counter++;
             });
+            const u16 chain_length = std::get<1>(reconstruct);
             if (std::get<0>(reconstruct) == OP_RESULT::NOT_FOUND) {
-               not_found_chains++;
+               invisible_versions += chain_length;
             } else {
                found_chains++;
             }
-            const u16 chain_length = std::get<1>(reconstruct);
             COUNTERS_BLOCK()
             {
                WorkerCounters::myCounters().cc_read_chains[dt_id]++;

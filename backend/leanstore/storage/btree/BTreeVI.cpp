@@ -525,16 +525,20 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.worker_id = myWorkerID();
          primary_version.tts = myTTS();
          primary_version.next_sn = secondary_sn;
-         primary_version.unlock();
+         // TODO: primary_version.commited_after_so;
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_rtodo && !primary_version.is_gc_scheduled) {
-            cr::Worker::my().stageTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
-               auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
-               todo_entry.key_length = o_key_length;
-               std::memcpy(todo_entry.key, o_key, o_key_length);
-            });
+            cr::Worker::my().stageTODO(
+                myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry),
+                [&](u8* entry) {
+                   auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
+                   todo_entry.key_length = o_key_length;
+                   std::memcpy(todo_entry.key, o_key, o_key_length);
+                },
+                primary_version.commited_after_so);
             primary_version.is_gc_scheduled = true;
          }
+         primary_version.unlock();
       }
    }
    jumpmuCatch() { ensure(false); }
@@ -798,6 +802,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          }
       } else {
          // Cross workers TODO:
+         raise(SIGTRAP);
          if (cr::Worker::my().isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
             cr::Worker::my().commitTODO(primary_version.worker_id, primary_version.tts, cr::Worker::my().so_start, btree.dt_id,
                                         todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
