@@ -67,23 +67,39 @@ void DTTable::open()
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_skipped, dt_id); });
    columns.emplace("cc_update_versions_kept",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_kept, dt_id); });
-   columns.emplace("cc_update_versions_kept_max",
-                   [&](Column& col) { col << utils::threadlocal::max(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_kept_max, dt_id); });
+   columns.emplace("cc_update_versions_kept_max", [&](Column& col) {
+      col << utils::threadlocal::max(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_kept_max, dt_id);
+   });
    columns.emplace("cc_update_versions_recycled",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_recycled, dt_id); });
    columns.emplace("cc_update_versions_created",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_versions_created, dt_id); });
    columns.emplace("cc_update_chains", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains, dt_id); });
-   columns.emplace("cc_update_chains_hwm", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_hwm, dt_id); });
-   columns.emplace("cc_update_chains_pgc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc, dt_id); });
-   columns.emplace("cc_update_chains_pgc_skipped", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_skipped, dt_id); });
-   columns.emplace("cc_update_chains_pgc_workers_visited", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_workers_visited, dt_id); });
+   columns.emplace("cc_update_chains_hwm",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_hwm, dt_id); });
+   columns.emplace("cc_update_chains_pgc",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc, dt_id); });
+   columns.emplace("cc_update_chains_pgc_skipped",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_skipped, dt_id); });
+   columns.emplace("cc_update_chains_pgc_workers_visited",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_workers_visited, dt_id); });
    // -------------------------------------------------------------------------------------
    columns.emplace("cc_todo_chains", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_chains, dt_id); });
    columns.emplace("cc_todo_remove", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_remove, dt_id); });
    columns.emplace("cc_todo_updates", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_updates, dt_id); });
    columns.emplace("cc_todo_updates_versions_removed",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_updates_versions_removed, dt_id); });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("cc_rtodo_opt_staged",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_opt_staged, dt_id); });
+   columns.emplace("cc_rtodo_opt_executed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_opt_executed, dt_id); });
+   columns.emplace("cc_rtodo_opt_considered",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_opt_considered, dt_id); });
+   columns.emplace("cc_rtodo_lng_executed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_lng_executed, dt_id); });
+   columns.emplace("cc_rtodo_shrt_executed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_shrt_executed, dt_id); });
 }
 // -------------------------------------------------------------------------------------
 void DTTable::next()

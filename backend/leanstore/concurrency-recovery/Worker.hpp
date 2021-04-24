@@ -76,15 +76,16 @@ struct Worker {
    struct TODO {  // In-memory
       u8 version_worker_id;
       u64 version_tts;
-      u64 commited_before_so;
+      u64 after_so;
+      u64 or_before_so;
       DTID dt_id;
       // -------------------------------------------------------------------------------------
       u8 entry[64];  // TODO: dyanmically allocating buffer is costly
    };
-   std::list<TODO> todo_commited_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
-   void stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
+   std::list<TODO> todo_commited_queue, todo_long_running_tx_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
+   void stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
    void commitTODO(u8 worker_id, u64 tts, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
-   void stageTODOs(u64 so);
+   void commitTODOs(u64 so);
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------
@@ -225,7 +226,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    void sortWorkers();
    void refreshSnapshot();
-   bool isVisibleForAll(u8 worker_id, u64 tts);
+   bool isVisibleForAll(u64 commited_before_so);
    bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
    bool isVisibleForMe(u8 worker_id, u64 tts);
    bool isVisibleForMe(u64 tts);

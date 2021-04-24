@@ -193,13 +193,54 @@ void Worker::checkup()
          refreshSnapshot();
       }
       force_si_refresh = false;
-      while (FLAGS_todo && todo_commited_queue.size()) {
-         auto& todo = todo_commited_queue.front();
-         if (todo.commited_before_so < oldest_so_start) {
-            leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
-            todo_commited_queue.pop_front();
-         } else {
-            break;
+      {
+         // short_tx_queue
+         auto& list = todo_commited_queue;
+         while (FLAGS_todo && list.size()) {
+            auto& todo = list.front();
+            if (oldest_so_start > todo.after_so) {
+               WorkerCounters::myCounters().cc_rtodo_lng_executed[todo.dt_id]++;
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
+               list.pop_front();
+            } else {
+               break;
+            }
+         }
+      }
+      {
+         auto& list = todo_long_running_tx_queue;
+         // long_tx_queue
+         while (FLAGS_todo && list.size()) {
+            auto& todo = list.front();
+            bool safe_to_gc = true;
+            if (todo.after_so < oldest_so_start) {
+               WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
+               safe_to_gc = true;
+            } else if (oldest_so_start < todo.or_before_so) {
+               WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
+               for (u64 w_i = 0; w_i < workers_count && safe_to_gc; w_i++) {
+                  // if(all_so_starts[w_i] < todo.or_before_so) {
+                  if (((all_so_starts[w_i] < todo.or_before_so) || (all_so_starts[w_i] > todo.after_so)) ||
+                      ((global_so_starts[w_i] < todo.or_before_so) || (global_so_starts[w_i] > todo.after_so))) {
+                     safe_to_gc &= true;
+                  } else {
+                     safe_to_gc &= false;
+                  }
+                  // safe_to_gc &= ((all_so_starts[w_i] < todo.or_before_so) || (all_so_starts[w_i] > todo.after_so));
+                  // safe_to_gc &= ((all_so_starts[w_i] < todo.or_before_so) || (global_so_starts[w_i] > todo.after_so));
+               }
+               if (safe_to_gc)
+                  WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
+            } else {
+               // todo_commited_queue.splice(todo_commited_queue.end(), todo_long_running_tx_queue, todo_long_running_tx_queue.begin());
+               safe_to_gc = false;
+            }
+            if (safe_to_gc) {
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
+               list.pop_front();
+            } else {
+               break;
+            }
          }
       }
    }
@@ -224,7 +265,7 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       if (FLAGS_si) {
          global_tts[worker_id].store(active_tx.tts + 1, std::memory_order_release);
-         stageTODOs(global_snapshot_clock.fetch_add(WORKERS_INCREMENT));
+         commitTODOs(global_snapshot_clock.fetch_add(WORKERS_INCREMENT));
       }
    }
 }
@@ -267,9 +308,9 @@ bool Worker::isVisibleForMe(u64 wtts)
    return isVisibleForMe(other_worker_id, tts);
 }
 // -------------------------------------------------------------------------------------
-bool Worker::isVisibleForAll(u8, u64)
+bool Worker::isVisibleForAll(u64 commited_before_so)
 {
-   return false;
+   return commited_before_so < oldest_so_start;
 }
 // -------------------------------------------------------------------------------------
 // Called by worker, so concurrent writes on the buffer
@@ -388,26 +429,41 @@ outofmemory : {
 }
 }
 // -------------------------------------------------------------------------------------
-void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8*)> cb)
+void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8*)> cb, u64 or_before_so)
 {
    ensure(size <= 64);
-   todo_staging_queue.push_back({worker_id, tts, 0, dt_id, {}});
+   if (oldest_so_start > or_before_so) {
+      or_before_so = 0;
+   } else if (or_before_so > 0) {
+      // cout << "candidate" << endl;
+   }
+
+   todo_staging_queue.push_back({worker_id, tts, 0, or_before_so, dt_id, {}});
    cb(todo_staging_queue.back().entry);
 }
 // -------------------------------------------------------------------------------------
-void Worker::stageTODOs(u64 so)
+void Worker::commitTODOs(u64 so)
 {
-   for (auto& todo : todo_staging_queue) {
-      todo.commited_before_so = so;
+   auto it = todo_staging_queue.begin();
+   while (it != todo_staging_queue.end()) {
+      it->after_so = so;
+      auto next = std::next(it, 1);
+      if (FLAGS_tmp7 && it->or_before_so > oldest_so_start) {
+         WorkerCounters::myCounters().cc_rtodo_opt_staged[it->dt_id]++;
+         todo_long_running_tx_queue.splice(todo_long_running_tx_queue.begin(), todo_staging_queue, it);
+         // todo_long_running_tx_queue.splice(todo_long_running_tx_queue.begin(), todo_staging_queue, it);
+      } else {
+         todo_commited_queue.splice(todo_commited_queue.end(), todo_staging_queue, it);
+      }
+      it = next;
    }
-   todo_commited_queue.splice(todo_commited_queue.end(), todo_staging_queue, todo_staging_queue.begin(), todo_staging_queue.end());
    ensure(todo_staging_queue.size() == 0);
 }
 // -------------------------------------------------------------------------------------
-void Worker::commitTODO(u8 worker_id, u64 tts, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8*)> cb)
+void Worker::commitTODO(u8 worker_id, u64 tts, u64 after_so, DTID dt_id, u64 size, std::function<void(u8*)> cb)
 {
    ensure(size <= 64);
-   todo_commited_queue.push_back({worker_id, tts, commited_before_so, dt_id, {}});
+   todo_commited_queue.push_back({worker_id, tts, after_so, 0, dt_id, {}});
    cb(todo_commited_queue.back().entry);
 }
 // -------------------------------------------------------------------------------------
