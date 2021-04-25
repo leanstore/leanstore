@@ -232,7 +232,8 @@ void Worker::checkup()
                if (safe_to_gc)
                   WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
             } else {
-               // todo_commited_queue.splice(todo_commited_queue.end(), todo_long_running_tx_queue, todo_long_running_tx_queue.begin());
+               WorkerCounters::myCounters().cc_rtodo_to_lng[todo.dt_id]++;
+               todo_commited_queue.splice(todo_commited_queue.end(), todo_long_running_tx_queue, todo_long_running_tx_queue.begin());
                safe_to_gc = false;
             }
             if (safe_to_gc) {
@@ -434,10 +435,7 @@ void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::functio
    ensure(size <= 64);
    if (oldest_so_start > or_before_so) {
       or_before_so = 0;
-   } else if (or_before_so > 0) {
-      // cout << "candidate" << endl;
    }
-
    todo_staging_queue.push_back({worker_id, tts, 0, or_before_so, dt_id, {}});
    cb(todo_staging_queue.back().entry);
 }

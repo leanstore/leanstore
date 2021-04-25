@@ -32,6 +32,8 @@ void DTTable::open()
    // -------------------------------------------------------------------------------------
    columns.emplace("dt_empty_leaf", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_empty_leaf, dt_id); });
    columns.emplace("dt_skipped_leaf", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_skipped_leaf, dt_id); });
+   columns.emplace("dt_merge_upper_leaf",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_upper_leaf, dt_id); });
    // -------------------------------------------------------------------------------------
    columns.emplace("contention_split_succ_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_succ_counter, dt_id); });
@@ -100,6 +102,8 @@ void DTTable::open()
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_lng_executed, dt_id); });
    columns.emplace("cc_rtodo_shrt_executed",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_shrt_executed, dt_id); });
+   columns.emplace("cc_rtodo_to_lng",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_to_lng, dt_id); });
 }
 // -------------------------------------------------------------------------------------
 void DTTable::next()

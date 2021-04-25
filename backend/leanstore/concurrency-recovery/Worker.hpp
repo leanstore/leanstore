@@ -8,6 +8,7 @@
 #include <list>
 #include <map>
 #include <mutex>
+#include <queue>
 #include <vector>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -82,6 +83,8 @@ struct Worker {
       // -------------------------------------------------------------------------------------
       u8 entry[64];  // TODO: dyanmically allocating buffer is costly
    };
+   static bool todoComp(TODO& lhs, TODO& rhs) { return lhs.after_so < rhs.after_so; }
+   std::priority_queue<TODO, std::list<TODO>, decltype(&todoComp)> todo_globally_visible, todo_partially_visible;
    std::list<TODO> todo_commited_queue, todo_long_running_tx_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
    void stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
    void commitTODO(u8 worker_id, u64 tts, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
