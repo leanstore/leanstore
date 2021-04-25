@@ -190,10 +190,12 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       return false;
    }
    // -------------------------------------------------------------------------------------
-   if (pos >= p_guard->count) {
+   if (pos == p_guard->count) {
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_merge_upper_leaf[dt_id]++; }
       // TODO: we do not merge the node if it is the upper swip of parent
       return false;
    }
+   ensure(pos <= p_guard->count);
    // -------------------------------------------------------------------------------------
    p_guard.recheck();
    c_guard.recheck();

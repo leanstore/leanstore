@@ -794,6 +794,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                 *reinterpret_cast<const SecondaryVersion*>(secondary_payload.data() + secondary_payload.length() - sizeof(SecondaryVersion));
             next_sn = secondary_version.next_sn;
             iterator.removeCurrent();
+            iterator.mergeIfNeeded();
             iterator.markAsDirty();
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates_versions_removed[btree.dt_id]++; }
          }

@@ -44,6 +44,7 @@ struct WorkerCounters {
    // -------------------------------------------------------------------------------------
    atomic<u64> dt_skipped_leaf[max_dt_id] = {0};
    atomic<u64> dt_empty_leaf[max_dt_id] = {0};
+   atomic<u64> dt_merge_upper_leaf[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    // Concurrency control counters
    atomic<u64> cc_snapshot_restart = 0;
@@ -76,6 +77,7 @@ struct WorkerCounters {
    atomic<u64> cc_rtodo_opt_executed[max_dt_id] = {0};
    atomic<u64> cc_rtodo_shrt_executed[max_dt_id] = {0};
    atomic<u64> cc_rtodo_lng_executed[max_dt_id] = {0};
+   atomic<u64> cc_rtodo_to_lng[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    constexpr static u64 VW_MAX_STEPS = 10;
    atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {{0}};
