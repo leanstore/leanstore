@@ -32,17 +32,17 @@ void DTTable::open()
    // -------------------------------------------------------------------------------------
    columns.emplace("dt_empty_leaf", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_empty_leaf, dt_id); });
    columns.emplace("dt_skipped_leaf", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_skipped_leaf, dt_id); });
-   columns.emplace("dt_merge_upper_leaf",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_upper_leaf, dt_id); });
+   columns.emplace("dt_goto_page",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_goto_page, dt_id); });
    // -------------------------------------------------------------------------------------
    columns.emplace("contention_split_succ_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_succ_counter, dt_id); });
    columns.emplace("contention_split_fail_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_fail_counter, dt_id); });
-   columns.emplace("cm_merge_succ_counter",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_merge_succ_counter, dt_id); });
-   columns.emplace("cm_merge_fail_counter",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cm_merge_fail_counter, dt_id); });
+   columns.emplace("dt_merge_succ",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_succ, dt_id); });
+   columns.emplace("dt_merge_fail",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_fail, dt_id); });
    columns.emplace("xmerge_partial_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::xmerge_partial_counter, dt_id); });
    columns.emplace("xmerge_full_counter",

@@ -140,7 +140,7 @@ class BTreeVI : public BTreeLL
          u64 found_chains = 0, invisible_versions = 0;
          if (FLAGS_vi_skip_trash_leaves) {
             iterator.registerBeforeChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
-               if (found_chains == 0 && invisible_versions == leaf->count) {
+               if (found_chains == 0 && invisible_versions == leaf->count && invisible_versions > 0) {
                   auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
                   leaf.bf->header.meta_data_in_shared_mode_mutex.lock();
                   if (leaf_statistics.skip_if_gsn_equal < leaf.bf->page.GSN) {

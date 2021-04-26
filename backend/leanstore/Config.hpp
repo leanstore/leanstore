@@ -79,6 +79,7 @@ DECLARE_bool(vi_fupdate);
 DECLARE_uint64(vi_pgc_batch_size);
 DECLARE_bool(vi_pgc_so_method);
 DECLARE_bool(vi_skip_trash_leaves);
+DECLARE_bool(vi_twoq_todo);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(pgc);
 DECLARE_uint64(chain_max_length);

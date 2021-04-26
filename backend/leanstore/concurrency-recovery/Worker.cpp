@@ -446,9 +446,10 @@ void Worker::commitTODOs(u64 so)
    while (it != todo_staging_queue.end()) {
       it->after_so = so;
       auto next = std::next(it, 1);
-      if (FLAGS_tmp7 && it->or_before_so > oldest_so_start) {
+      if (FLAGS_vi_twoq_todo && it->or_before_so > oldest_so_start) {
          WorkerCounters::myCounters().cc_rtodo_opt_staged[it->dt_id]++;
          todo_long_running_tx_queue.splice(todo_long_running_tx_queue.begin(), todo_staging_queue, it);
+         // TODO: use a priority queue
          // todo_long_running_tx_queue.splice(todo_long_running_tx_queue.begin(), todo_staging_queue, it);
       } else {
          todo_commited_queue.splice(todo_commited_queue.end(), todo_staging_queue, it);

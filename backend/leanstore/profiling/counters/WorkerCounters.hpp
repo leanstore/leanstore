@@ -31,8 +31,8 @@ struct WorkerCounters {
    // Space and contention management
    atomic<u64> contention_split_succ_counter[max_dt_id] = {0};
    atomic<u64> contention_split_fail_counter[max_dt_id] = {0};
-   atomic<u64> cm_merge_succ_counter[max_dt_id] = {0};
-   atomic<u64> cm_merge_fail_counter[max_dt_id] = {0};
+   atomic<u64> dt_merge_succ[max_dt_id] = {0};
+   atomic<u64> dt_merge_fail[max_dt_id] = {0};
    atomic<u64> xmerge_partial_counter[max_dt_id] = {0};
    atomic<u64> xmerge_full_counter[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
@@ -44,7 +44,7 @@ struct WorkerCounters {
    // -------------------------------------------------------------------------------------
    atomic<u64> dt_skipped_leaf[max_dt_id] = {0};
    atomic<u64> dt_empty_leaf[max_dt_id] = {0};
-   atomic<u64> dt_merge_upper_leaf[max_dt_id] = {0};
+   atomic<u64> dt_goto_page[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    // Concurrency control counters
    atomic<u64> cc_snapshot_restart = 0;
