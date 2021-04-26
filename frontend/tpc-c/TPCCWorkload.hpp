@@ -207,11 +207,11 @@ class TPCCWorkload
 
       for (unsigned i = 0; i < lineNumbers.size(); i++) {
          Integer qty = qtys[i];
-         UpdateDescriptorGenerator3(stock_update_descriptor, stock_t, s_remote_cnt, s_order_cnt, s_ytd);
+         UpdateDescriptorGenerator4(stock_update_descriptor, stock_t, s_remote_cnt, s_order_cnt, s_ytd, s_quantity);
          stock.update1(
              {supwares[i], itemids[i]},
              [&](stock_t& rec) {
-                auto& s_quantity = rec.s_quantity;
+                auto& s_quantity = rec.s_quantity;  // Attention: we also modify s_quantity
                 s_quantity = (s_quantity >= qty + 10) ? s_quantity - qty : s_quantity + 91 - qty;
                 rec.s_remote_cnt += (supwares[i] != w_id);
                 rec.s_order_cnt++;

@@ -190,12 +190,9 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       return false;
    }
    // -------------------------------------------------------------------------------------
-   if (pos == p_guard->count) {
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_merge_upper_leaf[dt_id]++; }
-      // TODO: we do not merge the node if it is the upper swip of parent
-      return false;
-   }
-   ensure(pos <= p_guard->count);
+   const bool is_upper = pos == p_guard->count;
+   const bool is_empty = c_guard->count == 0;
+   assert(pos <= p_guard->count);
    // -------------------------------------------------------------------------------------
    p_guard.recheck();
    c_guard.recheck();
@@ -206,7 +203,11 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          return false;
       }
       auto l_guard = HybridPageGuard(p_guard, l_swip);
-      if (l_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
+      // const bool is_merge_unlikely = (l_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
+      const bool is_merge_unlikely = !is_empty && (l_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
+      // const bool is_merge_unlikely = !is_empty && (l_guard->freeSpaceAfterCompaction() + c_guard->freeSpaceAfterCompaction()) <
+      // EFFECTIVE_PAGE_SIZE; const bool is_merge_unlikely = l_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize;
+      if (is_merge_unlikely) {
          l_guard.unlock();
          return false;
       }
@@ -232,7 +233,11 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          return false;
       }
       auto r_guard = HybridPageGuard(p_guard, r_swip);
-      if (r_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
+      // const bool is_merge_unlikely = (r_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
+      const bool is_merge_unlikely = !is_empty && (r_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
+      // const bool is_merge_unlikely = !is_empty && (r_guard->freeSpaceAfterCompaction() + c_guard->freeSpaceAfterCompaction()) <
+      // EFFECTIVE_PAGE_SIZE; const bool is_merge_unlikely = r_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize;
+      if (is_merge_unlikely) {
          r_guard.unlock();
          return false;
       }
@@ -251,6 +256,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       // -------------------------------------------------------------------------------------
       p_guard = std::move(p_x_guard);
       r_guard = std::move(r_x_guard);
+      ensure(!is_upper);
       return true;
    };
    // ATTENTION: don't use c_guard without making sure it was not reclaimed
@@ -260,7 +266,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       if (pos > 0) {
          merged_successfully |= merge_left();
       }
-      if (!merged_successfully && (pos + 1 < p_guard->count)) {
+      if (!merged_successfully && ((pos + 1) < p_guard->count)) {
          merged_successfully |= merge_right();
       }
    }
@@ -274,6 +280,14 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    }
    jumpmuCatch() {}
    // -------------------------------------------------------------------------------------
+   COUNTERS_BLOCK()
+   {
+      if (merged_successfully) {
+         WorkerCounters::myCounters().dt_merge_succ[dt_id]++;
+      } else {
+         WorkerCounters::myCounters().dt_merge_fail[dt_id]++;
+      }
+   }
    return merged_successfully;
 }
 // -------------------------------------------------------------------------------------
