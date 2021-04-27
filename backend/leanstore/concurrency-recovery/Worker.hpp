@@ -236,7 +236,10 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    // Experimentell
    bool isVisibleForItCommitedBeforeSO(u8 whom_worker_id, u64 cb_so) { return all_so_starts[whom_worker_id] > cb_so; }
-   u64 getCB(u8 from_worker_id, u64 ca_so) { return (all_so_starts[from_worker_id] > ca_so) ? all_so_starts[from_worker_id] : 0; }
+   u64 getCB(u8 from_worker_id, u64 ca_so)
+   {
+      return (all_so_starts[from_worker_id] > ca_so) ? all_so_starts[from_worker_id] : std::numeric_limits<u64>::max();
+   }
    // -------------------------------------------------------------------------------------
    void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
