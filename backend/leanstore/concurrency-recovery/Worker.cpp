@@ -219,15 +219,12 @@ void Worker::checkup()
             } else if (oldest_so_start < todo.or_before_so) {
                WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
                for (u64 w_i = 0; w_i < workers_count && safe_to_gc; w_i++) {
-                  // if(all_so_starts[w_i] < todo.or_before_so) {
                   if (((all_so_starts[w_i] < todo.or_before_so) || (all_so_starts[w_i] > todo.after_so)) ||
-                      ((global_so_starts[w_i] < todo.or_before_so) || (global_so_starts[w_i] > todo.after_so))) {
+                      ((0 && global_so_starts[w_i] < todo.or_before_so) || (global_so_starts[w_i] > todo.after_so))) {
                      safe_to_gc &= true;
                   } else {
                      safe_to_gc &= false;
                   }
-                  // safe_to_gc &= ((all_so_starts[w_i] < todo.or_before_so) || (all_so_starts[w_i] > todo.after_so));
-                  // safe_to_gc &= ((all_so_starts[w_i] < todo.or_before_so) || (global_so_starts[w_i] > todo.after_so));
                }
                if (safe_to_gc)
                   WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
