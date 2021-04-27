@@ -45,6 +45,8 @@ struct WorkerCounters {
    atomic<u64> dt_skipped_leaf[max_dt_id] = {0};
    atomic<u64> dt_empty_leaf[max_dt_id] = {0};
    atomic<u64> dt_goto_page[max_dt_id] = {0};
+   atomic<u64> dt_next_tuple[max_dt_id] = {0};
+   atomic<u64> dt_prev_tuple[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    // Concurrency control counters
    atomic<u64> cc_snapshot_restart = 0;

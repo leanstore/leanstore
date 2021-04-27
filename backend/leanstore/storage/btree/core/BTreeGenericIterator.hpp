@@ -35,6 +35,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    void gotoPage(const Slice& key)
    {
       WorkerCounters::myCounters().dt_goto_page[btree.dt_id]++;
+      // -------------------------------------------------------------------------------------
       if (cur != -1 && before_changing_leaf_cb) {
          before_changing_leaf_cb(leaf);
       }
@@ -51,7 +52,9 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    bool nextLeaf()
    {
+      u64 cnt = 0;
    restart:
+      cnt++;
       if (leaf->upper_fence.length == 0) {
          return false;
       } else {
@@ -68,7 +71,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          }
          // -------------------------------------------------------------------------------------
          cur = leaf->lowerBound<false>(key, key_length);
-         if (cur == leaf->count) {
+         if (cur == leaf->count) {  // TODO: is it correct
             goto restart;
          }
          return true;
@@ -158,6 +161,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT next() override
    {
+      WorkerCounters::myCounters().dt_next_tuple[btree.dt_id]++;
       if ((cur + 1) < leaf->count) {
          cur += 1;
          return OP_RESULT::OK;
@@ -179,6 +183,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT prev() override
    {
+      WorkerCounters::myCounters().dt_prev_tuple[btree.dt_id]++;
       if ((cur - 1) >= 0) {
          cur -= 1;
          return OP_RESULT::OK;
