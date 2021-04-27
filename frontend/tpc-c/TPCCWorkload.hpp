@@ -280,8 +280,8 @@ class TPCCWorkload
                 return false;
              },
              [&]() { o_id = minInteger; });
-         if (o_id == minInteger)
-            continue;
+         // -------------------------------------------------------------------------------------
+         ensure(o_id != minInteger);
          // -------------------------------------------------------------------------------------
          if (tpcc_remove) {
             const auto ret = neworder.erase({w_id, d_id, o_id});
