@@ -331,6 +331,9 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    // -------------------------------------------------------------------------------------
    virtual void contentionSplit()
    {
+      if (!FLAGS_contention_split) {
+         return;
+      }
       const u64 random_number = utils::RandomGenerator::getRandU64();
       if ((random_number & ((1ull << FLAGS_cm_update_on) - 1)) == 0) {
          s64 last_modified_pos = leaf.bf->header.contention_tracker.last_modified_pos;

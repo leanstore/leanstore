@@ -13,7 +13,7 @@ namespace leanstore
 namespace storage
 {
 // -------------------------------------------------------------------------------------
-const u64 PAGE_SIZE = 4 * 1024;
+const u64 PAGE_SIZE = 16 * 1024;
 // -------------------------------------------------------------------------------------
 struct BufferFrame {
    enum class STATE : u8 { FREE = 0, HOT = 1, COOL = 2, LOADED = 3 };
