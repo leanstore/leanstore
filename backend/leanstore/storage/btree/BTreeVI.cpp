@@ -166,10 +166,10 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       bool next_higher = true;
       const bool pgc = FLAGS_pgc && gc_next_sn && !updated_before_in_the_same_tx && primary_version_versions_counter >= FLAGS_vi_pgc_batch_size;
       if (pgc) {
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[dt_id]++; }
          cr::Worker::my().sortWorkers();  // TODO: 200 L1 miss!
          SN prev_sn = 0, cur_sn = gc_next_sn;
          u64 w = 0;
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[dt_id]++; }
          const u64 primary_version_commited_before_so = cr::Worker::my().getCB(primary_version_worker_id, primary_version_commited_after_so);
          auto is_current_worker_so_larger = [&](const u64 so) {
             const u64 cur_w = cr::Worker::my().all_sorted_so_starts[w] & cr::Worker::WORKERS_MASK;
@@ -177,7 +177,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          };
          while (w < cr::Worker::my().workers_count && is_current_worker_so_larger(primary_version_commited_before_so)) {
             w++;
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_workers_visited[dt_id]++; }
          }
          WorkerCounters::myCounters().cc_update_chains_pgc_skipped[dt_id] += w;
          // -------------------------------------------------------------------------------------
@@ -193,15 +192,15 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             const auto& gc_version = *reinterpret_cast<const SecondaryVersion*>(gc_payload.data() + gc_payload.length() - sizeof(SecondaryVersion));
             ensure(!gc_version.is_removed);
             gc_next_sn = gc_version.next_sn;
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_workers_visited[dt_id]++; }
             if (cr::Worker::my().isVisibleForIt(cr::Worker::my().all_sorted_so_starts[w] & cr::Worker::WORKERS_MASK, gc_version.worker_id,
                                                 gc_version.tts)) {
                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_kept[dt_id]++; }
                w++;
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_workers_visited[dt_id]++; }
                while (gc_next_sn != 0 && w < cr::Worker::my().workers_count) {
                   if (is_current_worker_so_larger(gc_version.commited_before_so)) {
                      w++;
-                     COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_workers_visited[dt_id]++; }
+                     WorkerCounters::myCounters().cc_update_chains_pgc_skipped[dt_id]++;
                   } else {
                      break;
                   }
@@ -238,7 +237,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                } else {
                   ret = iterator.removeCurrent();
                   ensure(ret == OP_RESULT::OK);
-                  // iterator.mergeIfNeeded();
+                  iterator.mergeIfNeeded();
                   removed_versions_counter++;
                   COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[dt_id]++; }
                }
