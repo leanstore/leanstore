@@ -45,6 +45,7 @@ class BTreeVI : public BTreeLL
       u8 worker_id : 8;
       u64 tts : 56;
       u64 commited_before_so;
+      u64 commited_after_so;
       u8 is_removed : 1;
       u8 is_delta : 1;  // TODO: atm, always true
       SN next_sn;
