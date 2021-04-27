@@ -527,9 +527,7 @@ class TPCCWorkload
       }
    }
    // -------------------------------------------------------------------------------------
-
    void orderStatusName(Integer w_id, Integer d_id, Varchar<16> c_last)
-
    {
       vector<Integer> ids;
       customerwdl.scan(
