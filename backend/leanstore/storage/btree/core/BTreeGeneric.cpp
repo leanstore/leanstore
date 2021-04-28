@@ -203,10 +203,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          return false;
       }
       auto l_guard = HybridPageGuard(p_guard, l_swip);
-      // const bool is_merge_unlikely = (l_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
       const bool is_merge_unlikely = !is_empty && (l_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
-      // const bool is_merge_unlikely = !is_empty && (l_guard->freeSpaceAfterCompaction() + c_guard->freeSpaceAfterCompaction()) <
-      // EFFECTIVE_PAGE_SIZE; const bool is_merge_unlikely = l_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize;
       if (is_merge_unlikely) {
          l_guard.unlock();
          return false;
@@ -233,10 +230,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          return false;
       }
       auto r_guard = HybridPageGuard(p_guard, r_swip);
-      // const bool is_merge_unlikely = (r_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
       const bool is_merge_unlikely = !is_empty && (r_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
-      // const bool is_merge_unlikely = !is_empty && (r_guard->freeSpaceAfterCompaction() + c_guard->freeSpaceAfterCompaction()) <
-      // EFFECTIVE_PAGE_SIZE; const bool is_merge_unlikely = r_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize;
       if (is_merge_unlikely) {
          r_guard.unlock();
          return false;
@@ -275,10 +269,14 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    {
       HybridPageGuard<BTreeNode> meta_guard(meta_node_bf);
       if (!isMetaNode(p_guard) && p_guard->freeSpaceAfterCompaction() >= BTreeNode::underFullSize) {
-         tryMerge(*p_guard.bf, swizzle_sibling);
+         if (tryMerge(*p_guard.bf, true)) {
+            WorkerCounters::myCounters().dt_merge_parent_succ[dt_id]++;
+         } else {
+            WorkerCounters::myCounters().dt_merge_parent_fail[dt_id]++;
+         }
       }
    }
-   jumpmuCatch() {}
+   jumpmuCatch() { WorkerCounters::myCounters().dt_merge_fail[dt_id]++; }
    // -------------------------------------------------------------------------------------
    COUNTERS_BLOCK()
    {

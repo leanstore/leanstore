@@ -344,8 +344,8 @@ class TPCCWorkload
                continue;
          }
          // -------------------------------------------------------------------------------------
-         bool is_safe_to_continue = false;
          if (!FLAGS_si) {
+            bool is_safe_to_continue = false;
             order.scan(
                 {w_id, d_id, o_id},
                 [&](const order_t::Key& key, const order_t& rec) {
@@ -367,8 +367,9 @@ class TPCCWorkload
          order.update1(
              {w_id, d_id, o_id}, [&](order_t& rec) { rec.o_carrier_id = carrier_id; }, order_update_descriptor);
          // -------------------------------------------------------------------------------------
-         // First check if all orderlines have been inserted, a hack because of the missing transaction and concurrency control
          if (!FLAGS_si) {
+            // First check if all orderlines have been inserted, a hack because of the missing transaction and concurrency control
+            bool is_safe_to_continue = false;
             orderline.scan(
                 {w_id, d_id, o_id, ol_cnt},
                 [&](const orderline_t::Key& key, const orderline_t&) {
@@ -1018,24 +1019,21 @@ class TPCCWorkload
    // -------------------------------------------------------------------------------------
    void analyticalQuery()
    {
-      for (u64 i = 0; i < FLAGS_tmp6; i++) {
-         Integer sum = 0, last_w = 0, last_i = 0;
-         stock.scan(
-             {1, 0},
-             [&](const stock_t::Key& key, const stock_t&) {
-                sum++;
-                ensure(key.s_w_id >= last_w);
-                last_w = key.s_w_id;
-                last_i = key.s_i_id;
-                return true;
-             },
-             [&]() {});
-         if (sum != warehouseCount * 100000) {
-            cout << "#stocks = " << sum << endl;
-            cout << last_w << "," << last_i << endl;
-            ensure(false);
-         }
+      Integer sum = 0, last_w = 0, last_i = 0;
+      stock.scan(
+          {1, 0},
+          [&](const stock_t::Key& key, const stock_t&) {
+             sum++;
+             ensure(key.s_w_id >= last_w);
+             last_w = key.s_w_id;
+             last_i = key.s_i_id;
+             return true;
+          },
+          [&]() {});
+      if (sum != warehouseCount * 100000) {
+         cout << "#stocks = " << sum << endl;
+         cout << last_w << "," << last_i << endl;
+         ensure(false);
       }
-      // cout << "feting" << endl;
    }
 };

@@ -87,6 +87,7 @@ class BTreeGeneric
       u16 volatile level = 0;
       // -------------------------------------------------------------------------------------
       while (!target_guard->is_leaf) {
+         WorkerCounters::myCounters().dt_inner_page[dt_id]++;
          Swip<BTreeNode>& c_swip = target_guard->lookupInner(key, key_length);
          p_guard = std::move(target_guard);
          if (level == height - 1) {
