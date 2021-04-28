@@ -31,6 +31,7 @@ DEFINE_bool(order_wdc_index, true, "");
 DEFINE_bool(tpcc_cross_warehouses, true, "");
 DEFINE_uint64(tpcc_analytical_weight, 0, "");
 DEFINE_uint64(tpcc_ch, 0, "");
+DEFINE_uint64(tpcc_ch_rounds, 1, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -164,7 +165,9 @@ int main(int argc, char** argv)
             jumpmuTry()
             {
                cr::Worker::my().startTX();
-               tpcc.analyticalQuery();
+               for (u64 i = 0; i < FLAGS_tpcc_ch_rounds; i++) {
+                  tpcc.analyticalQuery();
+               }
                cr::Worker::my().commitTX();
                tx_acc++;
             }

@@ -733,33 +733,29 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             next_sn = secondary_version.next_sn;
             iterator.removeCurrent();
             // TODO: mergeIfNeeded is too expensive here, mmm
+            iterator.mergeIfNeeded();
             iterator.markAsDirty();
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates_versions_removed[btree.dt_id]++; }
          }
-         if (is_removed) {
-            iterator.mergeIfNeeded();
-         }
+         iterator.mergeIfNeeded();
       } else {
-         // Cross workers TODO:
-         // raise(SIGTRAP);
-         if (0) {
-            if (cr::Worker::my().isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
-               cr::Worker::my().commitTODO(primary_version.worker_id, primary_version.tts, cr::Worker::my().so_start, btree.dt_id,
-                                           todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
-                                              auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
-                                              new_todo_entry.key_length = todo_entry.key_length;
-                                              std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
-                                           });
-               primary_version.is_gc_scheduled = true;
-            } else {
-               if (0)
-                  cr::Worker::my().commitTODO(version_worker_id, version_tts, cr::Worker::my().so_start, btree.dt_id,
-                                              todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
-                                                 auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
-                                                 new_todo_entry.key_length = todo_entry.key_length;
-                                                 std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
-                                              });
-            }
+         // Cross workers TODO: better solution?
+         if (cr::Worker::my().isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
+            cr::Worker::my().commitTODO(primary_version.worker_id, primary_version.tts, cr::Worker::my().so_start, btree.dt_id,
+                                        todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
+                                           auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
+                                           new_todo_entry.key_length = todo_entry.key_length;
+                                           std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
+                                        });
+            primary_version.is_gc_scheduled = true;
+         } else {
+            // Any worker or version tts, just a placeholder
+            cr::Worker::my().commitTODO(version_worker_id, version_tts, cr::Worker::my().so_start, btree.dt_id,
+                                        todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
+                                           auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
+                                           new_todo_entry.key_length = todo_entry.key_length;
+                                           std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
+                                        });
          }
       }
    }
