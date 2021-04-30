@@ -39,6 +39,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       if (cur != -1 && before_changing_leaf_cb) {
          before_changing_leaf_cb(leaf);
       }
+      // -------------------------------------------------------------------------------------
       leaf.unlock();
       btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
       prefix_copied = false;
@@ -72,6 +73,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          // -------------------------------------------------------------------------------------
          cur = leaf->lowerBound<false>(key, key_length);
          if (cur == leaf->count) {  // TODO: is it correct
+            raise(SIGTRAP);
             goto restart;
          }
          return true;

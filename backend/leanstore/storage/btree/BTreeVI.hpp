@@ -138,20 +138,41 @@ class BTreeVI : public BTreeLL
       {
          BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
          // -------------------------------------------------------------------------------------
-         u64 found_chains = 0, invisible_versions = 0;
+         MutableSlice s_key = iterator.mutableKeyInBuffer(o_key_length + sizeof(SN));
+         std::memcpy(s_key.data(), o_key, o_key_length);
+         setSN(s_key, 0);
+         OP_RESULT ret;
+         if (asc) {
+            ret = iterator.seek(Slice(s_key.data(), s_key.length()));
+         } else {
+            ret = iterator.seekForPrev(Slice(s_key.data(), s_key.length()));
+         }
+         // -------------------------------------------------------------------------------------
+         bool visible_chain_found = false;
          if (FLAGS_vi_skip_trash_leaves) {
             iterator.registerBeforeChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
-               if (found_chains == 0 && invisible_versions == leaf->count && invisible_versions > 0) {
+               if (!visible_chain_found) {
                   auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
                   leaf.bf->header.meta_data_in_shared_mode_mutex.lock();
                   if (leaf_statistics.skip_if_gsn_equal < leaf.bf->page.GSN) {
-                     leaf_statistics.skip_if_gsn_equal = leaf.bf->page.GSN;
-                     leaf_statistics.skip_if_your_so_start_older = cr::Worker::my().so_start;
+                     bool skippable = true;
+                     for (u64 t_i = 0; t_i < leaf->count && skippable; t_i++) {
+                        ensure(leaf->getKeyLen(t_i) >= sizeof(BTreeVI::SN));
+                        auto& sn = *reinterpret_cast<SN*>(leaf->getKey(t_i) + leaf->getKeyLen(t_i) - sizeof(BTreeVI::SN));
+                        if (sn == 0) {
+                           auto& primary_version =
+                               *reinterpret_cast<PrimaryVersion*>(leaf->getPayload(t_i) + leaf->getPayloadLength(t_i) - sizeof(PrimaryVersion));
+                           skippable &= primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.tts);
+                        }
+                     }
+                     if (skippable) {
+                        leaf_statistics.skip_if_gsn_equal = leaf.bf->page.GSN;
+                        leaf_statistics.skip_if_your_so_start_older = cr::Worker::my().so_start;
+                     }
                   }
                   leaf.bf->header.meta_data_in_shared_mode_mutex.unlock();
                }
-               found_chains = 0;
-               invisible_versions = 0;
+               visible_chain_found = false;
             });
             iterator.registerConditionalLeafSkip([&](HybridPageGuard<BTreeNode>& leaf) {
                auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
@@ -167,18 +188,6 @@ class BTreeVI : public BTreeLL
             });
          }
          // -------------------------------------------------------------------------------------
-         MutableSlice s_key = iterator.mutableKeyInBuffer(o_key_length + sizeof(SN));
-         std::memcpy(s_key.data(), o_key, o_key_length);
-         setSN(s_key, 0);
-         OP_RESULT ret;
-         if (asc) {
-            ret = iterator.seek(Slice(s_key.data(), s_key.length()));
-         } else {
-            ret = iterator.seekForPrev(Slice(s_key.data(), s_key.length()));
-         }
-         if (ret != OP_RESULT::OK && dt_id == 5) {
-            raise(SIGTRAP);
-         }
          while (ret == OP_RESULT::OK) {
             iterator.assembleKey();
             Slice key = iterator.key();
@@ -201,14 +210,10 @@ class BTreeVI : public BTreeLL
             // costs 2K
             auto reconstruct = reconstructTuple(iterator, s_key, [&](Slice value) {
                keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
+               visible_chain_found = true;
                counter++;
             });
             const u16 chain_length = std::get<1>(reconstruct);
-            if (std::get<0>(reconstruct) == OP_RESULT::NOT_FOUND) {
-               invisible_versions += chain_length;
-            } else {
-               found_chains++;
-            }
             COUNTERS_BLOCK()
             {
                WorkerCounters::myCounters().cc_read_chains[dt_id]++;

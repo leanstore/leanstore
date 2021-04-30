@@ -105,6 +105,8 @@ void DTTable::open()
    columns.emplace("cc_rtodo_shrt_executed",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_shrt_executed, dt_id); });
    columns.emplace("cc_rtodo_to_lng", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_to_lng, dt_id); });
+   columns.emplace("cc_todo_1_break", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_1_break, dt_id); });
+   columns.emplace("cc_todo_2_break", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_2_break, dt_id); });
 }
 // -------------------------------------------------------------------------------------
 void DTTable::next()
