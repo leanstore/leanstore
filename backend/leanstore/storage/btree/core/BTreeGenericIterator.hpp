@@ -72,8 +72,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          }
          // -------------------------------------------------------------------------------------
          cur = leaf->lowerBound<false>(key, key_length);
-         if (cur == leaf->count) {  // TODO: is it correct
-            raise(SIGTRAP);
+         if (cur == leaf->count) {  // TODO: argue about it
             goto restart;
          }
          return true;
