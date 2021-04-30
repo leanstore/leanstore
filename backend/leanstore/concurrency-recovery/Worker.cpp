@@ -203,6 +203,7 @@ void Worker::checkup()
                leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
                list.pop_front();
             } else {
+               WorkerCounters::myCounters().cc_todo_1_break[todo.dt_id]++;
                break;
             }
          }
@@ -212,11 +213,12 @@ void Worker::checkup()
          // long_tx_queue
          while (FLAGS_todo && list.size()) {
             auto& todo = list.front();
-            bool safe_to_gc = true;
             if (todo.after_so < oldest_so_start) {
                WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
-               safe_to_gc = true;
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
+               list.pop_front();
             } else if (oldest_so_start < todo.or_before_so) {
+               bool safe_to_gc = true;
                WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
                for (u64 w_i = 0; w_i < workers_count && safe_to_gc; w_i++) {
                   if (((all_so_starts[w_i] < todo.or_before_so) || (all_so_starts[w_i] > todo.after_so)) ||
@@ -226,18 +228,16 @@ void Worker::checkup()
                      safe_to_gc &= false;
                   }
                }
-               if (safe_to_gc)
+               if (safe_to_gc) {
                   WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
+                  leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
+                  list.pop_front();
+               } else {
+                  break;
+               }
             } else {
                WorkerCounters::myCounters().cc_rtodo_to_lng[todo.dt_id]++;
-               todo_commited_queue.splice(todo_commited_queue.end(), todo_long_running_tx_queue, todo_long_running_tx_queue.begin());
-               safe_to_gc = false;
-            }
-            if (safe_to_gc) {
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
-               list.pop_front();
-            } else {
-               break;
+               todo_commited_queue.splice(todo_commited_queue.end(), todo_long_running_tx_queue, todo_long_running_tx_queue.begin());  // TODO:
             }
          }
       }
