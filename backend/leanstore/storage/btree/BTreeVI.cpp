@@ -164,7 +164,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       u64 removed_versions_counter = 0;
       SN recycled_sn = 0;
       bool next_higher = true;
-      const bool pgc = FLAGS_pgc && gc_next_sn && !updated_before_in_the_same_tx && primary_version_versions_counter >= FLAGS_vi_pgc_batch_size;
+      const u64 min_batch_size = std::max<u64>(FLAGS_vi_pgc_batch_size, 1);
+      const bool pgc = FLAGS_pgc && gc_next_sn && !updated_before_in_the_same_tx && primary_version_versions_counter >= min_batch_size;
       if (pgc) {
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[dt_id]++; }
          cr::Worker::my().sortWorkers();  // TODO: 200 L1 miss!
