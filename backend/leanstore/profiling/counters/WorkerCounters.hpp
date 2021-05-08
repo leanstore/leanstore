@@ -76,6 +76,9 @@ struct WorkerCounters {
    atomic<u64> cc_todo_remove[max_dt_id] = {0};
    atomic<u64> cc_todo_updates[max_dt_id] = {0};
    atomic<u64> cc_todo_updates_versions_removed[max_dt_id] = {0};
+   atomic<u64> cc_todo_1_break[max_dt_id] = {0};
+   atomic<u64> cc_todo_2_break[max_dt_id] = {0};
+   atomic<u64> cc_todo_wasted[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    atomic<u64> cc_rtodo_opt_staged[max_dt_id] = {0};
    atomic<u64> cc_rtodo_opt_considered[max_dt_id] = {0};
@@ -83,9 +86,6 @@ struct WorkerCounters {
    atomic<u64> cc_rtodo_shrt_executed[max_dt_id] = {0};
    atomic<u64> cc_rtodo_lng_executed[max_dt_id] = {0};
    atomic<u64> cc_rtodo_to_lng[max_dt_id] = {0};
-   // -------------------------------------------------------------------------------------
-   atomic<u64> cc_todo_1_break[max_dt_id] = {0};
-   atomic<u64> cc_todo_2_break[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    constexpr static u64 VW_MAX_STEPS = 10;
    atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {{0}};

@@ -2,6 +2,7 @@
 #include "Transaction.hpp"
 #include "WALEntry.hpp"
 // -------------------------------------------------------------------------------------
+#include "leanstore/utils/RingBufferST.hpp"
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <functional>
@@ -74,18 +75,20 @@ struct Worker {
    u64 next_tts = 0;
    // Shared with all workers
    // -------------------------------------------------------------------------------------
-   struct TODO {  // In-memory
+   struct TODOEntry {  // In-memory
       u8 version_worker_id;
       u64 version_tts;
       u64 after_so;
       u64 or_before_so;
       DTID dt_id;
+      u64 payload_length;
       // -------------------------------------------------------------------------------------
-      u8 entry[64];  // TODO: dyanmically allocating buffer is costly
+      u8 payload[];  // TODO: dyanmically allocating buffer is costly
    };
-   static bool todoComp(TODO& lhs, TODO& rhs) { return lhs.after_so < rhs.after_so; }
-   std::priority_queue<TODO, std::list<TODO>, decltype(&todoComp)> todo_globally_visible, todo_partially_visible;
-   std::list<TODO> todo_commited_queue, todo_long_running_tx_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
+   u8* todo_hwm_tx_start = nullptr;
+   u8* todo_lwm_tx_start = nullptr;
+   utils::RingBufferST todo_hwm_rb, todo_lwm_rb, todo_lwm_hwm_rb;
+   std::list<TODOEntry> todo_commited_queue, todo_long_running_tx_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
    void stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
    void commitTODO(u8 worker_id, u64 tts, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    void commitTODOs(u64 so);
@@ -121,7 +124,6 @@ struct Worker {
    static constexpr s64 WORKER_WAL_SIZE = 1024 * 1024 * 10;
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
-   // Published using mutex
    u8 pad3[64];
    atomic<u64> wal_gct_max_gsn_0 = 0;
    atomic<u64> wal_gct_max_gsn_1 = 0;

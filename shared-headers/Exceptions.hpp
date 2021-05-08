@@ -48,7 +48,7 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
 #define ensure(e) always_check(e)
 #endif
 // -------------------------------------------------------------------------------------
-#define TODO() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
+#define TODOException() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
 #define explain(e)  \
   if (!(e)) {       \
