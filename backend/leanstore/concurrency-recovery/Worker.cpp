@@ -25,7 +25,13 @@ std::unique_ptr<atomic<u64>[]> Worker::global_so_starts;
 std::unique_ptr<atomic<u64>[]> Worker::global_tts;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
-    : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), ssd_fd(fd)
+    : worker_id(worker_id),
+      all_workers(all_workers),
+      workers_count(workers_count),
+      ssd_fd(fd),
+      todo_hwm_rb(1024ull * 1024 * 100),
+      todo_lwm_rb(1024ull * 1024 * 100),
+      todo_lwm_hwm_rb(1024ull * 1024 * 10)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
@@ -193,15 +199,15 @@ void Worker::checkup()
          refreshSnapshot();
       }
       force_si_refresh = false;
+
       {
-         // short_tx_queue
-         auto& list = todo_commited_queue;
-         while (FLAGS_todo && list.size()) {
-            auto& todo = list.front();
+         auto& rb = todo_hwm_rb;
+         while (FLAGS_todo && !rb.empty()) {
+            auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
             if (oldest_so_start > todo.after_so) {
                WorkerCounters::myCounters().cc_rtodo_lng_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
-               list.pop_front();
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
+               rb.popFront();
             } else {
                WorkerCounters::myCounters().cc_todo_1_break[todo.dt_id]++;
                break;
@@ -209,14 +215,27 @@ void Worker::checkup()
          }
       }
       {
-         auto& list = todo_long_running_tx_queue;
-         // long_tx_queue
-         while (FLAGS_todo && list.size()) {
-            auto& todo = list.front();
-            if (todo.after_so < oldest_so_start) {
+         auto& rb = todo_lwm_hwm_rb;
+         while (FLAGS_todo && !rb.empty()) {
+            auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
+            if (oldest_so_start > todo.after_so) {
+               WorkerCounters::myCounters().cc_rtodo_lng_executed[todo.dt_id]++;
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
+               rb.popFront();
+            } else {
+               WorkerCounters::myCounters().cc_todo_1_break[todo.dt_id]++;
+               break;
+            }
+         }
+      }
+      {
+         auto& rb = todo_lwm_rb;
+         while (FLAGS_todo && !rb.empty()) {
+            auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
+            if (oldest_so_start > todo.after_so) {
                WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
-               list.pop_front();
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
+               rb.popFront();
             } else if (oldest_so_start < todo.or_before_so) {
                bool safe_to_gc = true;
                WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
@@ -230,14 +249,17 @@ void Worker::checkup()
                }
                if (safe_to_gc) {
                   WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
-                  leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.entry, todo.version_worker_id, todo.version_tts);
-                  list.pop_front();
+                  leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
+                  rb.popFront();
                } else {
                   break;
                }
             } else {
                WorkerCounters::myCounters().cc_rtodo_to_lng[todo.dt_id]++;
-               todo_commited_queue.splice(todo_commited_queue.end(), todo_long_running_tx_queue, todo_long_running_tx_queue.begin());  // TODO:
+               const u64 total_todo_length = todo.payload_length + sizeof(TODOEntry);
+               u8* new_hwm_todo = todo_hwm_rb.pushBack(total_todo_length);
+               std::memcpy(new_hwm_todo, rb.front(), total_todo_length);
+               rb.popFront();
             }
          }
       }
@@ -427,40 +449,57 @@ outofmemory : {
 }
 }
 // -------------------------------------------------------------------------------------
-void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8*)> cb, u64 or_before_so)
+void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb, u64 or_before_so)
 {
-   ensure(size <= 64);
-   if (oldest_so_start > or_before_so) {
+   u8* todo_ptr;
+   const u64 total_todo_length = payload_length + sizeof(TODOEntry);
+   if (FLAGS_vi_twoq_todo && or_before_so && oldest_so_start < or_before_so) {
+      todo_ptr = todo_lwm_rb.pushBack(total_todo_length);
+      if (todo_lwm_tx_start == nullptr) {
+         todo_lwm_tx_start = todo_ptr;
+      }
+      WorkerCounters::myCounters().cc_rtodo_opt_staged[dt_id]++;
+   } else {
       or_before_so = 0;
+      todo_ptr = todo_hwm_rb.pushBack(total_todo_length);
+      if (todo_hwm_tx_start == nullptr) {
+         todo_hwm_tx_start = todo_ptr;
+      }
    }
-   todo_staging_queue.push_back({worker_id, tts, 0, or_before_so, dt_id, {}});
-   cb(todo_staging_queue.back().entry);
+   auto& todo_entry = *new (todo_ptr) TODOEntry();
+   todo_entry.version_worker_id = worker_id;
+   todo_entry.version_tts = tts;
+   todo_entry.dt_id = dt_id;
+   todo_entry.payload_length = payload_length;
+   todo_entry.or_before_so = or_before_so;
+   // -------------------------------------------------------------------------------------
+   cb(todo_entry.payload);
 }
 // -------------------------------------------------------------------------------------
 void Worker::commitTODOs(u64 so)
 {
-   auto it = todo_staging_queue.begin();
-   while (it != todo_staging_queue.end()) {
-      it->after_so = so;
-      auto next = std::next(it, 1);
-      if (FLAGS_vi_twoq_todo && it->or_before_so > oldest_so_start) {
-         WorkerCounters::myCounters().cc_rtodo_opt_staged[it->dt_id]++;
-         todo_long_running_tx_queue.splice(todo_long_running_tx_queue.begin(), todo_staging_queue, it);
-         // TODO: use a priority queue
-         // todo_long_running_tx_queue.splice(todo_long_running_tx_queue.begin(), todo_staging_queue, it);
-      } else {
-         todo_commited_queue.splice(todo_commited_queue.end(), todo_staging_queue, it);
-      }
-      it = next;
+   if (todo_hwm_tx_start) {
+      todo_hwm_rb.iterateUntilTail(todo_hwm_tx_start, [&](u8* rb_payload) { reinterpret_cast<TODOEntry*>(rb_payload)->after_so = so; });
+      todo_hwm_tx_start = nullptr;
    }
-   ensure(todo_staging_queue.size() == 0);
+   if (todo_lwm_tx_start) {
+      todo_lwm_rb.iterateUntilTail(todo_lwm_tx_start, [&](u8* rb_payload) { reinterpret_cast<TODOEntry*>(rb_payload)->after_so = so; });
+      todo_lwm_tx_start = nullptr;
+   }
 }
 // -------------------------------------------------------------------------------------
-void Worker::commitTODO(u8 worker_id, u64 tts, u64 after_so, DTID dt_id, u64 size, std::function<void(u8*)> cb)
+void Worker::commitTODO(u8 worker_id, u64 tts, u64 after_so, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb)
 {
-   ensure(size <= 64);
-   todo_commited_queue.push_back({worker_id, tts, after_so, 0, dt_id, {}});
-   cb(todo_commited_queue.back().entry);
+   const u64 total_todo_length = sizeof(TODOEntry) + payload_length;
+   u8* todo_ptr = todo_hwm_rb.pushBack(total_todo_length);
+   auto& todo_entry = *new (todo_ptr) TODOEntry();
+   todo_entry.version_worker_id = worker_id;
+   todo_entry.version_tts = tts;
+   todo_entry.dt_id = dt_id;
+   todo_entry.payload_length = payload_length;
+   todo_entry.after_so = after_so;
+   todo_entry.or_before_so = 0;
+   cb(todo_entry.payload);
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

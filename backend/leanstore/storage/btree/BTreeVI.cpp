@@ -106,9 +106,10 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          jumpmu_return ret;
       }
       // -------------------------------------------------------------------------------------
-      if (FLAGS_vi_fupdate) {
+      if (FLAGS_vi_fupdate || FLAGS_tmp6 == dt_id) {  // dt_id == 0 || dt_id == 8 || dt_id == 1000 || dt_id == 100
          auto current_value = iterator.mutableValue();
          callback(current_value.data(), current_value.length());
+         iterator.contentionSplit();
          jumpmu_return OP_RESULT::OK;
       }
       // -------------------------------------------------------------------------------------
@@ -303,13 +304,16 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          primary_version.commited_after_so = cr::Worker::my().so_start;
          primary_version.tmp = 1;
          // -------------------------------------------------------------------------------------
-         if (FLAGS_vi_utodo && !primary_version.is_gc_scheduled) {
-            cr::Worker::my().stageTODO(primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
-               auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
-               todo_entry.key_length = o_key_length;
-               todo_entry.sn = secondary_sn;
-               std::memcpy(todo_entry.key, o_key, o_key_length);
-            });
+         if (FLAGS_vi_utodo && !primary_version.is_gc_scheduled && FLAGS_tmp7 != dt_id) {  // TODO: && dt_id != 1 && dt_id != 0
+            cr::Worker::my().stageTODO(
+                primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry),
+                [&](u8* entry) {
+                   auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
+                   todo_entry.key_length = o_key_length;
+                   todo_entry.sn = secondary_sn;
+                   std::memcpy(todo_entry.key, o_key, o_key_length);
+                },
+                (primary_version.versions_counter == 1) ? primary_version.commited_after_so : 0);
             primary_version.is_gc_scheduled = true;
          }
          // -------------------------------------------------------------------------------------
@@ -319,7 +323,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       }
    }
    jumpmuCatch() { ensure(false); }
-}  // namespace btree
+}
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_length)
 {
@@ -701,6 +705,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       MutableSlice primary_payload = iterator.mutableValue();
       PrimaryVersion& primary_version =
           *reinterpret_cast<PrimaryVersion*>(primary_payload.data() + primary_payload.length() - sizeof(PrimaryVersion));
+      primary_version.is_gc_scheduled = false;
       const bool safe_to_gc =
           (primary_version.worker_id == version_worker_id && primary_version.tts == version_tts) && !primary_version.isWriteLocked();
       if (safe_to_gc) {
@@ -714,7 +719,6 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          } else {
             primary_version.versions_counter = 1;
             primary_version.next_sn = 0;
-            primary_version.is_gc_scheduled = false;
             primary_version.tmp = -1;
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates[btree.dt_id]++; }
          }
@@ -740,23 +744,26 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          }
          iterator.mergeIfNeeded();
       } else {
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_wasted[btree.dt_id]++; }
          // Cross workers TODO: better solution?
-         if (cr::Worker::my().isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
-            cr::Worker::my().commitTODO(primary_version.worker_id, primary_version.tts, cr::Worker::my().so_start, btree.dt_id,
-                                        todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
-                                           auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
-                                           new_todo_entry.key_length = todo_entry.key_length;
-                                           std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
-                                        });
+         if (!primary_version.isWriteLocked()) {
+            if (cr::Worker::my().isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
+               cr::Worker::my().commitTODO(primary_version.worker_id, primary_version.tts, cr::Worker::my().so_start, btree.dt_id,
+                                           todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
+                                              auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
+                                              new_todo_entry.key_length = todo_entry.key_length;
+                                              std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
+                                           });
+            } else {
+               // Any worker or version tts, just a placeholder
+               cr::Worker::my().commitTODO(version_worker_id, version_tts, cr::Worker::my().so_start, btree.dt_id,
+                                           todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
+                                              auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
+                                              new_todo_entry.key_length = todo_entry.key_length;
+                                              std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
+                                           });
+            }
             primary_version.is_gc_scheduled = true;
-         } else {
-            // Any worker or version tts, just a placeholder
-            cr::Worker::my().commitTODO(version_worker_id, version_tts, cr::Worker::my().so_start, btree.dt_id,
-                                        todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
-                                           auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
-                                           new_todo_entry.key_length = todo_entry.key_length;
-                                           std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
-                                        });
          }
       }
    }

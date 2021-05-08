@@ -43,8 +43,10 @@ void DTTable::open()
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_fail_counter, dt_id); });
    columns.emplace("dt_merge_succ", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_succ, dt_id); });
    columns.emplace("dt_merge_fail", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_fail, dt_id); });
-   columns.emplace("dt_merge_parent_succ", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_parent_succ, dt_id); });
-   columns.emplace("dt_merge_parent_fail", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_parent_fail, dt_id); });
+   columns.emplace("dt_merge_parent_succ",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_parent_succ, dt_id); });
+   columns.emplace("dt_merge_parent_fail",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_parent_fail, dt_id); });
    columns.emplace("xmerge_partial_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::xmerge_partial_counter, dt_id); });
    columns.emplace("xmerge_full_counter",
@@ -107,6 +109,7 @@ void DTTable::open()
    columns.emplace("cc_rtodo_to_lng", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_to_lng, dt_id); });
    columns.emplace("cc_todo_1_break", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_1_break, dt_id); });
    columns.emplace("cc_todo_2_break", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_2_break, dt_id); });
+   columns.emplace("cc_todo_wasted", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_wasted, dt_id); });
 }
 // -------------------------------------------------------------------------------------
 void DTTable::next()
