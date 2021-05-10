@@ -235,7 +235,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                if (recycled_sn == 0 && iterator.mutableValue().length() >= secondary_payload_length) {
                   recycled_sn = cur_sn;
                   secondary_sn = cur_sn;
-                  COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_recycled[dt_id]++; }
                } else {
                   ret = iterator.removeCurrent();
                   ensure(ret == OP_RESULT::OK);
@@ -249,6 +248,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             }
          }
          if (cur_sn != 0 && w == cr::Worker::my().workers_count) {
+            // Note: getSN(m_key) != cur_sn;
             // TODO: rest of the chain should be pruned
          }
       }
@@ -261,6 +261,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // -------------------------------------------------------------------------------------
          std::memcpy(iterator.mutableValue().data(), secondary_payload, secondary_payload_length);
          iterator.shorten(secondary_payload_length);
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_recycled[dt_id]++; }
       } else {
          do {
             secondary_sn = leanstore::utils::RandomGenerator::getRand<SN>(0, std::numeric_limits<SN>::max());
