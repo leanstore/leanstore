@@ -75,11 +75,10 @@ class BTreeLL : public KVInterface, public BTreeGeneric
    // -------------------------------------------------------------------------------------
   protected:
    // WAL / CC
-   u64 calculateDeltaSize(const UpdateSameSizeInPlaceDescriptor& update_descriptor);
-   void copyDiffTo(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
-   void copyDiffFrom(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
-   void XORDiffTo(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
-   void XORDiffFrom(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
+   static void generateDiff(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
+   static void applyDiff(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
+   static void generateXORDiff(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
+   static void applyXORDiff(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace btree

@@ -153,7 +153,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
       if (FLAGS_wal) {
          assert(update_descriptor.count > 0);  // if it is a secondary index, then we can not use updateSameSize
          // -------------------------------------------------------------------------------------
-         const u16 delta_length = update_descriptor.size() + calculateDeltaSize(update_descriptor);
+         const u16 delta_length = update_descriptor.size() + update_descriptor.diffLength();
          auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdate>(key.length() + delta_length);
          wal_entry->type = WAL_LOG_TYPE::WALUpdate;
          wal_entry->key_length = key.length();
@@ -163,10 +163,10 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
          wal_ptr += key.length();
          std::memcpy(wal_ptr, &update_descriptor, update_descriptor.size());
          wal_ptr += update_descriptor.size();
-         copyDiffTo(update_descriptor, wal_ptr, current_value.data());
+         generateDiff(update_descriptor, wal_ptr, current_value.data());
          // The actual update by the client
          callback(current_value.data(), current_value.length());
-         XORDiffTo(update_descriptor, wal_ptr, current_value.data());
+         generateXORDiff(update_descriptor, wal_ptr, current_value.data());
          wal_entry.submit();
       } else {
          callback(current_value.data(), current_value.length());
@@ -267,56 +267,47 @@ void BTreeLL::deserialize(void* btree_object, std::unordered_map<std::string, st
    BTreeGeneric::deserialize(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), serialized);
 }
 // -------------------------------------------------------------------------------------
-u64 BTreeLL::calculateDeltaSize(const UpdateSameSizeInPlaceDescriptor& update_descriptor)
-{
-   u64 total_size = 0;
-   for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
-      total_size += update_descriptor.slots[a_i].size;
-   }
-   return total_size;
-}
-// -------------------------------------------------------------------------------------
-void BTreeLL::copyDiffTo(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
+void BTreeLL::generateDiff(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
 {
    u64 dst_offset = 0;
    for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
       const auto& slot = update_descriptor.slots[a_i];
-      std::memcpy(dst + dst_offset, src + slot.offset, slot.size);
-      dst_offset += slot.size;
+      std::memcpy(dst + dst_offset, src + slot.offset, slot.length);
+      dst_offset += slot.length;
    }
 }
 // -------------------------------------------------------------------------------------
-void BTreeLL::copyDiffFrom(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
+void BTreeLL::applyDiff(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
 {
    u64 src_offset = 0;
    for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
       const auto& slot = update_descriptor.slots[a_i];
-      std::memcpy(dst + slot.offset, src + src_offset, slot.size);
-      src_offset += slot.size;
+      std::memcpy(dst + slot.offset, src + src_offset, slot.length);
+      src_offset += slot.length;
    }
 }
 // -------------------------------------------------------------------------------------
-void BTreeLL::XORDiffTo(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
+void BTreeLL::generateXORDiff(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
 {
    u64 dst_offset = 0;
    for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
       const auto& slot = update_descriptor.slots[a_i];
-      for (u64 b_i = 0; b_i < slot.size; b_i++) {
+      for (u64 b_i = 0; b_i < slot.length; b_i++) {
          *(dst + dst_offset + b_i) ^= *(src + slot.offset + b_i);
       }
-      dst_offset += slot.size;
+      dst_offset += slot.length;
    }
 }
 // -------------------------------------------------------------------------------------
-void BTreeLL::XORDiffFrom(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
+void BTreeLL::applyXORDiff(const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* dst, const u8* src)
 {
    u64 src_offset = 0;
    for (u64 a_i = 0; a_i < update_descriptor.count; a_i++) {
       const auto& slot = update_descriptor.slots[a_i];
-      for (u64 b_i = 0; b_i < slot.size; b_i++) {
+      for (u64 b_i = 0; b_i < slot.length; b_i++) {
          *(dst + slot.offset + b_i) ^= *(src + src_offset + b_i);
       }
-      src_offset += slot.size;
+      src_offset += slot.length;
    }
 }
 // -------------------------------------------------------------------------------------

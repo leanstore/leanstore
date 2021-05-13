@@ -9,25 +9,28 @@ namespace leanstore
 {
 // -------------------------------------------------------------------------------------
 enum class OP_RESULT : u8 { OK = 0, NOT_FOUND = 1, DUPLICATE = 2, ABORT_TX = 3, NOT_ENOUGH_SPACE = 4, OTHER = 5 };
-struct WALUpdateGenerator {
-   void (*before)(u8* tuple, u8* entry);
-   void (*after)(u8* tuple, u8* entry);
-   u16 entry_size;
-};
 struct UpdateSameSizeInPlaceDescriptor {
    u8 count = 0;
    struct Slot {
       u16 offset;
-      u16 size;
+      u16 length;
    };
    Slot slots[];
    u64 size() const { return sizeof(UpdateSameSizeInPlaceDescriptor) + (count * sizeof(UpdateSameSizeInPlaceDescriptor::Slot)); }
+   u64 diffLength() const
+   {
+      u64 length = 0;
+      for (u8 i = 0; i < count; i++) {
+         length += slots[i].length;
+      }
+      return length;
+   }
    bool operator==(const UpdateSameSizeInPlaceDescriptor& other)
    {
       if (count != other.count)
          return false;
       for (u8 i = 0; i < count; i++) {
-         if (slots[i].offset != other.slots[i].offset || slots[i].size != other.slots[i].size)
+         if (slots[i].offset != other.slots[i].offset || slots[i].length != other.slots[i].length)
             return false;
       }
       return true;

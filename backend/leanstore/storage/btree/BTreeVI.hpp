@@ -22,40 +22,6 @@ namespace btree
 class BTreeVI : public BTreeLL
 {
   public:
-   using SN = u64;
-   struct __attribute__((packed)) PrimaryVersion {
-      u64 tts : 56;
-      u8 worker_id : 8;
-      u8 write_locked : 1;
-      u8 is_removed : 1;
-      u8 is_gc_scheduled : 1;
-      // -------------------------------------------------------------------------------------
-      u64 versions_counter = 1;
-      u64 commited_after_so = 0;
-      SN next_sn = 0;
-      s64 tmp = 0;
-      // -------------------------------------------------------------------------------------
-      PrimaryVersion(u8 worker_id, u64 tts) : tts(tts), worker_id(worker_id), write_locked(false), is_removed(false), is_gc_scheduled(false) {}
-      bool isFinal() const { return next_sn == 0; }
-      bool isWriteLocked() const { return write_locked; }
-      void writeLock() { write_locked = true; }
-      void unlock() { write_locked = false; }
-   };
-   struct __attribute__((packed)) SecondaryVersion {
-      u8 worker_id : 8;
-      u64 tts : 56;
-      u64 commited_before_so;
-      u64 commited_after_so;
-      u8 is_removed : 1;
-      u8 is_delta : 1;  // TODO: atm, always true
-      SN next_sn;
-      u8 is_skippable : 1;  // TODO: atm, not used
-      SecondaryVersion(u8 worker_id, u64 tts, bool is_removed, bool is_delta, SN next_sn = 0)
-          : worker_id(worker_id), tts(tts), is_removed(is_removed), is_delta(is_delta), next_sn(next_sn)
-      {
-      }
-      bool isFinal() const { return next_sn == 0; }
-   };
    struct WALBeforeAfterImage : WALEntry {
       u16 image_size;
       u8 payload[];
@@ -95,17 +61,120 @@ class BTreeVI : public BTreeLL
       u8 payload[];
    };
    // -------------------------------------------------------------------------------------
-   struct TODOEntry {
-      u16 key_length;
-      SN sn;
-      u8 key[];
-   };
-   // -------------------------------------------------------------------------------------
+   // Skip invisible pages optimization
    struct LeafStatistics {
       u64 skip_if_gsn_equal = 0;  // And
       u64 skip_if_your_so_start_older = 0;
    };
-   static_assert(sizeof(LeafStatistics) <= 64, "");
+   static_assert(sizeof(LeafStatistics) <= 64, "LeafStatistics does not fit in BTreeNode magic box");
+   // -------------------------------------------------------------------------------------
+   /*
+     Plan: we should handle frequently and infrequently updated tuples differently when it comes to maintaining
+     versions in the b-tree.
+     For frequently updated tuples, we store them in a FatTuple
+
+     Prepartion phase: iterate over the chain and check whether all updated attributes are the same
+     and whether they fit on a page
+     If both conditions are fullfiled then we can store them in a fat tuple
+     When FatTuple runs out of space, we simply crash for now (real solutions approx variable-size pages or fallback to chained keys)
+     ----------------------------------------------------------------------------
+     How to convert CHAINED to FAT_TUPLE:
+     using versions_counter and value_length, allocate fat_tuple on the stack and append all diffs to the fat tuple
+     FOR NOW, we assume same_diffs
+     ----------------------------------------------------------------------------
+     Glossary:
+        UpdateDescriptor: (offset, length)[]
+        Diff: raw bytes copied from src/dst next to each other according to the descriptor
+        Delta: WWTS + diff + (descriptor)?
+    */
+   enum class TupleFormat : u8 { FAT_TUPLE, CHAINED, VISIBLE_FOR_ALL };
+   struct Tuple {
+      TupleFormat tuple_format;
+      Tuple(TupleFormat tuple_format) : tuple_format(tuple_format) {}
+   };
+   // -------------------------------------------------------------------------------------
+   using ChainSN = u64;
+   struct TODOEntry {
+      // TODO converts chained to fat when: it failes to prune more than x times (not sure about this trigger)
+      u16 key_length;
+      ChainSN sn;
+      u8 key[];
+   };
+   // -------------------------------------------------------------------------------------
+   // No PGC for chained, always TODO
+   struct __attribute__((packed)) ChainedTuple : Tuple {
+      u64 tts : 56;
+      u8 worker_id : 8;
+      u8 write_locked : 1;
+      u8 is_removed : 1;
+      u8 is_gc_scheduled : 1;
+      // -------------------------------------------------------------------------------------
+      u64 versions_counter = 1;
+      u64 commited_after_so = 0;
+      ChainSN next_sn = 0;
+      s64 tmp = 0;
+      u8 payload[];  // latest version in-place
+                     // -------------------------------------------------------------------------------------
+      ChainedTuple(u8 worker_id, u64 tts)
+          : Tuple(TupleFormat::CHAINED), tts(tts), worker_id(worker_id), write_locked(false), is_removed(false), is_gc_scheduled(false)
+      {
+      }
+      bool isFinal() const { return next_sn == 0; }
+      bool isWriteLocked() const { return write_locked; }
+      void writeLock() { write_locked = true; }
+      void unlock() { write_locked = false; }
+   };
+   struct __attribute__((packed)) ChainedTupleDelta {
+      u8 worker_id : 8;
+      u64 tts : 56;
+      u64 commited_before_so;
+      u64 commited_after_so;
+      u8 is_removed : 1;
+      u8 is_delta : 1;  // TODO: atm, always true
+      ChainSN next_sn;
+      u8 payload[];  // UpdateDescriptor + Diff
+      // -------------------------------------------------------------------------------------
+      ChainedTupleDelta(u8 worker_id, u64 tts, bool is_removed, bool is_delta, ChainSN next_sn = 0)
+          : worker_id(worker_id), tts(tts), is_removed(is_removed), is_delta(is_delta), next_sn(next_sn)
+      {
+      }
+      bool isFinal() const { return next_sn == 0; }
+   };
+   // -------------------------------------------------------------------------------------
+   struct __attribute__((packed)) FatTuple : Tuple {
+      // No TODOs for FatTuple, always PGC
+      struct Delta {
+         u64 tts : 56;
+         u8 worker_id : 8;
+         u64 commited_before_so;
+         u8 payload[];  // (desriptor + diff) OR diff
+      };
+      // -------------------------------------------------------------------------------------
+      u64 tts : 56;
+      u8 worker_id : 8;
+      u64 latest_commited_after_so;
+      // -------------------------------------------------------------------------------------
+      u8 same_attributes : 1;
+      u8 write_locked : 1;  // Needed to revert from FatTuple format to Chained
+      u16 value_length;
+      u16 total_space, used_space;  // from the payload bytes array
+      u8 payload[];
+      // same_attributes: value, diff descriptor, DeltaWithoutDescriptor[] N2O
+      // TODO: not sure if we really want it: !same_attributes: value, DeltaWithDescriptor[] N2O
+      // -------------------------------------------------------------------------------------
+      FatTuple() : Tuple(TupleFormat::FAT_TUPLE)
+      {
+         same_attributes = true;
+         write_locked = false;
+      }
+      // returns false to fallback to chained mode
+      bool update(function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor&, BTreeVI& btree);
+      const UpdateSameSizeInPlaceDescriptor& updatedAttributesDescriptor() const;
+      inline constexpr u8* value() { return payload; }
+      inline const u8* cvalue() const { return payload; }
+      std::tuple<OP_RESULT, u16> reconstructTuple(std::function<void(Slice value)> callback) const;
+   };
+   void convertChainedToFatTuple(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
    // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
@@ -138,7 +207,7 @@ class BTreeVI : public BTreeLL
       {
          BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
          // -------------------------------------------------------------------------------------
-         MutableSlice s_key = iterator.mutableKeyInBuffer(o_key_length + sizeof(SN));
+         MutableSlice s_key = iterator.mutableKeyInBuffer(o_key_length + sizeof(ChainSN));
          std::memcpy(s_key.data(), o_key, o_key_length);
          setSN(s_key, 0);
          OP_RESULT ret;
@@ -157,11 +226,11 @@ class BTreeVI : public BTreeLL
                   if (leaf_statistics.skip_if_gsn_equal < leaf.bf->page.GSN) {
                      bool skippable = true;
                      for (u64 t_i = 0; t_i < leaf->count && skippable; t_i++) {
-                        ensure(leaf->getKeyLen(t_i) >= sizeof(BTreeVI::SN));
-                        auto& sn = *reinterpret_cast<SN*>(leaf->getKey(t_i) + leaf->getKeyLen(t_i) - sizeof(BTreeVI::SN));
+                        ensure(leaf->getKeyLen(t_i) >= sizeof(BTreeVI::ChainSN));
+                        auto& sn = *reinterpret_cast<ChainSN*>(leaf->getKey(t_i) + leaf->getKeyLen(t_i) - sizeof(BTreeVI::ChainSN));
                         if (sn == 0) {
                            auto& primary_version =
-                               *reinterpret_cast<PrimaryVersion*>(leaf->getPayload(t_i) + leaf->getPayloadLength(t_i) - sizeof(PrimaryVersion));
+                               *reinterpret_cast<ChainedTuple*>(leaf->getPayload(t_i) + leaf->getPayloadLength(t_i) - sizeof(ChainedTuple));
                            skippable &= primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.tts);
                         }
                      }
@@ -209,7 +278,7 @@ class BTreeVI : public BTreeLL
             // -------------------------------------------------------------------------------------
             // costs 2K
             auto reconstruct = reconstructTuple(iterator, s_key, [&](Slice value) {
-               keep_scanning = callback(s_key.data(), s_key.length() - sizeof(SN), value.data(), value.length());
+               keep_scanning = callback(s_key.data(), s_key.length() - sizeof(ChainSN), value.data(), value.length());
                visible_chain_found = true;
                counter++;
             });
@@ -243,40 +312,41 @@ class BTreeVI : public BTreeLL
       jumpmuCatch() { ensure(false); }
    }
    // -------------------------------------------------------------------------------------
-   inline u8 myWorkerID() { return cr::Worker::my().worker_id; }
-   inline u64 myTTS() { return cr::Worker::my().active_tx.tts; }
-   inline u64 myWTTS() { return myWorkerID() | (myTTS() << 8); }
    inline bool isVisibleForMe(u8 worker_id, u64 tts) { return cr::Worker::my().isVisibleForMe(worker_id, tts); }
    inline bool isVisibleForMe(u64 wtts) { return cr::Worker::my().isVisibleForMe(wtts); }
    inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
    // -------------------------------------------------------------------------------------
    template <typename T>
-   inline SN getSN(T key)
+   inline ChainSN getSN(T key)
    {
-      return swap(*reinterpret_cast<const SN*>(key.data() + key.length() - sizeof(SN)));
+      return swap(*reinterpret_cast<const ChainSN*>(key.data() + key.length() - sizeof(ChainSN)));
    }
-   inline void setSN(MutableSlice key, SN sn) { *reinterpret_cast<SN*>(key.data() + key.length() - sizeof(SN)) = swap(sn); }
+   inline void setSN(MutableSlice key, ChainSN sn) { *reinterpret_cast<ChainSN*>(key.data() + key.length() - sizeof(ChainSN)) = swap(sn); }
    static void applyDelta(u8* dst, const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* src);
    inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback)
    {
       Slice payload = iterator.value();
       assert(getSN(key) == 0);
-      const PrimaryVersion& primary_version = *reinterpret_cast<const PrimaryVersion*>(payload.data() + payload.length() - sizeof(PrimaryVersion));
-      if (isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
-         if (primary_version.is_removed) {
-            return {OP_RESULT::NOT_FOUND, 1};
-         }
-         callback(payload.substr(0, payload.length() - sizeof(PrimaryVersion)));
-         return {OP_RESULT::OK, 1};
-      } else {
-         if (primary_version.isFinal()) {
-            return {OP_RESULT::NOT_FOUND, 1};
+      if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
+         const ChainedTuple& primary_version = *reinterpret_cast<const ChainedTuple*>(payload.data());
+         if (isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
+            if (primary_version.is_removed) {
+               return {OP_RESULT::NOT_FOUND, 1};
+            }
+            callback(Slice(primary_version.payload, payload.length() - sizeof(ChainedTuple)));
+            return {OP_RESULT::OK, 1};
          } else {
-            return reconstructTupleSlowPath(iterator, key, callback);
+            if (primary_version.isFinal()) {
+               return {OP_RESULT::NOT_FOUND, 1};
+            } else {
+               return reconstructChainedTuple(iterator, key, callback);
+            }
          }
+      } else {
+         return reinterpret_cast<const FatTuple*>(payload.data())->reconstructTuple(callback);
       }
    }
-   std::tuple<OP_RESULT, u16> reconstructTupleSlowPath(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback);
+   std::tuple<OP_RESULT, u16> reconstructChainedTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace btree

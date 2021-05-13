@@ -217,6 +217,11 @@ struct Worker {
    }
    void submitDTEntry(u64 total_size);
    // -------------------------------------------------------------------------------------
+   inline u8 workerID() { return worker_id; }
+   inline u64 TTS() { return active_tx.tts; }
+   inline u64 WTTS() { return workerID() | (TTS() << 8); }
+   inline u64 SOStart() { return so_start; }
+
   public:
    // -------------------------------------------------------------------------------------
    // TX Control

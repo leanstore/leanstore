@@ -188,7 +188,7 @@ bool BTreeVW::reconstructTuple(u8* payload, u16& payload_length, u8 start_worker
             case WAL_LOG_TYPE::WALUpdate: {
                auto& update_entry = *reinterpret_cast<WALUpdate*>(entry);
                const auto& update_descriptor = *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(update_entry.payload + update_entry.key_length);
-               XORDiffTo(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
+               generateXORDiff(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
                is_removed = false;
                break;
             }
@@ -243,7 +243,7 @@ OP_RESULT BTreeVW::updateSameSizeInPlace(u8* key,
                   assert(update_descriptor.count > 0);  // If it is a secondary index, then we can not use updateSameSize
                   // -------------------------------------------------------------------------------------
                   const u16 descriptor_size = update_descriptor.size();
-                  const u16 delta_size = calculateDeltaSize(update_descriptor);
+                  const u16 delta_size = update_descriptor.diffLength();
                   auto wal_entry = leaf_ex_guard.reserveWALEntry<WALUpdate>(key_length + descriptor_size + delta_size);
                   wal_entry->type = WAL_LOG_TYPE::WALUpdate;
                   wal_entry->key_length = key_length;
@@ -254,10 +254,10 @@ OP_RESULT BTreeVW::updateSameSizeInPlace(u8* key,
                   wal_ptr += key_length;
                   std::memcpy(wal_ptr, &update_descriptor, descriptor_size);
                   wal_ptr += descriptor_size;
-                  copyDiffTo(update_descriptor, wal_ptr, payload);
+                  generateDiff(update_descriptor, wal_ptr, payload);
                   // The actual update by the client
                   callback(payload, payload_length);
-                  XORDiffTo(update_descriptor, wal_ptr, payload);
+                  generateXORDiff(update_descriptor, wal_ptr, payload);
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
                   version.worker_id = myWorkerID();
@@ -517,7 +517,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                u8* payload = leaf_ex_guard->getPayload(pos) + VW_PAYLOAD_OFFSET;
                const auto& update_descriptor =
                    *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(update_entry.payload + update_entry.key_length);
-               btree.XORDiffTo(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
+               btree.generateXORDiff(update_descriptor, payload, update_entry.payload + update_entry.key_length + update_descriptor.size());
                // -------------------------------------------------------------------------------------
                version.tts = update_entry.prev_version.tts;
                version.worker_id = update_entry.prev_version.worker_id;
