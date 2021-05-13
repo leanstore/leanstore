@@ -17,7 +17,7 @@ using std::vector;
 
 #define UpdateDescriptorFillSlot(Name, Index, Type, Attribute) \
    Name.slots[Index].offset = offsetof(Type, Attribute);       \
-   Name.slots[Index].size = sizeof(Type::Attribute);
+   Name.slots[Index].length = sizeof(Type::Attribute);
 
 #define UpdateDescriptorGenerator1(Name, Type, A0) \
    UpdateDescriptorInit(Name, 1);                  \
@@ -397,7 +397,8 @@ class TPCCWorkload
                 },
                 orderline_update_descriptor);
          }
-         UpdateDescriptorGenerator2(customer_update_descriptor, customer_t, c_balance, c_delivery_cnt);
+         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         // UpdateDescriptorGenerator2(customer_update_descriptor, customer_t, c_balance, c_delivery_cnt);
          customer.update1(
              {w_id, d_id, c_id},
              [&](customer_t& rec) {
@@ -680,7 +681,8 @@ class TPCCWorkload
              },
              customer_update_descriptor);
       } else {
-         UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
+         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         // UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
@@ -803,7 +805,8 @@ class TPCCWorkload
              },
              customer_update_descriptor);
       } else {
-         UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
+         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         // UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
