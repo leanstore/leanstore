@@ -82,6 +82,7 @@ DEFINE_bool(vi_fupdate, false, "");
 DEFINE_uint64(vi_pgc_batch_size, 0, "");
 DEFINE_bool(vi_skip_trash_leaves, true, "");
 DEFINE_bool(vi_twoq_todo, true, "");
+DEFINE_bool(vi_flat_tuple, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(pgc, false, "Precise garbage collection/recycling");
 DEFINE_uint64(chain_max_length, 10000, "");
