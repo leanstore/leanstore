@@ -153,13 +153,15 @@ class BTreeVI : public BTreeLL
       u64 tts : 56;
       u8 worker_id : 8;
       u64 latest_commited_after_so;
+      u64 prev_commited_after_so;
       // -------------------------------------------------------------------------------------
       u8 same_attributes : 1;
       u8 write_locked : 1;  // Needed to revert from FatTuple format to Chained
       u16 value_length;
       u16 total_space, used_space;  // from the payload bytes array
+      u64 debugging = 0;
       u8 payload[];
-      // same_attributes: value, diff descriptor, DeltaWithoutDescriptor[] N2O
+      // same_attributes: value, update descriptor, DeltaWithoutDescriptor[] N2O
       // TODO: not sure if we really want it: !same_attributes: value, DeltaWithDescriptor[] N2O
       // -------------------------------------------------------------------------------------
       FatTuple() : Tuple(TupleFormat::FAT_TUPLE)
@@ -169,6 +171,7 @@ class BTreeVI : public BTreeLL
       }
       // returns false to fallback to chained mode
       bool update(function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor&, BTreeVI& btree);
+      void undoLastUpdate();
       const UpdateSameSizeInPlaceDescriptor& updatedAttributesDescriptor() const;
       inline constexpr u8* value() { return payload; }
       inline const u8* cvalue() const { return payload; }
