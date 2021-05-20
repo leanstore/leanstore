@@ -88,9 +88,16 @@ class BTreeVI : public BTreeLL
         Delta: WWTS + diff + (descriptor)?
     */
    enum class TupleFormat : u8 { FAT_TUPLE, CHAINED, VISIBLE_FOR_ALL };
-   struct Tuple {
+   struct __attribute__((packed)) Tuple {
       TupleFormat tuple_format;
-      Tuple(TupleFormat tuple_format) : tuple_format(tuple_format) {}
+      u8 worker_id : 8;
+      u64 tts : 56;
+      u8 write_locked : 1;
+      // -------------------------------------------------------------------------------------
+      Tuple(TupleFormat tuple_format, u8 worker_id, u64 tts) : tuple_format(tuple_format), worker_id(worker_id), tts(tts) { write_locked = false; }
+      bool isWriteLocked() const { return write_locked; }
+      void writeLock() { write_locked = true; }
+      void unlock() { write_locked = false; }
    };
    // -------------------------------------------------------------------------------------
    using ChainSN = u64;
@@ -103,9 +110,6 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    // No PGC for chained, always TODO
    struct __attribute__((packed)) ChainedTuple : Tuple {
-      u64 tts : 56;
-      u8 worker_id : 8;
-      u8 write_locked : 1;
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
       // -------------------------------------------------------------------------------------
@@ -115,14 +119,8 @@ class BTreeVI : public BTreeLL
       s64 tmp = 0;
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
-      ChainedTuple(u8 worker_id, u64 tts)
-          : Tuple(TupleFormat::CHAINED), tts(tts), worker_id(worker_id), write_locked(false), is_removed(false), is_gc_scheduled(false)
-      {
-      }
+      ChainedTuple(u8 worker_id, u64 tts) : Tuple(TupleFormat::CHAINED, worker_id, tts), is_removed(false), is_gc_scheduled(false) {}
       bool isFinal() const { return next_sn == 0; }
-      bool isWriteLocked() const { return write_locked; }
-      void writeLock() { write_locked = true; }
-      void unlock() { write_locked = false; }
    };
    struct __attribute__((packed)) ChainedTupleDelta {
       u8 worker_id : 8;
@@ -150,24 +148,20 @@ class BTreeVI : public BTreeLL
          u8 payload[];  // (desriptor + diff) OR diff
       };
       // -------------------------------------------------------------------------------------
-      u64 tts : 56;
-      u8 worker_id : 8;
       u64 latest_commited_after_so;
       u64 prev_commited_after_so;
       // -------------------------------------------------------------------------------------
       u8 same_attributes : 1;
-      u8 write_locked : 1;  // Needed to revert from FatTuple format to Chained
       u16 value_length;
       u16 total_space, used_space;  // from the payload bytes array
-      u64 debugging = 0;
+      u16 deltas_count = 0;
       u8 payload[];
       // same_attributes: value, update descriptor, DeltaWithoutDescriptor[] N2O
       // TODO: not sure if we really want it: !same_attributes: value, DeltaWithDescriptor[] N2O
       // -------------------------------------------------------------------------------------
-      FatTuple() : Tuple(TupleFormat::FAT_TUPLE)
+      FatTuple() : Tuple(TupleFormat::FAT_TUPLE, 0, 0)  // TOOD: refactor
       {
          same_attributes = true;
-         write_locked = false;
       }
       // returns false to fallback to chained mode
       bool update(function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor&, BTreeVI& btree);
