@@ -96,6 +96,7 @@ bool BTreeVI::FatTuple::update(function<void(u8* value, u16 value_size)> cb, Upd
       if (cr::Worker::my().isVisibleForAll(delta->commited_before_so)) {
          used_space = value_length + update_descriptor.size() + delta_and_diff_length;  // Delete everything after the first delta
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_count - 1; }
+         deltas_count = 1;
       } else if (FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size) {
          cr::Worker::my().sortWorkers();
          u64 other_worker_index = 0;  // in the sorted array
@@ -258,6 +259,7 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
          std::memcpy(fat_tuple.payload + fat_tuple.used_space, chain_delta.payload + update_descriptor_size, diff_length);
          fat_tuple.used_space += diff_length;
          fat_tuple.deltas_count++;
+         ensure(fat_tuple.deltas_count < 20);
          // -------------------------------------------------------------------------------------
          next_sn = chain_delta.next_sn;
          ret = iterator.removeCurrent();
@@ -266,12 +268,14 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
    }
    ensure(fat_tuple.deltas_count == 0 || update_descriptor_size > 0);
    {
+      // TODO: buggy
       // Finalize the new FatTuple
       // We could have more versions than the number of workers because of the way how gc works atm
       // const u16 space_needed_per_worker_version = sizeof(FatTuple::Delta) + diff_length;
-      fat_tuple.total_space = 1024 * 10;
+      // fat_tuple.total_space = (fat_tuple.used_space / std::max<u64>(1, fat_tuple.deltas_count)) * cr::Worker::my().workers_count;
+      fat_tuple.total_space = 4 * 1024;
       ensure(fat_tuple.total_space >= fat_tuple.used_space);  // TODO:
-      ensure(fat_tuple.total_space < 14 * 1024);              // TODO:
+      // ensure(fat_tuple.total_space < 14 * 1024);              // TODO:
       setSN(m_key, 0);
       OP_RESULT ret = iterator.seekExactWithHint(key, false);
       ensure(ret == OP_RESULT::OK);
@@ -842,7 +846,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             btree.setSN(m_key, next_sn);
             ret = iterator.seekExact(key);
             if (ret != OP_RESULT::OK) {
-               raise(SIGTRAP);
+               // raise(SIGTRAP);
                break;
             }
             // -------------------------------------------------------------------------------------
