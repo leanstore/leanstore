@@ -278,9 +278,8 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
       // We could have more versions than the number of workers because of the way how gc works atm
       // const u16 space_needed_per_worker_version = sizeof(FatTuple::Delta) + diff_length;
       // fat_tuple.total_space = (fat_tuple.used_space / std::max<u64>(1, fat_tuple.deltas_count)) * cr::Worker::my().workers_count;
-      fat_tuple.total_space = 6 * 1024;
+      fat_tuple.total_space = FLAGS_tmp6 * 1024;
       ensure(fat_tuple.total_space >= fat_tuple.used_space);  // TODO:
-      // ensure(fat_tuple.total_space < 14 * 1024);              // TODO:
       setSN(m_key, 0);
       OP_RESULT ret = iterator.seekExactWithHint(key, false);
       ensure(ret == OP_RESULT::OK);
@@ -298,6 +297,8 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
       }
       ensure(reinterpret_cast<Tuple*>(iterator.mutableValue().data())->isWriteLocked());
       iterator.removeCurrent();
+      ret = iterator.seekToInsert(key);
+      ensure(ret == OP_RESULT::OK);
       iterator.insertInCurrentNode(key, fat_tuple_length);
       std::memcpy(iterator.mutableValue().data(), fat_tuple_payload, fat_tuple_length);
    }
@@ -423,7 +424,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          primary_version.tmp = 1;
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_utodo && primary_version.tuple_format == TupleFormat::CHAINED && !primary_version.is_gc_scheduled &&
-             FLAGS_tmp7 != dt_id) {  // TODO: && dt_id != 1 && dt_id != 0
+             FLAGS_tmp7 != dt_id && dt_id != 6) {  // TODO: && dt_id != 1 && dt_id != 0
             cr::Worker::my().stageTODO(
                 primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry),
                 [&](u8* entry) {
@@ -830,13 +831,14 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       primary_version.is_gc_scheduled = false;
       const bool safe_to_gc =
           (primary_version.worker_id == version_worker_id && primary_version.tts == version_tts) && !primary_version.isWriteLocked();
-      const bool convert_to_fat_tuple = safe_to_gc && FLAGS_vi_fat_tuple && primary_version.versions_counter >= 2 && (btree.dt_id != 2);
       if (safe_to_gc) {
+         const bool is_removed = primary_version.is_removed;
+         const bool convert_to_fat_tuple =
+             !is_removed && safe_to_gc && FLAGS_vi_fat_tuple && primary_version.versions_counter >= 3 && (btree.dt_id != FLAGS_tmp5);
          if (convert_to_fat_tuple) {
             primary_version.writeLock();
          }
          ChainSN next_sn = primary_version.next_sn;
-         const bool is_removed = primary_version.is_removed;
          if (is_removed) {
             ret = iterator.removeCurrent();
             ensure(ret == OP_RESULT::OK);
@@ -871,7 +873,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          // -------------------------------------------------------------------------------------
          if (convert_to_fat_tuple) {
             // We can only convert an already commited tuple
-            btree.setSN(m_key, next_sn);
+            btree.setSN(m_key, 0);
             ret = iterator.seekExactWithHint(key, false);
             ensure(ret == OP_RESULT::OK);
             btree.convertChainedToFatTuple(iterator, m_key);
