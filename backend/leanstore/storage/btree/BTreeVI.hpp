@@ -164,7 +164,12 @@ class BTreeVI : public BTreeLL
          same_attributes = true;
       }
       // returns false to fallback to chained mode
-      bool update(function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor&, BTreeVI& btree);
+      bool update(BTreeExclusiveIterator& iterator,
+                  u8* key,
+                  u16 o_key_length,
+                  function<void(u8* value, u16 value_size)>,
+                  UpdateSameSizeInPlaceDescriptor&,
+                  BTreeVI& btree);
       void undoLastUpdate();
       const UpdateSameSizeInPlaceDescriptor& updatedAttributesDescriptor() const;
       inline constexpr u8* value() { return payload; }
