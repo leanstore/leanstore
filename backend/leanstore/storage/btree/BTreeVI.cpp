@@ -150,7 +150,7 @@ bool BTreeVI::FatTuple::update(function<void(u8* value, u16 value_size)> cb, Upd
       std::memcpy(payload + value_length, &update_descriptor, update_descriptor.size());
       used_space += update_descriptor.size();
    }
-   ensure((total_space - used_space) >= delta_and_diff_length);
+   ensure(total_space >= used_space + delta_and_diff_length);
    // -------------------------------------------------------------------------------------
    {
       // Insert the new delta
@@ -165,6 +165,7 @@ bool BTreeVI::FatTuple::update(function<void(u8* value, u16 value_size)> cb, Upd
       prev_commited_after_so = latest_commited_after_so;
       latest_commited_after_so = cr::Worker::my().so_start;
    }
+   ensure(total_space >= used_space);
    // -------------------------------------------------------------------------------------
    {
       // Update the value in-place
@@ -182,17 +183,18 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTuple::reconstructTuple(std::function<voi
       // Latest version is visible
       cb(Slice(cvalue(), value_length));
       return {OP_RESULT::OK, 1};
-   } else {
-      u8 value[value_length];
+   } else if (deltas_count > 0) {
+      raise(SIGTRAP);
+      u8 materialized_value[value_length];
       // we have to apply the diffs
       const u64 delta_and_diff_length = sizeof(Delta) + updatedAttributesDescriptor().diffLength();
       const u8* delta_ptr = payload + value_length + updatedAttributesDescriptor().size();
       auto delta = reinterpret_cast<const Delta*>(delta_ptr);
       u16 chain_length = 1;
       while ((delta_ptr - payload) < used_space) {
-         BTreeLL::applyDiff(updatedAttributesDescriptor(), value, delta->payload);  // Apply diff
+         BTreeLL::applyDiff(updatedAttributesDescriptor(), materialized_value, delta->payload);  // Apply diff
          if (cr::Worker::my().isVisibleForMe(delta->worker_id, delta->tts)) {
-            cb(Slice(value, value_length));
+            cb(Slice(materialized_value, value_length));
             return {OP_RESULT::OK, chain_length};
          }
          // -------------------------------------------------------------------------------------
@@ -202,6 +204,9 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTuple::reconstructTuple(std::function<voi
       }
       // -------------------------------------------------------------------------------------
       return {OP_RESULT::NOT_FOUND, chain_length};
+   } else {
+      raise(SIGTRAP);
+      return {OP_RESULT::NOT_FOUND, 1};
    }
 }
 // -------------------------------------------------------------------------------------
@@ -219,7 +224,7 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
       // Process the chain head
       MutableSlice head = iterator.mutableValue();
       auto& chain_head = *reinterpret_cast<ChainedTuple*>(head.data());
-      chain_head.writeLock();
+      ensure(chain_head.isWriteLocked());
       // -------------------------------------------------------------------------------------
       fat_tuple.value_length = head.length() - sizeof(ChainedTuple);
       std::memcpy(fat_tuple.payload + fat_tuple.used_space, chain_head.payload, fat_tuple.value_length);
@@ -273,7 +278,7 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
       // We could have more versions than the number of workers because of the way how gc works atm
       // const u16 space_needed_per_worker_version = sizeof(FatTuple::Delta) + diff_length;
       // fat_tuple.total_space = (fat_tuple.used_space / std::max<u64>(1, fat_tuple.deltas_count)) * cr::Worker::my().workers_count;
-      fat_tuple.total_space = 4 * 1024;
+      fat_tuple.total_space = 6 * 1024;
       ensure(fat_tuple.total_space >= fat_tuple.used_space);  // TODO:
       // ensure(fat_tuple.total_space < 14 * 1024);              // TODO:
       setSN(m_key, 0);
@@ -283,12 +288,15 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
       const u16 fat_tuple_length = sizeof(FatTuple) + fat_tuple.total_space;
       const u16 required_extra_space_in_node = (iterator.value().length() >= fat_tuple_length) ? 0 : (fat_tuple_length - iterator.value().length());
       ret = iterator.enoughSpaceInCurrentNode(key, required_extra_space_in_node);
+      u64 retry_counter = 0;
       while (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
+         ensure(retry_counter++ < 100);
          iterator.splitForKey(key);
          ret = iterator.seekExact(key);
          ensure(ret == OP_RESULT::OK);
          ret = iterator.enoughSpaceInCurrentNode(key, required_extra_space_in_node);
       }
+      ensure(reinterpret_cast<Tuple*>(iterator.mutableValue().data())->isWriteLocked());
       iterator.removeCurrent();
       iterator.insertInCurrentNode(key, fat_tuple_length);
       std::memcpy(iterator.mutableValue().data(), fat_tuple_payload, fat_tuple_length);
@@ -822,7 +830,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       primary_version.is_gc_scheduled = false;
       const bool safe_to_gc =
           (primary_version.worker_id == version_worker_id && primary_version.tts == version_tts) && !primary_version.isWriteLocked();
-      const bool convert_to_fat_tuple = safe_to_gc && FLAGS_vi_flat_tuple && primary_version.versions_counter >= 2 && (btree.dt_id != 2);
+      const bool convert_to_fat_tuple = safe_to_gc && FLAGS_vi_fat_tuple && primary_version.versions_counter >= 2 && (btree.dt_id != 2);
       if (safe_to_gc) {
          if (convert_to_fat_tuple) {
             primary_version.writeLock();

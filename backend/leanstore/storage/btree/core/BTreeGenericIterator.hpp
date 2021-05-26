@@ -269,7 +269,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    virtual void insertInCurrentNode(Slice key, u16 value_length)
    {
       assert(keyInCurrentBoundaries(key));
-      assert(enoughSpaceInCurrentNode(key, value_length) == OP_RESULT::OK);
+      ensure(enoughSpaceInCurrentNode(key, value_length) == OP_RESULT::OK);
       cur = leaf->insertDoNotCopyPayload(key.data(), key.length(), value_length, cur);
    }
    virtual void insertInCurrentNode(Slice key, Slice value)
