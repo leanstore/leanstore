@@ -500,6 +500,7 @@ void BTreeGeneric::deserialize(BTreeGeneric& btree, std::unordered_map<std::stri
    Guard dummy_guard(&dummy_latch);
    dummy_guard.toOptimisticSpin();
    btree.meta_node_bf = &BMC::global_bf->resolveSwip(dummy_guard, btree.meta_node_bf);
+   btree.meta_node_bf.asBufferFrame().header.keep_in_memory = true;
    assert(btree.meta_node_bf.asBufferFrame().page.dt_id == btree.dt_id);
 }
 // -------------------------------------------------------------------------------------
