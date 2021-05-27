@@ -154,7 +154,8 @@ class BTreeVI : public BTreeLL
       u8 same_attributes : 1;
       u16 value_length;
       u16 total_space, used_space;  // from the payload bytes array
-      u16 deltas_count = 0;
+      u16 deltas_count = 0;         // Attention: coupled with used_space
+      s64 debug = 0;
       u8 payload[];
       // same_attributes: value, update descriptor, DeltaWithoutDescriptor[] N2O
       // TODO: not sure if we really want it: !same_attributes: value, DeltaWithDescriptor[] N2O

@@ -65,19 +65,21 @@ const UpdateSameSizeInPlaceDescriptor& BTreeVI::FatTuple::updatedAttributesDescr
 void BTreeVI::FatTuple::undoLastUpdate()
 {
    // TODO:
+   // ensure(deltas_count > 1);
+   const u16 delta_and_diff_length = sizeof(Delta) + updatedAttributesDescriptor().diffLength();
    auto& delta = *reinterpret_cast<Delta*>(payload + value_length + updatedAttributesDescriptor().size());
-   if (delta.tts > 10000)
-      raise(SIGTRAP);
    worker_id = delta.worker_id;
    tts = delta.tts;
    latest_commited_after_so = prev_commited_after_so;
    deltas_count -= 1;
    BTreeLL::applyDiff(updatedAttributesDescriptor(), value(), delta.payload);
-   const u16 delta_and_diff_length = sizeof(Delta) + updatedAttributesDescriptor().diffLength();
    u8* first_delta = payload + value_length + updatedAttributesDescriptor().size();
-   std::memmove(first_delta, first_delta + delta_and_diff_length,
-                (used_space - value_length - updatedAttributesDescriptor().size()) - delta_and_diff_length);
+   std::memmove(first_delta, first_delta + delta_and_diff_length, deltas_count * delta_and_diff_length);
    used_space -= delta_and_diff_length;
+   if (deltas_count)
+      debug = -1;
+   else
+      debug = 5;
 }
 // -------------------------------------------------------------------------------------
 // Pre: tuple is write locked
@@ -98,7 +100,7 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
    // -------------------------------------------------------------------------------------
    const u64 delta_and_diff_length = sizeof(Delta) + update_descriptor.diffLength();
    const bool pgc = FLAGS_pgc && ((used_space + delta_and_diff_length) >= total_space);  // deltas_count >= FLAGS_vi_pgc_batch_size;
-   if (deltas_count > 0) {
+   if (used_space > value_length) {
       // Garbage collection first
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
       u8* delta_ptr = payload + value_length + update_descriptor.size();
@@ -143,6 +145,8 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
                delta = reinterpret_cast<Delta*>(delta_ptr);
                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_skipped[btree.dt_id]++; }
                if (other_worker_index == cr::Worker::my().workers_count) {
+                  const u16 removed_deltas = (used_space - (delta_ptr - payload)) / delta_and_diff_length;
+                  deltas_count -= removed_deltas;
                   used_space = delta_ptr - payload;
                   break;
                }
@@ -165,7 +169,7 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
    {
       // Insert the new delta
       u8* deltas_beginn = payload + value_length + update_descriptor.size();
-      std::memmove(deltas_beginn + delta_and_diff_length, deltas_beginn + update_descriptor.size(), delta_and_diff_length);
+      std::memmove(deltas_beginn + delta_and_diff_length, deltas_beginn, delta_and_diff_length * deltas_count);
       auto& new_delta = *new (deltas_beginn) Delta();
       new_delta.worker_id = worker_id;
       new_delta.tts = tts;
@@ -196,6 +200,7 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
       // Update the value in-place
       BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), value());
       cb(value(), value_length);
+      debug = 1;
       BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), value());
       wal_entry.submit();
    }
@@ -217,7 +222,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTuple::reconstructTuple(std::function<voi
       const u64 delta_and_diff_length = sizeof(Delta) + updatedAttributesDescriptor().diffLength();
       const u8* delta_ptr = payload + value_length + updatedAttributesDescriptor().size();
       auto delta = reinterpret_cast<const Delta*>(delta_ptr);
-      u16 chain_length = 2; // We have already skippe the main version
+      u16 chain_length = 2;  // We have already skippe the main version
       while ((delta_ptr - payload) < used_space) {
          if (cr::Worker::my().isVisibleForMe(delta->worker_id, delta->tts)) {
             BTreeLL::applyDiff(updatedAttributesDescriptor(), materialized_value, delta->payload);  // Apply diff
@@ -225,9 +230,6 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTuple::reconstructTuple(std::function<voi
             return {OP_RESULT::OK, chain_length};
          }
          // -------------------------------------------------------------------------------------
-         if (deltas_count + 1 == chain_length) {
-            raise(SIGTRAP);
-         }
          chain_length++;
          delta_ptr += delta_and_diff_length;
          delta = reinterpret_cast<const Delta*>(delta_ptr);
@@ -236,6 +238,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTuple::reconstructTuple(std::function<voi
       raise(SIGTRAP);
       return {OP_RESULT::NOT_FOUND, chain_length};
    } else {
+      raise(SIGTRAP);
       return {OP_RESULT::NOT_FOUND, 1};
    }
 }
@@ -792,9 +795,15 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                ensure(ret == OP_RESULT::OK);
                const u16 required_extra_space_in_node = payload_length - iterator.value().length();
                ret = iterator.enoughSpaceInCurrentNode(key, required_extra_space_in_node);  // TODO:
+               bool should_reset_to_head = false;
                while (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
                   iterator.splitForKey(key);
                   ret = iterator.enoughSpaceInCurrentNode(key, required_extra_space_in_node);
+                  should_reset_to_head = true;
+               }
+               if (should_reset_to_head) {
+                  ret = iterator.seekExact(key);
+                  ensure(ret == OP_RESULT::OK);
                }
                ret = iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);
