@@ -65,15 +65,18 @@ const UpdateSameSizeInPlaceDescriptor& BTreeVI::FatTuple::updatedAttributesDescr
 void BTreeVI::FatTuple::undoLastUpdate()
 {
    // TODO:
-   raise(SIGTRAP);
    auto& delta = *reinterpret_cast<Delta*>(payload + value_length + updatedAttributesDescriptor().size());
+   if (delta.tts > 10000)
+      raise(SIGTRAP);
    worker_id = delta.worker_id;
    tts = delta.tts;
+   latest_commited_after_so = prev_commited_after_so;
+   deltas_count -= 1;
    BTreeLL::applyDiff(updatedAttributesDescriptor(), value(), delta.payload);
    const u16 delta_and_diff_length = sizeof(Delta) + updatedAttributesDescriptor().diffLength();
    u8* first_delta = payload + value_length + updatedAttributesDescriptor().size();
-   std::memmove(first_delta, first_delta + delta_and_diff_length, delta_and_diff_length);
-   latest_commited_after_so = prev_commited_after_so;
+   std::memmove(first_delta, first_delta + delta_and_diff_length,
+                (used_space - value_length - updatedAttributesDescriptor().size()) - delta_and_diff_length);
    used_space -= delta_and_diff_length;
 }
 // -------------------------------------------------------------------------------------
@@ -164,8 +167,8 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
       u8* deltas_beginn = payload + value_length + update_descriptor.size();
       std::memmove(deltas_beginn + delta_and_diff_length, deltas_beginn + update_descriptor.size(), delta_and_diff_length);
       auto& new_delta = *new (deltas_beginn) Delta();
-      new_delta.worker_id = cr::Worker::my().workerID();
-      new_delta.tts = cr::Worker::my().TTS();
+      new_delta.worker_id = worker_id;
+      new_delta.tts = tts;
       new_delta.commited_before_so = cr::Worker::my().so_start;
       BTreeLL::generateDiff(update_descriptor, new_delta.payload, value());
       used_space += delta_and_diff_length;
@@ -184,15 +187,15 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
       wal_entry->delta_length = delta_and_descriptor_size;
       wal_entry->before_worker_id = worker_id;
       wal_entry->before_tts = tts;
-      wal_entry->after_worker_id = cr::Worker::my().workerID();
-      wal_entry->after_tts = cr::Worker::my().TTS();
+      worker_id = cr::Worker::my().workerID();
+      tts = cr::Worker::my().TTS();
+      wal_entry->after_worker_id = worker_id;
+      wal_entry->after_tts = tts;
       std::memcpy(wal_entry->payload, o_key, o_key_length);
       std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
       // Update the value in-place
       BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), value());
       cb(value(), value_length);
-      worker_id = cr::Worker::my().workerID();
-      tts = cr::Worker::my().TTS();
       BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), value());
       wal_entry.submit();
    }
@@ -209,26 +212,30 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTuple::reconstructTuple(std::function<voi
       return {OP_RESULT::OK, 1};
    } else if (deltas_count > 0) {
       u8 materialized_value[value_length];
+      std::memcpy(materialized_value, cvalue(), value_length);
       // we have to apply the diffs
       const u64 delta_and_diff_length = sizeof(Delta) + updatedAttributesDescriptor().diffLength();
       const u8* delta_ptr = payload + value_length + updatedAttributesDescriptor().size();
       auto delta = reinterpret_cast<const Delta*>(delta_ptr);
-      u16 chain_length = 1;
+      u16 chain_length = 2; // We have already skippe the main version
       while ((delta_ptr - payload) < used_space) {
-         BTreeLL::applyDiff(updatedAttributesDescriptor(), materialized_value, delta->payload);  // Apply diff
          if (cr::Worker::my().isVisibleForMe(delta->worker_id, delta->tts)) {
+            BTreeLL::applyDiff(updatedAttributesDescriptor(), materialized_value, delta->payload);  // Apply diff
             cb(Slice(materialized_value, value_length));
             return {OP_RESULT::OK, chain_length};
          }
          // -------------------------------------------------------------------------------------
+         if (deltas_count + 1 == chain_length) {
+            raise(SIGTRAP);
+         }
          chain_length++;
          delta_ptr += delta_and_diff_length;
          delta = reinterpret_cast<const Delta*>(delta_ptr);
       }
       // -------------------------------------------------------------------------------------
+      raise(SIGTRAP);
       return {OP_RESULT::NOT_FOUND, chain_length};
    } else {
-      raise(SIGTRAP);
       return {OP_RESULT::NOT_FOUND, 1};
    }
 }
