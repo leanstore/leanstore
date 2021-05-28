@@ -62,20 +62,32 @@ const UpdateSameSizeInPlaceDescriptor& BTreeVI::FatTuple::updatedAttributesDescr
    return *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload + value_length);
 }
 // -------------------------------------------------------------------------------------
+BTreeVI::FatTuple::Delta* BTreeVI::FatTuple::saDelta(u16 delta_i)
+{
+   ensure(same_attributes);
+   ensure(used_space > value_length);
+   return reinterpret_cast<Delta*>(payload + value_length + updatedAttributesDescriptor().size() + (delta_and_diff_length * delta_i));
+}
+// -------------------------------------------------------------------------------------
+const BTreeVI::FatTuple::Delta* BTreeVI::FatTuple::csaDelta(u16 delta_i) const
+{
+   ensure(same_attributes);
+   ensure(used_space > value_length);
+   return reinterpret_cast<const Delta*>(payload + value_length + updatedAttributesDescriptor().size() + (delta_and_diff_length * delta_i));
+}
+// -------------------------------------------------------------------------------------
 void BTreeVI::FatTuple::undoLastUpdate()
 {
    // TODO:
-   // ensure(deltas_count > 1);
-   const u16 delta_and_diff_length = sizeof(Delta) + updatedAttributesDescriptor().diffLength();
+   ensure(deltas_count >= 1);
    auto& delta = *reinterpret_cast<Delta*>(payload + value_length + updatedAttributesDescriptor().size());
    worker_id = delta.worker_id;
    tts = delta.tts;
    latest_commited_after_so = prev_commited_after_so;
    deltas_count -= 1;
-   BTreeLL::applyDiff(updatedAttributesDescriptor(), value(), delta.payload);
-   u8* first_delta = payload + value_length + updatedAttributesDescriptor().size();
-   std::memmove(first_delta, first_delta + delta_and_diff_length, deltas_count * delta_and_diff_length);
    used_space -= delta_and_diff_length;
+   BTreeLL::applyDiff(updatedAttributesDescriptor(), value(), delta.payload);
+   std::memmove(saDelta(0), saDelta(1), deltas_count * delta_and_diff_length);
    if (deltas_count)
       debug = -1;
    else
@@ -98,17 +110,16 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
    const bool still_same_attributes = deltas_count == 0 || (update_descriptor == updatedAttributesDescriptor());
    ensure(still_same_attributes);  // TODO: return false to enforce and conversion to chained mode
    // -------------------------------------------------------------------------------------
-   const u64 delta_and_diff_length = sizeof(Delta) + update_descriptor.diffLength();
-   const bool pgc = FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size;  // ((used_space + delta_and_diff_length) >= total_space)
+   const bool pgc = FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size;
    if (deltas_count > 0) {
       // Garbage collection first
-      u8* delta_ptr = payload + value_length + update_descriptor.size();
-      auto delta = reinterpret_cast<Delta*>(delta_ptr);
+      Delta* delta = saDelta(0);
+      u16 delta_i = 0;
       if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(delta->commited_before_so)) {
          const u16 removed_deltas = deltas_count - 1;
-         used_space = value_length + update_descriptor.size() + delta_and_diff_length;  // Delete everything after the first delta
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += removed_deltas; }
+         used_space = reinterpret_cast<u8*>(saDelta(1)) - payload;  // Delete everything after the first delta
          deltas_count = 1;
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += removed_deltas; }
       } else if (pgc) {
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
          cr::Worker::my().sortWorkers();
@@ -129,7 +140,7 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
          // Precise garbage collection
          // Note: we can't use so ordering to decide whether to remove a version
          // SO ordering helps in one case, if it tells visible then it is and nothing else
-         while (other_worker_index < cr::Worker::my().workers_count && (delta_ptr - payload) < used_space) {
+         while (other_worker_index < cr::Worker::my().workers_count && delta_i < deltas_count) {
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_workers_visited[btree.dt_id]++; }
             if (cr::Worker::my().isVisibleForIt(other_worker_id, delta->worker_id, delta->tts)) {
                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_kept[btree.dt_id]++; }
@@ -142,19 +153,21 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
                      break;
                   }
                }
-               delta_ptr += delta_and_diff_length;
-               delta = reinterpret_cast<Delta*>(delta_ptr);
+               delta_i++;
+               delta = saDelta(delta_i);
                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_skipped[btree.dt_id]++; }
                if (other_worker_index == cr::Worker::my().workers_count) {
-                  const u16 removed_deltas = (used_space - (delta_ptr - payload)) / delta_and_diff_length;
+                  // Remove the rest including the current one
+                  const u16 removed_deltas = deltas_count - delta_i;
                   deltas_count -= removed_deltas;
-                  used_space = delta_ptr - payload;
+                  used_space = reinterpret_cast<u8*>(delta) - payload;
                   COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += removed_deltas; }
                   break;
                }
             } else {
                // Remove this delta
-               std::memmove(delta_ptr, delta_ptr + delta_and_diff_length, (used_space - (delta_ptr - payload)) - delta_and_diff_length);
+               const u16 deltas_to_move = (deltas_count - delta_i - 1) * delta_and_diff_length;
+               std::memmove(delta, saDelta(delta_i + 1), deltas_to_move);
                used_space -= delta_and_diff_length;
                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id]++; }
                deltas_count--;
@@ -165,6 +178,7 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
       // Copy the update descriptor (set the attributes)
       std::memcpy(payload + value_length, &update_descriptor, update_descriptor.size());
       used_space += update_descriptor.size();
+      delta_and_diff_length = sizeof(Delta) + update_descriptor.diffLength();
    }
    ensure(total_space >= used_space + delta_and_diff_length);
    // -------------------------------------------------------------------------------------
@@ -221,24 +235,21 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTuple::reconstructTuple(std::function<voi
       u8 materialized_value[value_length];
       std::memcpy(materialized_value, cvalue(), value_length);
       // we have to apply the diffs
-      const u64 delta_and_diff_length = sizeof(Delta) + updatedAttributesDescriptor().diffLength();
-      const u8* delta_ptr = payload + value_length + updatedAttributesDescriptor().size();
-      auto delta = reinterpret_cast<const Delta*>(delta_ptr);
-      u16 chain_length = 2;  // We have already skippe the main version
-      while ((delta_ptr - payload) < used_space) {
+      u16 delta_i = 0;
+      const Delta* delta = csaDelta(delta_i);
+      while (delta_i < deltas_count) {
          if (cr::Worker::my().isVisibleForMe(delta->worker_id, delta->tts)) {
             BTreeLL::applyDiff(updatedAttributesDescriptor(), materialized_value, delta->payload);  // Apply diff
             cb(Slice(materialized_value, value_length));
-            return {OP_RESULT::OK, chain_length};
+            return {OP_RESULT::OK, delta_i + 2};
          }
          // -------------------------------------------------------------------------------------
-         chain_length++;
-         delta_ptr += delta_and_diff_length;
-         delta = reinterpret_cast<const Delta*>(delta_ptr);
+         delta_i++;
+         delta = csaDelta(delta_i);
       }
       // -------------------------------------------------------------------------------------
       raise(SIGTRAP);
-      return {OP_RESULT::NOT_FOUND, chain_length};
+      return {OP_RESULT::NOT_FOUND, delta_i + 2};
    } else {
       raise(SIGTRAP);
       return {OP_RESULT::NOT_FOUND, 1};
@@ -287,6 +298,7 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
             update_descriptor_size = update_descriptor.size();
             std::memcpy(fat_tuple.payload + fat_tuple.used_space, &update_descriptor, update_descriptor_size);
             fat_tuple.used_space += update_descriptor_size;
+            fat_tuple.delta_and_diff_length = sizeof(FatTuple::Delta) + update_descriptor.diffLength();
             diff_length = delta_slice.length() - sizeof(ChainedTupleDelta) - update_descriptor_size;
          }
          // -------------------------------------------------------------------------------------
@@ -867,11 +879,12 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       // -------------------------------------------------------------------------------------
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       primary_version.is_gc_scheduled = false;
+      const bool is_removed = primary_version.is_removed;
       const bool safe_to_gc =
           (primary_version.worker_id == version_worker_id && primary_version.tts == version_tts) && !primary_version.isWriteLocked();
+      const bool convert_to_fat_tuple = !primary_version.isWriteLocked() && !is_removed && FLAGS_vi_fat_tuple &&
+                                        primary_version.versions_counter >= 3 && safe_to_gc && btree.dt_id != 5;
       if (safe_to_gc) {
-         const bool is_removed = primary_version.is_removed;
-         const bool convert_to_fat_tuple = !is_removed && safe_to_gc && FLAGS_vi_fat_tuple && primary_version.versions_counter >= 3;
          if (convert_to_fat_tuple) {
             primary_version.writeLock();
          }
@@ -893,7 +906,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             btree.setSN(m_key, next_sn);
             ret = iterator.seekExact(key);
             if (ret != OP_RESULT::OK) {
-               // raise(SIGTRAP);
+               raise(SIGTRAP);
                break;
             }
             // -------------------------------------------------------------------------------------
@@ -907,16 +920,15 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates_versions_removed[btree.dt_id]++; }
          }
          iterator.mergeIfNeeded();
-         // -------------------------------------------------------------------------------------
-         if (convert_to_fat_tuple) {
-            // We can only convert an already commited tuple
-            btree.setSN(m_key, 0);
-            ret = iterator.seekExactWithHint(key, false);
-            ensure(ret == OP_RESULT::OK);
-            btree.convertChainedToFatTuple(iterator, m_key);
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[btree.dt_id]++; }
-         }
-      } else {
+      }
+      if (convert_to_fat_tuple) {
+         btree.setSN(m_key, 0);
+         ret = iterator.seekExactWithHint(key, false);
+         ensure(ret == OP_RESULT::OK);
+         reinterpret_cast<Tuple*>(iterator.mutableValue().data())->writeLock();
+         btree.convertChainedToFatTuple(iterator, m_key);
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[btree.dt_id]++; }
+      } else if (!safe_to_gc) {
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_wasted[btree.dt_id]++; }
          // Cross workers TODO: better solution?
          if (!primary_version.isWriteLocked()) {
@@ -1005,12 +1017,10 @@ restart : {
    while (secondary_sn != 0) {
       setSN(key, secondary_sn);
       ret = iterator.seekExactWithHint(Slice(key.data(), key.length()), next_sn_higher);
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_read_versions_visited[dt_id]++; }
       if (ret != OP_RESULT::OK) {
          // Happens either due to undo or garbage collection
          setSN(key, 0);
          ret = iterator.seekExact(Slice(key.data(), key.length()));
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_read_versions_visited[dt_id]++; }
          ensure(ret == OP_RESULT::OK);
          goto restart;
       }
