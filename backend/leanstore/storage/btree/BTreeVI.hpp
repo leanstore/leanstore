@@ -155,6 +155,7 @@ class BTreeVI : public BTreeLL
       u16 value_length;
       u16 total_space, used_space;  // from the payload bytes array
       u16 deltas_count = 0;         // Attention: coupled with used_space
+      u16 delta_and_diff_length = 0;
       s64 debug = 0;
       u8 payload[];
       // same_attributes: value, update descriptor, DeltaWithoutDescriptor[] N2O
@@ -175,6 +176,8 @@ class BTreeVI : public BTreeLL
       const UpdateSameSizeInPlaceDescriptor& updatedAttributesDescriptor() const;
       inline constexpr u8* value() { return payload; }
       inline const u8* cvalue() const { return payload; }
+      Delta* saDelta(u16 delta_i);
+      const Delta* csaDelta(u16 delta_i) const;
       std::tuple<OP_RESULT, u16> reconstructTuple(std::function<void(Slice value)> callback) const;
    };
    void convertChainedToFatTuple(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
