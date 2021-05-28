@@ -42,7 +42,7 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
       COUNTERS_BLOCK()
       {
          WorkerCounters::myCounters().cc_read_chains[dt_id]++;
-         WorkerCounters::myCounters().cc_read_versions_visited[dt_id]++;
+         WorkerCounters::myCounters().cc_read_versions_visited[dt_id] += std::get<1>(reconstruct);
       }
       ret = std::get<0>(reconstruct);
       if (ret != OP_RESULT::OK) {  // For debugging
@@ -99,17 +99,18 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
    ensure(still_same_attributes);  // TODO: return false to enforce and conversion to chained mode
    // -------------------------------------------------------------------------------------
    const u64 delta_and_diff_length = sizeof(Delta) + update_descriptor.diffLength();
-   const bool pgc = FLAGS_pgc && ((used_space + delta_and_diff_length) >= total_space);  // deltas_count >= FLAGS_vi_pgc_batch_size;
-   if (used_space > value_length) {
+   const bool pgc = FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size;  // ((used_space + delta_and_diff_length) >= total_space)
+   if (deltas_count > 0) {
       // Garbage collection first
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
       u8* delta_ptr = payload + value_length + update_descriptor.size();
       auto delta = reinterpret_cast<Delta*>(delta_ptr);
-      if (cr::Worker::my().isVisibleForAll(delta->commited_before_so)) {
+      if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(delta->commited_before_so)) {
+         const u16 removed_deltas = deltas_count - 1;
          used_space = value_length + update_descriptor.size() + delta_and_diff_length;  // Delete everything after the first delta
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_count - 1; }
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += removed_deltas; }
          deltas_count = 1;
       } else if (pgc) {
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
          cr::Worker::my().sortWorkers();
          u64 other_worker_index = 0;  // in the sorted array
          u64 other_worker_id = cr::Worker::my().all_sorted_so_starts[other_worker_index] & cr::Worker::WORKERS_MASK;
@@ -148,6 +149,7 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
                   const u16 removed_deltas = (used_space - (delta_ptr - payload)) / delta_and_diff_length;
                   deltas_count -= removed_deltas;
                   used_space = delta_ptr - payload;
+                  COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += removed_deltas; }
                   break;
                }
             } else {
@@ -297,7 +299,6 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
          std::memcpy(fat_tuple.payload + fat_tuple.used_space, chain_delta.payload + update_descriptor_size, diff_length);
          fat_tuple.used_space += diff_length;
          fat_tuple.deltas_count++;
-         ensure(fat_tuple.deltas_count < 20);
          // -------------------------------------------------------------------------------------
          next_sn = chain_delta.next_sn;
          ret = iterator.removeCurrent();

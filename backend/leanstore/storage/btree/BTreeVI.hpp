@@ -221,7 +221,7 @@ class BTreeVI : public BTreeLL
          }
          // -------------------------------------------------------------------------------------
          bool visible_chain_found = false;
-         if (FLAGS_vi_skip_trash_leaves) {
+         if (FLAGS_vi_skip_trash_leaves) {  // TODO: still buggy
             iterator.registerBeforeChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
                if (!visible_chain_found) {
                   auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
