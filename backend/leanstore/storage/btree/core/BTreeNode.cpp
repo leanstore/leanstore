@@ -297,12 +297,15 @@ u16 BTreeNode::commonPrefix(u16 slotA, u16 slotB)
 // -------------------------------------------------------------------------------------
 BTreeNode::SeparatorInfo BTreeNode::findSep()
 {
-   if (isInner())
+   if (count == 2) {
+      return SeparatorInfo{getFullKeyLen(0), 0, false};
+   }
+   if (isInner()) {
       return SeparatorInfo{getFullKeyLen(count / 2), static_cast<u16>(count / 2), false};
-
+   }
+   // -------------------------------------------------------------------------------------
    u16 lower = count / 2 - count / 16;
    u16 upper = count / 2 + count / 16;
-   // does not work under optimistic mode assert(upper < count);
    u16 maxPos = count / 2;
    s16 maxPrefix = commonPrefix(maxPos, 0);
    for (u32 i = lower; i < upper; i++) {

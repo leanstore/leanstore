@@ -44,7 +44,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
    auto parent_handler = findParent(*this, to_split);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
-   if (c_guard->count <= 2)
+   if (c_guard->count <= 1)
       return;
    // -------------------------------------------------------------------------------------
    BTreeNode::SeparatorInfo sep_info;
