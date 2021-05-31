@@ -257,7 +257,7 @@ void Worker::checkup()
             } else {
                WorkerCounters::myCounters().cc_rtodo_to_lng[todo.dt_id]++;
                const u64 total_todo_length = todo.payload_length + sizeof(TODOEntry);
-               u8* new_hwm_todo = todo_hwm_rb.pushBack(total_todo_length);
+               u8* new_hwm_todo = todo_lwm_hwm_rb.pushBack(total_todo_length);
                std::memcpy(new_hwm_todo, rb.front(), total_todo_length);
                rb.popFront();
             }
