@@ -73,6 +73,7 @@ struct BufferFrame {
       header.pid = 9999;
       header.next_free_bf = nullptr;
       header.contention_tracker.reset();
+      header.keep_in_memory = false;
       // std::memset(reinterpret_cast<u8*>(&page), 0, PAGE_SIZE);
    }
    // -------------------------------------------------------------------------------------
