@@ -394,7 +394,22 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          } else if (FLAGS_vi_fupdate_chained) {  //  (dt_id != 0 && dt_id != 1 && dt_id != 10)
             auto current_value = iterator.mutableValue();
             auto& chain_head = *reinterpret_cast<ChainedTuple*>(current_value.data());
+            // WAL
+            u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
+            auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
+            wal_entry->type = WAL_LOG_TYPE::WALUpdate;
+            wal_entry->key_length = o_key_length;
+            wal_entry->delta_length = delta_and_descriptor_size;
+            wal_entry->before_worker_id = chain_head.worker_id;
+            wal_entry->before_tts = chain_head.tts;
+            wal_entry->after_worker_id = cr::Worker::my().workerID();
+            wal_entry->after_tts = cr::Worker::my().TTS();
+            std::memcpy(wal_entry->payload, o_key, o_key_length);
+            std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
+            BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), chain_head.payload);
             callback(chain_head.payload, current_value.length() - sizeof(ChainedTuple));
+            BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), chain_head.payload);
+            wal_entry.submit();
             tuple.unlock();
             // -------------------------------------------------------------------------------------
             iterator.contentionSplit();
