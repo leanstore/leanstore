@@ -10,14 +10,10 @@
 // -------------------------------------------------------------------------------------
 using namespace leanstore::storage;
 // -------------------------------------------------------------------------------------
-namespace leanstore
-{
-namespace storage
-{
-namespace btree
+namespace leanstore::storage::btree
 {
 // -------------------------------------------------------------------------------------
-BTreeGeneric::BTreeGeneric() {}
+BTreeGeneric::BTreeGeneric() = default;
 // -------------------------------------------------------------------------------------
 void BTreeGeneric::create(DTID dtid)
 {
@@ -511,7 +507,21 @@ void BTreeGeneric::deserialize(BTreeGeneric& btree, std::unordered_map<std::stri
    HybridLatch dummy_latch;
    Guard dummy_guard(&dummy_latch);
    dummy_guard.toOptimisticSpin();
-   btree.meta_node_bf = &BMC::global_bf->resolveSwip(dummy_guard, btree.meta_node_bf);
+   u16 failcounter = 0;
+   while (true) {
+      jumpmuTry()
+      {
+         btree.meta_node_bf = &BMC::global_bf->resolveSwip(dummy_guard, btree.meta_node_bf);
+         jumpmu_break;
+      }
+      jumpmuCatch(){
+         failcounter++;
+         if(failcounter >= 200){
+            cerr << "Failed to allocate MetaNode, Buffer might be to small" << endl;
+            assert(false);
+         }
+      }
+   }
    btree.meta_node_bf.asBufferFrame().header.keep_in_memory = true;
    assert(btree.meta_node_bf.asBufferFrame().page.dt_id == btree.dt_id);
 }
@@ -527,7 +537,8 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
    u16 level = 0;
    // -------------------------------------------------------------------------------------
    Swip<BTreeNode>* c_swip = &p_guard->upper;
-   if (btree.dt_id != to_find.page.dt_id || (!p_guard->upper.isHOT())) {
+   if (btree.dt_id != to_find.page.dt_id || p_guard->upper.isEVICTED()){
+      // Wrong Tree or Root is evicted
       jumpmu::jump();
    }
    // -------------------------------------------------------------------------------------
@@ -539,6 +550,11 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
    if (&c_swip->asBufferFrameMasked() == &to_find) {
       p_guard.recheck();
       return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = &btree.meta_node_bf.asBufferFrame()};
+   }
+   // -------------------------------------------------------------------------------------
+   if(p_guard->upper.isCOOL()) {
+      // Root is cool => every node below is evicted
+      jumpmu::jump();
    }
    // -------------------------------------------------------------------------------------
    HybridPageGuard c_guard(p_guard, p_guard->upper);  // the parent of the bf we are looking for (to_find)
@@ -668,6 +684,4 @@ void BTreeGeneric::printInfos(uint64_t totalSize)
         << " rootCnt:" << r_guard->count << " bytesFree:" << bytesFree() << endl;
 }
 // -------------------------------------------------------------------------------------
-}  // namespace btree
-}  // namespace storage
 }  // namespace leanstore
