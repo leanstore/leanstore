@@ -75,7 +75,11 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
       for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
          pp_threads.emplace_back(
              [&, t_i](u64 p_begin, u64 p_end) {
-                utils::pinThisThread(FLAGS_worker_threads + 1 + t_i);
+                if (FLAGS_pin_threads) {
+                   utils::pinThisThread(FLAGS_worker_threads + 1 + t_i);
+                } else {
+                   utils::pinThisThread(t_i);
+                }
                 CPUCounters::registerThread("pp_" + std::to_string(t_i));
                 // https://linux.die.net/man/2/setpriority
                 if (FLAGS_root) {
