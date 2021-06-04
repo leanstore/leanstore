@@ -72,7 +72,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          }
          // -------------------------------------------------------------------------------------
          cur = leaf->lowerBound<false>(key, key_length);
-         if (cur == leaf->count) {  // TODO: argue about it
+         if (cur == leaf->count) {
             goto restart;
          }
          return true;
@@ -95,11 +95,19 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             }
          }
          // -------------------------------------------------------------------------------------
-         cur = leaf->lowerBound<false>(key, key_length);
+         if (leaf->count == 0) {
+            goto restart;
+         }
+         bool is_equal = false;
+         cur = leaf->lowerBound<false>(key, key_length, &is_equal);
+         if (cur == 0 && !is_equal) {
+            goto restart;
+         }
          if (cur == leaf->count) {
+            assert(!is_equal);
+            assert(leaf->count > 0);
             cur -= 1;
          }
-         // TODO: maybe a corner case when cur == 0?
          return true;
       }
    }
