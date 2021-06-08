@@ -34,7 +34,19 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
   protected:
    void gotoPage(const Slice& key)
    {
-      WorkerCounters::myCounters().dt_goto_page[btree.dt_id]++;
+      // TODO: tmp
+      if (btree.dt_id == 8 && utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
+         // utils::printBackTrace();
+         // raise(SIGTRAP);
+      }
+      COUNTERS_BLOCK()
+      {
+         if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
+            WorkerCounters::myCounters().dt_goto_page_exec[btree.dt_id]++;
+         } else {
+            WorkerCounters::myCounters().dt_goto_page_shared[btree.dt_id]++;
+         }
+      }
       // -------------------------------------------------------------------------------------
       if (cur != -1 && before_changing_leaf_cb) {
          before_changing_leaf_cb(leaf);
@@ -44,6 +56,8 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
       prefix_copied = false;
    }
+   // -------------------------------------------------------------------------------------
+   virtual bool keyInCurrentBoundaries(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
    // -------------------------------------------------------------------------------------
   public:
    BTreePessimisticIterator(BTreeGeneric& btree) : btree(btree) {}
@@ -127,7 +141,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    }
    virtual OP_RESULT seekExact(Slice key) override
    {
-      if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
+      if (cur == -1 || !keyInCurrentBoundaries(key)) {
          gotoPage(key);
       }
       cur = leaf->lowerBound<true>(key.data(), key.length());
@@ -288,7 +302,6 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
       cur = leaf->insertDoNotCopyPayload(key.data(), key.length(), value.length(), cur);
       std::memcpy(leaf->getPayload(cur), value.data(), value.length());
    }
-   virtual bool keyInCurrentBoundaries(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
    virtual void splitForKey(Slice key)
    {
       while (true) {

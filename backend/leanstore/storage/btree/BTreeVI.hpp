@@ -100,7 +100,7 @@ class BTreeVI : public BTreeLL
       void unlock() { write_locked = false; }
    };
    // -------------------------------------------------------------------------------------
-   using ChainSN = u64;
+   using ChainSN = u32;
    struct TODOEntry {
       // TODO converts chained to fat when: it failes to prune more than x times (not sure about this trigger)
       u16 key_length;
@@ -181,6 +181,10 @@ class BTreeVI : public BTreeLL
       std::tuple<OP_RESULT, u16> reconstructTuple(std::function<void(Slice value)> callback) const;
    };
    void convertChainedToFatTuple(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
+   // -------------------------------------------------------------------------------------
+   // Experimental
+   struct DanglingPointer {
+   };
    // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;

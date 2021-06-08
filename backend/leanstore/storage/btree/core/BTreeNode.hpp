@@ -313,8 +313,6 @@ struct BTreeNode : public BTreeNodeHeader {
    bool canInsert(u16 key_length, u16 payload_len);
    bool prepareInsert(u16 keyLength, u16 payload_len);
    // -------------------------------------------------------------------------------------
-   bool update(u8* key, u16 keyLength, u16 payload_length, u8* payload);
-   // -------------------------------------------------------------------------------------
    void compactify();
    // -------------------------------------------------------------------------------------
    // merge right node into this node
