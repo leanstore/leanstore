@@ -25,7 +25,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    // Hooks
    std::function<void(HybridPageGuard<BTreeNode>& leaf)> before_changing_leaf_cb;
-   std::function<bool(HybridPageGuard<BTreeNode>& leaf)> conditional_leaf_skip_cb;
+   std::function<void(HybridPageGuard<BTreeNode>& leaf)> after_changing_leaf_cb;
    // -------------------------------------------------------------------------------------
    s32 cur = -1;
    u8 buffer[PAGE_SIZE];
@@ -34,11 +34,6 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
   protected:
    void gotoPage(const Slice& key)
    {
-      // TODO: tmp
-      if (btree.dt_id == 8 && utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
-         // utils::printBackTrace();
-         // raise(SIGTRAP);
-      }
       COUNTERS_BLOCK()
       {
          if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
@@ -55,6 +50,10 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       leaf.unlock();
       btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
       prefix_copied = false;
+      // -------------------------------------------------------------------------------------
+      if (after_changing_leaf_cb) {
+         after_changing_leaf_cb(leaf);
+      }
    }
    // -------------------------------------------------------------------------------------
    virtual bool keyInCurrentBoundaries(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
@@ -63,70 +62,8 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    BTreePessimisticIterator(BTreeGeneric& btree) : btree(btree) {}
    // -------------------------------------------------------------------------------------
    void registerBeforeChangingLeafHook(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { before_changing_leaf_cb = cb; }
-   void registerConditionalLeafSkip(std::function<bool(HybridPageGuard<BTreeNode>& leaf)> cb) { conditional_leaf_skip_cb = cb; }
+   void registerAfterChangingLeafHook(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { after_changing_leaf_cb = cb; }
    // -------------------------------------------------------------------------------------
-   bool nextLeaf()
-   {
-      u64 cnt = 0;
-   restart:
-      cnt++;
-      if (leaf->upper_fence.length == 0) {
-         return false;
-      } else {
-         const u16 key_length = leaf->upper_fence.length + 1;
-         u8 key[key_length];
-         std::memcpy(key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
-         key[key_length - 1] = 0;
-         gotoPage(Slice(key, key_length));
-         // -------------------------------------------------------------------------------------
-         if (conditional_leaf_skip_cb) {
-            if (conditional_leaf_skip_cb(leaf)) {
-               goto restart;
-            }
-         }
-         // -------------------------------------------------------------------------------------
-         cur = leaf->lowerBound<false>(key, key_length);
-         if (cur == leaf->count) {
-            goto restart;
-         }
-         return true;
-      }
-   }
-   bool prevLeaf()
-   {
-   restart:
-      if (leaf->lower_fence.length == 0) {
-         return false;
-      } else {
-         const u16 key_length = leaf->lower_fence.length;
-         u8 key[key_length];
-         std::memcpy(key, leaf->getLowerFenceKey(), leaf->lower_fence.length);
-         gotoPage(Slice(key, key_length));
-         // -------------------------------------------------------------------------------------
-         if (conditional_leaf_skip_cb) {
-            if (conditional_leaf_skip_cb(leaf)) {
-               goto restart;
-            }
-         }
-         // -------------------------------------------------------------------------------------
-         if (leaf->count == 0) {
-            goto restart;
-         }
-         bool is_equal = false;
-         cur = leaf->lowerBound<false>(key, key_length, &is_equal);
-         if (cur == 0 && !is_equal) {
-            goto restart;
-         }
-         if (cur == leaf->count) {
-            assert(!is_equal);
-            assert(leaf->count > 0);
-            cur -= 1;
-         }
-         return true;
-      }
-   }
-
-  public:
    OP_RESULT seekExactWithHint(Slice key, bool higher = true)  // EXP
    {
       if (cur == -1) {
@@ -184,21 +121,30 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT next() override
    {
-      WorkerCounters::myCounters().dt_next_tuple[btree.dt_id]++;
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_next_tuple[btree.dt_id]++; }
       if ((cur + 1) < leaf->count) {
          cur += 1;
          return OP_RESULT::OK;
       } else {
       retry : {
-         if (!nextLeaf()) {
+         if (leaf->upper_fence.length == 0) {
             return OP_RESULT::NOT_FOUND;
          } else {
+            const u16 key_length = leaf->upper_fence.length + 1;
+            u8 key[key_length];
+            std::memcpy(key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
+            key[key_length - 1] = 0;
+            gotoPage(Slice(key, key_length));
+            // -------------------------------------------------------------------------------------
             if (leaf->count == 0) {
-               WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++;
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++; }
                goto retry;
-            } else {
-               return OP_RESULT::OK;
             }
+            cur = leaf->lowerBound<false>(key, key_length);
+            if (cur == leaf->count) {
+               goto retry;
+            }
+            return OP_RESULT::OK;
          }
       }
       }
@@ -206,20 +152,36 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT prev() override
    {
-      WorkerCounters::myCounters().dt_prev_tuple[btree.dt_id]++;
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_prev_tuple[btree.dt_id]++; }
       if ((cur - 1) >= 0) {
          cur -= 1;
          return OP_RESULT::OK;
       } else {
       retry : {
-         if (!prevLeaf()) {
-            return OP_RESULT::NOT_FOUND;
+         if (leaf->lower_fence.length == 0) {
+            return OP_RESULT::OK;
          } else {
+            const u16 key_length = leaf->lower_fence.length;
+            u8 key[key_length];
+            std::memcpy(key, leaf->getLowerFenceKey(), leaf->lower_fence.length);
+            gotoPage(Slice(key, key_length));
+            // -------------------------------------------------------------------------------------
             if (leaf->count == 0) {
-               WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++;
                goto retry;
             } else {
-               return OP_RESULT::OK;
+               bool is_equal = false;
+               cur = leaf->lowerBound<false>(key, key_length, &is_equal);
+               ensure(is_equal || cur == leaf->count);
+               if (is_equal) {
+                  return OP_RESULT::OK;
+               }
+               // Must go one step backward
+               if (cur > 0) {
+                  cur -= 1;
+                  return OP_RESULT::OK;
+               } else {
+                  goto retry;
+               }
             }
          }
       }

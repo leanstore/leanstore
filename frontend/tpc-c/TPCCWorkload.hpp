@@ -316,13 +316,14 @@ class TPCCWorkload
              [&]() { o_id = minInteger; });
          // -------------------------------------------------------------------------------------
          if (o_id == minInteger) {  // Should rarely happen
+            cout << "WARNING: delivery tx skipped for warehouse = " << w_id << ", district = " << d_id << endl;
             continue;
          }
          // ensure(o_id != minInteger);
          // -------------------------------------------------------------------------------------
          if (tpcc_remove) {
             const auto ret = neworder.erase({w_id, d_id, o_id});
-            ensure(!FLAGS_si || ret);
+            ensure(ret || !FLAGS_si);
          }
          // -------------------------------------------------------------------------------------
          Integer ol_cnt = minInteger, c_id;
@@ -808,6 +809,7 @@ class TPCCWorkload
              customer_update_descriptor);
       } else {
          UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         // TODO: when variable-diffs are fully-implemented
          // UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
@@ -1024,6 +1026,7 @@ class TPCCWorkload
    // -------------------------------------------------------------------------------------
    void analyticalQuery()
    {
+      // TODO: implement TPC-CH queries
       if (0) {
          Integer sum = 0, last_w = 0, last_i = 0;
          stock.scan(
