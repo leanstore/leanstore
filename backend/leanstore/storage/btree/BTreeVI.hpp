@@ -253,7 +253,8 @@ class BTreeVI : public BTreeLL
                }
                visible_chain_found = false;
             });
-            iterator.registerConditionalLeafSkip([&](HybridPageGuard<BTreeNode>& leaf) {
+            iterator.registerAfterChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
+               // TODO: Rewrite
                auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
                leaf.bf->header.meta_data_in_shared_mode_mutex.lock_shared();
                if (leaf_statistics.skip_if_gsn_equal == leaf.bf->page.GSN &&
