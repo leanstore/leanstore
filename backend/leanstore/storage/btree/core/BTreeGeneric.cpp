@@ -334,8 +334,6 @@ s16 BTreeGeneric::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
    if (!parent->prepareInsert(new_left_uf_length, 0))
       return 0;  // false
    // -------------------------------------------------------------------------------------
-   // cout << till_slot_id << '\t' << from_left->count << '\t' << to_right->count << endl;
-   // -------------------------------------------------------------------------------------
    {
       BTreeNode tmp(true);
       tmp.setFences(new_left_uf_key, new_left_uf_length, to_right->getUpperFenceKey(), to_right->upper_fence.length);

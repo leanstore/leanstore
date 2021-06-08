@@ -111,13 +111,6 @@ s32 BTreeNode::insert(const u8* key, u16 key_len, const u8* payload, u16 payload
    }
 }
 // -------------------------------------------------------------------------------------
-// TODO: probably broken
-bool BTreeNode::update(u8*, u16, u16, u8*)
-{
-   ensure(false);
-   return false;
-}
-// -------------------------------------------------------------------------------------
 void BTreeNode::compactify()
 {
    u16 should = freeSpaceAfterCompaction();
@@ -273,7 +266,8 @@ void BTreeNode::setFences(u8* lowerKey, u16 lowerLen, u8* upperKey, u16 upperLen
 {
    insertFence(lower_fence, lowerKey, lowerLen);
    insertFence(upper_fence, upperKey, upperLen);
-   for (prefix_length = 0; (prefix_length < min(lowerLen, upperLen)) && (lowerKey[prefix_length] == upperKey[prefix_length]); prefix_length++)
+   for (prefix_length = 0; (prefix_length < min(lowerLen, upperLen)) && (lowerKey[prefix_length] == upperKey[prefix_length]) && prefix_length;
+        prefix_length++)
       ;
 }
 // -------------------------------------------------------------------------------------
@@ -318,7 +312,7 @@ BTreeNode::SeparatorInfo BTreeNode::findSep()
             ;
    } else {
       bestSlot = (count - 1) / 2;
-      bestPrefixLength = commonPrefix(bestSlot, 0);
+      // bestPrefixLength = commonPrefix(bestSlot, 0);
    }
 
    // Try to truncate separator

@@ -285,7 +285,7 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
    {
       // Iterate over the rest
       while (next_sn != 0) {
-         const bool next_higher = next_sn > getSN(m_key);
+         const bool next_higher = next_sn >= getSN(m_key);
          setSN(m_key, next_sn);
          OP_RESULT ret = iterator.seekExactWithHint(key, next_higher);
          ensure(ret == OP_RESULT::OK);
@@ -333,9 +333,7 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
       const u16 fat_tuple_length = sizeof(FatTuple) + fat_tuple.total_space;
       const u16 required_extra_space_in_node = (iterator.value().length() >= fat_tuple_length) ? 0 : (fat_tuple_length - iterator.value().length());
       ret = iterator.enoughSpaceInCurrentNode(key, required_extra_space_in_node);
-      u64 retry_counter = 0;
       while (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
-         ensure(retry_counter++ < 100);
          iterator.splitForKey(key);
          ret = iterator.seekExact(key);
          ensure(ret == OP_RESULT::OK);
@@ -376,7 +374,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       }
       // -------------------------------------------------------------------------------------
       {
-         auto& tuple = *reinterpret_cast<Tuple*>(iterator.mutableValue().data());
+         MutableSlice primary_payload = iterator.mutableValue();
+         auto& tuple = *reinterpret_cast<Tuple*>(primary_payload.data());
          if (tuple.isWriteLocked() || !isVisibleForMe(tuple.worker_id, tuple.tts)) {
             jumpmu_return OP_RESULT::ABORT_TX;
          }
@@ -384,16 +383,15 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
          tuple.writeLock();
          if (tuple.tuple_format == TupleFormat::FAT_TUPLE) {
-            const bool res = reinterpret_cast<FatTuple*>(iterator.mutableValue().data())
-                                 ->update(iterator, o_key, o_key_length, callback, update_descriptor, *this);
+            const bool res =
+                reinterpret_cast<FatTuple*>(primary_payload.data())->update(iterator, o_key, o_key_length, callback, update_descriptor, *this);
             ensure(res);  // TODO: what if it fails, then we have to do something else
             tuple.unlock();
             // -------------------------------------------------------------------------------------
             iterator.contentionSplit();
             jumpmu_return OP_RESULT::OK;
          } else if (FLAGS_vi_fupdate_chained) {  //  (dt_id != 0 && dt_id != 1 && dt_id != 10)
-            auto current_value = iterator.mutableValue();
-            auto& chain_head = *reinterpret_cast<ChainedTuple*>(current_value.data());
+            auto& chain_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
             // WAL
             u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
             auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
@@ -407,7 +405,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             std::memcpy(wal_entry->payload, o_key, o_key_length);
             std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
             BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), chain_head.payload);
-            callback(chain_head.payload, current_value.length() - sizeof(ChainedTuple));
+            callback(chain_head.payload, primary_payload.length() - sizeof(ChainedTuple));
             BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), chain_head.payload);
             wal_entry.submit();
             tuple.unlock();
@@ -427,7 +425,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       ChainSN secondary_sn;
       // -------------------------------------------------------------------------------------
       {
-         auto primary_payload = iterator.mutableValue();
+         MutableSlice primary_payload = iterator.mutableValue();
          ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
          // -------------------------------------------------------------------------------------
          BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), primary_version.payload);
@@ -441,14 +439,23 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          }
          secondary_version.commited_after_so = primary_version.commited_after_so;
          // -------------------------------------------------------------------------------------
+         if (primary_version.next_sn <= 1) {
+            secondary_sn = leanstore::utils::RandomGenerator::getRand<ChainSN>(1, std::numeric_limits<ChainSN>::max());
+         } else {
+            secondary_sn = leanstore::utils::RandomGenerator::getRand<ChainSN>(1, primary_version.next_sn);
+         }
          iterator.markAsDirty();
       }
       // -------------------------------------------------------------------------------------
-      do {
-         secondary_sn = leanstore::utils::RandomGenerator::getRand<ChainSN>(0, std::numeric_limits<ChainSN>::max());
+      while (true) {
          setSN(m_key, secondary_sn);
          ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
-      } while (ret != OP_RESULT::OK);
+         if (ret == OP_RESULT::OK) {
+            break;
+         } else {
+            secondary_sn = leanstore::utils::RandomGenerator::getRand<ChainSN>(1, std::numeric_limits<ChainSN>::max());
+         }
+      }
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
       iterator.markAsDirty();
       // -------------------------------------------------------------------------------------
@@ -483,7 +490,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          primary_version.commited_after_so = cr::Worker::my().so_start;
          primary_version.tmp = 1;
          // -------------------------------------------------------------------------------------
-         if (FLAGS_vi_utodo && !primary_version.is_gc_scheduled && FLAGS_tmp7 != dt_id) {  // TODO: && dt_id != 1 && dt_id != 0
+         if (FLAGS_vi_utodo && !primary_version.is_gc_scheduled) {  // TODO: && dt_id != 1 && dt_id != 0
             cr::Worker::my().stageTODO(
                 primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry),
                 [&](u8* entry) {
@@ -819,7 +826,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             // -------------------------------------------------------------------------------------
             {
                btree.setSN(m_key, 0);
-               ret = iterator.seekExact(key);
+               ret = iterator.seekExactWithHint(key, 0);
                ensure(ret == OP_RESULT::OK);
                const u16 required_extra_space_in_node = payload_length - iterator.value().length();
                ret = iterator.enoughSpaceInCurrentNode(key, required_extra_space_in_node);  // TODO:
@@ -917,9 +924,11 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          }
          iterator.markAsDirty();
          // -------------------------------------------------------------------------------------
+         bool next_sn_higher = true;
          while (next_sn != 0) {
+            next_sn_higher = next_sn >= btree.getSN(key);
             btree.setSN(m_key, next_sn);
-            ret = iterator.seekExact(key);
+            ret = iterator.seekExactWithHint(key, next_sn_higher);
             if (ret != OP_RESULT::OK) {
                raise(SIGTRAP);
                break;
@@ -1066,7 +1075,7 @@ restart : {
          raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, chain_length};
       } else {
-         next_sn_higher = secondary_version.next_sn > secondary_sn;
+         next_sn_higher = secondary_version.next_sn >= secondary_sn;
          secondary_sn = secondary_version.next_sn;
       }
    }

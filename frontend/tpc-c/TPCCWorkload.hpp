@@ -1043,7 +1043,7 @@ class TPCCWorkload
          }
       } else {
          district.scan(
-             {1, 0}, [&](const district_t::Key& key, const district_t&) { return true; }, [&]() {});
+             {1, 0}, [&](const district_t::Key&, const district_t&) { return true; }, [&]() {});
       }
    }
 };
