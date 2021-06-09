@@ -31,7 +31,6 @@ Generic_Exception(GenericException);
 Generic_Exception(EnsureFailed);
 Generic_Exception(UnReachable);
 Generic_Exception(TODO);
-void OnEnsureFailedPrint(const std::string& func, const std::string& file, int line, const std::string& expression);
 }  // namespace ex
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------
@@ -49,6 +48,7 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
 #endif
 // -------------------------------------------------------------------------------------
 #define TODOException() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
+#define SetupFailed(msg) throw leanstore::ex::GenericException(msg + std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
 #define explain(e)    \
    if (!(e)) {        \

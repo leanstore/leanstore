@@ -45,7 +45,10 @@ LeanStore::LeanStore()
       flags |= O_TRUNC | O_CREAT;
    }
    ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
-   posix_check(ssd_fd > -1);
+   if (ssd_fd == -1) {
+      perror("posix error");
+      SetupFailed("Could not open the file or the SSD block device");
+   }
    if (FLAGS_falloc > 0) {
       const u64 gib_size = 1024ull * 1024ull * 1024ull;
       auto dummy_data = (u8*)aligned_alloc(512, gib_size);
@@ -163,8 +166,9 @@ void LeanStore::startProfilingThread()
                            "WAL W G", "GCT Rounds"});
             table.add_row({std::to_string(seconds), cr_table.get("0", "tx"), cr_table.get("0", "tx_abort"), cr_table.get("0", "gct_committed_tx"),
                            bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), std::to_string(instr_per_tx), std::to_string(cycles_per_tx),
-                           std::to_string(cpu_table.workers_agg_events["CPU"]), std::to_string(l1_per_tx), std::to_string(lc_per_tx), cr_table.get("0", "wal_total"),
-                           cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"), cr_table.get("0", "gct_rounds")});
+                           std::to_string(cpu_table.workers_agg_events["CPU"]), std::to_string(l1_per_tx), std::to_string(lc_per_tx),
+                           cr_table.get("0", "wal_total"), cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"),
+                           cr_table.get("0", "gct_rounds")});
             // -------------------------------------------------------------------------------------
             table.format().width(10);
             table.column(0).format().width(5);
