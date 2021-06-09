@@ -39,7 +39,13 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
    {
       dram_pool_size = FLAGS_dram_gib * 1024 * 1024 * 1024 / sizeof(BufferFrame);
       const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
-      bfs = reinterpret_cast<BufferFrame*>(mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+      void* big_memory_chunk = mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      if (big_memory_chunk == MAP_FAILED) {
+         perror("Failed to allocate memory for the buffer pool");
+         SetupFailed("Check the buffer pool size");
+      } else {
+         bfs = reinterpret_cast<BufferFrame*>(big_memory_chunk);
+      }
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
       madvise(bfs, dram_total_size,
               MADV_DONTFORK);  // O_DIRECT does not work with forking.
@@ -405,6 +411,9 @@ void BufferManager::stopBackgroundThreads()
 BufferManager::~BufferManager()
 {
    stopBackgroundThreads();
+   for (u64 p_i = 0; p_i < partitions_count; p_i++) {
+      partitions[p_i].~Partition();
+   }
    free(partitions);
    // -------------------------------------------------------------------------------------
    const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);

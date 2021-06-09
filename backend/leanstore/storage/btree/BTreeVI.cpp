@@ -53,7 +53,9 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
       }
       jumpmu_return ret;
    }
-   jumpmuCatch() { ensure(false); }
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 const UpdateSameSizeInPlaceDescriptor& BTreeVI::FatTuple::updatedAttributesDescriptor() const
@@ -508,7 +510,9 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          jumpmu_return OP_RESULT::OK;
       }
    }
-   jumpmuCatch() { ensure(false); }
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_length)
@@ -557,8 +561,10 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          primary_version.commited_after_so = cr::Worker::my().so_start;
          jumpmu_return OP_RESULT::OK;
       }
-      jumpmuCatch() { ensure(false); }
+      jumpmuCatch() { UNREACHABLE(); }
    }
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
@@ -664,10 +670,12 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          }
          primary_version.unlock();
       }
+      // -------------------------------------------------------------------------------------
+      jumpmu_return OP_RESULT::OK;
    }
-   jumpmuCatch() { ensure(false); }
-   // -------------------------------------------------------------------------------------
-   return OP_RESULT::OK;
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 // This undo implementation works only for rollback and not for undo operations during recovery
@@ -774,7 +782,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                iterator.mergeIfNeeded();
             }
          }
-         jumpmuCatch() { ensure(false); }
+         jumpmuCatch() { UNREACHABLE(); }
          break;
       }
       case WAL_LOG_TYPE::WALRemove: {
@@ -863,7 +871,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                iterator.markAsDirty();
             }
          }
-         jumpmuCatch() { ensure(false); }
+         jumpmuCatch() { UNREACHABLE(); }
          break;
       }
       default: {
@@ -976,7 +984,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          }
       }
    }
-   jumpmuCatch() { ensure(false); }
+   jumpmuCatch() { UNREACHABLE(); }
 }
 // -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTreeVI::getMeta()

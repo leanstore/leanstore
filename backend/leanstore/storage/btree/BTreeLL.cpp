@@ -53,6 +53,8 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
          WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
       }
    }
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanAsc(u8* start_key,
@@ -76,7 +78,9 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
       }
       jumpmu_return OP_RESULT::OK;
    }
-   jumpmuCatch() { return OP_RESULT::OTHER; }
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
@@ -102,7 +106,9 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
          }
       }
    }
-   jumpmuCatch() { return OP_RESULT::OTHER; }
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_length)
@@ -130,7 +136,9 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
       }
       jumpmu_return OP_RESULT::OK;
    }
-   jumpmuCatch() { return OP_RESULT::OTHER; }
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
@@ -175,7 +183,9 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
       iterator.contentionSplit();
       jumpmu_return OP_RESULT::OK;
    }
-   jumpmuCatch() { return OP_RESULT::OTHER; }
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
@@ -208,8 +218,9 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
       iterator.mergeIfNeeded();
       jumpmu_return OP_RESULT::OK;
    }
-   jumpmuCatch() { ensure(false); }
-   jumpmu_return OP_RESULT::OTHER;
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 u64 BTreeLL::countEntries()
