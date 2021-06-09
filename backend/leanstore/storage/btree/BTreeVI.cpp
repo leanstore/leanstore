@@ -426,29 +426,35 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // -------------------------------------------------------------------------------------
       ChainSN secondary_sn;
       // -------------------------------------------------------------------------------------
+      DanglingPointer dangling_pointer;
       {
-         MutableSlice primary_payload = iterator.mutableValue();
-         ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
+         MutableSlice head_payload = iterator.mutableValue();
+         ChainedTuple& head_version = *reinterpret_cast<ChainedTuple*>(head_payload.data());
          // -------------------------------------------------------------------------------------
-         BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), primary_version.payload);
+         dangling_pointer.bf = iterator.leaf.bf;
+         dangling_pointer.version = iterator.leaf.guard.latch->version;
+         dangling_pointer.head_slot = iterator.cur;
          // -------------------------------------------------------------------------------------
-         new (secondary_payload) ChainedTupleDelta(primary_version.worker_id, primary_version.tts, false, true);
-         secondary_version.next_sn = primary_version.next_sn;
+         BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), head_version.payload);
+         // -------------------------------------------------------------------------------------
+         new (secondary_payload) ChainedTupleDelta(head_version.worker_id, head_version.tts, false, true);
+         secondary_version.next_sn = head_version.next_sn;
          if (secondary_version.worker_id == cr::Worker::my().workerID() && secondary_version.tts == cr::Worker::my().TTS()) {
             secondary_version.commited_before_so = std::numeric_limits<u64>::max();
          } else {
             secondary_version.commited_before_so = cr::Worker::my().SOStart();
          }
-         secondary_version.commited_after_so = primary_version.commited_after_so;
+         secondary_version.commited_after_so = head_version.commited_after_so;
          // -------------------------------------------------------------------------------------
-         if (primary_version.next_sn <= 1) {
+         if (head_version.next_sn <= 1) {
             secondary_sn = leanstore::utils::RandomGenerator::getRand<ChainSN>(1, std::numeric_limits<ChainSN>::max());
          } else {
-            secondary_sn = leanstore::utils::RandomGenerator::getRand<ChainSN>(1, primary_version.next_sn);
+            secondary_sn = leanstore::utils::RandomGenerator::getRand<ChainSN>(1, head_version.next_sn);
          }
          iterator.markAsDirty();
       }
       // -------------------------------------------------------------------------------------
+      // Write the ChainedTupleDelta
       while (true) {
          setSN(m_key, secondary_sn);
          ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
@@ -463,49 +469,57 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // -------------------------------------------------------------------------------------
       {
          // Return to the head
-         setSN(m_key, 0);
-         ret = iterator.seekExactWithHint(key, false);
-         ensure(ret == OP_RESULT::OK);
-         MutableSlice primary_payload = iterator.mutableValue();
-         ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
+         MutableSlice head_payload(nullptr, 0);
+         if (FLAGS_tmp5 && dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.version == iterator.leaf.guard.latch->version) {
+            dangling_pointer.secondary_slot = iterator.cur;
+            iterator.cur = dangling_pointer.head_slot;
+            head_payload = iterator.mutableValue();
+         } else {
+            setSN(m_key, 0);
+            ret = iterator.seekExactWithHint(key, false);
+            ensure(ret == OP_RESULT::OK);
+            head_payload = iterator.mutableValue();
+         }
+         ChainedTuple& head_version = *reinterpret_cast<ChainedTuple*>(head_payload.data());
          // -------------------------------------------------------------------------------------
          // WAL
          auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
          wal_entry->type = WAL_LOG_TYPE::WALUpdate;
          wal_entry->key_length = o_key_length;
          wal_entry->delta_length = delta_and_descriptor_size;
-         wal_entry->before_worker_id = primary_version.worker_id;
-         wal_entry->before_tts = primary_version.tts;
+         wal_entry->before_worker_id = head_version.worker_id;
+         wal_entry->before_tts = head_version.tts;
          wal_entry->after_worker_id = cr::Worker::my().workerID();
          wal_entry->after_tts = cr::Worker::my().TTS();
          std::memcpy(wal_entry->payload, o_key, o_key_length);
          std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
-         BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), primary_version.payload);
-         callback(primary_version.payload, primary_payload.length() - sizeof(ChainedTuple));  // Update
-         BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), primary_version.payload);
+         BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), head_version.payload);
+         callback(head_version.payload, head_payload.length() - sizeof(ChainedTuple));  // Update
+         BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), head_version.payload);
          wal_entry.submit();
          // -------------------------------------------------------------------------------------
-         primary_version.worker_id = cr::Worker::my().workerID();
-         primary_version.tts = cr::Worker::my().TTS();
-         primary_version.next_sn = secondary_sn;
-         primary_version.versions_counter += 1;
-         primary_version.commited_after_so = cr::Worker::my().so_start;
-         primary_version.tmp = 1;
+         head_version.worker_id = cr::Worker::my().workerID();
+         head_version.tts = cr::Worker::my().TTS();
+         head_version.next_sn = secondary_sn;
+         head_version.versions_counter += 1;
+         head_version.commited_after_so = cr::Worker::my().so_start;
+         head_version.tmp = 1;
          // -------------------------------------------------------------------------------------
-         if (FLAGS_vi_utodo && !primary_version.is_gc_scheduled) {  // TODO: && dt_id != 1 && dt_id != 0
+         if (FLAGS_vi_utodo && !head_version.is_gc_scheduled) {  // TODO: && dt_id != 1 && dt_id != 0
             cr::Worker::my().stageTODO(
-                primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry),
+                head_version.worker_id, head_version.tts, dt_id, key_length + sizeof(TODOEntry),
                 [&](u8* entry) {
                    auto& todo_entry = *new (entry) TODOEntry();
                    todo_entry.key_length = o_key_length;
                    todo_entry.sn = secondary_sn;
+                   todo_entry.dangling_pointer = dangling_pointer;
                    std::memcpy(todo_entry.key, o_key, o_key_length);
                 },
-                (primary_version.versions_counter == 1) ? primary_version.commited_after_so : 0);
-            primary_version.is_gc_scheduled = true;
+                (head_version.versions_counter == 1) ? head_version.commited_after_so : 0);
+            head_version.is_gc_scheduled = true;
          }
          // -------------------------------------------------------------------------------------
-         primary_version.unlock();
+         head_version.unlock();
          iterator.contentionSplit();
          jumpmu_return OP_RESULT::OK;
       }
@@ -599,9 +613,15 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       auto& secondary_version = *reinterpret_cast<ChainedTupleDelta*>(secondary_payload);
       ChainSN secondary_sn;
       // -------------------------------------------------------------------------------------
+      DanglingPointer dangling_pointer;
       {
          auto primary_payload = iterator.mutableValue();
          ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
+         // -------------------------------------------------------------------------------------
+         dangling_pointer.bf = iterator.leaf.bf;
+         dangling_pointer.version = iterator.leaf.guard.latch->version;
+         dangling_pointer.head_slot = iterator.cur;
+         // -------------------------------------------------------------------------------------
          ensure(primary_version.tuple_format == TupleFormat::CHAINED);  // TODO: removing fat tuple is not supported atm
          if (primary_version.isWriteLocked() || !isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
             jumpmu_return OP_RESULT::ABORT_TX;
@@ -630,10 +650,19 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       iterator.markAsDirty();
       // -------------------------------------------------------------------------------------
       {
-         setSN(m_key, 0);
-         ret = iterator.seekExactWithHint(key, false);
-         ensure(ret == OP_RESULT::OK);
-         MutableSlice primary_payload = iterator.mutableValue();
+         // Return to the head
+         MutableSlice primary_payload(nullptr, 0);
+         if (FLAGS_tmp5 && 1 && dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.version == iterator.leaf.guard.latch->version) {
+            dangling_pointer.secondary_slot = iterator.cur;
+            iterator.cur = dangling_pointer.head_slot;
+            ensure(dangling_pointer.secondary_slot > dangling_pointer.head_slot);
+            primary_payload = iterator.mutableValue();
+         } else {
+            setSN(m_key, 0);
+            ret = iterator.seekExactWithHint(key, false);
+            ensure(ret == OP_RESULT::OK);
+            primary_payload = iterator.mutableValue();
+         }
          ChainedTuple old_primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
          // -------------------------------------------------------------------------------------
          // WAL
@@ -663,6 +692,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
                 [&](u8* entry) {
                    auto& todo_entry = *new (entry) TODOEntry();
                    todo_entry.key_length = o_key_length;
+                   todo_entry.dangling_pointer = dangling_pointer;
                    std::memcpy(todo_entry.key, o_key, o_key_length);
                 },
                 primary_version.commited_after_so);
@@ -886,6 +916,29 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    const TODOEntry& todo_entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
    // -------------------------------------------------------------------------------------
+   if (FLAGS_tmp5 && todo_entry.dangling_pointer.bf != nullptr && todo_entry.dangling_pointer.head_slot != -1 &&
+       todo_entry.dangling_pointer.secondary_slot != -1) {
+      // Optimistic fast path
+      jumpmuTry()
+      {
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree), todo_entry.dangling_pointer.bf,
+                                         todo_entry.dangling_pointer.version + 1);
+         assert(todo_entry.dangling_pointer.bf != nullptr);
+         auto& node = iterator.leaf;
+         auto& head = *reinterpret_cast<ChainedTuple*>(node->getPayload(todo_entry.dangling_pointer.head_slot));
+         head.next_sn = 0;
+         head.versions_counter = 1;
+         head.is_gc_scheduled = false;
+         node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
+         if (head.is_removed) {
+            node->removeSlot(todo_entry.dangling_pointer.head_slot);
+         }
+         iterator.mergeIfNeeded();
+         jumpmu_return;
+      }
+      jumpmuCatch() {}
+   }
+   // -------------------------------------------------------------------------------------
    const u16 key_length = todo_entry.key_length + sizeof(ChainSN);
    u8 key_buffer[key_length];
    std::memcpy(key_buffer, todo_entry.key, todo_entry.key_length);
@@ -965,23 +1018,18 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_wasted[btree.dt_id]++; }
          // Cross workers TODO: better solution?
          if (!primary_version.isWriteLocked()) {
+            u64 new_todo_worker_id, new_todo_tts;
             if (cr::Worker::my().isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
-               cr::Worker::my().commitTODO(primary_version.worker_id, primary_version.tts, cr::Worker::my().so_start, btree.dt_id,
-                                           todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
-                                              auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
-                                              new_todo_entry.key_length = todo_entry.key_length;
-                                              std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
-                                           });
-            } else {
                // Any worker or version tts, just a placeholder
-               cr::Worker::my().commitTODO(version_worker_id, version_tts, cr::Worker::my().so_start, btree.dt_id,
-                                           todo_entry.key_length + sizeof(TODOEntry), [&](u8* new_entry) {
-                                              auto& new_todo_entry = *reinterpret_cast<TODOEntry*>(new_entry);
-                                              new_todo_entry.key_length = todo_entry.key_length;
-                                              std::memcpy(new_todo_entry.key, todo_entry.key, new_todo_entry.key_length);
-                                           });
+               new_todo_worker_id = version_worker_id;
+               new_todo_tts = version_tts;
+            } else {
+               new_todo_worker_id = primary_version.worker_id;
+               new_todo_tts = primary_version.tts;
             }
-            primary_version.is_gc_scheduled = true;
+            cr::Worker::my().commitTODO(new_todo_worker_id, new_todo_tts, cr::Worker::my().so_start, btree.dt_id,
+                                        todo_entry.key_length + sizeof(TODOEntry),
+                                        [&](u8* new_entry) { std::memcpy(new_entry, &todo_entry, sizeof(TODOEntry) + todo_entry.key_length); });
          }
       }
    }

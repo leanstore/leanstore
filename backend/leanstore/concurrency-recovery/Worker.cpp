@@ -214,7 +214,7 @@ void Worker::checkup()
             }
          }
       }
-      {
+      if (0) {
          auto& rb = todo_lwm_hwm_rb;
          while (FLAGS_todo && !rb.empty()) {
             auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
@@ -228,7 +228,7 @@ void Worker::checkup()
             }
          }
       }
-      {
+      if (0) {
          auto& rb = todo_lwm_rb;
          while (FLAGS_todo && !rb.empty()) {
             auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());

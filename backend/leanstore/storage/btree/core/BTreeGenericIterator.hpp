@@ -34,6 +34,10 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
   protected:
    void gotoPage(const Slice& key)
    {
+      if (0 && btree.dt_id == 8 && utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
+         utils::printBackTrace();
+      }
+      // -------------------------------------------------------------------------------------
       COUNTERS_BLOCK()
       {
          if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
@@ -221,6 +225,13 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
   private:
   public:
    BTreeExclusiveIterator(BTreeGeneric& btree) : BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>(btree) {}
+   BTreeExclusiveIterator(BTreeGeneric& btree, BufferFrame* bf, const u64 bf_version)
+       : BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>(btree)
+   {
+      Guard as_it_was_witnessed(bf->header.latch, bf_version);
+      leaf = HybridPageGuard<BTreeNode>(as_it_was_witnessed, bf);
+      leaf.toExclusive();
+   }
    // -------------------------------------------------------------------------------------
    void markAsDirty() { leaf.incrementGSN(); }
    virtual OP_RESULT seekToInsertWithHint(Slice key, bool higher = true)

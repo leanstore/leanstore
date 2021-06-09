@@ -73,6 +73,12 @@ struct Guard {
    Guard(HybridLatch& latch) : latch(&latch) {}
    Guard(HybridLatch* latch) : latch(latch) {}
    // -------------------------------------------------------------------------------------
+   // Manually construct a guard from a snapshot. Use with caution!
+   Guard(HybridLatch& latch, const u64 last_seen_version)
+       : latch(&latch), state(GUARD_STATE::OPTIMISTIC), version(last_seen_version), faced_contention(false)
+   {
+   }
+   // -------------------------------------------------------------------------------------
    Guard(HybridLatch& latch, GUARD_STATE state) : latch(&latch), state(state), version(latch.ref().load()) {}
    // -------------------------------------------------------------------------------------
    // Move

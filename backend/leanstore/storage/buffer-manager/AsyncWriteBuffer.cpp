@@ -87,7 +87,7 @@ void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame&, u64, PID)>
       const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
       // -------------------------------------------------------------------------------------
       ensure(events[i].res == page_size);
-      explain(events[i].res2 == 0);
+      explainIfNot(events[i].res2 == 0);
       auto written_lsn = write_buffer[slot].GSN;
       callback(*write_buffer_commands[slot].bf, written_lsn, write_buffer_commands[slot].pid);
    }

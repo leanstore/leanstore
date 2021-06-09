@@ -50,11 +50,14 @@ Generic_Exception(TODO);
 #define TODOException() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 #define SetupFailed(msg) throw leanstore::ex::GenericException(msg + std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
-#define explain(e)    \
-   if (!(e)) {        \
-      raise(SIGTRAP); \
+#define explainIfNot(e) \
+   if (!(e)) {          \
+      raise(SIGTRAP);   \
    };
-
+#define explainWhen(e) \
+   if (e) {            \
+      raise(SIGTRAP);  \
+   };
 // -------------------------------------------------------------------------------------
 #ifdef MACRO_CHECK_DEBUG
 #define DEBUG_BLOCK() if (true)
