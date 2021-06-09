@@ -431,9 +431,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          MutableSlice head_payload = iterator.mutableValue();
          ChainedTuple& head_version = *reinterpret_cast<ChainedTuple*>(head_payload.data());
          // -------------------------------------------------------------------------------------
-         dangling_pointer.bf = iterator.leaf.bf;
-         dangling_pointer.version = iterator.leaf.guard.latch->version;
-         dangling_pointer.head_slot = iterator.cur;
+         if (FLAGS_vi_dangling_pointer) {
+            dangling_pointer.bf = iterator.leaf.bf;
+            dangling_pointer.version = iterator.leaf.guard.latch->version;
+            dangling_pointer.head_slot = iterator.cur;
+         }
          // -------------------------------------------------------------------------------------
          BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), head_version.payload);
          // -------------------------------------------------------------------------------------
@@ -470,7 +472,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       {
          // Return to the head
          MutableSlice head_payload(nullptr, 0);
-         if (FLAGS_tmp5 && dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.version == iterator.leaf.guard.latch->version) {
+         if (FLAGS_vi_dangling_pointer && dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.version == iterator.leaf.guard.latch->version) {
             dangling_pointer.secondary_slot = iterator.cur;
             iterator.cur = dangling_pointer.head_slot;
             head_payload = iterator.mutableValue();
@@ -601,7 +603,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       }
       // -------------------------------------------------------------------------------------
       if (FLAGS_vi_fremove) {
-         ensure(false);  // TODO:
          ret = iterator.removeCurrent();
          ensure(ret == OP_RESULT::OK);
          iterator.mergeIfNeeded();
@@ -619,7 +620,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
          // -------------------------------------------------------------------------------------
          dangling_pointer.bf = iterator.leaf.bf;
-         dangling_pointer.version = iterator.leaf.guard.latch->version;
+         dangling_pointer.version = iterator.leaf.guard.version;
          dangling_pointer.head_slot = iterator.cur;
          // -------------------------------------------------------------------------------------
          ensure(primary_version.tuple_format == TupleFormat::CHAINED);  // TODO: removing fat tuple is not supported atm
@@ -652,7 +653,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       {
          // Return to the head
          MutableSlice primary_payload(nullptr, 0);
-         if (FLAGS_tmp5 && 1 && dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.version == iterator.leaf.guard.latch->version) {
+         if (FLAGS_vi_dangling_pointer && dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.version == iterator.leaf.guard.version) {
             dangling_pointer.secondary_slot = iterator.cur;
             iterator.cur = dangling_pointer.head_slot;
             ensure(dangling_pointer.secondary_slot > dangling_pointer.head_slot);
@@ -916,7 +917,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    const TODOEntry& todo_entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
    // -------------------------------------------------------------------------------------
-   if (FLAGS_tmp5 && todo_entry.dangling_pointer.bf != nullptr && todo_entry.dangling_pointer.head_slot != -1 &&
+   if (FLAGS_vi_dangling_pointer && todo_entry.dangling_pointer.bf != nullptr && todo_entry.dangling_pointer.head_slot != -1 &&
        todo_entry.dangling_pointer.secondary_slot != -1) {
       // Optimistic fast path
       jumpmuTry()
@@ -1020,16 +1021,17 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          if (!primary_version.isWriteLocked()) {
             u64 new_todo_worker_id, new_todo_tts;
             if (cr::Worker::my().isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
+               new_todo_worker_id = primary_version.worker_id;
+               new_todo_tts = primary_version.tts;
+            } else {
                // Any worker or version tts, just a placeholder
                new_todo_worker_id = version_worker_id;
                new_todo_tts = version_tts;
-            } else {
-               new_todo_worker_id = primary_version.worker_id;
-               new_todo_tts = primary_version.tts;
             }
             cr::Worker::my().commitTODO(new_todo_worker_id, new_todo_tts, cr::Worker::my().so_start, btree.dt_id,
                                         todo_entry.key_length + sizeof(TODOEntry),
                                         [&](u8* new_entry) { std::memcpy(new_entry, &todo_entry, sizeof(TODOEntry) + todo_entry.key_length); });
+            primary_version.is_gc_scheduled = true;
          }
       }
    }
