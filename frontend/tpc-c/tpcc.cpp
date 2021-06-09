@@ -44,9 +44,8 @@ int main(int argc, char** argv)
    LeanStore::addS64Flag("TPC_SCALE", &FLAGS_tpcc_warehouse_count);  
    // -------------------------------------------------------------------------------------
    // Check arguments
-   if (FLAGS_tpcc_ch >= FLAGS_worker_threads) {
-      return 0;
-   }
+   ensure(FLAGS_tpcc_ch < FLAGS_worker_threads);
+   ensure(!FLAGS_tpcc_warehouse_affinity || FLAGS_tpcc_warehouse_count >= FLAGS_worker_threads);
    // -------------------------------------------------------------------------------------
    LeanStore db;
    LeanStoreAdapter<warehouse_t> warehouse;
