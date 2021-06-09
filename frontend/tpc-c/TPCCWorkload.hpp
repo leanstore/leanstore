@@ -289,7 +289,6 @@ class TPCCWorkload
             cout << "WARNING: delivery tx skipped for warehouse = " << w_id << ", district = " << d_id << endl;
             continue;
          }
-         // ensure(o_id != minInteger);
          // -------------------------------------------------------------------------------------
          if (tpcc_remove) {
             const auto ret = neworder.erase({w_id, d_id, o_id});

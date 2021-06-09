@@ -496,7 +496,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             cr::Worker::my().stageTODO(
                 primary_version.worker_id, primary_version.tts, dt_id, key_length + sizeof(TODOEntry),
                 [&](u8* entry) {
-                   auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
+                   auto& todo_entry = *new (entry) TODOEntry();
                    todo_entry.key_length = o_key_length;
                    todo_entry.sn = secondary_sn;
                    std::memcpy(todo_entry.key, o_key, o_key_length);
@@ -661,7 +661,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
             cr::Worker::my().stageTODO(
                 cr::Worker::my().workerID(), cr::Worker::my().TTS(), dt_id, key_length + sizeof(TODOEntry),
                 [&](u8* entry) {
-                   auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
+                   auto& todo_entry = *new (entry) TODOEntry();
                    todo_entry.key_length = o_key_length;
                    std::memcpy(todo_entry.key, o_key, o_key_length);
                 },
@@ -786,6 +786,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
          break;
       }
       case WAL_LOG_TYPE::WALRemove: {
+         return;
          auto& remove_entry = *reinterpret_cast<const WALRemove*>(&entry);
          const u16 key_length = remove_entry.key_length + sizeof(ChainSN);
          u8 key_buffer[key_length];
@@ -912,8 +913,8 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       const bool is_removed = primary_version.is_removed;
       const bool safe_to_gc =
           (primary_version.worker_id == version_worker_id && primary_version.tts == version_tts) && !primary_version.isWriteLocked();
-      const bool convert_to_fat_tuple = !primary_version.isWriteLocked() && !is_removed && FLAGS_vi_fat_tuple &&
-                                        primary_version.versions_counter >= 3 && safe_to_gc && btree.dt_id != 5;
+      const bool convert_to_fat_tuple =
+          FLAGS_vi_fat_tuple && !primary_version.isWriteLocked() && !is_removed && primary_version.versions_counter >= 3 && safe_to_gc;
       if (safe_to_gc) {
          if (convert_to_fat_tuple) {
             primary_version.writeLock();
@@ -945,8 +946,8 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             Slice secondary_payload = iterator.value();
             const auto& secondary_version = *reinterpret_cast<const ChainedTupleDelta*>(secondary_payload.data());
             next_sn = secondary_version.next_sn;
+            // -------------------------------------------------------------------------------------
             iterator.removeCurrent();
-            // TODO: mergeIfNeeded is too expensive here, mmm
             iterator.mergeIfNeeded();
             iterator.markAsDirty();
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates_versions_removed[btree.dt_id]++; }
