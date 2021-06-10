@@ -199,7 +199,6 @@ void Worker::checkup()
          refreshSnapshot();
       }
       force_si_refresh = false;
-
       {
          auto& rb = todo_hwm_rb;
          while (FLAGS_todo && !rb.empty()) {

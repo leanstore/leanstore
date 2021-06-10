@@ -112,11 +112,15 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
    const bool still_same_attributes = deltas_count == 0 || (update_descriptor == updatedAttributesDescriptor());
    ensure(still_same_attributes);  // TODO: return false to enforce and conversion to chained mode
    // -------------------------------------------------------------------------------------
-   const bool pgc = FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size;
+   // Attention: we have to disable garbage collection if the latest delta was from us and not committed yet!
+   // Otherwise we would crash during undo although the end result is the same if the transaction would commit (overwrite)
+   const bool pgc =
+       FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size && !(worker_id == cr::Worker::my().workerID() && tts == cr::Worker::my().TTS());
    if (deltas_count > 0) {
       // Garbage collection first
       Delta* delta = saDelta(0);
       u16 delta_i = 0;
+      // -------------------------------------------------------------------------------------
       if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(delta->commited_before_so)) {
          const u16 removed_deltas = deltas_count - 1;
          used_space = reinterpret_cast<u8*>(saDelta(1)) - payload;  // Delete everything after the first delta
@@ -191,7 +195,12 @@ bool BTreeVI::FatTuple::update(BTreeExclusiveIterator& iterator,
       auto& new_delta = *new (deltas_beginn) Delta();
       new_delta.worker_id = worker_id;
       new_delta.tts = tts;
-      new_delta.commited_before_so = cr::Worker::my().so_start;
+      // Attention: we should not timestamp a delta that we created as committed!
+      if (worker_id == cr::Worker::my().workerID() && tts == cr::Worker::my().TTS()) {
+         new_delta.commited_before_so = std::numeric_limits<u64>::max();
+      } else {
+         new_delta.commited_before_so = cr::Worker::my().so_start;
+      }
       BTreeLL::generateDiff(update_descriptor, new_delta.payload, value());
       used_space += delta_and_diff_length;
       prev_commited_after_so = latest_commited_after_so;
@@ -763,7 +772,9 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             {
                MutableSlice primary_payload = iterator.mutableValue();
                auto& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
-               if (primary_version.worker_id != cr::Worker::my().workerID()) {
+               // -------------------------------------------------------------------------------------
+               // Checks
+               if (primary_version.worker_id != cr::Worker::my().workerID() || primary_version.tts != cr::Worker::my().TTS()) {
                   iterator.assembleKey();
                   ensure(std::memcmp(iterator.key().data(), key_buffer, key_length) == 0);
                   cerr << primary_version.tmp << "," << u64(primary_version.worker_id) << "!=" << u64(cr::Worker::my().workerID()) << ", "
@@ -772,6 +783,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                ensure(primary_version.worker_id == cr::Worker::my().workerID());
                ensure(primary_version.tts == cr::Worker::my().TTS());
                ensure(!primary_version.isWriteLocked());
+               // -------------------------------------------------------------------------------------
                primary_version.writeLock();
                undo_sn = primary_version.next_sn;
                iterator.markAsDirty();
@@ -817,7 +829,6 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
          break;
       }
       case WAL_LOG_TYPE::WALRemove: {
-         return;
          auto& remove_entry = *reinterpret_cast<const WALRemove*>(&entry);
          const u16 key_length = remove_entry.key_length + sizeof(ChainSN);
          u8 key_buffer[key_length];
