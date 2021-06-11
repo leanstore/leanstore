@@ -87,7 +87,7 @@ class BTreeVI : public BTreeLL
         Diff: raw bytes copied from src/dst next to each other according to the descriptor
         Delta: WWTS + diff + (descriptor)?
     */
-   enum class TupleFormat : u8 { FAT_TUPLE, CHAINED, VISIBLE_FOR_ALL };
+   enum class TupleFormat : u8 { FAT_TUPLE = 0, CHAINED = 1, VISIBLE_FOR_ALL = 2 };
    struct __attribute__((packed)) Tuple {
       TupleFormat tuple_format;
       u8 worker_id : 8;
@@ -340,6 +340,7 @@ class BTreeVI : public BTreeLL
    static void applyDelta(u8* dst, const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* src);
    inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback)
    {
+   restart : {
       Slice payload = iterator.value();
       assert(getSN(key) == 0);
       if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
@@ -354,12 +355,18 @@ class BTreeVI : public BTreeLL
             if (primary_version.isFinal()) {
                return {OP_RESULT::NOT_FOUND, 1};
             } else {
-               return reconstructChainedTuple(iterator, key, callback);
+               jumpmuTry()
+               {
+                  auto ret = reconstructChainedTuple(iterator, key, callback);
+                  jumpmu_return ret;
+               }
+               jumpmuCatch() { goto restart; }
             }
          }
       } else {
          return reinterpret_cast<const FatTuple*>(payload.data())->reconstructTuple(callback);
       }
+   }
    }
    std::tuple<OP_RESULT, u16> reconstructChainedTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback);
 };

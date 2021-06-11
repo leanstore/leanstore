@@ -80,13 +80,13 @@ DEFINE_bool(vi_flookup, false, "");
 DEFINE_bool(vi_fremove, false, "");
 DEFINE_bool(vi_fupdate_chained, false, "");
 DEFINE_bool(vi_fupdate_fat_tuple, false, "");
-DEFINE_uint64(vi_pgc_batch_size, 0, "");
-DEFINE_bool(vi_skip_trash_leaves, true, "");
+DEFINE_uint64(vi_pgc_batch_size, 2, "");
+DEFINE_bool(vi_skip_trash_leaves, false, "");
 DEFINE_bool(vi_twoq_todo, true, "");
 DEFINE_bool(vi_fat_tuple, true, "");
-DEFINE_bool(vi_dangling_pointer, false, "");
+DEFINE_bool(vi_dangling_pointer, true, "");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(pgc, false, "Precise garbage collection/recycling");
+DEFINE_bool(pgc, true, "Precise garbage collection/recycling");
 DEFINE_uint64(chain_max_length, 10000, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");

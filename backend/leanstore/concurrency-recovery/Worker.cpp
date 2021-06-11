@@ -69,12 +69,13 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
       while (walFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {
       }
       if (walContiguousFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {  // always keep place for CR entry
-         WALMetaEntry& entry = reserveWALMetaEntry();
+         WALMetaEntry &entry = *reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
+         invalidateEntriesUntil(WORKER_WAL_SIZE);
+         entry.size = sizeof(WALMetaEntry);
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
          DEBUG_BLOCK() { entry.computeCRC(); }
          // -------------------------------------------------------------------------------------
-         invalidateEntriesUntil(WORKER_WAL_SIZE);
          wal_wt_cursor = 0;
          publishOffset();
          wal_next_to_clean = 0;
