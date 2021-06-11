@@ -639,9 +639,11 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          auto primary_payload = iterator.mutableValue();
          ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
          // -------------------------------------------------------------------------------------
-         dangling_pointer.bf = iterator.leaf.bf;
-         dangling_pointer.version = iterator.leaf.guard.version;
-         dangling_pointer.head_slot = iterator.cur;
+         if (FLAGS_dangling_pointer) {
+            dangling_pointer.bf = iterator.leaf.bf;
+            dangling_pointer.version = iterator.leaf.guard.version;
+            dangling_pointer.head_slot = iterator.cur;
+         }
          // -------------------------------------------------------------------------------------
          ensure(primary_version.tuple_format == TupleFormat::CHAINED);  // TODO: removing fat tuple is not supported atm
          if (primary_version.isWriteLocked() || !isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
@@ -732,6 +734,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
 // This undo implementation works only for rollback and not for undo operations during recovery
 void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 {
+   // TODO: accelerate using DanglingPointer
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    static_cast<void>(btree);
    const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
