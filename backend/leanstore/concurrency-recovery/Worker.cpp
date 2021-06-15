@@ -65,11 +65,15 @@ u32 Worker::walContiguousFreeSpace()
 void Worker::walEnsureEnoughSpace(u32 requested_size)
 {
    if (FLAGS_wal) {
-      // Spin until we have enough space
-      while (walFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {
+      u32 wait_untill_free_bytes = requested_size + CR_ENTRY_SIZE;
+      if ((WORKER_WAL_SIZE - wal_wt_cursor) < requested_size + CR_ENTRY_SIZE) {
+         wait_untill_free_bytes += WORKER_WAL_SIZE - wal_wt_cursor;  // we have to skip this round
       }
-      if (walContiguousFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {  // always keep place for CR entry
-         WALMetaEntry &entry = *reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
+      // Spin until we have enough space
+      while (walFreeSpace() < wait_untill_free_bytes) {
+      }
+      if (walContiguousFreeSpace() < requested_size + CR_ENTRY_SIZE) {  // always keep place for CR entry
+         WALMetaEntry& entry = *reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
          invalidateEntriesUntil(WORKER_WAL_SIZE);
          entry.size = sizeof(WALMetaEntry);
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
@@ -81,6 +85,8 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
          wal_next_to_clean = 0;
          wal_buffer_round++;  // Carriage Return
       }
+      ensure(walContiguousFreeSpace() >= requested_size);
+      ensure(wal_wt_cursor + requested_size + CR_ENTRY_SIZE <= WORKER_WAL_SIZE);
    }
 }
 // -------------------------------------------------------------------------------------
