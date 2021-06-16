@@ -55,16 +55,15 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
       partitions_mask = partitions_count - 1;
       const u64 free_bfs_limit = std::ceil((FLAGS_free_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
       const u64 cooling_bfs_upper_bound = std::ceil((FLAGS_cool_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
-      partitions = reinterpret_cast<Partition*>(malloc(sizeof(Partition) * partitions_count));
       for (u64 p_i = 0; p_i < partitions_count; p_i++) {
-         new (partitions + p_i) Partition(p_i, partitions_count, free_bfs_limit, cooling_bfs_upper_bound);
+         partitions.push_back(std::make_unique<Partition>(p_i, partitions_count, free_bfs_limit, cooling_bfs_upper_bound));
       }
       // -------------------------------------------------------------------------------------
       utils::Parallelize::parallelRange(dram_total_size, [&](u64 begin, u64 end) { memset(reinterpret_cast<u8*>(bfs) + begin, 0, end - begin); });
       utils::Parallelize::parallelRange(dram_pool_size, [&](u64 bf_b, u64 bf_e) {
          u64 p_i = 0;
          for (u64 bf_i = bf_b; bf_i < bf_e; bf_i++) {
-            partitions[p_i].dram_free_list.push(*new (bfs + bf_i) BufferFrame());
+            getPartition(p_i).dram_free_list.push(*new (bfs + bf_i) BufferFrame());
             p_i = (p_i + 1) % partitions_count;
          }
       });
@@ -109,7 +108,7 @@ std::unordered_map<std::string, std::string> BufferManager::serialize()
    std::unordered_map<std::string, std::string> map;
    PID max_pid = 0;
    for (u64 p_i = 0; p_i < partitions_count; p_i++) {
-      max_pid = std::max<PID>(partitions[p_i].next_pid, max_pid);
+      max_pid = std::max<PID>(getPartition(p_i).next_pid, max_pid);
    }
    map["max_pid"] = std::to_string(max_pid);
    return map;
@@ -120,7 +119,7 @@ void BufferManager::deserialize(std::unordered_map<std::string, std::string> map
    PID max_pid = std::stod(map["max_pid"]);
    max_pid = (max_pid + (partitions_count - 1)) & ~(partitions_count - 1);
    for (u64 p_i = 0; p_i < partitions_count; p_i++) {
-      partitions[p_i].next_pid = max_pid + p_i;
+      getPartition(p_i).next_pid = max_pid + p_i;
    }
 }
 // -------------------------------------------------------------------------------------
@@ -149,8 +148,8 @@ u64 BufferManager::consumedPages()
 {
    u64 total_used_pages = 0, total_freed_pages = 0;
    for (u64 p_i = 0; p_i < partitions_count; p_i++) {
-      total_freed_pages += partitions[p_i].freedPages();
-      total_used_pages += partitions[p_i].allocatedPages();
+      total_freed_pages += getPartition(p_i).freedPages();
+      total_used_pages += getPartition(p_i).allocatedPages();
    }
    return total_used_pages - total_freed_pages;
 }
@@ -166,7 +165,7 @@ BufferFrame& BufferManager::getContainingBufferFrame(const u8* ptr)
 Partition& BufferManager::randomPartition()
 {
    auto rand_partition_i = utils::RandomGenerator::getRand<u64>(0, partitions_count);
-   return partitions[rand_partition_i];
+   return getPartition(rand_partition_i);
 }
 // -------------------------------------------------------------------------------------
 BufferFrame& BufferManager::randomBufferFrame()
@@ -397,7 +396,7 @@ Partition& BufferManager::getPartition(PID pid)
 {
    const u64 partition_i = getPartitionID(pid);
    assert(partition_i < partitions_count);
-   return partitions[partition_i];
+   return *partitions[partition_i];
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::stopBackgroundThreads()
@@ -411,10 +410,6 @@ void BufferManager::stopBackgroundThreads()
 BufferManager::~BufferManager()
 {
    stopBackgroundThreads();
-   for (u64 p_i = 0; p_i < partitions_count; p_i++) {
-      partitions[p_i].~Partition();
-   }
-   free(partitions);
    // -------------------------------------------------------------------------------------
    const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
    munmap(bfs, dram_total_size);

@@ -55,7 +55,7 @@ class BufferManager
    // For cooling and inflight io
    u64 partitions_count;
    u64 partitions_mask;
-   Partition* partitions;
+   std::vector<std::unique_ptr<Partition>> partitions;
 
   private:
    // -------------------------------------------------------------------------------------
