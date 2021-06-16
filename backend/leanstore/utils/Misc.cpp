@@ -1,4 +1,5 @@
 #include "Misc.hpp"
+#include "Exceptions.hpp"
 
 #include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
@@ -52,8 +53,9 @@ void pinThisThread(const u64 t_i)
    CPU_ZERO(&cpuset);
    CPU_SET(t_i, &cpuset);
    pthread_t current_thread = pthread_self();
-   if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0)
-      throw;
+   if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0) {
+      SetupFailed("Could not pin a thread, maybe because of over subscription?");
+   }
 }
 // -------------------------------------------------------------------------------------
 void printBackTrace()
