@@ -249,9 +249,9 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
    } else if (swip_value.isCOOL()) {
       BufferFrame* bf = &swip_value.asBufferFrameMasked();
       swip_guard.recheck();
-      OptimisticGuard bf_guard(bf->header.latch, true);
-      ExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);  // parent
-      ExclusiveGuard bf_x_guard(bf_guard);                // child
+      BMOptimisticGuard bf_guard(bf->header.latch);
+      BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);  // parent
+      BMExclusiveGuard bf_x_guard(bf_guard);                // child
       bf->header.state = BufferFrame::STATE::HOT;
       swip_value.warm();
       return swip_value.asBufferFrame();
@@ -298,7 +298,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       {
          swip_guard.recheck();
          JMUW<std::unique_lock<std::mutex>> g_guard(partition.io_mutex);
-         ExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
+         BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
          io_frame.mutex.unlock();
          swip_value.warm(&bf);
          bf.header.state = BufferFrame::STATE::HOT;  // ATTENTION: SET TO HOT AFTER
@@ -349,9 +349,9 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
          // try to evict them when its IO is done
          bf->header.latch.assertNotExclusivelyLatched();
          assert(bf->header.state == BufferFrame::STATE::LOADED);
-         OptimisticGuard bf_guard(bf->header.latch);
-         ExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
-         ExclusiveGuard bf_x_guard(bf_guard);
+         BMOptimisticGuard bf_guard(bf->header.latch);
+         BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
+         BMExclusiveGuard bf_x_guard(bf_guard);
          // -------------------------------------------------------------------------------------
          io_frame.bf = nullptr;
          assert(bf->header.pid == pid);

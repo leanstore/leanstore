@@ -1,6 +1,7 @@
 #pragma once
-#include "BufferFrame.hpp"
 #include "Units.hpp"
+#include "BMPlainGuard.hpp"
+#include "BufferFrame.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <functional>
@@ -31,7 +32,7 @@ struct DTRegistry {
    struct DTMeta {
       std::function<void(void*, BufferFrame&, std::function<bool(Swip<BufferFrame>&)>)> iterate_children;
       std::function<ParentSwipHandler(void*, BufferFrame&)> find_parent;
-      std::function<bool(void*, BufferFrame&, OptimisticGuard&, ParentSwipHandler&)> check_space_utilization;
+      std::function<bool(void*, BufferFrame&, BMOptimisticGuard&, ParentSwipHandler&)> check_space_utilization;
       std::function<void(void* dt_object, BufferFrame& bf, u8* dest)> checkpoint;
       // -------------------------------------------------------------------------------------
       // MVCC / SI
@@ -56,7 +57,7 @@ struct DTRegistry {
    // -------------------------------------------------------------------------------------
    void iterateChildrenSwips(DTID dtid, BufferFrame&, std::function<bool(Swip<BufferFrame>&)>);
    ParentSwipHandler findParent(DTID dtid, BufferFrame&);
-   bool checkSpaceUtilization(DTID dtid, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);
+   bool checkSpaceUtilization(DTID dtid, BufferFrame&, BMOptimisticGuard&, ParentSwipHandler&);
    // Pre: bf is shared/exclusive latched
    void checkpoint(DTID dt_id, BufferFrame& bf, u8*);
    // Recovery / SI

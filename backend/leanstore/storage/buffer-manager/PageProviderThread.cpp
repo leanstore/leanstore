@@ -59,7 +59,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          {
             while (phase_1_condition(randomPartition()) && failed_attempts < 10) {
                COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
-               OptimisticGuard r_guard(r_buffer->header.latch, true);
+               BMOptimisticGuard r_guard(r_buffer->header.latch);
                // -------------------------------------------------------------------------------------
                // Performance crticial: we should cross cool (unswizzle), otherwise write performance will drop
                [[maybe_unused]] const u64 partition_i = getPartitionID(r_buffer->header.pid);
@@ -126,8 +126,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                   // r_x_guard can only be acquired and released while the partition mutex is locked
                   {
                      JMUW<std::unique_lock<std::mutex>> g_guard(partition.cooling_mutex);
-                     ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
-                     ExclusiveGuard r_x_guard(r_guard);
+                     BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
+                     BMExclusiveGuard r_x_guard(r_guard);
                      // -------------------------------------------------------------------------------------
                      assert(r_buffer->header.pid == pid);
                      assert(r_buffer->header.state == BufferFrame::STATE::HOT);
@@ -199,12 +199,12 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          // -------------------------------------------------------------------------------------
          FreedBfsBatch freed_bfs_batch;
          // -------------------------------------------------------------------------------------
-         auto evict_bf = [&](BufferFrame& bf, OptimisticGuard& guard, std::list<BufferFrame*>::iterator& bf_itr) {
+         auto evict_bf = [&](BufferFrame& bf, BMOptimisticGuard& guard, std::list<BufferFrame*>::iterator& bf_itr) {
             DTID dt_id = bf.page.dt_id;
             guard.recheck();
             ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, bf);
             assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
-            ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
+            BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
             guard.guard.toExclusive();
             // -------------------------------------------------------------------------------------
             partition.cooling_queue.erase(bf_itr);
@@ -248,7 +248,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                   // -------------------------------------------------------------------------------------
                   jumpmuTry()
                   {
-                     OptimisticGuard o_guard(bf.header.latch, true);
+                     BMOptimisticGuard o_guard(bf.header.latch);
                      // Check if the BF got swizzled in or unswizzle another time in another partition
                      if (bf.header.state != BufferFrame::STATE::COOL || getPartitionID(bf.header.pid) != p_i) {
                         partition.cooling_queue.erase(bf_itr);
@@ -269,12 +269,12 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                         if (bf.isDirty()) {
                            if (!async_write_buffer.full()) {
                               {
-                                 ExclusiveGuard ex_guard(o_guard);
+                                 BMExclusiveGuard ex_guard(o_guard);
                                  assert(!bf.header.isWB);
                                  bf.header.isWB = true;
                               }
                               {
-                                 SharedGuard s_guard(o_guard);
+                                 BMSharedGuard s_guard(o_guard);
                                  PID wb_pid = bf.header.pid;
                                  if (FLAGS_out_of_place) {
                                     wb_pid = getPartition(p_i).nextPID();
@@ -355,7 +355,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                   // -------------------------------------------------------------------------------------
                   jumpmuTry()
                   {
-                     OptimisticGuard o_guard(bf.header.latch, true);
+                     BMOptimisticGuard o_guard(bf.header.latch);
                      if (bf.header.state != BufferFrame::STATE::COOL || getPartitionID(bf.header.pid) != p_i) {
                         partition.cooling_queue.erase(bf_itr);
                         partition.cooling_bfs_counter--;

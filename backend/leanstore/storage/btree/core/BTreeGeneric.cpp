@@ -455,7 +455,7 @@ BTreeGeneric::~BTreeGeneric() {}
 // Called by buffer manager before eviction
 // Returns true if the buffer manager has to restart and pick another buffer frame for eviction
 // Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
-bool BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferFrame& bf, OptimisticGuard& o_guard, ParentSwipHandler& parent_handler)
+bool BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferFrame& bf, BMOptimisticGuard& o_guard, ParentSwipHandler& parent_handler)
 {
    if (FLAGS_xmerge) {
       auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);

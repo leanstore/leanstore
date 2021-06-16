@@ -1,10 +1,11 @@
 #pragma once
+#include "Units.hpp"
+#include "BMPlainGuard.hpp"
 #include "BufferFrame.hpp"
 #include "DTRegistry.hpp"
 #include "FreeList.hpp"
 #include "Partition.hpp"
 #include "Swip.hpp"
-#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------

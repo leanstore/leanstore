@@ -22,7 +22,7 @@ ParentSwipHandler DTRegistry::findParent(DTID dtid, BufferFrame& bf)
    return dt_types_ht[std::get<0>(dt_meta)].find_parent(std::get<1>(dt_meta), bf);
 }
 // -------------------------------------------------------------------------------------
-bool DTRegistry::checkSpaceUtilization(DTID dtid, BufferFrame& bf, OptimisticGuard& guard, ParentSwipHandler& parent_handler)
+bool DTRegistry::checkSpaceUtilization(DTID dtid, BufferFrame& bf, BMOptimisticGuard& guard, ParentSwipHandler& parent_handler)
 {
    auto dt_meta = dt_instances_ht[dtid];
    return dt_types_ht[std::get<0>(dt_meta)].check_space_utilization(std::get<1>(dt_meta), bf, guard, parent_handler);
