@@ -79,8 +79,7 @@ struct LeanStoreAdapter : public Adapter<Record> {
       ensure(res == leanstore::OP_RESULT::OK);
    }
 
-   template <class Fn>
-   void update1(const typename Record::Key& key, const Fn& fn, UpdateSameSizeInPlaceDescriptor& update_descriptor)
+   void update1(const typename Record::Key& key, const std::function<void(Record&)>& fn, UpdateSameSizeInPlaceDescriptor& update_descriptor)
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);

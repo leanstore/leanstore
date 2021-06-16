@@ -1,7 +1,10 @@
 #pragma once
 #include "Adapter.hpp"
+#include "Types.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/Config.hpp"
+#include "leanstore/KVInterface.hpp"
+#include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "rocksdb/db.h"
 // -------------------------------------------------------------------------------------
 #include <cassert>
@@ -73,23 +76,7 @@ struct RocksDBAdapter : public Adapter<Record> {
       value.Reset();
    }
    // -------------------------------------------------------------------------------------
-   template <class Field>
-   auto lookupField(const typename Record::Key& key, Field Record::*f)
-   {
-      u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
-      const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
-      // -------------------------------------------------------------------------------------
-      rocksdb::PinnableSlice value;
-      rocksdb::Status s = map.db->Get(map.ro, map.db->DefaultColumnFamily(), RSlice(folded_key, folded_key_len), &value);
-      assert(s.ok());
-      const Record& record = *reinterpret_cast<const Record*>(value.data());
-      auto tmp = record.*f;
-      value.Reset();
-      return tmp;
-   }
-   // -------------------------------------------------------------------------------------
-   template <class Fn>
-   void update1(const typename Record::Key& key, const Fn& fn, leanstore::UpdateSameSizeInPlaceDescriptor&)
+   void update1(const typename Record::Key& key, const std::function<void(Record&)>& fn, leanstore::UpdateSameSizeInPlaceDescriptor&)
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -122,7 +109,7 @@ struct RocksDBAdapter : public Adapter<Record> {
       return __builtin_bswap32(*reinterpret_cast<const uint32_t*>(str.data())) ^ (1ul << 31);
    }
    //             [&](const neworder_t::Key& key, const neworder_t&) {
-   void scan(const typename Record::Key& key, const std::function<bool(const typename Record::Key&, const Record&)>& fn, std::function<void()> undo)
+   void scan(const typename Record::Key& key, const std::function<bool(const typename Record::Key&, const Record&)>& fn, std::function<void()>)
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -141,7 +128,7 @@ struct RocksDBAdapter : public Adapter<Record> {
    // -------------------------------------------------------------------------------------
    void scanDesc(const typename Record::Key& key,
                  const std::function<bool(const typename Record::Key&, const Record&)>& fn,
-                 std::function<void()> undo)
+                 std::function<void()>)
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);

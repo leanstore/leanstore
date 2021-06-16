@@ -6,6 +6,7 @@
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/KVInterface.hpp"
 // -------------------------------------------------------------------------------------
 #include <vector>
 using std::vector;
