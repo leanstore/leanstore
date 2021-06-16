@@ -35,7 +35,7 @@ namespace leanstore
 void deserializeFlags();
 LeanStore::LeanStore()
 {
-   LeanStore::add_string_flag("SSD_PATH", &FLAGS_ssd_path);
+   LeanStore::addStringFlag("SSD_PATH", &FLAGS_ssd_path);
    if (FLAGS_recover_file != "./leanstore.json") {
       FLAGS_recover = true;
    }
