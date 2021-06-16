@@ -193,19 +193,45 @@ struct Guard {
       if (state == GUARD_STATE::SHARED)
          return;
       if (state == GUARD_STATE::OPTIMISTIC) {
-         if (!latch->mutex.try_lock_shared()) {
-            jumpmu::jump();
-         }
+         latch->mutex.lock_shared();
          if (latch->ref().load() != version) {
             latch->mutex.unlock_shared();
             jumpmu::jump();
          }
          state = GUARD_STATE::SHARED;
       } else {
-         latch->mutex.lock_shared();
-         version = latch->ref().load();
-         state = GUARD_STATE::SHARED;
+        UNREACHABLE();
       }
+   }
+   // -------------------------------------------------------------------------------------
+   // For buffer management
+   inline void tryToExclusive()
+   {
+      assert(state == GUARD_STATE::OPTIMISTIC);
+      const u64 new_version = version + LATCH_EXCLUSIVE_BIT;
+      u64 expected = version;
+      if (!latch->mutex.try_lock()) {
+         jumpmu::jump();
+      }
+      if (!latch->ref().compare_exchange_strong(expected, new_version)) {
+         latch->mutex.unlock();
+         jumpmu::jump();
+      }
+      version = new_version;
+      state = GUARD_STATE::EXCLUSIVE;
+   }
+   // -------------------------------------------------------------------------------------
+   inline void tryToShared()
+   {
+      assert(state == GUARD_STATE::OPTIMISTIC);
+      if (!latch->mutex.try_lock_shared()) {
+         jumpmu::jump();
+      }
+      if (latch->ref().load() != version) {
+         latch->mutex.unlock_shared();
+         jumpmu::jump();
+      }
+      state = GUARD_STATE::SHARED;
    }
 };
 // -------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 #pragma once
-#include "Swip.hpp"
 #include "Units.hpp"
-#include "leanstore/sync-primitives/PlainGuard.hpp"
+#include "Swip.hpp"
+#include "leanstore/sync-primitives/Latch.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>

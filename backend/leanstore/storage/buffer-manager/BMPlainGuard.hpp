@@ -1,6 +1,6 @@
 #pragma once
-#include "Latch.hpp"
 #include "Units.hpp"
+#include "leanstore/sync-primitives/Latch.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/utils/JumpMU.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
@@ -10,14 +10,16 @@ namespace leanstore
 namespace storage
 {
 // -------------------------------------------------------------------------------------
-class OptimisticGuard;
-class ExclusiveGuard;
+// The following guards are primarily designed for buffer management use cases
+// This implies that the guards never block (sleep), they immediately jump instead.
+class BMOptimisticGuard;
+class BMExclusiveGuard;
 template <typename T>
 class HybridPageGuard;
 // -------------------------------------------------------------------------------------
-class OptimisticGuard
+class BMOptimisticGuard
 {
-   friend class ExclusiveGuard;
+   friend class BMExclusiveGuard;
    template <typename T>
    friend class HybridPageGuard;
    template <typename T>
@@ -26,22 +28,18 @@ class OptimisticGuard
   public:
    Guard guard;
    // -------------------------------------------------------------------------------------
-   OptimisticGuard(HybridLatch& lock) : guard(lock)
+   BMOptimisticGuard(HybridLatch& lock) : guard(lock)
    {
       // assert(if_contended != FALLBACK_METHOD::EXCLUSIVE && if_contended != FALLBACK_METHOD::SHARED);
-      guard.toOptimisticSpin();
-   }
-   OptimisticGuard(HybridLatch& lock, bool) : guard(lock)  // TODO: temporary hack
-   {
       guard.toOptimisticOrJump();
    }
    // -------------------------------------------------------------------------------------
-   OptimisticGuard() = delete;
-   OptimisticGuard(OptimisticGuard& other) = delete;  // copy constructor
+   BMOptimisticGuard() = delete;
+   BMOptimisticGuard(BMOptimisticGuard& other) = delete;  // copy constructor
    // move constructor
-   OptimisticGuard(OptimisticGuard&& other) : guard(std::move(other.guard)) {}
-   OptimisticGuard& operator=(OptimisticGuard& other) = delete;
-   OptimisticGuard& operator=(OptimisticGuard&& other)
+   BMOptimisticGuard(BMOptimisticGuard&& other) : guard(std::move(other.guard)) {}
+   BMOptimisticGuard& operator=(BMOptimisticGuard& other) = delete;
+   BMOptimisticGuard& operator=(BMOptimisticGuard&& other)
    {
       guard = std::move(other.guard);
       // -------------------------------------------------------------------------------------
@@ -51,42 +49,42 @@ class OptimisticGuard
    inline void recheck() { guard.recheck(); }
 };
 // -------------------------------------------------------------------------------------
-class ExclusiveGuard
+class BMExclusiveGuard
 {
   private:
-   OptimisticGuard& optimistic_guard;  // our basis
+   BMOptimisticGuard& optimistic_guard;  // our basis
 
   public:
-   ExclusiveGuard(OptimisticGuard& o_lock) : optimistic_guard(o_lock)
+   BMExclusiveGuard(BMOptimisticGuard& o_lock) : optimistic_guard(o_lock)
    {
-      optimistic_guard.guard.toExclusive();
+      optimistic_guard.guard.tryToExclusive();
       jumpmu_registerDestructor();
    }
    // -------------------------------------------------------------------------------------
-   jumpmu_defineCustomDestructor(ExclusiveGuard)
+   jumpmu_defineCustomDestructor(BMExclusiveGuard)
        // -------------------------------------------------------------------------------------
-       ~ExclusiveGuard()
+       ~BMExclusiveGuard()
    {
       optimistic_guard.guard.unlock();
       jumpmu::clearLastDestructor();
    }
 };
 // -------------------------------------------------------------------------------------
-class ExclusiveUpgradeIfNeeded
+class BMExclusiveUpgradeIfNeeded
 {
   private:
    Guard& guard;
    const bool was_exclusive;
 
   public:
-   ExclusiveUpgradeIfNeeded(Guard& guard) : guard(guard), was_exclusive(guard.state == GUARD_STATE::EXCLUSIVE)
+   BMExclusiveUpgradeIfNeeded(Guard& guard) : guard(guard), was_exclusive(guard.state == GUARD_STATE::EXCLUSIVE)
    {
-      guard.toExclusive();
+      guard.tryToExclusive();
       jumpmu_registerDestructor();
    }
-   jumpmu_defineCustomDestructor(ExclusiveUpgradeIfNeeded)
+   jumpmu_defineCustomDestructor(BMExclusiveUpgradeIfNeeded)
        // -------------------------------------------------------------------------------------
-       ~ExclusiveUpgradeIfNeeded()
+       ~BMExclusiveUpgradeIfNeeded()
    {
       if (!was_exclusive) {
          guard.unlock();
@@ -95,21 +93,21 @@ class ExclusiveUpgradeIfNeeded
    }
 };
 // -------------------------------------------------------------------------------------
-class SharedGuard
+class BMSharedGuard
 {
   private:
-   OptimisticGuard& optimistic_guard;  // our basis
+   BMOptimisticGuard& optimistic_guard;  // our basis
 
   public:
-   SharedGuard(OptimisticGuard& o_lock) : optimistic_guard(o_lock)
+   BMSharedGuard(BMOptimisticGuard& o_lock) : optimistic_guard(o_lock)
    {
-      optimistic_guard.guard.toShared();
+      optimistic_guard.guard.tryToShared();
       jumpmu_registerDestructor();
    }
    // -------------------------------------------------------------------------------------
-   jumpmu_defineCustomDestructor(SharedGuard)
+   jumpmu_defineCustomDestructor(BMSharedGuard)
        // -------------------------------------------------------------------------------------
-       ~SharedGuard()
+       ~BMSharedGuard()
    {
       optimistic_guard.guard.unlock();
       jumpmu::clearLastDestructor();
