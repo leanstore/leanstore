@@ -993,10 +993,10 @@ class TPCCWorkload
       return 4;
    }
    // -------------------------------------------------------------------------------------
-   void analyticalQuery()
+   void analyticalQuery(s32 query_no = 0)
    {
-      // TODO: implement TPC-CH queries
-      if (0) {
+      // TODO: implement CH analytical queries
+      if (query_no == 0) {
          Integer sum = 0, last_w = 0, last_i = 0;
          stock.scan(
              {1, 0},
@@ -1013,9 +1013,12 @@ class TPCCWorkload
             cout << last_w << "," << last_i << endl;
             ensure(false);
          }
-      } else {
+      } else if (query_no == 1) {
          district.scan(
              {1, 0}, [&](const district_t::Key&, const district_t&) { return true; }, [&]() {});
+      } else if (query_no == 2) {
+         orderline.scan(
+             {0, 0, 0, 0}, [&](const orderline_t::Key&, const orderline_t&) { return true; }, [&]() {});
       }
    }
 };

@@ -199,7 +199,7 @@ struct BTreeNode : public BTreeNodeHeader {
       key_length -= prefix_length;
 
       if (higher) {
-         assert(cmpKeys(key, getKey(start_pos), key_length, getKeyLen(start_pos)) >= 0);
+         // assert(cmpKeys(key, getKey(start_pos), key_length, getKeyLen(start_pos)) >= 0);
          s32 cur = start_pos + 1;
          for (; cur < count; cur++) {
             int cmp = cmpKeys(key, getKey(cur), key_length, getKeyLen(cur));

@@ -176,8 +176,9 @@ class BTreeVI : public BTreeLL
    };
    struct DanglingPointer {
       BufferFrame* bf = nullptr;
-      u64 version;
+      u64 version = -1;
       s32 head_slot = -1, secondary_slot = -1;
+      bool isValid() const { return secondary_slot != -1; }
    };
    // -------------------------------------------------------------------------------------
    struct TODOEntry {

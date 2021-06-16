@@ -504,6 +504,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          }
          ChainedTuple& head_version = *reinterpret_cast<ChainedTuple*>(head_payload.data());
          // -------------------------------------------------------------------------------------
+         // Head WTTS if needed
+         u64 head_wtts = 0;
+         if (head_version.versions_counter == 1) {
+            head_wtts = cr::Worker::composeWTTS(head_version.worker_id, head_version.tts);
+         }
          // WAL
          auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
          wal_entry->type = WAL_LOG_TYPE::WALUpdate;
@@ -527,7 +532,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          head_version.commited_after_so = cr::Worker::my().so_start;
          head_version.tmp = 1;
          // -------------------------------------------------------------------------------------
-         if (FLAGS_vi_utodo && !head_version.is_gc_scheduled) {  // TODO: && dt_id != 1 && dt_id != 0
+         if (FLAGS_vi_utodo && !head_version.is_gc_scheduled) {
             cr::Worker::my().stageTODO(
                 head_version.worker_id, head_version.tts, dt_id, key_length + sizeof(TODOEntry),
                 [&](u8* entry) {
@@ -537,7 +542,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                    todo_entry.dangling_pointer = dangling_pointer;
                    std::memcpy(todo_entry.key, o_key, o_key_length);
                 },
-                (head_version.versions_counter == 1) ? head_version.commited_after_so : 0);
+                head_wtts);
             head_version.is_gc_scheduled = true;
          }
          // -------------------------------------------------------------------------------------
@@ -639,7 +644,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          auto primary_payload = iterator.mutableValue();
          ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
          // -------------------------------------------------------------------------------------
-         if (FLAGS_dangling_pointer) {
+         if (FLAGS_vi_dangling_pointer) {
             dangling_pointer.bf = iterator.leaf.bf;
             dangling_pointer.version = iterator.leaf.guard.version;
             dangling_pointer.head_slot = iterator.cur;
@@ -710,6 +715,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.commited_after_so = cr::Worker::my().SOStart();
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_rtodo && !primary_version.is_gc_scheduled) {
+            u64 wtts = cr::Worker::composeWTTS(old_primary_version.worker_id, old_primary_version.tts);
             cr::Worker::my().stageTODO(
                 cr::Worker::my().workerID(), cr::Worker::my().TTS(), dt_id, key_length + sizeof(TODOEntry),
                 [&](u8* entry) {
@@ -718,7 +724,8 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
                    todo_entry.dangling_pointer = dangling_pointer;
                    std::memcpy(todo_entry.key, o_key, o_key_length);
                 },
-                primary_version.commited_after_so);
+                wtts);
+            //                primary_version.commited_after_so);
             primary_version.is_gc_scheduled = true;
          }
          primary_version.unlock();
@@ -946,8 +953,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    const TODOEntry& todo_entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
    // -------------------------------------------------------------------------------------
-   if (FLAGS_vi_dangling_pointer && todo_entry.dangling_pointer.bf != nullptr && todo_entry.dangling_pointer.head_slot != -1 &&
-       todo_entry.dangling_pointer.secondary_slot != -1) {
+   if (FLAGS_vi_dangling_pointer && todo_entry.dangling_pointer.isValid()) {
       // Optimistic fast path
       jumpmuTry()
       {
@@ -957,17 +963,16 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          auto& node = iterator.leaf;
          auto& head = *reinterpret_cast<ChainedTuple*>(node->getPayload(todo_entry.dangling_pointer.head_slot));
          // Being chained is implicit because we check for version, so the state can not be changed after staging the todo
-         if (head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked()) {
-            head.next_sn = 0;
-            head.versions_counter = 1;
-            head.is_gc_scheduled = false;
-            node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
-            if (head.is_removed) {
-               node->removeSlot(todo_entry.dangling_pointer.head_slot);
-            }
-            iterator.mergeIfNeeded();
-            jumpmu_return;
+         ensure(head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked());
+         ensure(head.worker_id == version_worker_id && head.tts == version_tts);
+         head.versions_counter = 1;
+         head.is_gc_scheduled = false;
+         node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
+         if (head.is_removed) {
+            node->removeSlot(todo_entry.dangling_pointer.head_slot);
          }
+         iterator.mergeIfNeeded();
+         jumpmu_return;
       }
       jumpmuCatch() {}
    }
@@ -984,7 +989,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree));
       ret = iterator.seekExact(key);
-      if (ret != OP_RESULT::OK) {  // TODO: clean todos after undo
+      if (ret != OP_RESULT::OK) {  // Legit case
          jumpmu_return;
       }
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_chains[btree.dt_id]++; }
@@ -1024,7 +1029,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             btree.setSN(m_key, next_sn);
             ret = iterator.seekExactWithHint(key, next_sn_higher);
             if (ret != OP_RESULT::OK) {
-               raise(SIGTRAP);
+               // raise(SIGTRAP); should be fine if the tuple got converted to fat
                break;
             }
             // -------------------------------------------------------------------------------------
@@ -1152,8 +1157,8 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          return {OP_RESULT::OK, chain_length};
       }
       if (secondary_version.isFinal()) {
-         cout << chain_length << endl;
-         raise(SIGTRAP);
+         // cout << chain_length << endl;
+         // raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, chain_length};
       } else {
          next_sn_higher = secondary_version.next_sn >= secondary_sn;

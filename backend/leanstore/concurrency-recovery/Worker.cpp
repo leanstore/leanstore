@@ -29,9 +29,9 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
       all_workers(all_workers),
       workers_count(workers_count),
       ssd_fd(fd),
-      todo_hwm_rb(1024ull * 1024 * 100),
-      todo_lwm_rb(1024ull * 1024 * 100),
-      todo_lwm_hwm_rb(1024ull * 1024 * 10)
+      todo_hwm_rb(1024ull * 1024 * 50),
+      todo_lwm_rb(1024ull * 1024 * 50),
+      todo_lwm_hwm_rb(1024ull * 1024 * 50)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
@@ -66,7 +66,7 @@ void Worker::walEnsureEnoughSpace(u32 requested_size)
 {
    if (FLAGS_wal) {
       u32 wait_untill_free_bytes = requested_size + CR_ENTRY_SIZE;
-      if ((WORKER_WAL_SIZE - wal_wt_cursor) < requested_size + CR_ENTRY_SIZE) {
+      if ((WORKER_WAL_SIZE - wal_wt_cursor) < static_cast<u32>(requested_size + CR_ENTRY_SIZE)) {
          wait_untill_free_bytes += WORKER_WAL_SIZE - wal_wt_cursor;  // we have to skip this round
       }
       // Spin until we have enough space
@@ -146,6 +146,7 @@ void Worker::refreshSnapshot()
 {
    so_start = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
    global_so_starts[worker_id].store(so_start, std::memory_order_release);
+   // -------------------------------------------------------------------------------------
    for (u64 w = 0; w < workers_count; w++) {
       snapshot[w].store(global_tts[w], std::memory_order_release);
    }
@@ -153,7 +154,7 @@ void Worker::refreshSnapshot()
    oldest_so_start = std::numeric_limits<u64>::max();
    oldest_so_start_worker_id = worker_id;
    for (u64 w = 0; w < workers_count; w++) {
-      u64 its_so_start = global_so_starts[w];
+      const u64 its_so_start = global_so_starts[w].load();
       if (its_so_start < oldest_so_start) {
          oldest_so_start = its_so_start;
          oldest_so_start_worker_id = w;
@@ -238,34 +239,41 @@ void Worker::checkup()
          auto& rb = todo_lwm_rb;
          while (FLAGS_todo && !rb.empty()) {
             auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
+            ensure(todo.or_before_so > 0);
             if (oldest_so_start > todo.after_so) {
                WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
                leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
                rb.popFront();
-            } else if (oldest_so_start < todo.or_before_so) {
+            } else {
                bool safe_to_gc = true;
+               bool move_to_another_queue = true;
                WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
-               for (u64 w_i = 0; w_i < workers_count && safe_to_gc; w_i++) {
-                  if (((all_so_starts[w_i] < todo.or_before_so) || (all_so_starts[w_i] > todo.after_so)) ||
-                      ((0 && global_so_starts[w_i] < todo.or_before_so) || (global_so_starts[w_i] > todo.after_so))) {
+               for (u64 w_i = 0; w_i < workers_count && (safe_to_gc || move_to_another_queue); w_i++) {
+                  if (all_so_starts[w_i] > todo.after_so) {
                      safe_to_gc &= true;
                   } else {
-                     safe_to_gc &= false;
+                     auto decomposed = decomposeWTTS(todo.or_before_so);
+                     if (isVisibleForIt(w_i, std::get<0>(decomposed), std::get<1>(decomposed))) {
+                        safe_to_gc &= false;
+                     } else {
+                        move_to_another_queue = false;
+                        safe_to_gc &= true;
+                     }
                   }
                }
                if (safe_to_gc) {
                   WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
                   leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
                   rb.popFront();
+               } else if (move_to_another_queue) {
+                  WorkerCounters::myCounters().cc_rtodo_to_lng[todo.dt_id]++;
+                  const u64 total_todo_length = todo.payload_length + sizeof(TODOEntry);
+                  u8* new_hwm_todo = todo_lwm_hwm_rb.pushBack(total_todo_length);
+                  std::memcpy(new_hwm_todo, rb.front(), total_todo_length);
+                  rb.popFront();
                } else {
                   break;
                }
-            } else {
-               WorkerCounters::myCounters().cc_rtodo_to_lng[todo.dt_id]++;
-               const u64 total_todo_length = todo.payload_length + sizeof(TODOEntry);
-               u8* new_hwm_todo = todo_lwm_hwm_rb.pushBack(total_todo_length);
-               std::memcpy(new_hwm_todo, rb.front(), total_todo_length);
-               rb.popFront();
             }
          }
       }
@@ -455,11 +463,12 @@ outofmemory : {
 }
 }
 // -------------------------------------------------------------------------------------
+// TODO: rename or_before_so
 void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb, u64 or_before_so)
 {
    u8* todo_ptr;
    const u64 total_todo_length = payload_length + sizeof(TODOEntry);
-   if (FLAGS_vi_twoq_todo && or_before_so && oldest_so_start < or_before_so) {
+   if (FLAGS_vi_twoq_todo && or_before_so) {
       todo_ptr = todo_lwm_rb.pushBack(total_todo_length);
       if (todo_lwm_tx_start == nullptr) {
          todo_lwm_tx_start = todo_ptr;

@@ -58,11 +58,26 @@ struct Worker {
    u64 oldest_so_start, oldest_so_start_worker_id;
    unique_ptr<atomic<u64>[]> snapshot;
    unique_ptr<u64[]> all_sorted_so_starts;
+   // all_so_starts can lag and it only tells us whether "it" definitely sees a version, but not if it does not
    unique_ptr<u64[]> all_so_starts;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
    static constexpr u64 WORKERS_MASK = (1ull << WORKERS_BITS) - 1;
+   // -------------------------------------------------------------------------------------
+   // Temporary helpers
+   static std::tuple<u8, u64> decomposeWTTS(u64 wtts)
+   {
+      u8 worker_id = wtts & WORKERS_MASK;
+      u64 tts = wtts >> WORKERS_BITS;
+      return {worker_id, tts};
+   }
+   static u64 composeWTTS(u8 worker_id, u64 tts)
+   {
+      u64 wtts = tts << WORKERS_BITS;
+      wtts |= worker_id;
+      return wtts;
+   }
    // -------------------------------------------------------------------------------------
    const u64 worker_id;
    Worker** all_workers;
