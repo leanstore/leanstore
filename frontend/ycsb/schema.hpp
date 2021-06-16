@@ -5,7 +5,7 @@
  */
 #include "../shared/Types.hpp"
 
-template<typename TableKey, typename TablePayload>
+template <typename TableKey, typename TablePayload>
 struct relation {
    // Entries: 1 to 1 160 000 * scale
    static constexpr int id = 0;

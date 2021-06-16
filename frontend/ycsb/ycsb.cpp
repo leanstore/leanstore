@@ -1,6 +1,5 @@
-#include "Units.hpp"
 #include "../shared/LeanStoreAdapter.hpp"
-#include "schema.hpp"
+#include "Units.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -8,6 +7,7 @@
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ScrambledZipfGenerator.hpp"
+#include "schema.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <tbb/tbb.h>
@@ -129,9 +129,7 @@ int main(int argc, char** argv)
          tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
             for (u64 i = range.begin(); i < range.end(); i++) {
                YCSBPayload result;
-               table.lookup1({i}, [&](const tabular& record) {
-                  result = record.my_payload;
-               });
+               table.lookup1({i}, [&](const tabular& record) { result = record.my_payload; });
             }
          });
          end = chrono::high_resolution_clock::now();
@@ -156,16 +154,14 @@ int main(int argc, char** argv)
             assert(key < ycsb_tuple_count);
             YCSBPayload result;
             if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
-               table.lookup1({key}, [&](const tabular& record) {
-                  result = record.my_payload;
-               });
+               table.lookup1({key}, [&](const tabular& record) { result = record.my_payload; });
             } else {
                YCSBPayload payload;
                UpdateDescriptorGenerator1(tabular_update_descriptor, tabular, my_payload);
 
                utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
-               table.update1({key}, [&](tabular& rec){
-                  rec.my_payload = payload;}, tabular_update_descriptor);
+               table.update1(
+                   {key}, [&](tabular& rec) { rec.my_payload = payload; }, tabular_update_descriptor);
             }
             WorkerCounters::myCounters().tx++;
          }

@@ -1,6 +1,6 @@
-#include "Units.hpp"
-#include "TPCCWorkload.hpp"
 #include "../shared/RocksDBAdapter.hpp"
+#include "TPCCWorkload.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <rocksdb/db.h>

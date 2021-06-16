@@ -126,9 +126,7 @@ struct RocksDBAdapter : public Adapter<Record> {
       delete it;
    }
    // -------------------------------------------------------------------------------------
-   void scanDesc(const typename Record::Key& key,
-                 const std::function<bool(const typename Record::Key&, const Record&)>& fn,
-                 std::function<void()>)
+   void scanDesc(const typename Record::Key& key, const std::function<bool(const typename Record::Key&, const Record&)>& fn, std::function<void()>)
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
