@@ -66,7 +66,7 @@ class Adapter
     */
    virtual void update1(const typename Record::Key& key,
                         const std::function<void(Record&)>& fn,
-                        leanstore::WALUpdateGenerator wal_update_generator) = 0;
+                        leanstore::UpdateSameSizeInPlaceDescriptor& update_descriptor) = 0;
    /**
     * @brief Delete entry from storage.
     *
