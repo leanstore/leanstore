@@ -194,7 +194,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
       // -------------------------------------------------------------------------------------
       // phase_2_3:
       for (volatile u64 p_i = p_begin; p_i < p_end; p_i++) {
-         Partition& partition = partitions[p_i];
+         Partition& partition = getPartition(p_i);
          // -------------------------------------------------------------------------------------
          FreedBfsBatch freed_bfs_batch;
          // -------------------------------------------------------------------------------------
@@ -276,7 +276,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                                  SharedGuard s_guard(o_guard);
                                  PID wb_pid = bf.header.pid;
                                  if (FLAGS_out_of_place) {
-                                    wb_pid = partitions[p_i].nextPID();
+                                    wb_pid = getPartition(p_i).nextPID();
                                     assert(getPartitionID(bf.header.pid) == p_i);
                                     assert(getPartitionID(wb_pid) == p_i);
                                  }
