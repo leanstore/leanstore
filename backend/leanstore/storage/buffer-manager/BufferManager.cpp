@@ -204,6 +204,20 @@ BufferFrame& BufferManager::allocatePage()
 }
 // -------------------------------------------------------------------------------------
 // Pre: bf is exclusively locked
+// Post: the caller must "cool" the swip pointing to this buffer frame
+// THEN unlock this buffer frame
+// -------------------------------------------------------------------------------------
+void BufferManager::coolPage(BufferFrame& bf)
+{
+   Partition& partition = getPartition(bf.header.pid);
+   std::unique_lock<std::mutex> g_guard(partition.cooling_mutex);
+   partition.cooling_queue.emplace_back(&bf);
+   partition.cooling_bfs_counter++;
+   // -------------------------------------------------------------------------------------
+   bf.header.state = BufferFrame::STATE::COOL;
+}
+// -------------------------------------------------------------------------------------
+// Pre: bf is exclusively locked
 // ATTENTION: this function unlocks it !!
 // -------------------------------------------------------------------------------------
 void BufferManager::reclaimPage(BufferFrame& bf)
