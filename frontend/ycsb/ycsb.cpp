@@ -1,5 +1,6 @@
 #include "Units.hpp"
-#include "YcsbAdapter.hpp"
+#include "../shared/LeanStoreAdapter.hpp"
+#include "schema.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -24,12 +25,40 @@ DEFINE_bool(verify, false, "");
 DEFINE_bool(ycsb_scan, false, "");
 DEFINE_bool(ycsb_tx, true, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
+
+#define UpdateDescriptorInit(Name, Count)                                                                                                     \
+   u8 Name##_buffer[sizeof(leanstore::UpdateSameSizeInPlaceDescriptor) + (sizeof(leanstore::UpdateSameSizeInPlaceDescriptor::Slot) * Count)]; \
+   auto& Name = *reinterpret_cast<leanstore::UpdateSameSizeInPlaceDescriptor*>(Name##_buffer);                                                \
+   Name.count = Count;
+
+#define UpdateDescriptorFillSlot(Name, Index, Type, Attribute) \
+   Name.slots[Index].offset = offsetof(Type, Attribute);       \
+   Name.slots[Index].length = sizeof(Type::Attribute);
+
+#define UpdateDescriptorGenerator1(Name, Type, A0) \
+   UpdateDescriptorInit(Name, 1);                  \
+   UpdateDescriptorFillSlot(Name, 0, Type, A0);
+
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+template <u64 size>
+struct BytesPayload {
+   u8 value[size];
+   BytesPayload() {}
+   bool operator==(BytesPayload& other) { return (std::memcmp(value, other.value, sizeof(value)) == 0); }
+   bool operator!=(BytesPayload& other) { return !(operator==(other)); }
+   BytesPayload(const BytesPayload& other) { std::memcpy(value, other.value, sizeof(value)); }
+   BytesPayload& operator=(const BytesPayload& other)
+   {
+      std::memcpy(value, other.value, sizeof(value));
+      return *this;
+   }
+};
 using YCSBKey = u64;
 using YCSBPayload = BytesPayload<120>;
+using tabular = relation<YCSBKey, YCSBPayload>;
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
@@ -49,14 +78,12 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    // LeanStore DB
    LeanStore db;
-   unique_ptr<BTreeInterface<YCSBKey, YCSBPayload>> adapter;
-   auto& vs_btree = db.registerBTreeLL("ycsb");
-   adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
+   LeanStoreAdapter<tabular> table;
+   table = LeanStoreAdapter<tabular>(db, "YCSB_adapter");
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);
    db.startProfilingThread();
    // -------------------------------------------------------------------------------------
-   auto& table = *adapter;
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
                                     : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
@@ -75,7 +102,7 @@ int main(int argc, char** argv)
                YCSBPayload payload;
                utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
                auto& key = t_i;
-               table.insert(key, payload);
+               table.insert({key}, {payload});
             }
          });
       }
@@ -102,7 +129,9 @@ int main(int argc, char** argv)
          tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
             for (u64 i = range.begin(); i < range.end(); i++) {
                YCSBPayload result;
-               table.lookup(i, result);
+               table.lookup1({i}, [&](const tabular& record) {
+                  result = record.my_payload;
+               });
             }
          });
          end = chrono::high_resolution_clock::now();
@@ -127,11 +156,16 @@ int main(int argc, char** argv)
             assert(key < ycsb_tuple_count);
             YCSBPayload result;
             if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
-               table.lookup(key, result);
+               table.lookup1({key}, [&](const tabular& record) {
+                  result = record.my_payload;
+               });
             } else {
                YCSBPayload payload;
+               UpdateDescriptorGenerator1(tabular_update_descriptor, tabular, my_payload);
+
                utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
-               table.update(key, payload);
+               table.update1({key}, [&](tabular& rec){
+                  rec.my_payload = payload;}, tabular_update_descriptor);
             }
             WorkerCounters::myCounters().tx++;
          }
