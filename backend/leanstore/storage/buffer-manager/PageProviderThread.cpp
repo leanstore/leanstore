@@ -123,7 +123,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                {
                   const PID pid = r_buffer->header.pid;
                   Partition& partition = getPartition(pid);
-                  // r_x_guard can only be acquired and release while the partition mutex is locked
+                  // r_x_guard can only be acquired and released while the partition mutex is locked
                   {
                      JMUW<std::unique_lock<std::mutex>> g_guard(partition.cooling_mutex);
                      ExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
@@ -134,9 +134,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                      assert(r_buffer->header.isWB == false);
                      assert(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
                      assert(parent_handler.swip.bf == r_buffer);
+                     // -------------------------------------------------------------------------------------
                      partition.cooling_queue.emplace_back(reinterpret_cast<BufferFrame*>(r_buffer));
                      r_buffer->header.state = BufferFrame::STATE::COOL;
-                     parent_handler.swip.cool();
+                     parent_handler.swip.cool();  // Cool the pointing swip before unlocking the current bf
                      partition.cooling_bfs_counter++;
                   }
                   // -------------------------------------------------------------------------------------

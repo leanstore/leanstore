@@ -146,6 +146,17 @@ class HybridPageGuard
    void toShared() { guard.toShared(); }
    void toExclusive() { guard.toExclusive(); }
    // -------------------------------------------------------------------------------------
+   // Parent should be exclusively locked, we need a Swip in the parent
+   // This is the child page that we want to cool
+   void cool(Swip<BufferFrame>& swip_in_parent)
+   {
+      BMC::global_bf->coolPage(*bf);
+      swip_in_parent.cool();
+      unlock();
+      guard.state = GUARD_STATE::MOVED;
+      // Should not use this page guard at this point
+   }
+   // -------------------------------------------------------------------------------------
    void reclaim()
    {
       BMC::global_bf->reclaimPage(*(bf));
