@@ -1,9 +1,3 @@
-/**
- * @file Adapter.hpp
- * @brief Standardized way of working with Storage Engines
- *
- */
-
 #pragma once
 #include "Types.hpp"
 #include "leanstore/KVInterface.hpp"
@@ -16,6 +10,7 @@
 #include <functional>
 #include <string>
 // -------------------------------------------------------------------------------------
+// Helpers to generate a descriptor that describes which attributes are in-place updating in a fixed-size value
 #define UpdateDescriptorInit(Name, Count)                                                                                                     \
    u8 Name##_buffer[sizeof(leanstore::UpdateSameSizeInPlaceDescriptor) + (sizeof(leanstore::UpdateSameSizeInPlaceDescriptor::Slot) * Count)]; \
    auto& Name = *reinterpret_cast<leanstore::UpdateSameSizeInPlaceDescriptor*>(Name##_buffer);                                                \
@@ -48,74 +43,31 @@
    UpdateDescriptorFillSlot(Name, 3, Type, A3);
 
 // -------------------------------------------------------------------------------------
+// Unified interface used by our benchmarks for different storage engines including LeanStore
 template <class Record>
 class Adapter
 {
   public:
-   /**
-    * @brief Scans asc.
-    *
-    * @tparam Fn
-    * @param key start_key
-    * @param fn Can read from record. Returns bool (continue scan).
-    * @param undo Call if scan fails.
-    */
+   // Scan in ascending order, scan can fail if it is executed in optimistic mode without latching the leaves
    virtual void scan(const typename Record::Key& key,
-                     const std::function<bool(const typename Record::Key&, const Record&)>& fn,
-                     std::function<void()> undo) = 0;
-   /**
-    * @brief Scans desc.
-    *
-    * @tparam Fn
-    * @param key start_key
-    * @param fn Can read from record. Returns bool (continue scan).
-    * @param undo Call if scan fails.
-    */
+                     const std::function<bool(const typename Record::Key&, const Record&)>& found_record_cb,
+                     std::function<void()> reset_if_scan_failed_cb) = 0;
+   // -------------------------------------------------------------------------------------
    virtual void scanDesc(const typename Record::Key& key,
-                         const std::function<bool(const typename Record::Key&, const Record&)>& fn,
-                         std::function<void()> undo) = 0;
-   /**
-    * @brief Insert record into storage.
-    *
-    * @param rec_key key of the record
-    * @param record payload of the record
-    */
+                         const std::function<bool(const typename Record::Key&, const Record&)>& found_record_cb,
+                         std::function<void()> reset_if_scan_failed_cb) = 0;
+   // -------------------------------------------------------------------------------------
    virtual void insert(const typename Record::Key& key, const Record& record) = 0;
-   /**
-    * @brief Find one entry in storage.
-    *
-    * @tparam Fn
-    * @param key Key for entry
-    * @param fn Function to work with entry
-    */
-   virtual void lookup1(const typename Record::Key& key, const std::function<void(const Record&)>& fn) = 0;
-   /**
-    * @brief Update one entry in storage.
-    *
-    * @tparam Fn
-    * @param key Key for entry
-    * @param fn ??
-    * @param wal_update_generator ??
-    */
+   // -------------------------------------------------------------------------------------
+   virtual void lookup1(const typename Record::Key& key, const std::function<void(const Record&)>& callback) = 0;
+   // -------------------------------------------------------------------------------------
    virtual void update1(const typename Record::Key& key,
-                        const std::function<void(Record&)>& fn,
+                        const std::function<void(Record&)>& update_the_record_in_place_cb,
                         leanstore::UpdateSameSizeInPlaceDescriptor& update_descriptor) = 0;
-   /**
-    * @brief Delete entry from storage.
-    *
-    * @param key Key for entry
-    * @return true Success
-    * @return false Failure
-    */
+   // -------------------------------------------------------------------------------------
+   // Returns false if the record was not found
    virtual bool erase(const typename Record::Key& key) = 0;
-   /**
-    * @brief Get one specific field from entry in storage.
-    *
-    * @tparam Field
-    * @param key Key for entry
-    * @param f Field to get
-    * @return auto Value of field
-    */
+   // -------------------------------------------------------------------------------------
    template <class Field>
    auto lookupField(const typename Record::Key& key, Field Record::*f)
    {

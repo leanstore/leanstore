@@ -1,25 +1,17 @@
-/**
- * @file types.hpp
- * @brief Defines some datatypes and the fold and unfold function for each.
- *
- * - fold: compress datatype to writer, returns size of compressed object
- * - unfold: decrompres datatype from input, returns size of compressed object
- */
-
 #pragma once
-
+#include "Units.hpp"
+// -------------------------------------------------------------------------------------
 #include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <string>
-
-typedef int32_t Integer;
-typedef uint64_t Timestamp;
-typedef double Numeric;
-
+// -------------------------------------------------------------------------------------
+using Integer = s32;
+using Timestamp = u64;
+using Numeric = double;
 static constexpr Integer minInteger = std::numeric_limits<int>::min();
-
+// -------------------------------------------------------------------------------------
 template <int maxLength>
 struct Varchar {
    int16_t length;
@@ -73,55 +65,42 @@ struct Varchar {
          return length < other.length;
    }
 };
-
-/**
- * @brief Copies data from data object to writer
- *
- * @param writer
- * @param x data object
- * @return length of data written.
- */
-unsigned fold(uint8_t* writer, const Integer& x)
+// -------------------------------------------------------------------------------------
+// Fold functions convert integers to a lexicographical comparable format
+unsigned fold(u8* writer, const Integer& x)
 {
-   *reinterpret_cast<uint32_t*>(writer) = __builtin_bswap32(x ^ (1ul << 31));
+   *reinterpret_cast<u32*>(writer) = __builtin_bswap32(x ^ (1ul << 31));
    return sizeof(x);
 }
-
-unsigned fold(uint8_t* writer, const Timestamp& x)
+// -------------------------------------------------------------------------------------
+unsigned fold(u8* writer, const Timestamp& x)
 {
-   *reinterpret_cast<uint64_t*>(writer) = __builtin_bswap64(x ^ (1ull << 63));
+   *reinterpret_cast<u64*>(writer) = __builtin_bswap64(x ^ (1ull << 63));
    return sizeof(x);
 }
-
+// -------------------------------------------------------------------------------------
 template <int len>
-unsigned fold(uint8_t* writer, const Varchar<len>& x)
+unsigned fold(u8* writer, const Varchar<len>& x)
 {
    memcpy(writer, x.data, x.length);
    writer[x.length] = 0;
    return x.length + 1;
 }
-
-/**
- * @brief Copies data input to data object
- *
- * @param input
- * @param x data object
- * @return length of data object
- */
-unsigned unfold(const uint8_t* input, Integer& x)
+// -------------------------------------------------------------------------------------
+unsigned unfold(const u8* input, Integer& x)
 {
-   x = __builtin_bswap32(*reinterpret_cast<const uint32_t*>(input)) ^ (1ul << 31);
+   x = __builtin_bswap32(*reinterpret_cast<const u32*>(input)) ^ (1ul << 31);
    return sizeof(x);
 }
-
-unsigned unfold(const uint8_t* input, Timestamp& x)
+// -------------------------------------------------------------------------------------
+unsigned unfold(const u8* input, Timestamp& x)
 {
-   x = __builtin_bswap64(*reinterpret_cast<const uint64_t*>(input)) ^ (1ul << 63);
+   x = __builtin_bswap64(*reinterpret_cast<const u64*>(input)) ^ (1ul << 63);
    return sizeof(x);
 }
-
+// -------------------------------------------------------------------------------------
 template <int len>
-unsigned unfold(const uint8_t* input, Varchar<len>& x)
+unsigned unfold(const u8* input, Varchar<len>& x)
 {
    int l = strlen(reinterpret_cast<const char*>(input));
    assert(l <= len);
