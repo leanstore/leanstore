@@ -1,4 +1,5 @@
 #include "../shared/LeanStoreAdapter.hpp"
+#include "Schema.hpp"
 #include "Units.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
@@ -7,10 +8,10 @@
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ScrambledZipfGenerator.hpp"
-#include "schema.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
-#include <tbb/tbb.h>
+#include <tbb/parallel_for.h>
+#include <tbb/task_scheduler_init.h>
 // -------------------------------------------------------------------------------------
 #include <iostream>
 #include <set>
@@ -25,41 +26,13 @@ DEFINE_bool(verify, false, "");
 DEFINE_bool(ycsb_scan, false, "");
 DEFINE_bool(ycsb_tx, true, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
-
-#define UpdateDescriptorInit(Name, Count)                                                                                                     \
-   u8 Name##_buffer[sizeof(leanstore::UpdateSameSizeInPlaceDescriptor) + (sizeof(leanstore::UpdateSameSizeInPlaceDescriptor::Slot) * Count)]; \
-   auto& Name = *reinterpret_cast<leanstore::UpdateSameSizeInPlaceDescriptor*>(Name##_buffer);                                                \
-   Name.count = Count;
-
-#define UpdateDescriptorFillSlot(Name, Index, Type, Attribute) \
-   Name.slots[Index].offset = offsetof(Type, Attribute);       \
-   Name.slots[Index].length = sizeof(Type::Attribute);
-
-#define UpdateDescriptorGenerator1(Name, Type, A0) \
-   UpdateDescriptorInit(Name, 1);                  \
-   UpdateDescriptorFillSlot(Name, 0, Type, A0);
-
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-template <u64 size>
-struct BytesPayload {
-   u8 value[size];
-   BytesPayload() {}
-   bool operator==(BytesPayload& other) { return (std::memcmp(value, other.value, sizeof(value)) == 0); }
-   bool operator!=(BytesPayload& other) { return !(operator==(other)); }
-   BytesPayload(const BytesPayload& other) { std::memcpy(value, other.value, sizeof(value)); }
-   BytesPayload& operator=(const BytesPayload& other)
-   {
-      std::memcpy(value, other.value, sizeof(value));
-      return *this;
-   }
-};
 using YCSBKey = u64;
 using YCSBPayload = BytesPayload<120>;
-using tabular = relation<YCSBKey, YCSBPayload>;
-// -------------------------------------------------------------------------------------
+using tabular = Relation<YCSBKey, YCSBPayload>;
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
 {
@@ -180,6 +153,5 @@ int main(int argc, char** argv)
       }
    }
    cout << "-------------------------------------------------------------------------------------" << endl;
-   // -------------------------------------------------------------------------------------
    return 0;
 }

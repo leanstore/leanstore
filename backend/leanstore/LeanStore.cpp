@@ -363,6 +363,7 @@ void LeanStore::deserializeState()
       DTRegistry::global_dt_registry.deserialize(dt_id, serialized_dt_map);
    }
 }
+// -------------------------------------------------------------------------------------
 void LeanStore::deserializeFlags()
 {
    std::ifstream json_file;

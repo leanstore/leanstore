@@ -4,9 +4,10 @@
  *
  */
 #include "../shared/Types.hpp"
-
+// -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
 template <typename TableKey, typename TablePayload>
-struct relation {
+struct Relation {
    // Entries: 1 to 1 160 000 * scale
    static constexpr int id = 0;
    struct Key {
@@ -30,4 +31,18 @@ struct relation {
       return pos;
    }
    static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::my_key); };
+};
+// -------------------------------------------------------------------------------------
+template <u64 size>
+struct BytesPayload {
+   u8 value[size];
+   BytesPayload() {}
+   bool operator==(BytesPayload& other) { return (std::memcmp(value, other.value, sizeof(value)) == 0); }
+   bool operator!=(BytesPayload& other) { return !(operator==(other)); }
+   BytesPayload(const BytesPayload& other) { std::memcpy(value, other.value, sizeof(value)); }
+   BytesPayload& operator=(const BytesPayload& other)
+   {
+      std::memcpy(value, other.value, sizeof(value));
+      return *this;
+   }
 };
