@@ -1,6 +1,7 @@
 #pragma once
 #include "Config.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
+#include "rapidjson/document.h"
 #include "storage/btree/BTreeLL.hpp"
 #include "storage/btree/BTreeVI.hpp"
 #include "storage/btree/BTreeVW.hpp"
@@ -60,6 +61,7 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
    // -------------------------------------------------------------------------------------
+  private:
    static std::list<std::tuple<string, fLS::clstring*>>& persistFlagsString()
    {
       static std::list<std::tuple<string, fLS::clstring*>> list = {};
@@ -70,6 +72,9 @@ class LeanStore
       static std::list<std::tuple<string, s64*>> list = {};
       return list;
    };
+   void serializeFlags(rapidjson::Document& d);
+   void deserializeFlags();
+  public:
    static void addStringFlag(string name, fLS::clstring* flag) { LeanStore::persistFlagsString().push_back(std::make_tuple(name, flag)); }
    static void addS64Flag(string name, s64* flag) { LeanStore::persistFlagsS64().push_back(std::make_tuple(name, flag)); }
 

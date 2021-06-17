@@ -32,7 +32,6 @@ namespace rs = rapidjson;
 namespace leanstore
 {
 // -------------------------------------------------------------------------------------
-void deserializeFlags();
 LeanStore::LeanStore()
 {
    LeanStore::addStringFlag("SSD_PATH", &FLAGS_ssd_path);
@@ -254,7 +253,6 @@ LeanStore::GlobalStats LeanStore::getGlobalStats()
    return global_stats;
 }
 // -------------------------------------------------------------------------------------
-void serializeFlags(rapidjson::Document& d);
 void LeanStore::serializeState()
 {
    // Serialize data structure instances
@@ -304,16 +302,16 @@ void LeanStore::serializeState()
    d.Accept(writer);
    json_file << sb.GetString();
 }
-void serializeFlags(rapidjson::Document& d)
+void LeanStore::serializeFlags(rapidjson::Document& d)
 {
    rs::Value flags_serialized(rs::kObjectType);
    rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
-   for (auto flags : LeanStore::persistFlagsString()) {
+   for (auto flags : persistFlagsString()) {
       rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
       auto& value = rapidjson::Value().SetString((*std::get<1>(flags)).c_str(), (*std::get<1>(flags)).length(), allocator);
       flags_serialized.AddMember(name, value, allocator);
    }
-   for (auto flags : LeanStore::persistFlagsS64()) {
+   for (auto flags : persistFlagsS64()) {
       rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
       string value_string = std::to_string(*std::get<1>(flags));
       auto& value = rapidjson::Value().SetString(value_string.c_str(), value_string.length(), allocator);
@@ -365,7 +363,7 @@ void LeanStore::deserializeState()
       DTRegistry::global_dt_registry.deserialize(dt_id, serialized_dt_map);
    }
 }
-void deserializeFlags()
+void LeanStore::deserializeFlags()
 {
    std::ifstream json_file;
    json_file.open(FLAGS_recover_file);
@@ -378,10 +376,10 @@ void deserializeFlags()
    for (rs::Value::ConstMemberIterator itr = flags.MemberBegin(); itr != flags.MemberEnd(); ++itr) {
       flags_serialized[itr->name.GetString()] = itr->value.GetString();
    }
-   for (auto flags : LeanStore::persistFlagsString()) {
+   for (auto flags : persistFlagsString()) {
       *std::get<1>(flags) = flags_serialized[std::get<0>(flags)];
    }
-   for (auto flags : LeanStore::persistFlagsS64()) {
+   for (auto flags : persistFlagsS64()) {
       *std::get<1>(flags) = atoi(flags_serialized[std::get<0>(flags)].c_str());
    }
 }
