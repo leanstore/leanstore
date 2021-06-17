@@ -308,12 +308,12 @@ void serializeFlags(rapidjson::Document& d)
 {
    rs::Value flags_serialized(rs::kObjectType);
    rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
-   for (auto flags : LeanStore::persist_flags_string()) {
+   for (auto flags : LeanStore::persistFlagsString()) {
       rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
       auto& value = rapidjson::Value().SetString((*std::get<1>(flags)).c_str(), (*std::get<1>(flags)).length(), allocator);
       flags_serialized.AddMember(name, value, allocator);
    }
-   for (auto flags : LeanStore::persist_flags_s64()) {
+   for (auto flags : LeanStore::persistFlagsS64()) {
       rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
       string value_string = std::to_string(*std::get<1>(flags));
       auto& value = rapidjson::Value().SetString(value_string.c_str(), value_string.length(), allocator);
@@ -378,10 +378,10 @@ void deserializeFlags()
    for (rs::Value::ConstMemberIterator itr = flags.MemberBegin(); itr != flags.MemberEnd(); ++itr) {
       flags_serialized[itr->name.GetString()] = itr->value.GetString();
    }
-   for (auto flags : LeanStore::persist_flags_string()) {
+   for (auto flags : LeanStore::persistFlagsString()) {
       *std::get<1>(flags) = flags_serialized[std::get<0>(flags)];
    }
-   for (auto flags : LeanStore::persist_flags_s64()) {
+   for (auto flags : LeanStore::persistFlagsS64()) {
       *std::get<1>(flags) = atoi(flags_serialized[std::get<0>(flags)].c_str());
    }
 }
