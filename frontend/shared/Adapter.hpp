@@ -9,12 +9,45 @@
 #include "leanstore/KVInterface.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
 // -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
 #include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <functional>
 #include <string>
+// -------------------------------------------------------------------------------------
+#define UpdateDescriptorInit(Name, Count)                                                                                                     \
+   u8 Name##_buffer[sizeof(leanstore::UpdateSameSizeInPlaceDescriptor) + (sizeof(leanstore::UpdateSameSizeInPlaceDescriptor::Slot) * Count)]; \
+   auto& Name = *reinterpret_cast<leanstore::UpdateSameSizeInPlaceDescriptor*>(Name##_buffer);                                                \
+   Name.count = Count;
 
+#define UpdateDescriptorFillSlot(Name, Index, Type, Attribute) \
+   Name.slots[Index].offset = offsetof(Type, Attribute);       \
+   Name.slots[Index].length = sizeof(Type::Attribute);
+
+#define UpdateDescriptorGenerator1(Name, Type, A0) \
+   UpdateDescriptorInit(Name, 1);                  \
+   UpdateDescriptorFillSlot(Name, 0, Type, A0);
+
+#define UpdateDescriptorGenerator2(Name, Type, A0, A1) \
+   UpdateDescriptorInit(Name, 2);                      \
+   UpdateDescriptorFillSlot(Name, 0, Type, A0);        \
+   UpdateDescriptorFillSlot(Name, 1, Type, A1);
+
+#define UpdateDescriptorGenerator3(Name, Type, A0, A1, A2) \
+   UpdateDescriptorInit(Name, 3);                          \
+   UpdateDescriptorFillSlot(Name, 0, Type, A0);            \
+   UpdateDescriptorFillSlot(Name, 1, Type, A1);            \
+   UpdateDescriptorFillSlot(Name, 2, Type, A2);
+
+#define UpdateDescriptorGenerator4(Name, Type, A0, A1, A2, A3) \
+   UpdateDescriptorInit(Name, 4);                              \
+   UpdateDescriptorFillSlot(Name, 0, Type, A0);                \
+   UpdateDescriptorFillSlot(Name, 1, Type, A1);                \
+   UpdateDescriptorFillSlot(Name, 2, Type, A2);                \
+   UpdateDescriptorFillSlot(Name, 3, Type, A3);
+
+// -------------------------------------------------------------------------------------
 template <class Record>
 class Adapter
 {

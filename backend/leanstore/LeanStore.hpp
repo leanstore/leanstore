@@ -61,6 +61,9 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
    // -------------------------------------------------------------------------------------
+   static void addStringFlag(string name, fLS::clstring* flag) { LeanStore::persistFlagsString().push_back(std::make_tuple(name, flag)); }
+   static void addS64Flag(string name, s64* flag) { LeanStore::persistFlagsS64().push_back(std::make_tuple(name, flag)); }
+   // -------------------------------------------------------------------------------------
   private:
    static std::list<std::tuple<string, fLS::clstring*>>& persistFlagsString()
    {
@@ -74,11 +77,6 @@ class LeanStore
    };
    void serializeFlags(rapidjson::Document& d);
    void deserializeFlags();
-  public:
-   static void addStringFlag(string name, fLS::clstring* flag) { LeanStore::persistFlagsString().push_back(std::make_tuple(name, flag)); }
-   static void addS64Flag(string name, s64* flag) { LeanStore::persistFlagsS64().push_back(std::make_tuple(name, flag)); }
-
-  private:
    void serializeState();
    void deserializeState();
 };
