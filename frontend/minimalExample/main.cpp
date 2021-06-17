@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(scale, 1, "Should the scaling be increased, ca 100 mb per scale");
+DEFINE_int64(scale, 1, "Should the scaling be increased, ca 100 mb per scale");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -34,7 +34,6 @@ LeanStoreAdapter<unscaled_t> unscaled_table;
 LeanStoreAdapter<scaled_t> scaled_table;
 string db_meta;
 bool load_db;
-bool persist_db;
 // -------------------------------------------------------------------------------------
 #include "workload.hpp"
 // -------------------------------------------------------------------------------------
@@ -49,6 +48,8 @@ int main(int argc, char** argv)
 {
    gflags::SetUsageMessage("Leanstore Minimal Example");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
+   assert(FLAGS_scale > 0);
+   LeanStore::addS64Flag("min_SCALE", &FLAGS_scale);  
    {
       LeanStore db;
       setup(db);
