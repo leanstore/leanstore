@@ -11,7 +11,7 @@ DEFINE_uint32(pp_threads, 1, "number of page provider threads");
 // -------------------------------------------------------------------------------------
 DEFINE_string(csv_path, "./log", "");
 DEFINE_bool(csv_truncate, false, "");
-DEFINE_string(ssd_path, "./leanstore", "");
+DEFINE_string(ssd_path, "./leanstore", "Position of SSD, gets persisted");
 DEFINE_uint32(async_batch_size, 256, "");
 DEFINE_bool(trunc, false, "Truncate file");
 DEFINE_uint32(falloc, 0, "Preallocate GiB");
@@ -90,3 +90,5 @@ DEFINE_uint64(chain_max_length, 10000, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
 DEFINE_bool(recover, false, "");
+DEFINE_string(persist_file, "./leanstore.json", "Where should the persist config be saved to?");
+DEFINE_string(recover_file, "./leanstore.json", "Where should the recover config be loaded from?");

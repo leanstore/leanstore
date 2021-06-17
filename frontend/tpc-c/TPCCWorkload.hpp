@@ -3,6 +3,7 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/Config.hpp"
+#include "leanstore/KVInterface.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"

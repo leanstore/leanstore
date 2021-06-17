@@ -13,8 +13,8 @@
 #include "gflags/gflags.h"
 #include "rapidjson/document.h"
 #include "rapidjson/istreamwrapper.h"
+#include "rapidjson/prettywriter.h"
 #include "rapidjson/stringbuffer.h"
-#include "rapidjson/writer.h"
 #include "tabulate/table.hpp"
 // -------------------------------------------------------------------------------------
 #include <linux/fs.h>
@@ -34,6 +34,16 @@ namespace leanstore
 // -------------------------------------------------------------------------------------
 LeanStore::LeanStore()
 {
+   LeanStore::addStringFlag("SSD_PATH", &FLAGS_ssd_path);
+   if (FLAGS_recover_file != "./leanstore.json") {
+      FLAGS_recover = true;
+   }
+   if (FLAGS_persist_file != "./leanstore.json") {
+      FLAGS_persist = true;
+   }
+   if (FLAGS_recover) {
+      deserializeFlags();
+   }
    // -------------------------------------------------------------------------------------
    // Check if configurations make sense
    ensure(!FLAGS_vw || FLAGS_wal);
@@ -247,7 +257,7 @@ void LeanStore::serializeState()
 {
    // Serialize data structure instances
    std::ofstream json_file;
-   json_file.open("leanstore.json", ios::trunc);
+   json_file.open(FLAGS_persist_file, ios::trunc);
    rapidjson::Document d;
    rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
    d.SetObject();
@@ -286,16 +296,34 @@ void LeanStore::serializeState()
    }
    d.AddMember("registered_datastructures", dts, allocator);
    // -------------------------------------------------------------------------------------
+   serializeFlags(d);
    rapidjson::StringBuffer sb;
-   rapidjson::Writer<rapidjson::StringBuffer> writer(sb);
+   rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
    d.Accept(writer);
    json_file << sb.GetString();
+}
+void LeanStore::serializeFlags(rapidjson::Document& d)
+{
+   rs::Value flags_serialized(rs::kObjectType);
+   rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+   for (auto flags : persistFlagsString()) {
+      rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
+      auto& value = rapidjson::Value().SetString((*std::get<1>(flags)).c_str(), (*std::get<1>(flags)).length(), allocator);
+      flags_serialized.AddMember(name, value, allocator);
+   }
+   for (auto flags : persistFlagsS64()) {
+      rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
+      string value_string = std::to_string(*std::get<1>(flags));
+      auto& value = rapidjson::Value().SetString(value_string.c_str(), value_string.length(), allocator);
+      flags_serialized.AddMember(name, value, allocator);
+   }
+   d.AddMember("flags", flags_serialized, allocator);
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::deserializeState()
 {
    std::ifstream json_file;
-   json_file.open("leanstore.json");
+   json_file.open(FLAGS_recover_file);
    rs::IStreamWrapper isw(json_file);
    rs::Document d;
    d.ParseStream(isw);
@@ -333,6 +361,26 @@ void LeanStore::deserializeState()
          ensure(false);
       }
       DTRegistry::global_dt_registry.deserialize(dt_id, serialized_dt_map);
+   }
+}
+void LeanStore::deserializeFlags()
+{
+   std::ifstream json_file;
+   json_file.open(FLAGS_recover_file);
+   rs::IStreamWrapper isw(json_file);
+   rs::Document d;
+   d.ParseStream(isw);
+   // -------------------------------------------------------------------------------------
+   const rs::Value& flags = d["flags"];
+   std::unordered_map<std::string, std::string> flags_serialized;
+   for (rs::Value::ConstMemberIterator itr = flags.MemberBegin(); itr != flags.MemberEnd(); ++itr) {
+      flags_serialized[itr->name.GetString()] = itr->value.GetString();
+   }
+   for (auto flags : persistFlagsString()) {
+      *std::get<1>(flags) = flags_serialized[std::get<0>(flags)];
+   }
+   for (auto flags : persistFlagsS64()) {
+      *std::get<1>(flags) = atoi(flags_serialized[std::get<0>(flags)].c_str());
    }
 }
 // -------------------------------------------------------------------------------------

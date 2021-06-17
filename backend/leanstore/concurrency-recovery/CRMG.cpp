@@ -91,21 +91,38 @@ CRManager::~CRManager()
 // -------------------------------------------------------------------------------------
 void CRManager::scheduleJobSync(u64 t_i, std::function<void()> job)
 {
-   ensure(t_i < workers_count);
-   auto& meta = worker_threads_meta[t_i];
-   std::unique_lock guard(meta.mutex);
-   meta.cv.wait(guard, [&]() { return !meta.job_set && meta.wt_ready; });
-   meta.job_set = true;
-   meta.job_done = false;
-   meta.job = job;
-   guard.unlock();
-   meta.cv.notify_one();
-   guard.lock();
-   meta.cv.wait(guard, [&]() { return meta.job_done; });
+   setJob(t_i, job);
+   joinOne(t_i, [&](WorkerThread& meta) { return meta.job_done; });
 }
 // -------------------------------------------------------------------------------------
 void CRManager::scheduleJobAsync(u64 t_i, std::function<void()> job)
 {
+   setJob(t_i, job);
+}
+// -------------------------------------------------------------------------------------
+void CRManager::scheduleJobs(u64 workers, std::function<void()> job)
+{
+   for (u32 t_i = 0; t_i < workers; t_i++) {
+      setJob(t_i, job);
+   }
+}
+void CRManager::scheduleJobs(u64 workers, std::function<void(u64 t_i)> job)
+{
+   for (u32 t_i = 0; t_i < workers; t_i++) {
+      setJob(t_i, [=]() { return job(t_i); });
+   }
+}
+
+// -------------------------------------------------------------------------------------
+void CRManager::joinAll()
+{
+   for (u32 t_i = 0; t_i < workers_count; t_i++) {
+      joinOne(t_i, [&](WorkerThread& meta) { return meta.wt_ready && !meta.job_set; });
+   }
+}
+// -------------------------------------------------------------------------------------
+void CRManager::setJob(u64 t_i, std::function<void()> job)
+{
    ensure(t_i < workers_count);
    auto& meta = worker_threads_meta[t_i];
    std::unique_lock guard(meta.mutex);
@@ -117,13 +134,12 @@ void CRManager::scheduleJobAsync(u64 t_i, std::function<void()> job)
    meta.cv.notify_one();
 }
 // -------------------------------------------------------------------------------------
-void CRManager::joinAll()
+void CRManager::joinOne(u64 t_i, std::function<bool(WorkerThread&)> condition)
 {
-   for (u32 t_i = 0; t_i < workers_count; t_i++) {
-      auto& meta = worker_threads_meta[t_i];
-      std::unique_lock guard(meta.mutex);
-      meta.cv.wait(guard, [&]() { return meta.wt_ready && !meta.job_set; });
-   }
+   ensure(t_i < workers_count);
+   auto& meta = worker_threads_meta[t_i];
+   std::unique_lock guard(meta.mutex);
+   meta.cv.wait(guard, [&]() { return condition(meta); });
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

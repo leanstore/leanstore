@@ -1,4 +1,4 @@
-#include "LeanStoreAdapter.hpp"
+#include "../shared/LeanStoreAdapter.hpp"
 #include "Schema.hpp"
 #include "TPCCWorkload.hpp"
 // -------------------------------------------------------------------------------------
@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(tpcc_warehouse_count, 1, "");
+DEFINE_int64(tpcc_warehouse_count, 1, "");
 DEFINE_int32(tpcc_abort_pct, 0, "");
 DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
@@ -40,6 +40,8 @@ int main(int argc, char** argv)
 {
    gflags::SetUsageMessage("Leanstore TPC-C");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
+   assert(FLAGS_tpcc_warehouse_count > 0);
+   LeanStore::addS64Flag("TPC_SCALE", &FLAGS_tpcc_warehouse_count);  
    // -------------------------------------------------------------------------------------
    // Check arguments
    if (FLAGS_tpcc_ch >= FLAGS_worker_threads) {
