@@ -715,7 +715,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.commited_after_so = cr::Worker::my().SOStart();
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_rtodo && !primary_version.is_gc_scheduled) {
-            u64 wtts = cr::Worker::composeWTTS(old_primary_version.worker_id, old_primary_version.tts);
+            const u64 wtts = cr::Worker::composeWTTS(old_primary_version.worker_id, old_primary_version.tts);
             cr::Worker::my().stageTODO(
                 cr::Worker::my().workerID(), cr::Worker::my().TTS(), dt_id, key_length + sizeof(TODOEntry),
                 [&](u8* entry) {
@@ -965,11 +965,13 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          // Being chained is implicit because we check for version, so the state can not be changed after staging the todo
          ensure(head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked());
          ensure(head.worker_id == version_worker_id && head.tts == version_tts);
-         head.versions_counter = 1;
-         head.is_gc_scheduled = false;
          node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
          if (head.is_removed) {
             node->removeSlot(todo_entry.dangling_pointer.head_slot);
+         } else {
+            head.versions_counter = 1;
+            head.is_gc_scheduled = false;
+            head.next_sn = 0;
          }
          iterator.mergeIfNeeded();
          jumpmu_return;
