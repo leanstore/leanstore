@@ -84,7 +84,7 @@ DECLARE_bool(vi_fat_tuple);
 DECLARE_bool(vi_dangling_pointer);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(pgc);
-DECLARE_uint64(chain_max_length);
+DECLARE_uint64(vi_max_chain_length);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
 DECLARE_bool(recover);

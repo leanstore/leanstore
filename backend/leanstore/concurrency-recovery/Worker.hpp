@@ -102,7 +102,7 @@ struct Worker {
    };
    u8* todo_hwm_tx_start = nullptr;
    u8* todo_lwm_tx_start = nullptr;
-   utils::RingBufferST todo_hwm_rb, todo_lwm_rb, todo_lwm_hwm_rb;
+   utils::RingBufferST todo_hwm_rb, todo_lwm_rb;
    std::list<TODOEntry> todo_commited_queue, todo_long_running_tx_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
    void stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
    void commitTODO(u8 worker_id, u64 tts, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);

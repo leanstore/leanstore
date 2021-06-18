@@ -725,7 +725,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
                    std::memcpy(todo_entry.key, o_key, o_key_length);
                 },
                 wtts);
-            //                primary_version.commited_after_so);
             primary_version.is_gc_scheduled = true;
          }
          primary_version.unlock();
@@ -965,13 +964,15 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          // Being chained is implicit because we check for version, so the state can not be changed after staging the todo
          ensure(head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked());
          ensure(head.worker_id == version_worker_id && head.tts == version_tts);
-         node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
+         ensure(head.versions_counter <= FLAGS_vi_max_chain_length);
          if (head.is_removed) {
+            node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
             node->removeSlot(todo_entry.dangling_pointer.head_slot);
          } else {
             head.versions_counter = 1;
             head.is_gc_scheduled = false;
-            head.next_sn = 0;
+            head.next_sn = reinterpret_cast<ChainedTupleDelta*>(node->getPayload(todo_entry.dangling_pointer.secondary_slot))->next_sn;
+            node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
          }
          iterator.mergeIfNeeded();
          jumpmu_return;
@@ -1137,7 +1138,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          jumpmu::jump();
       }
       chain_length++;
-      ensure(chain_length < FLAGS_chain_max_length);
+      ensure(chain_length < FLAGS_vi_max_chain_length);
       Slice payload = iterator.value();
       const auto& secondary_version = *reinterpret_cast<const ChainedTupleDelta*>(payload.data());
       if (secondary_version.is_delta) {

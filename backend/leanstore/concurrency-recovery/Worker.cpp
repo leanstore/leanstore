@@ -30,8 +30,7 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
       workers_count(workers_count),
       ssd_fd(fd),
       todo_hwm_rb(1024ull * 1024 * 50),
-      todo_lwm_rb(1024ull * 1024 * 50),
-      todo_lwm_hwm_rb(1024ull * 1024 * 50)
+      todo_lwm_rb(1024ull * 1024 * 50)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
@@ -222,20 +221,6 @@ void Worker::checkup()
          }
       }
       {
-         auto& rb = todo_lwm_hwm_rb;
-         while (FLAGS_todo && !rb.empty()) {
-            auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
-            if (oldest_so_start > todo.after_so) {
-               WorkerCounters::myCounters().cc_rtodo_lng_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
-               rb.popFront();
-            } else {
-               WorkerCounters::myCounters().cc_todo_1_break[todo.dt_id]++;
-               break;
-            }
-         }
-      }
-      {
          auto& rb = todo_lwm_rb;
          while (FLAGS_todo && !rb.empty()) {
             auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
@@ -246,30 +231,18 @@ void Worker::checkup()
                rb.popFront();
             } else {
                bool safe_to_gc = true;
-               bool move_to_another_queue = true;
                WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
-               for (u64 w_i = 0; w_i < workers_count && (safe_to_gc || move_to_another_queue); w_i++) {
+               for (u64 w_i = 0; w_i < workers_count && (safe_to_gc); w_i++) {
                   if (all_so_starts[w_i] > todo.after_so) {
                      safe_to_gc &= true;
                   } else {
                      auto decomposed = decomposeWTTS(todo.or_before_so);
-                     if (isVisibleForIt(w_i, std::get<0>(decomposed), std::get<1>(decomposed))) {
-                        safe_to_gc &= false;
-                     } else {
-                        move_to_another_queue = false;
-                        safe_to_gc &= true;
-                     }
+                     safe_to_gc &= !isVisibleForIt(w_i, std::get<0>(decomposed), std::get<1>(decomposed));
                   }
                }
                if (safe_to_gc) {
                   WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
                   leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
-                  rb.popFront();
-               } else if (move_to_another_queue) {
-                  WorkerCounters::myCounters().cc_rtodo_to_lng[todo.dt_id]++;
-                  const u64 total_todo_length = todo.payload_length + sizeof(TODOEntry);
-                  u8* new_hwm_todo = todo_lwm_hwm_rb.pushBack(total_todo_length);
-                  std::memcpy(new_hwm_todo, rb.front(), total_todo_length);
                   rb.popFront();
                } else {
                   break;
@@ -464,18 +437,20 @@ outofmemory : {
 }
 // -------------------------------------------------------------------------------------
 // TODO: rename or_before_so
-void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb, u64 or_before_so)
+void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb, u64 head_wtts)
 {
    u8* todo_ptr;
    const u64 total_todo_length = payload_length + sizeof(TODOEntry);
-   if (FLAGS_vi_twoq_todo && or_before_so) {
+   auto decompose = decomposeWTTS(head_wtts);
+   if (FLAGS_vi_twoq_todo && head_wtts && !isVisibleForIt(oldest_so_start_worker_id, std::get<0>(decompose), std::get<1>(decompose))) {
+      // TODO: Alternatively, we can check if oldest_so_start > start_so of the chain head
       todo_ptr = todo_lwm_rb.pushBack(total_todo_length);
       if (todo_lwm_tx_start == nullptr) {
          todo_lwm_tx_start = todo_ptr;
       }
       WorkerCounters::myCounters().cc_rtodo_opt_staged[dt_id]++;
    } else {
-      or_before_so = 0;
+      head_wtts = 0;
       todo_ptr = todo_hwm_rb.pushBack(total_todo_length);
       if (todo_hwm_tx_start == nullptr) {
          todo_hwm_tx_start = todo_ptr;
@@ -486,7 +461,7 @@ void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, st
    todo_entry.version_tts = tts;
    todo_entry.dt_id = dt_id;
    todo_entry.payload_length = payload_length;
-   todo_entry.or_before_so = or_before_so;
+   todo_entry.or_before_so = head_wtts;
    // -------------------------------------------------------------------------------------
    cb(todo_entry.payload);
 }
