@@ -1,7 +1,5 @@
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
-DEFINE_string(free_pages_list_path, "leanstore_free_pages", "");
-// -------------------------------------------------------------------------------------
 DEFINE_double(dram_gib, 1, "");
 DEFINE_double(ssd_gib, 1700, "");
 DEFINE_uint32(cool_pct, 10, "Start cooling pages when <= x% are free");
@@ -61,11 +59,11 @@ DEFINE_int64(trace_trigger_probability, 100, "");
 // -------------------------------------------------------------------------------------
 DEFINE_string(tag, "", "Unique identifier for this, will be appended to each line csv");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(out_of_place, false, "");
+DEFINE_bool(out_of_place, false, "Out of place writes");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(wal, false, "");
 DEFINE_uint64(wal_offset_gib, 1, "");
-DEFINE_bool(wal_io_hack, false, "Does not really write logs on SSD");
+DEFINE_bool(wal_io_hack, false, "Does not really write logs on SSD [WIP]");
 DEFINE_bool(wal_fsync, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(si, false, "");

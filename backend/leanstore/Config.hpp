@@ -9,7 +9,6 @@ DECLARE_bool(pin_threads);
 DECLARE_bool(smt);
 DECLARE_string(csv_path);
 DECLARE_bool(csv_truncate);
-DECLARE_string(free_pages_list_path);
 DECLARE_uint32(cool_pct);
 DECLARE_uint32(free_pct);
 DECLARE_uint32(partition_bits);
@@ -17,7 +16,6 @@ DECLARE_uint32(async_batch_size);
 DECLARE_uint32(falloc);
 DECLARE_uint32(pp_threads);
 DECLARE_bool(trunc);
-DECLARE_bool(fs);
 DECLARE_bool(root);
 DECLARE_bool(print_debug);
 DECLARE_bool(print_tx_console);
@@ -51,7 +49,6 @@ DECLARE_double(tmp5);
 DECLARE_double(tmp6);
 DECLARE_double(tmp7);
 // -------------------------------------------------------------------------------------
-DECLARE_bool(bstar);
 DECLARE_bool(bulk_insert);
 // -------------------------------------------------------------------------------------
 DECLARE_int64(trace_dt_id);
