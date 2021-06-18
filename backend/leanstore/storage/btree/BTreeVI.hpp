@@ -61,13 +61,6 @@ class BTreeVI : public BTreeLL
       u8 payload[];
    };
    // -------------------------------------------------------------------------------------
-   // Skip invisible pages optimization
-   struct LeafStatistics {
-      u64 skip_if_gsn_equal = 0;  // And
-      u64 skip_if_your_so_start_older = 0;
-   };
-   static_assert(sizeof(LeafStatistics) <= 64, "LeafStatistics does not fit in BTreeNode magic box");
-   // -------------------------------------------------------------------------------------
    /*
      Plan: we should handle frequently and infrequently updated tuples differently when it comes to maintaining
      versions in the b-tree.
@@ -232,11 +225,11 @@ class BTreeVI : public BTreeLL
             ret = iterator.seekForPrev(Slice(s_key.data(), s_key.length()));
          }
          // -------------------------------------------------------------------------------------
-         bool visible_chain_found = false;
-         if (FLAGS_vi_skip_trash_leaves) {  // TODO: still buggy
+         bool visible_chain_found = false, skip_current_leaf = false;
+         if (FLAGS_vi_skip_stale_leaves) {  // TODO: Refactor
             iterator.registerBeforeChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
                if (!visible_chain_found) {
-                  auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
+                  auto& leaf_statistics = leaf.bf->header.stale_leaf_tracker;
                   leaf.bf->header.meta_data_in_shared_mode_mutex.lock();
                   if (leaf_statistics.skip_if_gsn_equal < leaf.bf->page.GSN) {
                      bool skippable = true;
@@ -251,7 +244,7 @@ class BTreeVI : public BTreeLL
                      }
                      if (skippable) {
                         leaf_statistics.skip_if_gsn_equal = leaf.bf->page.GSN;
-                        leaf_statistics.skip_if_your_so_start_older = cr::Worker::my().so_start;
+                        leaf_statistics.and_if_your_so_start_older = cr::Worker::my().so_start;
                      }
                   }
                   leaf.bf->header.meta_data_in_shared_mode_mutex.unlock();
@@ -259,17 +252,13 @@ class BTreeVI : public BTreeLL
                visible_chain_found = false;
             });
             iterator.registerAfterChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
-               // TODO: Rewrite
-               auto& leaf_statistics = *reinterpret_cast<LeafStatistics*>(leaf->meta_box);
+               auto& leaf_statistics = leaf.bf->header.stale_leaf_tracker;
                leaf.bf->header.meta_data_in_shared_mode_mutex.lock_shared();
-               if (leaf_statistics.skip_if_gsn_equal == leaf.bf->page.GSN &&
-                   leaf_statistics.skip_if_your_so_start_older < cr::Worker::my().so_start) {
-                  leaf.bf->header.meta_data_in_shared_mode_mutex.unlock_shared();
+               if (leaf_statistics.skip_if_gsn_equal == leaf.bf->page.GSN && leaf_statistics.and_if_your_so_start_older < cr::Worker::my().so_start) {
+                  skip_current_leaf = true;
                   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
-                  return true;
                }
                leaf.bf->header.meta_data_in_shared_mode_mutex.unlock_shared();
-               return false;
             });
          }
          // -------------------------------------------------------------------------------------
@@ -280,8 +269,16 @@ class BTreeVI : public BTreeLL
             // -------------------------------------------------------------------------------------
             while (getSN(key) != 0) {
                if (asc) {
+                  if (skip_current_leaf) {
+                     iterator.cur = iterator.leaf->count;
+                     skip_current_leaf = false;
+                  }
                   ret = iterator.next();
                } else {
+                  if (skip_current_leaf) {
+                     iterator.cur = 0;
+                     skip_current_leaf = false;
+                  }
                   ret = iterator.prev();
                }
                if (ret != OP_RESULT::OK) {

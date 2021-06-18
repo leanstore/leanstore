@@ -1138,7 +1138,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          jumpmu::jump();
       }
       chain_length++;
-      ensure(chain_length < FLAGS_vi_max_chain_length);
+      ensure(chain_length <= FLAGS_vi_max_chain_length);
       Slice payload = iterator.value();
       const auto& secondary_version = *reinterpret_cast<const ChainedTupleDelta*>(payload.data());
       if (secondary_version.is_delta) {

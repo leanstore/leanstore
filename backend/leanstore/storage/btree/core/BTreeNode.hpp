@@ -68,8 +68,6 @@ struct BTreeNodeHeader {
    static const u16 hint_count = 16;
    u32 hint[hint_count];
    // -------------------------------------------------------------------------------------
-   u8 meta_box[64];  // Btree variants can cast and use this 64-bytes as they wish
-   // -------------------------------------------------------------------------------------
    BTreeNodeHeader(bool is_leaf) : is_leaf(is_leaf) {}
    ~BTreeNodeHeader() {}
 

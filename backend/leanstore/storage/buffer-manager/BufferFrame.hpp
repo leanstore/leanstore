@@ -1,6 +1,6 @@
 #pragma once
-#include "Units.hpp"
 #include "Swip.hpp"
+#include "Units.hpp"
 #include "leanstore/sync-primitives/Latch.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -18,6 +18,17 @@ const u64 PAGE_SIZE = 4 * 1024;
 struct BufferFrame {
    enum class STATE : u8 { FREE = 0, HOT = 1, COOL = 2, LOADED = 3 };
    struct Header {
+      // TODO: for logging
+      u64 lastWrittenGSN = 0;
+      STATE state = STATE::FREE;  // INIT:
+      bool isWB = false;
+      bool keep_in_memory = false;
+      PID pid = 9999;         // INIT:
+      HybridLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
+      // -------------------------------------------------------------------------------------
+      BufferFrame* next_free_bf = nullptr;
+      // -------------------------------------------------------------------------------------
+      // Contention Split data structure
       struct ContentionTracker {
          u32 restarts_counter = 0;
          u32 access_counter = 0;
@@ -29,17 +40,15 @@ struct BufferFrame {
             last_modified_pos = -1;
          }
       };
-      // TODO: for logging
-      u64 lastWrittenGSN = 0;
-      STATE state = STATE::FREE;  // INIT:
-      bool isWB = false;
-      bool keep_in_memory = false;
-      PID pid = 9999;         // INIT:
-      HybridLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
-      // -------------------------------------------------------------------------------------
-      BufferFrame* next_free_bf = nullptr;
       ContentionTracker contention_tracker;
-      std::shared_mutex meta_data_in_shared_mode_mutex;
+      // -------------------------------------------------------------------------------------
+      struct StaleLeafTracker {
+         u64 skip_if_gsn_equal = 0;
+         u64 and_if_your_so_start_older = 0;
+         std::shared_mutex mutex;
+      };
+      StaleLeafTracker stale_leaf_tracker;
+      std::shared_mutex meta_data_in_shared_mode_mutex;  // TODO: remove
       // -------------------------------------------------------------------------------------
       u64 debug;
    };

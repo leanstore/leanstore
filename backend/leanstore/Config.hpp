@@ -78,7 +78,7 @@ DECLARE_bool(vi_fremove);
 DECLARE_bool(vi_fupdate_chained);
 DECLARE_bool(vi_fupdate_fat_tuple);
 DECLARE_uint64(vi_pgc_batch_size);
-DECLARE_bool(vi_skip_trash_leaves);
+DECLARE_bool(vi_skip_stale_leaves);
 DECLARE_bool(vi_twoq_todo);
 DECLARE_bool(vi_fat_tuple);
 DECLARE_bool(vi_dangling_pointer);

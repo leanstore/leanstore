@@ -34,10 +34,6 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
   protected:
    void gotoPage(const Slice& key)
    {
-      if (0 && btree.dt_id == 8 && utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
-         utils::printBackTrace();
-      }
-      // -------------------------------------------------------------------------------------
       COUNTERS_BLOCK()
       {
          if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
