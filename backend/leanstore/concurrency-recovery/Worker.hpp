@@ -29,9 +29,8 @@ struct WLSN {
 static_assert(sizeof(WTTS) == sizeof(u64), "");
 static_assert(sizeof(WLSN) == sizeof(u64), "");
 // -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
+static constexpr u16 STATIC_MAX_WORKERS = 256;
 struct alignas(512) WALChunk {
-   static constexpr u16 STATIC_MAX_WORKERS = 256;
    struct Slot {
       u64 offset;
       u64 length;
@@ -39,7 +38,6 @@ struct alignas(512) WALChunk {
    u8 workers_count;
    u32 total_size;
    Slot slot[STATIC_MAX_WORKERS];
-   u8 data[];
 };
 // -------------------------------------------------------------------------------------
 struct Worker {
@@ -117,8 +115,8 @@ struct Worker {
    struct GroupCommitData {
       u64 ready_to_commit_cut = 0;  // Exclusive ) == size
       u64 max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
-      LID gsn_to_flush;
-      u64 wt_cursor_to_flush;
+      LID gsn_to_flush;        // Will flush up to this GSN when the current round is over
+      u64 wt_cursor_to_flush;  // Will flush up to this GSN when the current round is over
       LID first_lsn_in_chunk;
       bool skip = false;
    };

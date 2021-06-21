@@ -406,6 +406,7 @@ WALChunk::Slot Worker::WALFinder::getJumpPoint(LID lsn)
    }
 }
 // -------------------------------------------------------------------------------------
+// TODO:
 void Worker::WALFinder::insertJumpPoint(LID LSN, WALChunk::Slot slot)
 {
    std::unique_lock guard(m);

@@ -36,7 +36,6 @@ void CRManager::groupCommiter()
    SSDMeta meta;
    [[maybe_unused]] u64 round_i = 0;  // For debugging
    const u64 meta_offset = end_of_block_device - sizeof(SSDMeta);
-   u64* index = reinterpret_cast<u64*>(chunk.data);
    u64 ssd_offset = end_of_block_device - sizeof(SSDMeta);
    // -------------------------------------------------------------------------------------
    // Async IO
@@ -142,8 +141,6 @@ void CRManager::groupCommiter()
                chunk.slot[w_i].length = 0;
             }
          }
-         // -------------------------------------------------------------------------------------
-         index[w_i] = ssd_offset;
       }
       // -------------------------------------------------------------------------------------
       if (workers[0]->wal_max_gsn > workers[0]->group_commit_data.max_safe_gsn_to_commit) {
