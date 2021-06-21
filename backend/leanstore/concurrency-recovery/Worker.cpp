@@ -22,7 +22,7 @@ thread_local Worker* Worker::tls_ptr = nullptr;
 atomic<u64> Worker::global_snapshot_clock = 0;
 std::mutex Worker::global_mutex;
 std::unique_ptr<atomic<u64>[]> Worker::global_so_starts;
-std::unique_ptr<atomic<u64>[]> Worker::global_tts;
+std::unique_ptr<atomic<u64>[]> Worker::global_tts_vector;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
     : worker_id(worker_id),
@@ -35,7 +35,7 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
-   snapshot = make_unique<atomic<u64>[]>(workers_count);
+   local_tts_vector = make_unique<atomic<u64>[]>(workers_count);
    all_so_starts = make_unique<u64[]>(workers_count);
    all_sorted_so_starts = make_unique<u64[]>(workers_count);
    global_so_starts[worker_id] = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
@@ -141,71 +141,107 @@ void Worker::submitDTEntry(u64 total_size)
    publishMaxGSNOffset();
 }
 // -------------------------------------------------------------------------------------
-void Worker::refreshSnapshot()
+void Worker::refreshSnapshotHWMs()
 {
    so_start = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
    global_so_starts[worker_id].store(so_start, std::memory_order_release);
    // -------------------------------------------------------------------------------------
    for (u64 w = 0; w < workers_count; w++) {
-      snapshot[w].store(global_tts[w], std::memory_order_release);
+      local_tts_vector[w].store(global_tts_vector[w], std::memory_order_release);
    }
-   // -------------------------------------------------------------------------------------
-   oldest_so_start = std::numeric_limits<u64>::max();
-   oldest_so_start_worker_id = worker_id;
-   for (u64 w = 0; w < workers_count; w++) {
-      const u64 its_so_start = global_so_starts[w].load();
-      if (its_so_start < oldest_so_start) {
-         oldest_so_start = its_so_start;
-         oldest_so_start_worker_id = w;
+}
+// -------------------------------------------------------------------------------------
+void Worker::refreshSnapshotOrderingIfNeeded()
+{
+   if (!snapshot_order_refreshed) {
+      oldest_so_start = std::numeric_limits<u64>::max();
+      oldest_so_start_worker_id = worker_id;
+      for (u64 w = 0; w < workers_count; w++) {
+         const u64 its_so_start = global_so_starts[w].load();
+         if (its_so_start < oldest_so_start) {
+            oldest_so_start = its_so_start;
+            oldest_so_start_worker_id = w;
+         }
+         all_so_starts[w] = its_so_start;
       }
-      all_so_starts[w] = its_so_start;
+      workers_sorted = false;
+      snapshot_order_refreshed = true;
    }
-   workers_sorted = false;
+}
+// -------------------------------------------------------------------------------------
+void Worker::refreshSnapshot()
+{
+   refreshSnapshotOrderingIfNeeded();
+   refreshSnapshotHWMs();
 }
 // -------------------------------------------------------------------------------------
 void Worker::sortWorkers()
 {
    if (!workers_sorted) {
+      refreshSnapshotOrderingIfNeeded();
       std::memcpy(all_sorted_so_starts.get(), all_so_starts.get(), workers_count * sizeof(u64));
       std::sort(all_sorted_so_starts.get(), all_sorted_so_starts.get() + workers_count, std::greater<u64>());
       workers_sorted = true;
    }
 }
 // -------------------------------------------------------------------------------------
-void Worker::startTX()
+void Worker::startTX(TX_TYPE next_tx_type)
 {
    if (FLAGS_wal) {
       current_tx_wal_start = wal_wt_cursor;
-      WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.type = WALEntry::TYPE::TX_START;
-      submitWALMetaEntry();
+      if (next_tx_type != TX_TYPE::SINGLE_LOOKUP) {
+         WALMetaEntry& entry = reserveWALMetaEntry();
+         entry.type = WALEntry::TYPE::TX_START;
+         submitWALMetaEntry();
+      }
       assert(active_tx.state != Transaction::STATE::STARTED);
       active_tx.state = Transaction::STATE::STARTED;
-      active_tx.tts = global_tts[worker_id];
+      active_tx.tts = global_tts_vector[worker_id];
       active_tx.min_gsn = clock_gsn;
       // -------------------------------------------------------------------------------------
-      checkup();
+      if (FLAGS_si) {
+         snapshot_order_refreshed = false;
+         if (next_tx_type != TX_TYPE::LONG_TX) {
+            if (tx_type != TX_TYPE::LONG_TX) {
+               switchToAlwaysUpToDateMode();
+            }
+         } else {
+            if (force_si_refresh || FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
+               refreshSnapshotHWMs();
+            }
+            force_si_refresh = false;
+            refreshSnapshotOrderingIfNeeded();
+         }
+         checkup();
+      }
    }
+   tx_type = next_tx_type;
 }
 // -------------------------------------------------------------------------------------
-void Worker::shutdown()
+void Worker::switchToAlwaysUpToDateMode()
 {
-   checkup();
-   // -------------------------------------------------------------------------------------
    global_so_starts[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
-      snapshot[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+      local_tts_vector[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    }
    global_so_starts[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63), std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
+void Worker::shutdown()
+{
+   refreshSnapshotOrderingIfNeeded();
+   checkup();
+   switchToAlwaysUpToDateMode();
+}
+// -------------------------------------------------------------------------------------
+// Pre: Refresh Snapshot Ordering
 void Worker::checkup()
 {
    if (FLAGS_si) {
-      if (force_si_refresh || FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
-         refreshSnapshot();
+      if (!todo_hwm_rb.empty() || !todo_lwm_rb.empty()) {
+         refreshSnapshotOrderingIfNeeded();
       }
-      force_si_refresh = false;
+      // -------------------------------------------------------------------------------------
       {
          auto& rb = todo_hwm_rb;
          while (FLAGS_todo && !rb.empty()) {
@@ -258,21 +294,25 @@ void Worker::commitTX()
    if (FLAGS_wal) {
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
-      WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.type = WALEntry::TYPE::TX_COMMIT;
-      submitWALMetaEntry();
+      if (tx_type != TX_TYPE::SINGLE_LOOKUP) {
+         WALMetaEntry& entry = reserveWALMetaEntry();
+         entry.type = WALEntry::TYPE::TX_COMMIT;
+         submitWALMetaEntry();
+      }
       // -------------------------------------------------------------------------------------
       active_tx.max_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
-      {
-         std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
-         ready_to_commit_queue.push_back(active_tx);
-         ready_to_commit_queue_size += 1;
-      }
-      // -------------------------------------------------------------------------------------
-      if (FLAGS_si) {
-         global_tts[worker_id].store(active_tx.tts + 1, std::memory_order_release);
-         commitTODOs(global_snapshot_clock.fetch_add(WORKERS_INCREMENT));
+      if (tx_type != TX_TYPE::SINGLE_LOOKUP) {
+         {
+            std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
+            ready_to_commit_queue.push_back(active_tx);
+            ready_to_commit_queue_size += 1;
+         }
+         // -------------------------------------------------------------------------------------
+         if (FLAGS_si) {
+            global_tts_vector[worker_id].store(active_tx.tts + 1, std::memory_order_release);
+            commitTODOs(global_snapshot_clock.fetch_add(WORKERS_INCREMENT));
+         }
       }
    }
 }
@@ -300,12 +340,16 @@ void Worker::abortTX()
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
 {
-   return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->snapshot[what_worker_id] > tts);
+   return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->local_tts_vector[what_worker_id] > tts);
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
 {
-   return worker_id == other_worker_id || snapshot[other_worker_id] > tts;
+   if (tx_type != TX_TYPE::LONG_TX) {
+      return worker_id == other_worker_id || global_tts_vector[other_worker_id].load() > tts;
+   } else {
+      return worker_id == other_worker_id || local_tts_vector[other_worker_id].load() > tts;
+   }
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u64 wtts)
@@ -317,6 +361,7 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForAll(u64 commited_before_so)
 {
+   refreshSnapshotOrderingIfNeeded();
    return commited_before_so < oldest_so_start;
 }
 // -------------------------------------------------------------------------------------

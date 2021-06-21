@@ -49,14 +49,17 @@ struct Worker {
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_so_starts;
-   static unique_ptr<atomic<u64>[]> global_tts;
+   static unique_ptr<atomic<u64>[]> global_tts_vector;
    // -------------------------------------------------------------------------------------
-   const u64 SO_LATCHED = std::numeric_limits<u64>::max();
+   enum class TX_TYPE : u8 { LONG_TX, SINGLE_LOOKUP, SINGLE_UPSERT };
+   TX_TYPE tx_type = TX_TYPE::LONG_TX;
+   // -------------------------------------------------------------------------------------
    bool force_si_refresh = false;
    bool workers_sorted = false;
+   bool snapshot_order_refreshed = false;
    u64 so_start;
    u64 oldest_so_start, oldest_so_start_worker_id;
-   unique_ptr<atomic<u64>[]> snapshot;
+   unique_ptr<atomic<u64>[]> local_tts_vector;
    unique_ptr<u64[]> all_sorted_so_starts;
    // all_so_starts can lag and it only tells us whether "it" definitely sees a version, but not if it does not
    unique_ptr<u64[]> all_so_starts;
@@ -240,7 +243,7 @@ struct Worker {
   public:
    // -------------------------------------------------------------------------------------
    // TX Control
-   void startTX();
+   void startTX(TX_TYPE next_tx_type = TX_TYPE::LONG_TX);
    void commitTX();
    void abortTX();
    void checkup();
@@ -251,6 +254,9 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    void sortWorkers();
    void refreshSnapshot();
+   void refreshSnapshotHWMs();
+   void refreshSnapshotOrderingIfNeeded();
+   void switchToAlwaysUpToDateMode();
    bool isVisibleForAll(u64 commited_before_so);
    bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
    bool isVisibleForMe(u8 worker_id, u64 tts);
