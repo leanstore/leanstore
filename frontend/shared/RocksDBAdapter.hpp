@@ -54,7 +54,7 @@ struct RocksDBAdapter : public Adapter<Record> {
       return rocksdb::Slice(reinterpret_cast<const char*>(ptr), len);
    }
    // -------------------------------------------------------------------------------------
-   void insert(const typename Record::Key& key, const Record& record)
+   void insert(const typename Record::Key& key, const Record& record) final
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -63,7 +63,7 @@ struct RocksDBAdapter : public Adapter<Record> {
       assert(s.ok());
    }
    // -------------------------------------------------------------------------------------
-   void lookup1(const typename Record::Key& key, const std::function<void(const Record&)>& fn)
+   void lookup1(const typename Record::Key& key, const std::function<void(const Record&)>& fn) final
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -76,7 +76,7 @@ struct RocksDBAdapter : public Adapter<Record> {
       value.Reset();
    }
    // -------------------------------------------------------------------------------------
-   void update1(const typename Record::Key& key, const std::function<void(Record&)>& fn, leanstore::UpdateSameSizeInPlaceDescriptor&)
+   void update1(const typename Record::Key& key, const std::function<void(Record&)>& fn, leanstore::UpdateSameSizeInPlaceDescriptor&) final
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -90,7 +90,7 @@ struct RocksDBAdapter : public Adapter<Record> {
       assert(s.ok());
    }
    // -------------------------------------------------------------------------------------
-   bool erase(const typename Record::Key& key)
+   bool erase(const typename Record::Key& key) final
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -109,7 +109,7 @@ struct RocksDBAdapter : public Adapter<Record> {
       return __builtin_bswap32(*reinterpret_cast<const uint32_t*>(str.data())) ^ (1ul << 31);
    }
    //             [&](const neworder_t::Key& key, const neworder_t&) {
-   void scan(const typename Record::Key& key, const std::function<bool(const typename Record::Key&, const Record&)>& fn, std::function<void()>)
+   void scan(const typename Record::Key& key, const std::function<bool(const typename Record::Key&, const Record&)>& fn, std::function<void()>) final
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -126,7 +126,9 @@ struct RocksDBAdapter : public Adapter<Record> {
       delete it;
    }
    // -------------------------------------------------------------------------------------
-   void scanDesc(const typename Record::Key& key, const std::function<bool(const typename Record::Key&, const Record&)>& fn, std::function<void()>)
+   void scanDesc(const typename Record::Key& key,
+                 const std::function<bool(const typename Record::Key&, const Record&)>& fn,
+                 std::function<void()>) final
    {
       u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
       const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
@@ -141,5 +143,18 @@ struct RocksDBAdapter : public Adapter<Record> {
       }
       assert(it->status().ok());
       delete it;
+   }
+   // -------------------------------------------------------------------------------------
+   template <class Field>
+   Field lookupField(const typename Record::Key& key, Field Record::*f)
+   {
+      Field local_f;
+      bool found = false;
+      lookup1(key, [&](const Record& record) {
+         found = true;
+         local_f = (record).*f;
+      });
+      assert(found);
+      return local_f;
    }
 };

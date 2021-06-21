@@ -34,7 +34,7 @@ Generic_Exception(TODO);
 }  // namespace ex
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------
-#define UNREACHABLE() throw ex::UnReachable(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
+#define UNREACHABLE() throw leanstore::ex::UnReachable(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
 #define always_check(e)                                                                                                          \
    (__builtin_expect(!(e), 0) ? throw leanstore::ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + \

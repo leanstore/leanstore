@@ -1,4 +1,5 @@
 #pragma once
+#include "Exceptions.hpp"
 #include "Types.hpp"
 #include "leanstore/KVInterface.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
@@ -69,15 +70,8 @@ class Adapter
    virtual bool erase(const typename Record::Key& key) = 0;
    // -------------------------------------------------------------------------------------
    template <class Field>
-   auto lookupField(const typename Record::Key& key, Field Record::*f)
+   Field lookupField(const typename Record::Key& key, Field Record::*f)
    {
-      Field local_f;
-      bool found = false;
-      lookup1(key, [&](const Record record) {
-         found = true;
-         local_f = (record).*f;
-      });
-      assert(found);
-      return local_f;
+      UNREACHABLE();
    }
 };

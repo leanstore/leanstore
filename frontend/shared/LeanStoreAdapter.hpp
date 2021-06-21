@@ -11,7 +11,7 @@
 
 using namespace leanstore;
 template <class Record>
-struct LeanStoreAdapter : public Adapter<Record> {
+struct LeanStoreAdapter : Adapter<Record> {
    leanstore::KVInterface* btree;
    string name;
    LeanStoreAdapter()
@@ -36,8 +36,8 @@ struct LeanStoreAdapter : public Adapter<Record> {
    void printTreeHeight() { cout << name << " height = " << btree->getHeight() << endl; }
    // -------------------------------------------------------------------------------------
    void scanDesc(const typename Record::Key& key,
-                 const std::function<bool(const typename Record::Key&, const Record&)>& fn,
-                 std::function<void()> undo)
+                 const std::function<bool(const typename Record::Key&, const Record&)>& cb,
+                 std::function<void()> undo) final
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
@@ -50,12 +50,12 @@ struct LeanStoreAdapter : public Adapter<Record> {
              typename Record::Key typed_key;
              Record::unfoldKey(key, typed_key);
              const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
-             return fn(typed_key, typed_payload);
+             return cb(typed_key, typed_payload);
           },
           undo);
    }
    // -------------------------------------------------------------------------------------
-   void insert(const typename Record::Key& key, const Record& record)
+   void insert(const typename Record::Key& key, const Record& record) final
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
@@ -65,8 +65,8 @@ struct LeanStoreAdapter : public Adapter<Record> {
          cr::Worker::my().abortTX();
       }
    }
-
-   void lookup1(const typename Record::Key& key, const std::function<void(const Record&)>& fn)
+   // -------------------------------------------------------------------------------------
+   void lookup1(const typename Record::Key& key, const std::function<void(const Record&)>& cb) final
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
@@ -74,12 +74,12 @@ struct LeanStoreAdapter : public Adapter<Record> {
          static_cast<void>(payload_length);
          const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
          assert(payload_length == sizeof(Record));
-         fn(typed_payload);
+         cb(typed_payload);
       });
       ensure(res == leanstore::OP_RESULT::OK);
    }
-
-   void update1(const typename Record::Key& key, const std::function<void(Record&)>& fn, UpdateSameSizeInPlaceDescriptor& update_descriptor)
+   // -------------------------------------------------------------------------------------
+   void update1(const typename Record::Key& key, const std::function<void(Record&)>& cb, UpdateSameSizeInPlaceDescriptor& update_descriptor) final
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
@@ -89,7 +89,7 @@ struct LeanStoreAdapter : public Adapter<Record> {
              static_cast<void>(payload_length);
              assert(payload_length == sizeof(Record));
              Record& typed_payload = *reinterpret_cast<Record*>(payload);
-             fn(typed_payload);
+             cb(typed_payload);
           },
           update_descriptor);
       ensure(res != leanstore::OP_RESULT::NOT_FOUND);
@@ -97,8 +97,8 @@ struct LeanStoreAdapter : public Adapter<Record> {
          cr::Worker::my().abortTX();
       }
    }
-
-   bool erase(const typename Record::Key& key)
+   // -------------------------------------------------------------------------------------
+   bool erase(const typename Record::Key& key) final
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
@@ -109,7 +109,9 @@ struct LeanStoreAdapter : public Adapter<Record> {
       return (res == leanstore::OP_RESULT::OK);
    }
    // -------------------------------------------------------------------------------------
-   void scan(const typename Record::Key& key, const std::function<bool(const typename Record::Key&, const Record&)>& fn, std::function<void()> undo)
+   void scan(const typename Record::Key& key,
+             const std::function<bool(const typename Record::Key&, const Record&)>& cb,
+             std::function<void()> undo) final
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
@@ -123,9 +125,26 @@ struct LeanStoreAdapter : public Adapter<Record> {
              typename Record::Key typed_key;
              Record::unfoldKey(key, typed_key);
              const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
-             return fn(typed_key, typed_payload);
+             return cb(typed_key, typed_payload);
           },
           undo);
    }
-   uint64_t count() { return btree->countEntries(); }
+   // -------------------------------------------------------------------------------------
+   template <class Field>
+   Field lookupField(const typename Record::Key& key, Field Record::*f)
+   {
+      u8 folded_key[Record::maxFoldLength()];
+      u16 folded_key_len = Record::foldKey(folded_key, key);
+      Field local_f;
+      const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
+         static_cast<void>(payload_length);
+         assert(payload_length == sizeof(Record));
+         Record& typed_payload = *const_cast<Record*>(reinterpret_cast<const Record*>(payload));
+         local_f = (typed_payload).*f;
+      });
+      ensure(res == leanstore::OP_RESULT::OK);
+      return local_f;
+   }
+   // -------------------------------------------------------------------------------------
+   u64 count() { return btree->countEntries(); }
 };
