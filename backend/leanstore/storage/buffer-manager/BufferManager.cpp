@@ -24,9 +24,6 @@
 #include <iomanip>
 #include <set>
 // -------------------------------------------------------------------------------------
-// Local GFlags
-// -------------------------------------------------------------------------------------
-using std::thread;
 namespace leanstore
 {
 namespace storage
@@ -72,7 +69,7 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
    // -------------------------------------------------------------------------------------
    // Page Provider threads
    if (FLAGS_pp_threads) {  // make it optional for pure in-memory experiments
-      std::vector<thread> pp_threads;
+      std::vector<std::thread> pp_threads;
       const u64 partitions_per_thread = partitions_count / FLAGS_pp_threads;
       ensure(FLAGS_pp_threads <= partitions_count);
       const u64 extra_partitions_for_last_thread = partitions_count % FLAGS_pp_threads;
@@ -239,7 +236,7 @@ void BufferManager::reclaimPage(BufferFrame& bf)
    }
 }
 // -------------------------------------------------------------------------------------
-// returns a non-latched BufferFrame
+// Returns a non-latched BufferFrame
 BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
 {
    if (swip_value.isHOT()) {
@@ -257,7 +254,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       return swip_value.asBufferFrame();
    }
    // -------------------------------------------------------------------------------------
-   swip_guard.unlock();  // otherwise we would get a deadlock, P->G, G->P
+   swip_guard.unlock();  // Otherwise we would get a deadlock, P->G, G->P
    const PID pid = swip_value.asPageID();
    Partition& partition = getPartition(pid);
    JMUW<std::unique_lock<std::mutex>> g_guard(partition.io_mutex);

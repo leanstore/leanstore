@@ -304,6 +304,7 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       active_tx.max_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
+      // TODO: Remote Flush Avoidance (RFA)
       {
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
          ready_to_commit_queue.push_back(active_tx);

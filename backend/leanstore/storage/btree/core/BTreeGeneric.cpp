@@ -514,9 +514,10 @@ void BTreeGeneric::deserialize(BTreeGeneric& btree, std::unordered_map<std::stri
          btree.meta_node_bf = &BMC::global_bf->resolveSwip(dummy_guard, btree.meta_node_bf);
          jumpmu_break;
       }
-      jumpmuCatch(){
+      jumpmuCatch()
+      {
          failcounter++;
-         if(failcounter >= 200){
+         if (failcounter >= 200) {
             cerr << "Failed to allocate MetaNode, Buffer might be to small" << endl;
             assert(false);
          }
@@ -526,9 +527,10 @@ void BTreeGeneric::deserialize(BTreeGeneric& btree, std::unordered_map<std::stri
    assert(btree.meta_node_bf.asBufferFrame().page.dt_id == btree.dt_id);
 }
 // -------------------------------------------------------------------------------------
-// TODO: Refactor
-// Jump if any page on the path is already evicted or of the bf could not be found
-// to_find is not latched
+// Note on Synchronization: findParent is called by the page provide thread which are not allowed to block
+// Therefore, we jump whenever we encounter a latched node on our way
+// Moreover, we jump if any page on the path is already evicted or of the bf could not be found
+// Pre: to_find is not exclusively latched
 struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFrame& to_find)
 {
    auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
@@ -537,7 +539,7 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
    u16 level = 0;
    // -------------------------------------------------------------------------------------
    Swip<BTreeNode>* c_swip = &p_guard->upper;
-   if (btree.dt_id != to_find.page.dt_id || p_guard->upper.isEVICTED()){
+   if (btree.dt_id != to_find.page.dt_id || p_guard->upper.isEVICTED()) {
       // Wrong Tree or Root is evicted
       jumpmu::jump();
    }
@@ -552,12 +554,12 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
       return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = &btree.meta_node_bf.asBufferFrame()};
    }
    // -------------------------------------------------------------------------------------
-   if(p_guard->upper.isCOOL()) {
+   if (p_guard->upper.isCOOL()) {
       // Root is cool => every node below is evicted
       jumpmu::jump();
    }
    // -------------------------------------------------------------------------------------
-   HybridPageGuard c_guard(p_guard, p_guard->upper);  // the parent of the bf we are looking for (to_find)
+   HybridPageGuard c_guard(p_guard, p_guard->upper, LATCH_FALLBACK_MODE::JUMP);  // The parent of the bf we are looking for (to_find)
    s16 pos = -1;
    auto search_condition = [&]() {
       if (infinity) {
@@ -578,7 +580,7 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
       if (c_swip->isEVICTED()) {
          jumpmu::jump();
       }
-      c_guard = HybridPageGuard(p_guard, c_swip->cast<BTreeNode>());
+      c_guard = HybridPageGuard(p_guard, c_swip->cast<BTreeNode>(), LATCH_FALLBACK_MODE::JUMP);
       level++;
    }
    p_guard.unlock();
@@ -684,4 +686,4 @@ void BTreeGeneric::printInfos(uint64_t totalSize)
         << " rootCnt:" << r_guard->count << " bytesFree:" << bytesFree() << endl;
 }
 // -------------------------------------------------------------------------------------
-}  // namespace leanstore
+}  // namespace leanstore::storage::btree

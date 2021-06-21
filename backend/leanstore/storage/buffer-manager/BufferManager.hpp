@@ -1,11 +1,11 @@
 #pragma once
-#include "Units.hpp"
 #include "BMPlainGuard.hpp"
 #include "BufferFrame.hpp"
 #include "DTRegistry.hpp"
 #include "FreeList.hpp"
 #include "Partition.hpp"
 #include "Swip.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include "PerfEvent.hpp"
 // -------------------------------------------------------------------------------------
@@ -21,23 +21,20 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-class LeanStore;
+class LeanStore;  // Forward declaration
 namespace profiling
 {
-class BMTable;
+class BMTable;  // Forward declaration
 }
 namespace storage
 {
 // -------------------------------------------------------------------------------------
-/*
- * Swizzle a page:
- * 1- bf_s_lock global bf_s_lock
- * 2- if it is in cooling stage:
- *    a- yes: bf_s_lock write (spin till you can), remove from stage, swizzle in
- *    b- no: set the state to IO, increment the counter, hold the mutex, p_read
- * 3- if it is in IOFlight:
- *    a- increment counter,
- */
+// Notes on Synchronization in Buffer Manager
+// Terminology: PPT: Page Provider Thread, WT: Worker Thread. P: Parent, C: Child, M: Cooling stage mutex
+// Latching order for all PPT operations (unswizzle, evict): M -> P -> C
+// Latching order for all WT operations: swizzle: [unlock P ->] M -> P ->C, coolPage: P -> C -> M
+// coolPage conflict with this order which could lead to a deadlock if our BMPlainGuard does not use try_guard and does not jump if latched
+// -------------------------------------------------------------------------------------
 class BufferManager
 {
   private:

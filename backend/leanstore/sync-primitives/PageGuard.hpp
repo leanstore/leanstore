@@ -22,6 +22,22 @@ class SharedPageGuard;
 template <typename T>
 class HybridPageGuard
 {
+  protected:
+   void latchAccordingToFallbackMode(Guard& guard, const LATCH_FALLBACK_MODE if_contended)
+   {
+      if (if_contended == LATCH_FALLBACK_MODE::SPIN) {
+         guard.toOptimisticSpin();
+      } else if (if_contended == LATCH_FALLBACK_MODE::EXCLUSIVE) {
+         guard.toOptimisticOrExclusive();
+      } else if (if_contended == LATCH_FALLBACK_MODE::SHARED) {
+         guard.toOptimisticOrShared();
+      } else if (if_contended == LATCH_FALLBACK_MODE::JUMP) {
+         guard.toOptimisticOrJump();
+      } else {
+         UNREACHABLE();
+      }
+   }
+
   public:
    BufferFrame* bf = nullptr;
    Guard guard;
@@ -44,9 +60,10 @@ class HybridPageGuard
    }
    // -------------------------------------------------------------------------------------
    // I: Root case
-   HybridPageGuard(Swip<BufferFrame> sentinal_swip) : bf(&sentinal_swip.asBufferFrame()), guard(bf->header.latch)
+   HybridPageGuard(Swip<BufferFrame> sentinal_swip, const LATCH_FALLBACK_MODE if_contended = LATCH_FALLBACK_MODE::SPIN)
+       : bf(&sentinal_swip.asBufferFrame()), guard(bf->header.latch)
    {
-      guard.toOptimisticSpin();
+      latchAccordingToFallbackMode(guard, if_contended);
       syncGSN();
       jumpmu_registerDestructor();
    }
@@ -56,13 +73,7 @@ class HybridPageGuard
    HybridPageGuard(HybridPageGuard<T2>& p_guard, Swip<T>& swip, const LATCH_FALLBACK_MODE if_contended = LATCH_FALLBACK_MODE::SPIN)
        : bf(&BMC::global_bf->tryFastResolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
    {
-      if (if_contended == LATCH_FALLBACK_MODE::SPIN) {
-         guard.toOptimisticSpin();
-      } else if (if_contended == LATCH_FALLBACK_MODE::EXCLUSIVE) {
-         guard.toOptimisticOrExclusive();
-      } else if (if_contended == LATCH_FALLBACK_MODE::SHARED) {
-         guard.toOptimisticOrShared();
-      }
+      latchAccordingToFallbackMode(guard, if_contended);
       syncGSN();
       jumpmu_registerDestructor();
       // -------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 #pragma once
 #include "Units.hpp"
-#include "leanstore/sync-primitives/Latch.hpp"
 #include "leanstore/Config.hpp"
+#include "leanstore/sync-primitives/Latch.hpp"
 #include "leanstore/utils/JumpMU.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
@@ -28,11 +28,7 @@ class BMOptimisticGuard
   public:
    Guard guard;
    // -------------------------------------------------------------------------------------
-   BMOptimisticGuard(HybridLatch& lock) : guard(lock)
-   {
-      // assert(if_contended != FALLBACK_METHOD::EXCLUSIVE && if_contended != FALLBACK_METHOD::SHARED);
-      guard.toOptimisticOrJump();
-   }
+   BMOptimisticGuard(HybridLatch& lock) : guard(lock) { guard.toOptimisticOrJump(); }
    // -------------------------------------------------------------------------------------
    BMOptimisticGuard() = delete;
    BMOptimisticGuard(BMOptimisticGuard& other) = delete;  // copy constructor
@@ -57,6 +53,7 @@ class BMExclusiveGuard
   public:
    BMExclusiveGuard(BMOptimisticGuard& o_lock) : optimistic_guard(o_lock)
    {
+      // optimistic_guard.guard.toExclusive();
       optimistic_guard.guard.tryToExclusive();
       jumpmu_registerDestructor();
    }
@@ -101,6 +98,7 @@ class BMSharedGuard
   public:
    BMSharedGuard(BMOptimisticGuard& o_lock) : optimistic_guard(o_lock)
    {
+      // optimistic_guard.guard.toShared();
       optimistic_guard.guard.tryToShared();
       jumpmu_registerDestructor();
    }

@@ -39,9 +39,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    auto phase_2_3_condition = [&](Partition& p) { return (p.dram_free_list.counter < p.free_bfs_limit); };
    // -------------------------------------------------------------------------------------
    while (bg_threads_keep_running) {
-      /*
-       * Phase 1: unswizzle pages (put in the cooling stage)
-       */
+      // Phase 1: unswizzle pages (put in the cooling stage)
       // -------------------------------------------------------------------------------------
       [[maybe_unused]] Time phase_1_begin, phase_1_end;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
@@ -76,7 +74,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
                COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
                getDTRegistry().iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
-                  all_children_evicted &= swip.isEVICTED();  // ignore when it has a child in the cooling stage
+                  all_children_evicted &= swip.isEVICTED();  // Ignore when it has a child in the cooling stage
                   if (swip.isHOT()) {
                      r_buffer = &swip.asBufferFrame();
                      r_guard.recheck();
@@ -93,7 +91,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                       (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
                }
                if (picked_a_child_instead) {
-                  continue;  // restart the inner loop
+                  continue;  // Restart the inner loop
                }
                repickIf(!all_children_evicted);
 
@@ -230,11 +228,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          if (phase_2_3_condition(partition)) {
             const s64 pages_to_iterate_partition = partition.free_bfs_limit - partition.dram_free_list.counter;
             // -------------------------------------------------------------------------------------
-            /*
-             * Phase 2:
-             * Iterate over all partitions, in each partition:
-             * iterate over the end of FIFO queue.
-             */
+            // Phase 2:
+            // Iterate over all partitions, in each partition:
+            // iterate over the end of FIFO queue.
+            // -------------------------------------------------------------------------------------
             [[maybe_unused]] Time phase_2_begin, phase_2_end;
             COUNTERS_BLOCK() { phase_2_begin = std::chrono::high_resolution_clock::now(); }
             if (pages_to_iterate_partition > 0) {

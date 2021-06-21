@@ -206,7 +206,7 @@ struct Guard {
          }
          state = GUARD_STATE::SHARED;
       } else {
-        UNREACHABLE();
+         UNREACHABLE();
       }
    }
    // -------------------------------------------------------------------------------------
