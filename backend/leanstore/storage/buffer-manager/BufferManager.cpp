@@ -81,7 +81,7 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
          pp_threads.emplace_back(
              [&, t_i](u64 p_begin, u64 p_end) {
                 if (FLAGS_pin_threads) {
-                   utils::pinThisThread(FLAGS_worker_threads + 1 + t_i);
+                   utils::pinThisThread(FLAGS_worker_threads + FLAGS_wal + t_i);
                 } else {
                    utils::pinThisThread(t_i);
                 }

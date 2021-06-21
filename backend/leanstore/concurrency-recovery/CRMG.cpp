@@ -11,6 +11,7 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
+// Threads id order: workers (xN) -> Group Committer Thread (x1) -> Page Provider Threads (xP)
 CRManager* CRManager::global = nullptr;
 // -------------------------------------------------------------------------------------
 CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_of_block_device(end_of_block_device)
@@ -75,20 +76,6 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
    }
 }
 // -------------------------------------------------------------------------------------
-CRManager::~CRManager()
-{
-   keep_running = false;
-
-   for (u64 t_i = 0; t_i < workers_count; t_i++) {
-      worker_threads_meta[t_i].cv.notify_one();
-   }
-   while (running_threads) {
-   }
-   for (u64 t_i = 0; t_i < workers_count; t_i++) {
-      delete workers[t_i];
-   }
-}
-// -------------------------------------------------------------------------------------
 void CRManager::scheduleJobSync(u64 t_i, std::function<void()> job)
 {
    setJob(t_i, job);
@@ -140,6 +127,19 @@ void CRManager::joinOne(u64 t_i, std::function<bool(WorkerThread&)> condition)
    auto& meta = worker_threads_meta[t_i];
    std::unique_lock guard(meta.mutex);
    meta.cv.wait(guard, [&]() { return condition(meta); });
+}
+// -------------------------------------------------------------------------------------
+CRManager::~CRManager()
+{
+   keep_running = false;
+   for (u64 t_i = 0; t_i < workers_count; t_i++) {
+      worker_threads_meta[t_i].cv.notify_one();
+   }
+   while (running_threads) {
+   }
+   for (u64 t_i = 0; t_i < workers_count; t_i++) {
+      delete workers[t_i];
+   }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

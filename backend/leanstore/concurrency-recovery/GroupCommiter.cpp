@@ -40,7 +40,7 @@ void CRManager::groupCommiter()
    u64 ssd_offset = end_of_block_device - sizeof(SSDMeta);
    // -------------------------------------------------------------------------------------
    // Async IO
-   const u64 batch_max_size = (workers_count * 2) + 2;
+   const u64 batch_max_size = (workers_count * 2) + 2;  // 2x because of potential wrapping around
    s32 io_slot = 0;
    std::unique_ptr<struct iocb[]> iocbs = make_unique<struct iocb[]>(batch_max_size);
    std::unique_ptr<struct iocb*[]> iocbs_ptr = make_unique<struct iocb*[]>(batch_max_size);
@@ -242,7 +242,6 @@ void CRManager::groupCommiter()
          CRCounters::myCounters().gct_write_ms += (std::chrono::duration_cast<std::chrono::microseconds>(write_end - write_begin).count());
       }
    }
-
    running_threads--;
 }
 // -------------------------------------------------------------------------------------

@@ -54,7 +54,7 @@ int main(int argc, char** argv)
    LeanStore db;
    auto& crm = db.getCRManager();
    LeanStoreAdapter<tabular> table;
-   crm.scheduleJobSync(0, [&]() { table = LeanStoreAdapter<tabular>(db, "YCSB_adapter"); });
+   crm.scheduleJobSync(0, [&]() { table = LeanStoreAdapter<tabular>(db, "YCSB"); });
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);
    db.startProfilingThread();

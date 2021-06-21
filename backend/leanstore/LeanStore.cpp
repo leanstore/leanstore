@@ -92,18 +92,6 @@ LeanStore::LeanStore()
    cr::CRManager::global = cr_manager.get();
 }
 // -------------------------------------------------------------------------------------
-LeanStore::~LeanStore()
-{
-   bg_threads_keep_running = false;
-   while (bg_threads_counter) {
-      MYPAUSE();
-   }
-   if (FLAGS_persist) {
-      serializeState();
-      buffer_manager->writeAllBufferFrames();
-   }
-}
-// -------------------------------------------------------------------------------------
 void LeanStore::startProfilingThread()
 {
    std::thread profiling_thread([&]() {
@@ -182,7 +170,7 @@ void LeanStore::startProfilingThread()
             // -------------------------------------------------------------------------------------
             table.format().width(10);
             table.column(0).format().width(5);
-            table.column(1).format().width(10);
+            table.column(1).format().width(12);
             // -------------------------------------------------------------------------------------
             auto print_table = [](tabulate::Table& table, std::function<bool(u64)> predicate) {
                std::stringstream ss;
@@ -382,6 +370,18 @@ void LeanStore::deserializeFlags()
    }
    for (auto flags : persistFlagsS64()) {
       *std::get<1>(flags) = atoi(flags_serialized[std::get<0>(flags)].c_str());
+   }
+}
+// -------------------------------------------------------------------------------------
+LeanStore::~LeanStore()
+{
+   bg_threads_keep_running = false;
+   while (bg_threads_counter) {
+      MYPAUSE();
+   }
+   if (FLAGS_persist) {
+      serializeState();
+      buffer_manager->writeAllBufferFrames();
    }
 }
 // -------------------------------------------------------------------------------------

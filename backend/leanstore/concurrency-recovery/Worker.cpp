@@ -40,7 +40,7 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
    all_sorted_so_starts = make_unique<u64[]>(workers_count);
    global_so_starts[worker_id] = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
 }
-Worker::~Worker() {}
+Worker::~Worker() = default;
 // -------------------------------------------------------------------------------------
 u32 Worker::walFreeSpace()
 {

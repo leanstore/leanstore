@@ -28,8 +28,8 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    s32 ssd_fd;
    // -------------------------------------------------------------------------------------
-   unique_ptr<cr::CRManager> cr_manager;
    unique_ptr<storage::BufferManager> buffer_manager;
+   unique_ptr<cr::CRManager> cr_manager;
    // -------------------------------------------------------------------------------------
    atomic<u64> bg_threads_counter = 0;
    atomic<bool> bg_threads_keep_running = true;
