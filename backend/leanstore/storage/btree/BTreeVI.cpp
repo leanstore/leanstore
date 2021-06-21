@@ -343,7 +343,7 @@ void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, Mutable
       ensure(ret == OP_RESULT::OK);
       ensure(reinterpret_cast<Tuple*>(iterator.mutableValue().data())->isWriteLocked());
       // -------------------------------------------------------------------------------------
-      fat_tuple.total_space = FLAGS_tmp6 * 1024;
+      fat_tuple.total_space = 3 * 1024;
       ensure(fat_tuple.total_space >= fat_tuple.used_space);  // TODO:
       const u16 fat_tuple_length = sizeof(FatTuple) + fat_tuple.total_space;
       const u16 required_extra_space_in_node = (iterator.value().length() >= fat_tuple_length) ? 0 : (fat_tuple_length - iterator.value().length());

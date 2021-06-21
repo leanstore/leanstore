@@ -52,7 +52,7 @@ struct Worker {
    static unique_ptr<atomic<u64>[]> global_tts_vector;
    // -------------------------------------------------------------------------------------
    enum class TX_TYPE : u8 { LONG_TX, SINGLE_LOOKUP, SINGLE_UPSERT };
-   TX_TYPE tx_type = TX_TYPE::LONG_TX;
+   TX_TYPE current_tx_type = TX_TYPE::LONG_TX;
    // -------------------------------------------------------------------------------------
    bool force_si_refresh = false;
    bool workers_sorted = false;

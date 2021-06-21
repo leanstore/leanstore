@@ -153,7 +153,8 @@ void Worker::refreshSnapshotHWMs()
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshotOrderingIfNeeded()
 {
-   if (!snapshot_order_refreshed) {
+   if (!snapshot_order_refreshed && (FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0)) {
+      // cout << "refresh" << endl;
       oldest_so_start = std::numeric_limits<u64>::max();
       oldest_so_start_worker_id = worker_id;
       for (u64 w = 0; w < workers_count; w++) {
@@ -201,21 +202,21 @@ void Worker::startTX(TX_TYPE next_tx_type)
       // -------------------------------------------------------------------------------------
       if (FLAGS_si) {
          snapshot_order_refreshed = false;
-         if (next_tx_type != TX_TYPE::LONG_TX) {
-            if (tx_type != TX_TYPE::LONG_TX) {
-               switchToAlwaysUpToDateMode();
-            }
-         } else {
+         if (next_tx_type == TX_TYPE::LONG_TX) {
             if (force_si_refresh || FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
                refreshSnapshotHWMs();
             }
             force_si_refresh = false;
-            refreshSnapshotOrderingIfNeeded();
+         } else {
+            if (current_tx_type == TX_TYPE::LONG_TX) {
+               switchToAlwaysUpToDateMode();
+            }
          }
+         // -------------------------------------------------------------------------------------
          checkup();
       }
    }
-   tx_type = next_tx_type;
+   current_tx_type = next_tx_type;
 }
 // -------------------------------------------------------------------------------------
 void Worker::switchToAlwaysUpToDateMode()
@@ -229,7 +230,6 @@ void Worker::switchToAlwaysUpToDateMode()
 // -------------------------------------------------------------------------------------
 void Worker::shutdown()
 {
-   refreshSnapshotOrderingIfNeeded();
    checkup();
    switchToAlwaysUpToDateMode();
 }
@@ -240,6 +240,8 @@ void Worker::checkup()
    if (FLAGS_si) {
       if (!todo_hwm_rb.empty() || !todo_lwm_rb.empty()) {
          refreshSnapshotOrderingIfNeeded();
+      } else {
+         return;
       }
       // -------------------------------------------------------------------------------------
       {
@@ -294,7 +296,7 @@ void Worker::commitTX()
    if (FLAGS_wal) {
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
-      if (tx_type != TX_TYPE::SINGLE_LOOKUP) {
+      if (current_tx_type != TX_TYPE::SINGLE_LOOKUP) {
          WALMetaEntry& entry = reserveWALMetaEntry();
          entry.type = WALEntry::TYPE::TX_COMMIT;
          submitWALMetaEntry();
@@ -302,7 +304,7 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       active_tx.max_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
-      if (tx_type != TX_TYPE::SINGLE_LOOKUP) {
+      if (current_tx_type != TX_TYPE::SINGLE_LOOKUP) {
          {
             std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
             ready_to_commit_queue.push_back(active_tx);
@@ -345,7 +347,7 @@ bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
 {
-   if (tx_type != TX_TYPE::LONG_TX) {
+   if (current_tx_type != TX_TYPE::LONG_TX) {
       return worker_id == other_worker_id || global_tts_vector[other_worker_id].load() > tts;
    } else {
       return worker_id == other_worker_id || local_tts_vector[other_worker_id].load() > tts;
@@ -361,7 +363,9 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForAll(u64 commited_before_so)
 {
-   refreshSnapshotOrderingIfNeeded();
+   if (current_tx_type != TX_TYPE::LONG_TX) {
+      refreshSnapshotOrderingIfNeeded();
+   }
    return commited_before_so < oldest_so_start;
 }
 // -------------------------------------------------------------------------------------
