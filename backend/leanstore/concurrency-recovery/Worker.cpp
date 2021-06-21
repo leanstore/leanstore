@@ -304,14 +304,14 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       active_tx.max_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
-      if (current_tx_type != TX_TYPE::SINGLE_LOOKUP) {
-         {
-            std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
-            ready_to_commit_queue.push_back(active_tx);
-            ready_to_commit_queue_size += 1;
-         }
-         // -------------------------------------------------------------------------------------
-         if (FLAGS_si) {
+      {
+         std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
+         ready_to_commit_queue.push_back(active_tx);
+         ready_to_commit_queue_size += 1;
+      }
+      // -------------------------------------------------------------------------------------
+      if (FLAGS_si) {
+         if (current_tx_type != TX_TYPE::SINGLE_LOOKUP) {
             global_tts_vector[worker_id].store(active_tx.tts + 1, std::memory_order_release);
             commitTODOs(global_snapshot_clock.fetch_add(WORKERS_INCREMENT));
          }
