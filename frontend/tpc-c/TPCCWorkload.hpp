@@ -583,8 +583,6 @@ class TPCCWorkload
       Varchar<9> w_zip;
       Numeric w_ytd;
       warehouse.lookup1({w_id}, [&](const warehouse_t& rec) {
-         if (rec.w_name.length > 10)
-            raise(SIGTRAP);
          w_name = rec.w_name;
          w_street_1 = rec.w_street_1;
          w_street_2 = rec.w_street_2;
