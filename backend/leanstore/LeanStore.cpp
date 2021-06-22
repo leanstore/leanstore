@@ -388,4 +388,8 @@ LeanStore::~LeanStore()
    }
 }
 // -------------------------------------------------------------------------------------
+// Static members
+std::list<std::tuple<string, fLS::clstring*>> LeanStore::persisted_string_flags = {};
+std::list<std::tuple<string, s64*>> LeanStore::persisted_s64_flags = {};
+// -------------------------------------------------------------------------------------
 }  // namespace leanstore
