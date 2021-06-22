@@ -133,7 +133,7 @@ int main(int argc, char** argv)
                   cr::Worker::my().startTX(tx_type);
                   table.update1(
                       {key}, [&](tabular& rec) { rec.my_payload = payload; }, tabular_update_descriptor);
-                  cr::Worker::my().commitTX();
+                  // cr::Worker::my().commitTX();
                }
                WorkerCounters::myCounters().tx++;
             }

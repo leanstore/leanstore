@@ -23,6 +23,9 @@ namespace btree
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
 {
+   if (0 && cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_LOOKUP) {  // TODO:
+      return lookupOptimistic(o_key, o_key_length, payload_callback);
+   }
    u16 key_length = o_key_length + sizeof(ChainSN);
    u8 key_buffer[key_length];
    std::memcpy(key_buffer, o_key, o_key_length);
@@ -54,6 +57,35 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
       jumpmu_return ret;
    }
    jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
+}
+// -------------------------------------------------------------------------------------
+OP_RESULT BTreeVI::lookupOptimistic(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
+{
+   u16 key_length = o_key_length + sizeof(ChainSN);
+   u8 key_buffer[key_length];
+   std::memcpy(key_buffer, o_key, o_key_length);
+   u8* key = key_buffer;
+   while (true) {
+      jumpmuTry()
+      {
+         HybridPageGuard<BTreeNode> leaf;
+         findLeafCanJump(leaf, key, key_length);
+         // -------------------------------------------------------------------------------------
+         s16 pos = leaf->lowerBound<true>(key, key_length);
+         if (pos != -1) {
+            payload_callback(leaf->getPayload(pos) + sizeof(ChainedTuple), leaf->getPayloadLength(pos) - sizeof(ChainedTuple));
+            leaf.recheck();
+            jumpmu_return OP_RESULT::OK;
+         } else {
+            leaf.recheck();
+            raise(SIGTRAP);
+            jumpmu_return OP_RESULT::NOT_FOUND;
+         }
+      }
+      jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
+   }
    UNREACHABLE();
    return OP_RESULT::OTHER;
 }
@@ -402,7 +434,12 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          ensure(res);  // TODO: what if it fails, then we have to do something else
          tuple.unlock();
          // -------------------------------------------------------------------------------------
+         if (cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_UPSERT) {
+            cr::Worker::my().commitTX();
+         }
+         // -------------------------------------------------------------------------------------
          iterator.contentionSplit();
+         // -------------------------------------------------------------------------------------
          jumpmu_return OP_RESULT::OK;
       } else {
          auto& chain_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
@@ -548,6 +585,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // -------------------------------------------------------------------------------------
          head_version.unlock();
          iterator.contentionSplit();
+         // -------------------------------------------------------------------------------------
+         if (cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_UPSERT) {
+            cr::Worker::my().commitTX();
+         }
+         // -------------------------------------------------------------------------------------
          jumpmu_return OP_RESULT::OK;
       }
    }
@@ -600,6 +642,11 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          auto& primary_version = *new (payload.data()) ChainedTuple(cr::Worker::my().workerID(), cr::Worker::my().TTS());
          std::memcpy(primary_version.payload, value, value_length);
          primary_version.commited_after_so = cr::Worker::my().so_start;
+         // -------------------------------------------------------------------------------------
+         if (cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_UPSERT) {
+            cr::Worker::my().commitTX();
+         }
+         // -------------------------------------------------------------------------------------
          jumpmu_return OP_RESULT::OK;
       }
       jumpmuCatch() { UNREACHABLE(); }
@@ -728,6 +775,10 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
             primary_version.is_gc_scheduled = true;
          }
          primary_version.unlock();
+      }
+      // -------------------------------------------------------------------------------------
+      if (cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_UPSERT) {
+         cr::Worker::my().commitTX();
       }
       // -------------------------------------------------------------------------------------
       jumpmu_return OP_RESULT::OK;

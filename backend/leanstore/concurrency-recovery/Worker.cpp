@@ -294,6 +294,9 @@ void Worker::checkup()
 void Worker::commitTX()
 {
    if (FLAGS_wal) {
+      if (current_tx_type == TX_TYPE::SINGLE_UPSERT && active_tx.state != Transaction::STATE::STARTED) {
+         return;  // Skip double commit in case of single statement upsert [hacky]
+      }
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
       if (current_tx_type != TX_TYPE::SINGLE_LOOKUP) {
@@ -348,10 +351,10 @@ bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
 {
-   if (current_tx_type != TX_TYPE::LONG_TX) {
-      return worker_id == other_worker_id || global_tts_vector[other_worker_id].load() > tts;
-   } else {
+   if (current_tx_type == TX_TYPE::LONG_TX) {
       return worker_id == other_worker_id || local_tts_vector[other_worker_id].load() > tts;
+   } else {
+      return worker_id == other_worker_id || global_tts_vector[other_worker_id].load() > tts;
    }
 }
 // -------------------------------------------------------------------------------------
