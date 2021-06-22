@@ -180,10 +180,15 @@ void Worker::sortWorkers()
 {
    if (!workers_sorted) {
       refreshSnapshotOrderingIfNeeded();
-      std::memcpy(all_sorted_so_starts.get(), all_so_starts.get(), workers_count * sizeof(u64));
-      std::sort(all_sorted_so_starts.get(), all_sorted_so_starts.get() + workers_count, std::greater<u64>());
-      workers_sorted = true;
+      // Avoid extra work if the last round also was full of single statement workers
+      if (oldest_so_start < std::numeric_limits<u64>::max()) {
+         std::memcpy(all_sorted_so_starts.get(), all_so_starts.get(), workers_count * sizeof(u64));
+         std::sort(all_sorted_so_starts.get(), all_sorted_so_starts.get() + workers_count, std::greater<u64>());
+      } else if (all_sorted_so_starts[workers_count - 1] < std::numeric_limits<u64>::max()) {
+         std::memcpy(all_sorted_so_starts.get(), all_so_starts.get(), workers_count * sizeof(u64));
+      }
    }
+   workers_sorted = true;
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX(TX_TYPE next_tx_type)
