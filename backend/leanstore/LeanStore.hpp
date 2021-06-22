@@ -37,6 +37,13 @@ class LeanStore
    u64 config_hash = 0;
    GlobalStats global_stats;
    // -------------------------------------------------------------------------------------
+   std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags = {};
+   std::list<std::tuple<string, s64*>> persisted_s64_flags = {};
+   void serializeFlags(rapidjson::Document& d);
+   void deserializeFlags();
+   void serializeState();
+   void deserializeState();
+
   public:
    LeanStore();
    ~LeanStore();
@@ -61,24 +68,10 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
    // -------------------------------------------------------------------------------------
-   static void addStringFlag(string name, fLS::clstring* flag) { LeanStore::persistFlagsString().push_back(std::make_tuple(name, flag)); }
-   static void addS64Flag(string name, s64* flag) { LeanStore::persistFlagsS64().push_back(std::make_tuple(name, flag)); }
-   // -------------------------------------------------------------------------------------
+   void addStringFlag(string name, fLS::clstring* flag) { persisted_string_flags.push_back(std::make_tuple(name, flag)); }
+   void addS64Flag(string name, s64* flag) { persisted_s64_flags.push_back(std::make_tuple(name, flag)); }
+
   private:
-   static std::list<std::tuple<string, fLS::clstring*>>& persistFlagsString()
-   {
-      static std::list<std::tuple<string, fLS::clstring*>> list = {};
-      return list;
-   };
-   static std::list<std::tuple<string, s64*>>& persistFlagsS64()
-   {
-      static std::list<std::tuple<string, s64*>> list = {};
-      return list;
-   };
-   void serializeFlags(rapidjson::Document& d);
-   void deserializeFlags();
-   void serializeState();
-   void deserializeState();
 };
 
 // -------------------------------------------------------------------------------------
