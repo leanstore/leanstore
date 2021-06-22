@@ -23,9 +23,11 @@ namespace btree
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
 {
-   if (0 && cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_LOOKUP) {  // TODO:
-      return lookupOptimistic(o_key, o_key_length, payload_callback);
-   }
+   return lookupOptimistic(o_key, o_key_length, payload_callback);
+}
+// -------------------------------------------------------------------------------------
+OP_RESULT BTreeVI::lookupPessimistic(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
+{
    u16 key_length = o_key_length + sizeof(ChainSN);
    u8 key_buffer[key_length];
    std::memcpy(key_buffer, o_key, o_key_length);
@@ -36,8 +38,8 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
    {
       BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
       auto ret = iterator.seekExact(key);
+      explainIfNot(ret == OP_RESULT::OK);
       if (ret != OP_RESULT::OK) {
-         raise(SIGTRAP);
          jumpmu_return OP_RESULT::NOT_FOUND;
       }
       [[maybe_unused]] const auto primary_version = *reinterpret_cast<const ChainedTuple*>(iterator.value().data());
@@ -64,9 +66,9 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
 OP_RESULT BTreeVI::lookupOptimistic(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
 {
    u16 key_length = o_key_length + sizeof(ChainSN);
-   u8 key_buffer[key_length];
-   std::memcpy(key_buffer, o_key, o_key_length);
-   u8* key = key_buffer;
+   u8 key[key_length];
+   std::memcpy(key, o_key, o_key_length);
+   *reinterpret_cast<ChainSN*>(key + o_key_length) = 0;
    while (true) {
       jumpmuTry()
       {
@@ -75,19 +77,25 @@ OP_RESULT BTreeVI::lookupOptimistic(u8* o_key, u16 o_key_length, function<void(c
          // -------------------------------------------------------------------------------------
          s16 pos = leaf->lowerBound<true>(key, key_length);
          if (pos != -1) {
-            payload_callback(leaf->getPayload(pos) + sizeof(ChainedTuple), leaf->getPayloadLength(pos) - sizeof(ChainedTuple));
-            leaf.recheck();
-            jumpmu_return OP_RESULT::OK;
+            auto& tuple = *reinterpret_cast<Tuple*>(leaf->getPayload(pos));
+            if (isVisibleForMe(tuple.worker_id, tuple.tts)) {
+               const u64 offset = ((tuple.tuple_format == TupleFormat::CHAINED) ? sizeof(ChainedTuple) : sizeof(FatTuple));
+               payload_callback(leaf->getPayload(pos) + offset, leaf->getPayloadLength(pos) - offset);
+               leaf.recheck();
+               jumpmu_return OP_RESULT::OK;
+            } else {
+               jumpmu_break;
+            }
          } else {
             leaf.recheck();
             raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }
-      jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
+      jumpmuCatch() {}
    }
-   UNREACHABLE();
-   return OP_RESULT::OTHER;
+   // -------------------------------------------------------------------------------------
+   return lookup(o_key, o_key_length, payload_callback);
 }
 // -------------------------------------------------------------------------------------
 const UpdateSameSizeInPlaceDescriptor& BTreeVI::FatTuple::updatedAttributesDescriptor() const
