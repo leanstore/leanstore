@@ -19,7 +19,6 @@ namespace btree
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
-   volatile u32 mask = 1;
    while (true) {
       jumpmuTry()
       {
@@ -47,11 +46,7 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }
-      jumpmuCatch()
-      {
-         BACKOFF_STRATEGIES()
-         WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
-      }
+      jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
    }
    UNREACHABLE();
    return OP_RESULT::OTHER;
