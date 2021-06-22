@@ -33,7 +33,7 @@ namespace storage
 // Terminology: PPT: Page Provider Thread, WT: Worker Thread. P: Parent, C: Child, M: Cooling stage mutex
 // Latching order for all PPT operations (unswizzle, evict): M -> P -> C
 // Latching order for all WT operations: swizzle: [unlock P ->] M -> P ->C, coolPage: P -> C -> M
-// coolPage conflict with this order which could lead to a deadlock if our BMPlainGuard does not use try_guard and does not jump if latched
+// coolPage conflict with this order which could lead to a deadlock which we can mitigate by jumping instead of blocking in BMPlainGuard [WIP]
 // -------------------------------------------------------------------------------------
 class BufferManager
 {

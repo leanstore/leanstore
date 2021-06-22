@@ -236,7 +236,7 @@ void BufferManager::reclaimPage(BufferFrame& bf)
    }
 }
 // -------------------------------------------------------------------------------------
-// Returns a non-latched BufferFrame
+// Returns a non-latched BufferFrame, called by worker threads
 BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
 {
    if (swip_value.isHOT()) {
