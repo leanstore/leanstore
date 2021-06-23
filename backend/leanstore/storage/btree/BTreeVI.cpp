@@ -23,16 +23,22 @@ namespace btree
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
 {
-   return lookupOptimistic(o_key, o_key_length, payload_callback);
+   const u16 key_length = o_key_length + sizeof(ChainSN);
+   u8 key[key_length];
+   std::memcpy(key, o_key, o_key_length);
+   *reinterpret_cast<ChainSN*>(key + o_key_length) = 0;
+   // -------------------------------------------------------------------------------------
+   const OP_RESULT ret = lookupOptimistic(key, key_length, payload_callback);
+   if (ret == OP_RESULT::OTHER) {
+      return lookupPessimistic(key, key_length, payload_callback);
+   } else {
+      return ret;
+   }
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::lookupPessimistic(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
+OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
-   u16 key_length = o_key_length + sizeof(ChainSN);
-   u8 key_buffer[key_length];
-   std::memcpy(key_buffer, o_key, o_key_length);
    MutableSlice m_key(key_buffer, key_length);
-   setSN(m_key, 0);
    Slice key(key_buffer, key_length);
    jumpmuTry()
    {
@@ -63,12 +69,8 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* o_key, u16 o_key_length, function<void(
    return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeVI::lookupOptimistic(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
+OP_RESULT BTreeVI::lookupOptimistic(const u8* key, const u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
-   u16 key_length = o_key_length + sizeof(ChainSN);
-   u8 key[key_length];
-   std::memcpy(key, o_key, o_key_length);
-   *reinterpret_cast<ChainSN*>(key + o_key_length) = 0;
    while (true) {
       jumpmuTry()
       {
@@ -94,8 +96,7 @@ OP_RESULT BTreeVI::lookupOptimistic(u8* o_key, u16 o_key_length, function<void(c
       }
       jumpmuCatch() {}
    }
-   // -------------------------------------------------------------------------------------
-   return lookup(o_key, o_key_length, payload_callback);
+   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 const UpdateSameSizeInPlaceDescriptor& BTreeVI::FatTuple::updatedAttributesDescriptor() const
@@ -130,10 +131,6 @@ void BTreeVI::FatTuple::undoLastUpdate()
    used_space -= delta_and_diff_length;
    BTreeLL::applyDiff(updatedAttributesDescriptor(), value(), delta.payload);
    std::memmove(saDelta(0), saDelta(1), deltas_count * delta_and_diff_length);
-   if (deltas_count)
-      debug = -1;
-   else
-      debug = 5;
 }
 // -------------------------------------------------------------------------------------
 // Pre: tuple is write locked

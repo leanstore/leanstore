@@ -13,7 +13,7 @@ DECLARE_string(free_pages_list_path);
 DECLARE_uint32(cool_pct);
 DECLARE_uint32(free_pct);
 DECLARE_uint32(partition_bits);
-DECLARE_uint32(async_batch_size);
+DECLARE_uint32(write_buffer_size);
 DECLARE_uint32(falloc);
 DECLARE_uint32(pp_threads);
 DECLARE_bool(trunc);

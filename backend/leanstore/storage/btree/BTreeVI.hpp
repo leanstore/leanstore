@@ -126,6 +126,7 @@ class BTreeVI : public BTreeLL
       bool isFinal() const { return next_sn == 0; }
    };
    // -------------------------------------------------------------------------------------
+   // TODO: an implementation for varying attributes
    struct __attribute__((packed)) FatTuple : Tuple {
       // No TODOs for FatTuple, always PGC
       struct Delta {
@@ -185,8 +186,6 @@ class BTreeVI : public BTreeLL
    void convertChainedToFatTuple(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
    // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
-   OP_RESULT lookupPessimistic(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
-   OP_RESULT lookupOptimistic(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback);
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
    OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor&) override;
    OP_RESULT remove(u8* key, u16 key_length) override;
@@ -207,6 +206,9 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
 
   private:
+   OP_RESULT lookupPessimistic(u8* key, const u16 key_length, function<void(const u8*, u16)> payload_callback);
+   OP_RESULT lookupOptimistic(const u8* key, const u16 key_length, function<void(const u8*, u16)> payload_callback);
+   // -------------------------------------------------------------------------------------
    template <bool asc = true>
    void scan(u8* o_key, u16 o_key_length, function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback)
    {

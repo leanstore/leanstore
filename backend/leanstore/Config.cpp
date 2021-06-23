@@ -12,7 +12,7 @@ DEFINE_uint32(pp_threads, 1, "number of page provider threads");
 DEFINE_string(csv_path, "./log", "");
 DEFINE_bool(csv_truncate, false, "");
 DEFINE_string(ssd_path, "./leanstore", "Position of SSD, gets persisted");
-DEFINE_uint32(async_batch_size, 256, "");
+DEFINE_uint32(write_buffer_size, 1024, "");
 DEFINE_bool(trunc, false, "Truncate file");
 DEFINE_uint32(falloc, 0, "Preallocate GiB");
 // -------------------------------------------------------------------------------------
