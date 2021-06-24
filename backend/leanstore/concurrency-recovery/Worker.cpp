@@ -191,11 +191,11 @@ void Worker::sortWorkers()
    workers_sorted = true;
 }
 // -------------------------------------------------------------------------------------
-void Worker::startTX(TX_TYPE next_tx_type)
+void Worker::startTX(TX_MODE next_tx_type)
 {
    if (FLAGS_wal) {
       current_tx_wal_start = wal_wt_cursor;
-      if (next_tx_type != TX_TYPE::SINGLE_LOOKUP) {
+      if (next_tx_type != TX_MODE::SINGLE_LOOKUP) {
          WALMetaEntry& entry = reserveWALMetaEntry();
          entry.type = WALEntry::TYPE::TX_START;
          submitWALMetaEntry();
@@ -207,13 +207,13 @@ void Worker::startTX(TX_TYPE next_tx_type)
       // -------------------------------------------------------------------------------------
       if (FLAGS_si) {
          snapshot_order_refreshed = false;
-         if (next_tx_type == TX_TYPE::LONG_TX) {
+         if (next_tx_type == TX_MODE::LONG_TX) {
             if (force_si_refresh || FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
                refreshSnapshotHWMs();
             }
             force_si_refresh = false;
          } else {
-            if (current_tx_type == TX_TYPE::LONG_TX) {
+            if (current_tx_mode == TX_MODE::LONG_TX) {
                switchToAlwaysUpToDateMode();
             }
          }
@@ -221,7 +221,7 @@ void Worker::startTX(TX_TYPE next_tx_type)
          checkup();
       }
    }
-   current_tx_type = next_tx_type;
+   current_tx_mode = next_tx_type;
 }
 // -------------------------------------------------------------------------------------
 void Worker::switchToAlwaysUpToDateMode()
@@ -299,12 +299,12 @@ void Worker::checkup()
 void Worker::commitTX()
 {
    if (FLAGS_wal) {
-      if (current_tx_type == TX_TYPE::SINGLE_UPSERT && active_tx.state != Transaction::STATE::STARTED) {
+      if (current_tx_mode == TX_MODE::SINGLE_UPSERT && active_tx.state != Transaction::STATE::STARTED) {
          return;  // Skip double commit in case of single statement upsert [hacky]
       }
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
-      if (current_tx_type != TX_TYPE::SINGLE_LOOKUP) {
+      if (current_tx_mode != TX_MODE::SINGLE_LOOKUP) {
          WALMetaEntry& entry = reserveWALMetaEntry();
          entry.type = WALEntry::TYPE::TX_COMMIT;
          submitWALMetaEntry();
@@ -320,7 +320,7 @@ void Worker::commitTX()
       }
       // -------------------------------------------------------------------------------------
       if (FLAGS_si) {
-         if (current_tx_type != TX_TYPE::SINGLE_LOOKUP) {
+         if (current_tx_mode != TX_MODE::SINGLE_LOOKUP) {
             global_tts_vector[worker_id].store(active_tx.tts + 1, std::memory_order_release);
             commitTODOs(global_snapshot_clock.fetch_add(WORKERS_INCREMENT));
          }
@@ -356,10 +356,18 @@ bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
 {
-   if (current_tx_type == TX_TYPE::LONG_TX) {
-      return worker_id == other_worker_id || local_tts_vector[other_worker_id].load() > tts;
+   if (worker_id == other_worker_id) {
+      return true;
    } else {
-      return worker_id == other_worker_id || global_tts_vector[other_worker_id].load() > tts;
+      if (local_tts_vector[other_worker_id].load() > tts) {
+         return true;
+      } else if (current_tx_mode != TX_MODE::LONG_TX) {
+         // Single statement transaction can refresh their vector on-demand
+         local_tts_vector[other_worker_id].store(global_tts_vector[other_worker_id].load(), std::memory_order_release);
+         return local_tts_vector[other_worker_id].load() > tts;
+      } else {
+         return false;
+      }
    }
 }
 // -------------------------------------------------------------------------------------
@@ -372,7 +380,7 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForAll(u64 commited_before_so)
 {
-   if (current_tx_type != TX_TYPE::LONG_TX) {
+   if (current_tx_mode != TX_MODE::LONG_TX) {
       refreshSnapshotOrderingIfNeeded();
    }
    return commited_before_so < oldest_so_start;

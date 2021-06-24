@@ -28,7 +28,7 @@ using namespace leanstore;
 // -------------------------------------------------------------------------------------
 using YCSBKey = u64;
 using YCSBPayload = BytesPayload<120>;
-using tabular = Relation<YCSBKey, YCSBPayload>;
+using KVTable = Relation<YCSBKey, YCSBPayload>;
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
 {
@@ -45,10 +45,9 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    LeanStore db;
    auto& crm = db.getCRManager();
-   LeanStoreAdapter<tabular> table;
-   crm.scheduleJobSync(0, [&]() { table = LeanStoreAdapter<tabular>(db, "YCSB"); });
+   LeanStoreAdapter<KVTable> table;
+   crm.scheduleJobSync(0, [&]() { table = LeanStoreAdapter<KVTable>(db, "YCSB"); });
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
-   db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);
    // -------------------------------------------------------------------------------------
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
@@ -64,7 +63,7 @@ int main(int argc, char** argv)
             crm.scheduleJobAsync(t_i, [&, begin, end]() {
                for (u64 i = begin; i < end; i++) {
                   YCSBPayload result;
-                  table.lookup1({i}, [&](const tabular& record) { result = record.my_payload; });
+                  table.lookup1({i}, [&](const KVTable& record) { result = record.my_payload; });
                }
             });
          });
@@ -76,11 +75,11 @@ int main(int argc, char** argv)
       cout << calculateMTPS(begin, end, n) << " M tps" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    } else {
-      cout << "Inserting values" << endl;
+      cout << "Inserting " << ycsb_tuple_count << " values" << endl;
       begin = chrono::high_resolution_clock::now();
       utils::Parallelize::range(FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
          crm.scheduleJobAsync(t_i, [&, begin, end]() {
-            cr::Worker::TX_TYPE tx_type = FLAGS_ycsb_single_statement_tx ? cr::Worker::TX_TYPE::SINGLE_UPSERT : cr::Worker::TX_TYPE::LONG_TX;
+            cr::Worker::TX_MODE tx_type = FLAGS_ycsb_single_statement_tx ? cr::Worker::TX_MODE::SINGLE_UPSERT : cr::Worker::TX_MODE::LONG_TX;
             cr::Worker::my().refreshSnapshot();
             for (u64 i = begin; i < end; i++) {
                YCSBPayload payload;
@@ -116,24 +115,28 @@ int main(int argc, char** argv)
          while (keep_running) {
             jumpmuTry()
             {
-               YCSBKey key = zipf_random->rand();
+               YCSBKey key;
+               if (FLAGS_zipf_factor == 0) {
+                  key = utils::RandomGenerator::getRandU64(0, ycsb_tuple_count);
+               } else {
+                  key = zipf_random->rand();
+               }
                assert(key < ycsb_tuple_count);
                YCSBPayload result;
                if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
-                  cr::Worker::TX_TYPE tx_type = FLAGS_ycsb_single_statement_tx ? cr::Worker::TX_TYPE::SINGLE_LOOKUP : cr::Worker::TX_TYPE::LONG_TX;
+                  cr::Worker::TX_MODE tx_type = FLAGS_ycsb_single_statement_tx ? cr::Worker::TX_MODE::SINGLE_LOOKUP : cr::Worker::TX_MODE::LONG_TX;
                   cr::Worker::my().startTX(tx_type);
-                  table.lookup1({key}, [&](const tabular& record) { result = record.my_payload; });
+                  table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
                   cr::Worker::my().commitTX();
                } else {
-                  cr::Worker::TX_TYPE tx_type = FLAGS_ycsb_single_statement_tx ? cr::Worker::TX_TYPE::SINGLE_UPSERT : cr::Worker::TX_TYPE::LONG_TX;
-                  YCSBPayload payload;
-                  UpdateDescriptorGenerator1(tabular_update_descriptor, tabular, my_payload);
-                  utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
+                  cr::Worker::TX_MODE tx_type = FLAGS_ycsb_single_statement_tx ? cr::Worker::TX_MODE::SINGLE_UPSERT : cr::Worker::TX_MODE::LONG_TX;
+                  UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
+                  utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));
                   // -------------------------------------------------------------------------------------
                   cr::Worker::my().startTX(tx_type);
                   table.update1(
-                      {key}, [&](tabular& rec) { rec.my_payload = payload; }, tabular_update_descriptor);
-                  // cr::Worker::my().commitTX();
+                      {key}, [&](KVTable& rec) { rec.my_payload = result; }, tabular_update_descriptor);
+                  cr::Worker::my().commitTX();
                }
                WorkerCounters::myCounters().tx++;
             }

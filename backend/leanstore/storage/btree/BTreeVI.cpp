@@ -439,7 +439,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          ensure(res);  // TODO: what if it fails, then we have to do something else
          tuple.unlock();
          // -------------------------------------------------------------------------------------
-         if (cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_UPSERT) {
+         if (cr::Worker::my().current_tx_mode == cr::Worker::TX_MODE::SINGLE_UPSERT) {
             cr::Worker::my().commitTX();
          }
          // -------------------------------------------------------------------------------------
@@ -591,7 +591,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          head_version.unlock();
          iterator.contentionSplit();
          // -------------------------------------------------------------------------------------
-         if (cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_UPSERT) {
+         if (cr::Worker::my().current_tx_mode == cr::Worker::TX_MODE::SINGLE_UPSERT) {
             cr::Worker::my().commitTX();
          }
          // -------------------------------------------------------------------------------------
@@ -648,7 +648,7 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          std::memcpy(primary_version.payload, value, value_length);
          primary_version.commited_after_so = cr::Worker::my().so_start;
          // -------------------------------------------------------------------------------------
-         if (cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_UPSERT) {
+         if (cr::Worker::my().current_tx_mode == cr::Worker::TX_MODE::SINGLE_UPSERT) {
             cr::Worker::my().commitTX();
          }
          // -------------------------------------------------------------------------------------
@@ -782,7 +782,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.unlock();
       }
       // -------------------------------------------------------------------------------------
-      if (cr::Worker::my().current_tx_type == cr::Worker::TX_TYPE::SINGLE_UPSERT) {
+      if (cr::Worker::my().current_tx_mode == cr::Worker::TX_MODE::SINGLE_UPSERT) {
          cr::Worker::my().commitTX();
       }
       // -------------------------------------------------------------------------------------

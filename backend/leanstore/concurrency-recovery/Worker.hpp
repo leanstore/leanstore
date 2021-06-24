@@ -49,8 +49,8 @@ struct Worker {
    static unique_ptr<atomic<u64>[]> global_so_starts;
    static unique_ptr<atomic<u64>[]> global_tts_vector;
    // -------------------------------------------------------------------------------------
-   enum class TX_TYPE : u8 { LONG_TX, SINGLE_LOOKUP, SINGLE_UPSERT };
-   TX_TYPE current_tx_type = TX_TYPE::LONG_TX;
+   enum class TX_MODE : u8 { LONG_TX, SINGLE_LOOKUP, SINGLE_UPSERT };
+   TX_MODE current_tx_mode = TX_MODE::LONG_TX;
    // -------------------------------------------------------------------------------------
    bool force_si_refresh = false;
    bool workers_sorted = false;
@@ -241,7 +241,7 @@ struct Worker {
   public:
    // -------------------------------------------------------------------------------------
    // TX Control
-   void startTX(TX_TYPE next_tx_type = TX_TYPE::LONG_TX);
+   void startTX(TX_MODE next_tx_type = TX_MODE::LONG_TX);
    void commitTX();
    void abortTX();
    void checkup();
