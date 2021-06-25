@@ -150,6 +150,10 @@ void LeanStore::startProfilingThread()
          }
          // -------------------------------------------------------------------------------------
          const u64 tx = std::stoi(cr_table.get("0", "tx"));
+         const u64 committed_tx = std::stoi(cr_table.get("0", "gct_committed_tx")) + std::stoi(cr_table.get("0", "rfa_committed_tx"));
+         const double tx_abort_pct = std::stoi(cr_table.get("0", "tx_abort")) * 1.0 / tx;
+         const double committed_gct_pct = std::stoi(cr_table.get("0", "gct_committed_tx")) * 1.0 / committed_tx;
+         const double committed_rfa_pct = std::stoi(cr_table.get("0", "rfa_committed_tx")) * 1.0 / committed_tx;
          // Global Stats
          global_stats.accumulated_tx_counter += tx;
          // -------------------------------------------------------------------------------------
@@ -162,13 +166,13 @@ void LeanStore::startProfilingThread()
          // using RowType = std::vector<variant<std::string, const char*, Table>>;
          if (FLAGS_print_tx_console) {
             tabulate::Table table;
-            table.add_row({"t", "TX P", "TX A", "TX C", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC", "WAL T", "WAL R G",
+            table.add_row({"t", "TX P", "Abort%", "TX C", "GCT%", "RFA%", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC",
                            "WAL W G", "GCT Rounds"});
-            table.add_row({std::to_string(seconds), cr_table.get("0", "tx"), cr_table.get("0", "tx_abort"), cr_table.get("0", "gct_committed_tx"),
-                           bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), std::to_string(instr_per_tx), std::to_string(cycles_per_tx),
+            table.add_row({std::to_string(seconds), cr_table.get("0", "tx"), std::to_string(tx_abort_pct), std::to_string(committed_tx),
+                           std::to_string(committed_gct_pct), std::to_string(committed_rfa_pct), bm_table.get("0", "w_mib"),
+                           bm_table.get("0", "r_mib"), std::to_string(instr_per_tx), std::to_string(cycles_per_tx),
                            std::to_string(cpu_table.workers_agg_events["CPU"]), std::to_string(l1_per_tx), std::to_string(lc_per_tx),
-                           cr_table.get("0", "wal_total"), cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"),
-                           cr_table.get("0", "gct_rounds")});
+                           cr_table.get("0", "wal_write_gib"), cr_table.get("0", "gct_rounds")});
             // -------------------------------------------------------------------------------------
             table.format().width(10);
             table.column(0).format().width(5);
