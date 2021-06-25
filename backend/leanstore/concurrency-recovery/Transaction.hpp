@@ -14,7 +14,7 @@ struct Transaction {
    enum class STATE { IDLE, STARTED, READY_TO_COMMIT, COMMITED, ABORTED };
    STATE state = STATE::IDLE;
    u64 tts = 0;
-   LID min_gsn, max_gsn;
+   LID min_observed_gsn_when_started, max_observed_gsn;
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr

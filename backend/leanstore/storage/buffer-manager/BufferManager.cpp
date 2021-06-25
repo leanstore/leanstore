@@ -186,7 +186,7 @@ BufferFrame& BufferManager::allocatePage()
    free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
    free_bf.header.pid = free_pid;
    free_bf.header.state = BufferFrame::STATE::HOT;
-   free_bf.header.lastWrittenGSN = free_bf.page.GSN = 0;
+   free_bf.header.last_written_gsn = free_bf.page.GSN = 0;
    // -------------------------------------------------------------------------------------
    if (free_pid == dram_pool_size) {
       cout << "-------------------------------------------------------------------------------------" << endl;
@@ -222,7 +222,7 @@ void BufferManager::reclaimPage(BufferFrame& bf)
    Partition& partition = getPartition(bf.header.pid);
    partition.freePage(bf.header.pid);
    // -------------------------------------------------------------------------------------
-   if (bf.header.isWB) {
+   if (bf.header.is_being_written_back) {
       // DO NOTHING ! we have a garbage collector ;-)
       bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
       bf.header.latch.mutex.unlock();
@@ -286,8 +286,8 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       assert(bf.page.magic_debugging_number == pid);
       // -------------------------------------------------------------------------------------
       // ATTENTION: Fill the BF
-      assert(!bf.header.isWB);
-      bf.header.lastWrittenGSN = bf.page.GSN;
+      assert(!bf.header.is_being_written_back);
+      bf.header.last_written_gsn = bf.page.GSN;
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
       // -------------------------------------------------------------------------------------

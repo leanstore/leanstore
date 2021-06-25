@@ -116,16 +116,20 @@ class HybridPageGuard
    inline void incrementGSN()
    {
       assert(bf != nullptr);
+      // TODO: this is a temporary hack, we should write WAL entries for every page we write and enable this check ensure(!FLAGS_wal);
       bf->page.GSN++;
+      cr::Worker::my().setCurrentGSN(std::max<LID>(cr::Worker::my().getCurrentGSN(), bf->page.GSN));
    }
    // WAL
    inline void syncGSN()
    {
       if (FLAGS_wal) {
-         auto current_gsn = cr::Worker::my().getCurrentGSN();
-         if (current_gsn < bf->page.GSN) {
-            cr::Worker::my().setCurrentGSN(bf->page.GSN);
+         if (FLAGS_wal_rfa) {
+            if (bf->page.GSN > cr::Worker::my().rfa_gsn_flushed && bf->header.last_writer_worker_id != cr::Worker::my().worker_id) {
+               cr::Worker::my().needs_remote_flush = true;
+            }
          }
+         cr::Worker::my().setCurrentGSN(std::max<LID>(cr::Worker::my().getCurrentGSN(), bf->page.GSN));
       }
    }
    template <typename WT>
@@ -133,13 +137,14 @@ class HybridPageGuard
    {
       assert(FLAGS_wal);
       assert(guard.state == GUARD_STATE::EXCLUSIVE);
-      const LID gsn = std::max<LID>(bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
-      bf->page.GSN = gsn;
-      cr::Worker::my().setCurrentGSN(gsn);
+      const LID new_gsn = std::max<LID>(bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
+      bf->header.last_writer_worker_id = cr::Worker::my().worker_id;  // RFA
+      bf->page.GSN = new_gsn;
+      cr::Worker::my().setCurrentGSN(new_gsn);
       // -------------------------------------------------------------------------------------
       const auto pid = bf->header.pid;
       const auto dt_id = bf->page.dt_id;
-      auto handler = cr::Worker::my().reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, gsn, dt_id);
+      auto handler = cr::Worker::my().reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, new_gsn, dt_id);
       return handler;
    }
    inline void submitWALEntry(u64 total_size) { cr::Worker::my().submitDTEntry(total_size); }

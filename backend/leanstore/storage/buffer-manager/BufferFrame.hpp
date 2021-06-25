@@ -18,10 +18,10 @@ const u64 PAGE_SIZE = 4 * 1024;
 struct BufferFrame {
    enum class STATE : u8 { FREE = 0, HOT = 1, COOL = 2, LOADED = 3 };
    struct Header {
-      // TODO: for logging
-      u64 lastWrittenGSN = 0;
+      u8 last_writer_worker_id = std::numeric_limits<u8>::max();  // for RFA
+      u64 last_written_gsn = 0;
       STATE state = STATE::FREE;  // INIT:
-      bool isWB = false;
+      bool is_being_written_back = false;
       bool keep_in_memory = false;
       PID pid = 9999;         // INIT:
       HybridLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
@@ -68,18 +68,19 @@ struct BufferFrame {
    // -------------------------------------------------------------------------------------
    bool operator==(const BufferFrame& other) { return this == &other; }
    // -------------------------------------------------------------------------------------
-   inline bool isDirty() const { return header.lastWrittenGSN != page.GSN; }
+   inline bool isDirty() const { return header.last_written_gsn != page.GSN; }
    // -------------------------------------------------------------------------------------
    // Pre: bf is exclusively locked
    void reset()
    {
       header.debug = header.pid;
       // -------------------------------------------------------------------------------------
-      assert(!header.isWB);
+      assert(!header.is_being_written_back);
       header.latch.assertExclusivelyLatched();
-      header.lastWrittenGSN = 0;
+      header.last_writer_worker_id = std::numeric_limits<u8>::max();
+      header.last_written_gsn = 0;
       header.state = STATE::FREE;  // INIT:
-      header.isWB = false;
+      header.is_being_written_back = false;
       header.pid = 9999;
       header.next_free_bf = nullptr;
       header.contention_tracker.reset();

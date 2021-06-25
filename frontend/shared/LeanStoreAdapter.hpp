@@ -73,7 +73,6 @@ struct LeanStoreAdapter : Adapter<Record> {
       const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          static_cast<void>(payload_length);
          const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
-         assert(payload_length == sizeof(Record));
          cb(typed_payload);
       });
       ensure(res == leanstore::OP_RESULT::OK);
@@ -138,7 +137,6 @@ struct LeanStoreAdapter : Adapter<Record> {
       Field local_f;
       const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          static_cast<void>(payload_length);
-         assert(payload_length == sizeof(Record));
          Record& typed_payload = *const_cast<Record*>(reinterpret_cast<const Record*>(payload));
          local_f = (typed_payload).*f;
       });

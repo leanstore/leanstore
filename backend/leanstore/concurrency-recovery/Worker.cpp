@@ -20,6 +20,8 @@ namespace cr
 // -------------------------------------------------------------------------------------
 thread_local Worker* Worker::tls_ptr = nullptr;
 atomic<u64> Worker::global_snapshot_clock = 0;
+atomic<u64> Worker::global_gsn_flushed = 0;
+atomic<u64> Worker::global_sync_to_this_gsn = 0;
 std::mutex Worker::global_mutex;
 std::unique_ptr<atomic<u64>[]> Worker::global_so_starts;
 std::unique_ptr<atomic<u64>[]> Worker::global_tts_vector;
@@ -137,7 +139,6 @@ void Worker::submitDTEntry(u64 total_size)
 {
    DEBUG_BLOCK() { active_dt_entry->computeCRC(); }
    wal_wt_cursor += total_size;
-   wal_max_gsn = clock_gsn;
    publishMaxGSNOffset();
 }
 // -------------------------------------------------------------------------------------
@@ -201,9 +202,23 @@ void Worker::startTX(TX_MODE next_tx_type)
          submitWALMetaEntry();
       }
       assert(active_tx.state != Transaction::STATE::STARTED);
+      // -------------------------------------------------------------------------------------
+      // Initialize RFA
+      if (FLAGS_wal_rfa) {
+         const LID sync_point = Worker::global_sync_to_this_gsn.load();
+         if (sync_point > getCurrentGSN()) {
+            setCurrentGSN(sync_point);
+            publishMaxGSNOffset();
+         }
+         rfa_gsn_flushed = Worker::global_gsn_flushed.load();
+         needs_remote_flush = false;
+      } else {
+         needs_remote_flush = true;
+      }
+      // -------------------------------------------------------------------------------------
       active_tx.state = Transaction::STATE::STARTED;
       active_tx.tts = global_tts_vector[worker_id];
-      active_tx.min_gsn = clock_gsn;
+      active_tx.min_observed_gsn_when_started = clock_gsn;
       // -------------------------------------------------------------------------------------
       if (FLAGS_si) {
          snapshot_order_refreshed = false;
@@ -310,13 +325,15 @@ void Worker::commitTX()
          submitWALMetaEntry();
       }
       // -------------------------------------------------------------------------------------
-      active_tx.max_gsn = clock_gsn;
+      active_tx.max_observed_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
-      // TODO: Remote Flush Avoidance (RFA)
-      {
+      if (needs_remote_flush) {  // RFA
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
          ready_to_commit_queue.push_back(active_tx);
          ready_to_commit_queue_size += 1;
+      } else {
+         active_tx.state = Transaction::STATE::COMMITED;
+         CRCounters::myCounters().rfa_committed_tx += 1;
       }
       // -------------------------------------------------------------------------------------
       if (FLAGS_si) {

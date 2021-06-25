@@ -46,7 +46,9 @@ LeanStore::LeanStore()
    }
    // -------------------------------------------------------------------------------------
    // Check if configurations make sense
-   ensure(!FLAGS_vw || FLAGS_wal);
+   if ((FLAGS_vi || FLAGS_vw) && !FLAGS_wal) {
+      SetupFailed("You have to enable WAL");
+   }
    // -------------------------------------------------------------------------------------
    // Set the default logger to file logger
    // Init SSD pool

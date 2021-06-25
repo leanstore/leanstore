@@ -44,6 +44,9 @@ struct Worker {
    // Static
    static thread_local Worker* tls_ptr;
    static atomic<u64> global_snapshot_clock;
+   static atomic<u64> global_gsn_flushed;       // The minimum of all workers maximum flushed GSN
+   static atomic<u64> global_sync_to_this_gsn;  // Artifically increment the workers GSN to this point at the next round to prevent GSN from skewing
+                                                // and undermining RFA
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_so_starts;
@@ -141,6 +144,7 @@ struct Worker {
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    u8 pad3[64];
+   // The following three atomics are used to publish state changes from worker to GCT
    atomic<u64> wal_gct_max_gsn_0 = 0;
    atomic<u64> wal_gct_max_gsn_1 = 0;
    atomic<u64> wal_gct = 0;  // W->GCT
@@ -155,16 +159,28 @@ struct Worker {
       const bool was_second_slot = wal_gct & (u64(1) << 63);
       u64 msb;
       if (was_second_slot) {
-         wal_gct_max_gsn_0.store(wal_max_gsn, std::memory_order_release);
+         wal_gct_max_gsn_0.store(clock_gsn, std::memory_order_release);
          msb = 0;
       } else {
-         wal_gct_max_gsn_1.store(wal_max_gsn, std::memory_order_release);
+         wal_gct_max_gsn_1.store(clock_gsn, std::memory_order_release);
          msb = 1ull << 63;
       }
       wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
    }
+   std::tuple<LID, u64> fetchMaxGSNOffset()
+   {
+      const u64 worker_atomic = wal_gct.load();
+      LID gsn;
+      if (worker_atomic & (1ull << 63)) {
+         gsn = wal_gct_max_gsn_1.load();
+      } else {
+         gsn = wal_gct_max_gsn_0.load();
+      }
+      const u64 max_gsn = worker_atomic & (~(1ull << 63));
+      return {gsn, max_gsn};
+   }
+   // -------------------------------------------------------------------------------------
    u64 wal_wt_cursor = 0;
-   LID wal_max_gsn = 0;
    u64 wal_buffer_round = 0, wal_next_to_clean = 0;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
@@ -172,6 +188,8 @@ struct Worker {
    alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
    LID wal_lsn_counter = 0;
    LID clock_gsn;
+   LID rfa_gsn_flushed;
+   bool needs_remote_flush = false;
    // -------------------------------------------------------------------------------------
    u32 walFreeSpace();
    u32 walContiguousFreeSpace();
