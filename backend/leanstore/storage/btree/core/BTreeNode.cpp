@@ -121,7 +121,7 @@ void BTreeNode::compactify()
    tmp.upper = upper;
    memcpy(reinterpret_cast<char*>(this), &tmp, sizeof(BTreeNode));
    makeHint();
-   assert(freeSpace() == should);  // TODO: why should ??
+   assert(freeSpace() == should);
 }
 // -------------------------------------------------------------------------------------
 u32 BTreeNode::mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right)

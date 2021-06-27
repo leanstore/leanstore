@@ -316,7 +316,23 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
       return OP_RESULT::NOT_FOUND;
    }
    // -------------------------------------------------------------------------------------
+   // The caller must retain the payload when using any of the following payload resize functions
    virtual void shorten(const u16 new_size) { leaf->shortenPayload(cur, new_size); }
+   // -------------------------------------------------------------------------------------
+   void extendPayload(const u16 new_length)
+   {
+      ensure(cur != -1 && new_length > leaf->getPayloadLength(cur));
+      OP_RESULT ret;
+      while (!leaf->canExtendPayload(cur, new_length)) {
+         assembleKey();
+         Slice key = this->key();
+         splitForKey(key);
+         ret = seekExact(key);
+         ensure(ret == OP_RESULT::OK);
+      }
+      assert(cur != -1);
+      leaf->extendPayload(cur, new_length);
+   }
    // -------------------------------------------------------------------------------------
    virtual MutableSlice mutableValue() { return MutableSlice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }
    // -------------------------------------------------------------------------------------

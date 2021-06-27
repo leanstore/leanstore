@@ -97,29 +97,42 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    // No PGC for chained, always TODO
    struct __attribute__((packed)) ChainedTuple : Tuple {
+      struct __attribute__((packed)) Stats {
+         u8 has_different_attributes : 1;
+         u8 has_different_length : 1;
+         u16 versions_counter : 14;
+         Stats() { reset(); }
+         void reset()
+         {
+            has_different_attributes = 0;
+            has_different_length = 0;
+            versions_counter = 1;
+         }
+      };
+      static_assert(sizeof(Stats) == 2, "");
+      Stats stats;
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
       // -------------------------------------------------------------------------------------
-      u64 versions_counter = 1;
       u64 commited_after_so = 0;
       ChainSN next_sn = 0;
-      s64 tmp = 0;
+      s64 debugging = 0;
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
       ChainedTuple(u8 worker_id, u64 tts) : Tuple(TupleFormat::CHAINED, worker_id, tts), is_removed(false), is_gc_scheduled(false) {}
       bool isFinal() const { return next_sn == 0; }
    };
-   struct __attribute__((packed)) ChainedTupleDelta {
+   struct __attribute__((packed)) ChainedTupleVersion {
       u8 worker_id : 8;
       u64 tts : 56;
-      u64 commited_before_so;
+      u64 commited_before_so;  // Helpful for garbage collection
       u64 commited_after_so;
       u8 is_removed : 1;
       u8 is_delta : 1;  // TODO: atm, always true
       ChainSN next_sn;
       u8 payload[];  // UpdateDescriptor + Diff
       // -------------------------------------------------------------------------------------
-      ChainedTupleDelta(u8 worker_id, u64 tts, bool is_removed, bool is_delta, ChainSN next_sn = 0)
+      ChainedTupleVersion(u8 worker_id, u64 tts, bool is_removed, bool is_delta, ChainSN next_sn = 0)
           : worker_id(worker_id), tts(tts), is_removed(is_removed), is_delta(is_delta), next_sn(next_sn)
       {
       }

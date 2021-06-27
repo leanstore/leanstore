@@ -151,9 +151,10 @@ void LeanStore::startProfilingThread()
          // -------------------------------------------------------------------------------------
          const u64 tx = std::stoi(cr_table.get("0", "tx"));
          const u64 committed_tx = std::stoi(cr_table.get("0", "gct_committed_tx")) + std::stoi(cr_table.get("0", "rfa_committed_tx"));
-         const double tx_abort_pct = std::stoi(cr_table.get("0", "tx_abort")) * 1.0 / tx;
-         const double committed_gct_pct = std::stoi(cr_table.get("0", "gct_committed_tx")) * 1.0 / committed_tx;
-         const double committed_rfa_pct = std::stoi(cr_table.get("0", "rfa_committed_tx")) * 1.0 / committed_tx;
+         const double tx_abort = std::stoi(cr_table.get("0", "tx_abort"));
+         const double tx_abort_pct = tx_abort * 100.0 / (tx_abort + tx);
+         const double committed_gct_pct = std::stoi(cr_table.get("0", "gct_committed_tx")) * 100.0 / committed_tx;
+         const double committed_rfa_pct = std::stoi(cr_table.get("0", "rfa_committed_tx")) * 100.0 / committed_tx;
          // Global Stats
          global_stats.accumulated_tx_counter += tx;
          // -------------------------------------------------------------------------------------
