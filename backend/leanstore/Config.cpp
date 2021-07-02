@@ -88,7 +88,7 @@ DEFINE_bool(vi_fat_tuple, true, "");
 DEFINE_bool(vi_dangling_pointer, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(pgc, true, "Precise garbage collection/recycling");
-DEFINE_uint64(vi_max_chain_length, 3, "");
+DEFINE_uint64(vi_max_chain_length, 1000, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
 DEFINE_bool(recover, false, "");

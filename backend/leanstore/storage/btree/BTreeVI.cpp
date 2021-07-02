@@ -81,7 +81,15 @@ OP_RESULT BTreeVI::lookupOptimistic(const u8* key, const u16 key_length, functio
          if (pos != -1) {
             auto& tuple = *reinterpret_cast<Tuple*>(leaf->getPayload(pos));
             if (isVisibleForMe(tuple.worker_id, tuple.tts)) {
-               const u64 offset = ((tuple.tuple_format == TupleFormat::CHAINED) ? sizeof(ChainedTuple) : sizeof(FatTupleSameAttributes));
+               u32 offset = 0;
+               if(tuple.tuple_format == TupleFormat::CHAINED) {
+                  offset = sizeof(ChainedTuple);
+               } else if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
+                  offset = sizeof(FatTupleDifferentAttributes);
+               } else {
+                  leaf.recheck();
+                  UNREACHABLE();
+               }
                payload_callback(leaf->getPayload(pos) + offset, leaf->getPayloadLength(pos) - offset);
                leaf.recheck();
                jumpmu_return OP_RESULT::OK;
@@ -97,284 +105,6 @@ OP_RESULT BTreeVI::lookupOptimistic(const u8* key, const u16 key_length, functio
       jumpmuCatch() {}
    }
    return OP_RESULT::OTHER;
-}
-// -------------------------------------------------------------------------------------
-void BTreeVI::FatTupleSameAttributes::undoLastUpdate()
-{
-   ensure(deltas_count >= 1);
-   auto& delta = *reinterpret_cast<Delta*>(payload + value_length + updatedAttributesDescriptor().size());
-   worker_id = delta.worker_id;
-   tts = delta.tts;
-   latest_commited_after_so = prev_commited_after_so;
-   deltas_count -= 1;
-   used_space -= delta_and_diff_length;
-   BTreeLL::applyDiff(updatedAttributesDescriptor(), getValue(), delta.diff);
-   std::memmove(getDelta(0), getDelta(1), deltas_count * delta_and_diff_length);
-}
-// -------------------------------------------------------------------------------------
-void BTreeVI::FatTupleSameAttributes::garbageCollection(BTreeVI& btree)
-{
-   Delta* delta = getDelta(0);
-   u16 delta_i = 0;
-   const bool pgc = deltas_count >= FLAGS_vi_pgc_batch_size && !(worker_id == cr::Worker::my().workerID() && tts == cr::Worker::my().TTS());
-   // -------------------------------------------------------------------------------------
-   if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(getDelta(0)->commited_before_so)) {
-      const u16 removed_deltas = deltas_count - 1;
-      used_space = reinterpret_cast<u8*>(getDelta(1)) - payload;  // Delete everything after the first delta
-      deltas_count = 1;
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += removed_deltas; }
-   } else if (pgc) {
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
-      cr::Worker::my().sortWorkers();
-      u64 other_worker_index = 0;  // in the sorted array
-      u64 other_worker_id = cr::Worker::my().all_sorted_so_starts[other_worker_index] & cr::Worker::WORKERS_MASK;
-      auto next_worker = [&]() {
-         if (++other_worker_index < cr::Worker::my().workers_count) {
-            other_worker_id = cr::Worker::my().all_sorted_so_starts[other_worker_index] & cr::Worker::WORKERS_MASK;
-            return true;
-         } else {
-            return false;
-         }
-      };
-      auto is_current_worker_so_larger = [&](const u64 so) { return (cr::Worker::my().all_so_starts[other_worker_id]) > so; };
-      // Skip all workers that see the latest version
-      const u64 latest_commited_before_so = cr::Worker::my().getCB(other_worker_id, latest_commited_after_so);
-      while (other_worker_index < cr::Worker::my().workers_count && is_current_worker_so_larger(latest_commited_before_so)) {
-         next_worker();
-      }
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_skipped[btree.dt_id] += other_worker_index; }
-      // -------------------------------------------------------------------------------------
-      // Precise garbage collection
-      // Note: we can't use so ordering to decide whether to remove a version
-      // SO ordering helps in one case, if it tells visible then it is and nothing else
-      while (other_worker_index < cr::Worker::my().workers_count && delta_i < deltas_count) {
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_workers_visited[btree.dt_id]++; }
-         if (cr::Worker::my().isVisibleForIt(other_worker_id, delta->worker_id, delta->tts)) {
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_kept[btree.dt_id]++; }
-            while (next_worker()) {
-               if (is_current_worker_so_larger(delta->commited_before_so)) {
-                  WorkerCounters::myCounters().cc_update_chains_pgc_skipped[btree.dt_id]++;
-               } else {
-                  break;
-               }
-            }
-            delta_i++;
-            delta = this->getDelta(delta_i);
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_skipped[btree.dt_id]++; }
-            if (other_worker_index >= cr::Worker::my().workers_count) {
-               // Remove the rest including the current one
-               const u16 removed_deltas = deltas_count - delta_i;
-               deltas_count -= removed_deltas;
-               used_space = reinterpret_cast<u8*>(delta) - payload;
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += removed_deltas; }
-               break;
-            }
-         } else {
-            // Remove this delta
-            const u16 deltas_to_move = (deltas_count - delta_i - 1) * delta_and_diff_length;
-            std::memmove(delta, this->getDelta(delta_i + 1), deltas_to_move);
-            used_space -= delta_and_diff_length;
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id]++; }
-            deltas_count--;
-         }
-      }
-   }
-}
-// -------------------------------------------------------------------------------------
-// Pre: tuple is write locked
-bool BTreeVI::FatTupleSameAttributes::update(BTreeExclusiveIterator& iterator,
-                                             u8* o_key,
-                                             u16 o_key_length,
-                                             function<void(u8* value, u16 value_size)> cb,
-                                             UpdateSameSizeInPlaceDescriptor& update_descriptor,
-                                             BTreeVI& btree)
-{
-   if (FLAGS_vi_fupdate_fat_tuple) {
-      cb(getValue(), value_length);
-      return true;
-   }
-   const bool still_same_attributes = deltas_count == 0 || (update_descriptor == updatedAttributesDescriptor());
-   ensure(still_same_attributes);  // TODO: return false to enforce and conversion to chained mode
-   // -------------------------------------------------------------------------------------
-   // Attention: we have to disable garbage collection if the latest delta was from us and not committed yet!
-   // Otherwise we would crash during undo although the end result is the same if the transaction would commit (overwrite)
-   if (deltas_count > 0) {
-      // Garbage collection first
-      this->garbageCollection(btree);
-   } else {
-      // Copy the update descriptor (set the attributes)
-      std::memcpy(payload + value_length, &update_descriptor, update_descriptor.size());
-      used_space += update_descriptor.size();
-      delta_and_diff_length = sizeof(Delta) + update_descriptor.diffLength();
-   }
-   ensure(total_space >= used_space + delta_and_diff_length);
-   // -------------------------------------------------------------------------------------
-   {
-      // Insert the new delta
-      u8* deltas_beginn = payload + value_length + update_descriptor.size();
-      std::memmove(deltas_beginn + delta_and_diff_length, deltas_beginn, delta_and_diff_length * deltas_count);
-      auto& new_delta = *new (deltas_beginn) Delta();
-      new_delta.worker_id = worker_id;
-      new_delta.tts = tts;
-      // Attention: we should not timestamp a delta that we created as committed!
-      if (worker_id == cr::Worker::my().workerID() && tts == cr::Worker::my().TTS()) {
-         new_delta.commited_before_so = std::numeric_limits<u64>::max();
-      } else {
-         new_delta.commited_before_so = cr::Worker::my().so_start;
-      }
-      BTreeLL::generateDiff(update_descriptor, new_delta.diff, getValue());
-      used_space += delta_and_diff_length;
-      prev_commited_after_so = latest_commited_after_so;
-      latest_commited_after_so = cr::Worker::my().so_start;
-      deltas_count++;
-   }
-   ensure(total_space >= used_space);
-   // -------------------------------------------------------------------------------------
-   {
-      // WAL
-      const u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
-      auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
-      wal_entry->type = WAL_LOG_TYPE::WALUpdate;
-      wal_entry->key_length = o_key_length;
-      wal_entry->delta_length = delta_and_descriptor_size;
-      wal_entry->before_worker_id = worker_id;
-      wal_entry->before_tts = tts;
-      worker_id = cr::Worker::my().workerID();
-      tts = cr::Worker::my().TTS();
-      wal_entry->after_worker_id = worker_id;
-      wal_entry->after_tts = tts;
-      std::memcpy(wal_entry->payload, o_key, o_key_length);
-      std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
-      // Update the value in-place
-      BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), getValue());
-      cb(getValue(), value_length);
-      debug = 1;
-      BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), getValue());
-      wal_entry.submit();
-   }
-   return true;
-}
-// -------------------------------------------------------------------------------------
-// TODO: Still missing: !same_attributes, remove
-std::tuple<OP_RESULT, u16> BTreeVI::FatTupleSameAttributes::reconstructTuple(std::function<void(Slice value)> cb) const
-{
-   if (cr::Worker::my().isVisibleForMe(worker_id, tts)) {
-      // Latest version is visible
-      cb(Slice(getValueConstant(), value_length));
-      return {OP_RESULT::OK, 1};
-   } else if (deltas_count > 0) {
-      u8 materialized_value[value_length];
-      std::memcpy(materialized_value, getValueConstant(), value_length);
-      // we have to apply the diffs
-      u16 delta_i = 0;
-      const Delta* delta = getDeltaConstant(delta_i);
-      while (delta_i < deltas_count) {
-         if (cr::Worker::my().isVisibleForMe(delta->worker_id, delta->tts)) {
-            BTreeLL::applyDiff(updatedAttributesDescriptor(), materialized_value, delta->diff);  // Apply diff
-            cb(Slice(materialized_value, value_length));
-            return {OP_RESULT::OK, delta_i + 2};
-         }
-         // -------------------------------------------------------------------------------------
-         delta_i++;
-         delta = getDeltaConstant(delta_i);
-      }
-      // -------------------------------------------------------------------------------------
-      raise(SIGTRAP);
-      return {OP_RESULT::NOT_FOUND, delta_i + 2};
-   } else {
-      raise(SIGTRAP);
-      return {OP_RESULT::NOT_FOUND, 1};
-   }
-}
-// -------------------------------------------------------------------------------------
-void BTreeVI::convertChainedToFatTuple(BTreeExclusiveIterator& iterator, MutableSlice& m_key)
-{
-   // TODO: Implement for variable diffs
-   // Works only for same_attributes
-   Slice key(m_key.data(), m_key.length());
-   std::vector<u8> dynamic_buffer;
-   dynamic_buffer.resize(PAGE_SIZE * 4);
-   u8* fat_tuple_payload = dynamic_buffer.data();
-   u16 diff_length = 0;
-   ChainSN next_sn;
-   auto& fat_tuple = *new (fat_tuple_payload) FatTupleSameAttributes();
-   fat_tuple.used_space = 0;
-   {
-      // Process the chain head
-      MutableSlice head = iterator.mutableValue();
-      auto& chain_head = *reinterpret_cast<ChainedTuple*>(head.data());
-      ensure(chain_head.isWriteLocked());
-      // -------------------------------------------------------------------------------------
-      fat_tuple.value_length = head.length() - sizeof(ChainedTuple);
-      std::memcpy(fat_tuple.payload + fat_tuple.used_space, chain_head.payload, fat_tuple.value_length);
-      fat_tuple.used_space += fat_tuple.value_length;
-      fat_tuple.worker_id = chain_head.worker_id;
-      fat_tuple.tts = chain_head.tts;
-      fat_tuple.latest_commited_after_so = chain_head.commited_after_so;
-      // -------------------------------------------------------------------------------------
-      next_sn = chain_head.next_sn;
-   }
-   u16 update_descriptor_size = 0;
-   {
-      // Iterate over the rest
-      while (next_sn != 0) {
-         const bool next_higher = next_sn >= getSN(m_key);
-         setSN(m_key, next_sn);
-         OP_RESULT ret = iterator.seekExactWithHint(key, next_higher);
-         ensure(ret == OP_RESULT::OK);
-         // -------------------------------------------------------------------------------------
-         Slice delta_slice = iterator.value();
-         const auto& chain_delta = *reinterpret_cast<const ChainedTupleVersion*>(delta_slice.data());
-         // -------------------------------------------------------------------------------------
-         if (update_descriptor_size == 0) {
-            auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(chain_delta.payload);
-            update_descriptor_size = update_descriptor.size();
-            std::memcpy(fat_tuple.payload + fat_tuple.used_space, &update_descriptor, update_descriptor_size);
-            fat_tuple.used_space += update_descriptor_size;
-            diff_length = update_descriptor.diffLength();
-            fat_tuple.delta_and_diff_length = sizeof(FatTupleSameAttributes::Delta) + diff_length;
-         }
-         // -------------------------------------------------------------------------------------
-         // Add a FatTuple::Delta
-         auto& new_delta = *new (fat_tuple.payload + fat_tuple.used_space) FatTupleSameAttributes::Delta();
-         fat_tuple.used_space += sizeof(FatTupleSameAttributes::Delta);
-         new_delta.worker_id = chain_delta.worker_id;
-         new_delta.tts = chain_delta.tts;
-         new_delta.commited_before_so = chain_delta.commited_before_so;
-         std::memcpy(fat_tuple.payload + fat_tuple.used_space, chain_delta.payload + update_descriptor_size, diff_length);
-         fat_tuple.used_space += diff_length;
-         fat_tuple.deltas_count++;
-         // -------------------------------------------------------------------------------------
-         next_sn = chain_delta.next_sn;
-         // Readers will restart and probably hang on the head's mutex
-         ret = iterator.removeCurrent();
-         ensure(ret == OP_RESULT::OK);
-      }
-   }
-   ensure(fat_tuple.deltas_count == 0 || update_descriptor_size > 0);
-   {
-      // TODO: buggy
-      // Finalize the new FatTuple
-      // We could have more versions than the number of workers because of the way how gc works atm
-      // const u16 space_needed_per_worker_version = sizeof(FatTuple::Delta) + diff_length;
-      // fat_tuple.total_space = (fat_tuple.used_space / std::max<u64>(1, fat_tuple.deltas_count)) * cr::Worker::my().workers_count;
-      // -------------------------------------------------------------------------------------
-      setSN(m_key, 0);
-      OP_RESULT ret = iterator.seekExactWithHint(key, false);
-      ensure(ret == OP_RESULT::OK);
-      ensure(reinterpret_cast<Tuple*>(iterator.mutableValue().data())->isWriteLocked());
-      // -------------------------------------------------------------------------------------
-      fat_tuple.total_space = 3 * 1024;
-      ensure(fat_tuple.total_space >= fat_tuple.used_space);  // TODO:
-      const u16 fat_tuple_length = sizeof(FatTupleSameAttributes) + fat_tuple.total_space;
-      if (iterator.value().length() < fat_tuple_length) {
-         iterator.extendPayload(fat_tuple_length);
-      } else {
-         iterator.shorten(fat_tuple_length);
-      }
-      std::memcpy(iterator.mutableValue().data(), fat_tuple_payload, fat_tuple_length);
-   }
-   ensure(fat_tuple.deltas_count == 0 || fat_tuple.updatedAttributesDescriptor().count < 10);
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
@@ -410,9 +140,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       tuple.writeLock();
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
       // -------------------------------------------------------------------------------------
-      if (tuple.tuple_format == TupleFormat::FAT_TUPLE_SAME_ATTRIBUTES) {
-         const bool res =
-             reinterpret_cast<FatTupleSameAttributes*>(&tuple)->update(iterator, o_key, o_key_length, callback, update_descriptor, *this);
+      if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
+         const bool res = reinterpret_cast<FatTupleDifferentAttributes*>(&tuple)->update(iterator, o_key, o_key_length, callback, update_descriptor, *this);
          ensure(res);  // TODO: what if it fails, then we have to do something else
          tuple.unlock();
          // -------------------------------------------------------------------------------------
@@ -446,9 +175,9 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             // -------------------------------------------------------------------------------------
             iterator.contentionSplit();
             jumpmu_return OP_RESULT::OK;
-         } else if (FLAGS_vi_fat_tuple && dt_id != 2 && chain_head.stats.versions_counter > 2) {
+         } else if (FLAGS_vi_fat_tuple && dt_id != 2 && dt_id == 0 && chain_head.stats.versions_counter > 2) {
             ensure(chain_head.isWriteLocked());
-            convertChainedToFatTuple(iterator, m_key);
+            convertChainedToFatTupleDifferentAttributes(iterator, m_key);
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
             goto restart;
             UNREACHABLE();
@@ -823,8 +552,8 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             {
                auto& tuple = *reinterpret_cast<Tuple*>(iterator.mutableValue().data());
                ensure(!tuple.isWriteLocked());
-               if (tuple.tuple_format == TupleFormat::FAT_TUPLE_SAME_ATTRIBUTES) {
-                  reinterpret_cast<FatTupleSameAttributes*>(iterator.mutableValue().data())->undoLastUpdate();
+               if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
+                  reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data())->undoLastUpdate();
                   jumpmu_return;
                }
             }
@@ -1028,7 +757,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       {
          // Checks
          const auto& tuple = *reinterpret_cast<const Tuple*>(primary_payload.data());
-         if (tuple.tuple_format == TupleFormat::FAT_TUPLE_SAME_ATTRIBUTES) {
+         if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
             jumpmu_return;
          }
       }

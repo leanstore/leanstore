@@ -80,7 +80,7 @@ class BTreeVI : public BTreeLL
         Diff: raw bytes copied from src/dst next to each other according to the descriptor
         Delta: WWTS + diff + (descriptor)?
     */
-   enum class TupleFormat : u8 { CHAINED = 0, FAT_TUPLE_SAME_ATTRIBUTES = 1, FAT_TUPLE_DIFFERENT_ATTRIBUTES = 2, VISIBLE_FOR_ALL = 3 };
+   enum class TupleFormat : u8 { CHAINED = 0, FAT_TUPLE_DIFFERENT_ATTRIBUTES = 1, FAT_TUPLE_SAME_ATTRIBUTES = 2, VISIBLE_FOR_ALL = 3 };
    struct __attribute__((packed)) Tuple {
       TupleFormat tuple_format;
       u8 worker_id : 8;
@@ -137,12 +137,15 @@ class BTreeVI : public BTreeLL
       bool isFinal() const { return next_sn == 0; }
    };
    // -------------------------------------------------------------------------------------
-   struct __attribute__((packed)) FatTupleSameAttributes : Tuple {
-      struct Delta {
+   // We always append the descriptor, one format to keep simple
+   struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
+      struct __attribute__((packed)) Delta {
          u64 tts : 56;
          u8 worker_id : 8;
          u64 commited_before_so;
-         u8 diff[];  // Diff
+         u8 payload[];  // Descriptor + Diff
+         UpdateSameSizeInPlaceDescriptor& getDescriptor() { return *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(payload); }
+         const UpdateSameSizeInPlaceDescriptor& getConstantDescriptor() const{ return *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload); }
       };
       // -------------------------------------------------------------------------------------
       u64 latest_commited_after_so;
@@ -151,56 +154,8 @@ class BTreeVI : public BTreeLL
       u16 value_length;
       u16 total_space, used_space;  // From the payload bytes array
       u16 deltas_count = 0;         // Attention: coupled with used_space
-      u16 delta_and_diff_length = 0;
       s64 debug = 0;
-      u8 payload[];  // value, update descriptor, DeltaWithoutDescriptor[] N2O
-      // -------------------------------------------------------------------------------------
-      FatTupleSameAttributes() : Tuple(TupleFormat::FAT_TUPLE_SAME_ATTRIBUTES, 0, 0) {}
-      // returns false to fallback to chained mode
-      bool update(BTreeExclusiveIterator& iterator,
-                  u8* key,
-                  u16 o_key_length,
-                  function<void(u8* value, u16 value_size)>,
-                  UpdateSameSizeInPlaceDescriptor&,
-                  BTreeVI& btree);
-      void garbageCollection(BTreeVI& btree);
-      void undoLastUpdate();
-      const UpdateSameSizeInPlaceDescriptor& updatedAttributesDescriptor() const
-      {
-         return *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload + value_length);
-      }
-      inline constexpr u8* getValue() { return payload; }
-      inline const u8* getValueConstant() const { return payload; }
-      Delta* getDelta(u16 delta_i)
-      {
-         ensure(used_space > value_length);
-         return reinterpret_cast<Delta*>(payload + value_length + updatedAttributesDescriptor().size() + (delta_and_diff_length * delta_i));
-      }
-      const Delta* getDeltaConstant(u16 delta_i) const
-      {
-         ensure(used_space > value_length);
-         return reinterpret_cast<const Delta*>(payload + value_length + updatedAttributesDescriptor().size() + (delta_and_diff_length * delta_i));
-      }
-      std::tuple<OP_RESULT, u16> reconstructTuple(std::function<void(Slice value)> callback) const;
-   };
-   // -------------------------------------------------------------------------------------
-   // TODO:
-   struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
-      struct Delta {
-         u64 tts : 56;
-         u8 worker_id : 8;
-         u64 commited_before_so;
-         u8 payload[];  // Descriptor + diff
-      };
-      // -------------------------------------------------------------------------------------
-      u64 latest_commited_after_so;
-      u64 prev_commited_after_so;
-      // -------------------------------------------------------------------------------------
-      u16 value_length;
-      u16 total_space, used_space;  // from the payload bytes array
-      u16 deltas_count = 0;         // Attention: coupled with used_space
-      s64 debug = 0;
-      u8 payload[];  // value, DeltaWithDescriptor[] N2O
+      u8 payload[];  // value, Delta+Descriptor+Diff[] N2O
       // -------------------------------------------------------------------------------------
       FatTupleDifferentAttributes() : Tuple(TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES, 0, 0) {}
       // returns false to fallback to chained mode
@@ -212,10 +167,11 @@ class BTreeVI : public BTreeLL
                   BTreeVI& btree);
       void garbageCollection(BTreeVI& btree);
       void undoLastUpdate();
-      inline constexpr u8* value() { return payload; }
-      inline const u8* cvalue() const { return payload; }
+      inline constexpr u8* getValue() { return payload; }
+      inline const u8* getValueConstant() const { return payload; }
       std::tuple<OP_RESULT, u16> reconstructTuple(std::function<void(Slice value)> callback) const;
    };
+   // -------------------------------------------------------------------------------------
    struct DanglingPointer {
       BufferFrame* bf = nullptr;
       u64 version = -1;
@@ -231,7 +187,7 @@ class BTreeVI : public BTreeLL
       u8 key[];
    };
    // -------------------------------------------------------------------------------------
-   void convertChainedToFatTuple(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
+   void convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
    // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
@@ -414,7 +370,7 @@ class BTreeVI : public BTreeLL
             }
          }
       } else {
-         return reinterpret_cast<const FatTupleSameAttributes*>(payload.data())->reconstructTuple(callback);
+         return reinterpret_cast<const FatTupleDifferentAttributes*>(payload.data())->reconstructTuple(callback);
       }
    }
    }
