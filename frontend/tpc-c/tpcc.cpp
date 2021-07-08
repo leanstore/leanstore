@@ -208,14 +208,14 @@ int main(int argc, char** argv)
    cout << endl;
    {
       u64 total = 0;
-      for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_ch_a_threads; t_i++) {
+      for (u64 t_i = FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
          total += tx_per_thread[t_i];
          cout << tx_per_thread[t_i] << ",";
       }
       cout << endl;
       cout << "TPC-C = " << total << endl;
       total = 0;
-      for (u64 t_i = FLAGS_worker_threads - FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
+      for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
          total += tx_per_thread[t_i];
          cout << tx_per_thread[t_i] << ",";
       }

@@ -153,8 +153,8 @@ class TPCCWorkload
       Numeric d_tax;
       Integer o_id;
 
-      // UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_next_o_id);
-      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_next_o_id);
+      // UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
       district.update1(
           {w_id, d_id},
           [&](district_t& rec) {
@@ -367,8 +367,8 @@ class TPCCWorkload
                 },
                 orderline_update_descriptor);
          }
-         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
-         // UpdateDescriptorGenerator2(customer_update_descriptor, customer_t, c_balance, c_delivery_cnt);
+         // UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         UpdateDescriptorGenerator2(customer_update_descriptor, customer_t, c_balance, c_delivery_cnt);
          customer.update1(
              {w_id, d_id, c_id},
              [&](customer_t& rec) {
@@ -611,8 +611,8 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
-      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
-      //      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
+      // UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
       district.update1(
           {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
@@ -651,8 +651,8 @@ class TPCCWorkload
              },
              customer_update_descriptor);
       } else {
-         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
-         // UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
+         // UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
@@ -715,8 +715,8 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
-      // UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
-      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
+      // UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
       district.update1(
           {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
@@ -775,9 +775,9 @@ class TPCCWorkload
              },
              customer_update_descriptor);
       } else {
-         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         // UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
          // TODO: when variable-diffs are fully-implemented
-         // UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
+         UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
@@ -1017,6 +1017,10 @@ class TPCCWorkload
       } else if (query_no == 2) {
          orderline.scan(
              {0, 0, 0, 0}, [&](const orderline_t::Key&, const orderline_t&) { return true; }, [&]() {});
+      } else if (query_no == 99) {
+         sleep(5);
+      } else {
+         UNREACHABLE();
       }
    }
 };

@@ -14,6 +14,7 @@ struct UpdateSameSizeInPlaceDescriptor {
    struct Slot {
       u16 offset;
       u16 length;
+      bool operator==(const Slot& other) const{ return offset == other.offset && length == other.length; }
    };
    Slot slots[];
    u64 size() const { return sizeof(UpdateSameSizeInPlaceDescriptor) + (count * sizeof(UpdateSameSizeInPlaceDescriptor::Slot)); }

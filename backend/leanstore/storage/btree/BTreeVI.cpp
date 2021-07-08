@@ -175,7 +175,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             // -------------------------------------------------------------------------------------
             iterator.contentionSplit();
             jumpmu_return OP_RESULT::OK;
-         } else if (FLAGS_vi_fat_tuple && dt_id != 2 && dt_id == 0 && chain_head.stats.versions_counter > 2) {
+         } else if (FLAGS_vi_fat_tuple && chain_head.stats.versions_counter > 2) { // dt_id != 2 && dt_id == 0
             ensure(chain_head.isWriteLocked());
             convertChainedToFatTupleDifferentAttributes(iterator, m_key);
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }

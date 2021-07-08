@@ -12,6 +12,20 @@ using namespace std;
 using namespace leanstore::storage;
 using OP_RESULT = leanstore::OP_RESULT;
 // -------------------------------------------------------------------------------------
+namespace std
+{
+template <>
+class hash<leanstore::UpdateSameSizeInPlaceDescriptor::Slot>
+{
+  public:
+   size_t operator()(const leanstore::UpdateSameSizeInPlaceDescriptor::Slot& slot) const
+   {
+      size_t result = (slot.length << 16) | slot.offset;
+      return result;
+   }
+};
+}  // namespace std
+// -------------------------------------------------------------------------------------
 namespace leanstore::storage::btree
 {
 // -------------------------------------------------------------------------------------
@@ -43,7 +57,8 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
    // -------------------------------------------------------------------------------------
    if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(delta->commited_before_so)) {
       const u16 removed_deltas = deltas_count - 1;
-      used_space = value_length + delta->getDescriptor().size() + delta->getDescriptor().diffLength();  // Delete everything after the first delta
+      used_space = value_length + sizeof(Delta) + delta->getDescriptor().size() +
+                   delta->getDescriptor().diffLength();  // Delete everything after the first delta
       deltas_count = 1;
       debug = 500;
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += removed_deltas; }
@@ -78,32 +93,44 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
          if (is_visible_to_it_optimized(other_worker_id, delta->commited_before_so) ||
              cr::Worker::my().isVisibleForIt(other_worker_id, delta->worker_id, delta->tts)) {
             if (deltas_to_merge.size()) {
-               // TODO: merge all deltas in deltas_to_merge in delta*
-               TODOException();
-               // Use std::unordered_map<slot, std::string diff> to merge slots
+               // Merge all deltas in deltas_to_merge in delta*
                using Slot = UpdateSameSizeInPlaceDescriptor::Slot;
-               std::map<Slot, std::basic_string<u8>> map;
+               std::unordered_map<Slot, std::basic_string<u8>> slots_map;
                for (auto m_delta : deltas_to_merge) {
                   auto& m_descriptor = m_delta->getDescriptor();
                   u8* delta_diff_ptr = m_delta->payload + m_descriptor.size();
                   for (u64 s_i = 0; s_i < m_delta->getDescriptor().count; s_i++) {
-                     map[m_descriptor.slots[s_i]] = std::basic_string<u8>(delta_diff_ptr, m_descriptor.slots[s_i].length);
+                     slots_map[m_descriptor.slots[s_i]] = std::basic_string<u8>(delta_diff_ptr, m_descriptor.slots[s_i].length);
                      delta_diff_ptr += m_descriptor.slots[s_i].length;
                   }
                }
                u8 merge_result[PAGE_SIZE];
-               auto &merge_delta = *reinterpret_cast<Delta*>(merge_result);
+               auto& merge_delta = *reinterpret_cast<Delta*>(merge_result);
                merge_delta = *delta;
-               UpdateSameSizeInPlaceDescriptor &merge_descriptor = merge_delta.getDescriptor();
-               merge_delta.getDescriptor().count = map.size();
-               u8 *merge_diff_ptr = merge_delta.payload + merge_descriptor.size();
-               u32 s_i=0;
-               for(auto &m_delta : map) {
-                  merge_descriptor.slots[s_i] = m_delta.first;
-                  std::memcpy(merge_diff_ptr, m_delta.second.c_str(), m_delta.second.size());
-                  merge_diff_ptr += m_delta.second.size();
+               UpdateSameSizeInPlaceDescriptor& merge_descriptor = merge_delta.getDescriptor();
+               merge_delta.getDescriptor().count = slots_map.size();
+               u8* merge_diff_ptr = merge_delta.payload + merge_descriptor.size();
+               u32 s_i = 0;
+               for (auto& slot_itr : slots_map) {
+                  merge_descriptor.slots[s_i++] = slot_itr.first;
+                  std::memcpy(merge_diff_ptr, slot_itr.second.c_str(), slot_itr.second.size());
+                  merge_diff_ptr += slot_itr.second.size();
                }
-               u32 total_merge_delta_size = merge_diff_ptr - merge_result;
+               const u32 total_merge_delta_size = merge_diff_ptr - merge_result;
+               const u32 space_to_replace = (reinterpret_cast<u8*>(delta) - reinterpret_cast<u8*>(deltas_to_merge.front())) + sizeof(Delta) +
+                                            delta->getDescriptor().size() + delta->getDescriptor().diffLength();
+               ensure(space_to_replace >= total_merge_delta_size);
+               const u16 copy_dst = reinterpret_cast<u8*>(deltas_to_merge.front()) - payload;
+               std::memcpy(payload + copy_dst, merge_result, total_merge_delta_size);
+               std::memmove(payload + copy_dst + total_merge_delta_size, payload + copy_dst + space_to_replace,
+                            used_space - (copy_dst + space_to_replace));
+               used_space -= space_to_replace - total_merge_delta_size;
+               // -------------------------------------------------------------------------------------
+               delta_i -= deltas_to_merge.size();
+               deltas_count -= deltas_to_merge.size();
+               offset = copy_dst;
+               delta = deltas_to_merge.front();
+               // -------------------------------------------------------------------------------------
                deltas_to_merge.clear();
             } else {
                if (++other_worker_index < cr::Worker::my().workers_count) {
@@ -129,7 +156,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
       // -------------------------------------------------------------------------------------
       if (other_worker_index == cr::Worker::my().workers_count) {
          // Means that the current delta is seen by all, prune everything after delta*
-         const u16 removed_deltas = deltas_count - delta_i;
+         const u16 removed_deltas = deltas_count - (delta_i + 1);
          assert(removed_deltas < deltas_count);
          deltas_count -= removed_deltas;
          const u32 end_offset = offset + sizeof(Delta) + delta->getDescriptor().size() + delta->getDescriptor().diffLength();
@@ -164,11 +191,11 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
    if (deltas_count > 0) {
       // Garbage collection first
       this->garbageCollection(btree);
-      ensure((total_space - used_space) >= (needed_space));
+      ensure(total_space >= (needed_space + used_space));
       if (deltas_count > 0) {
          // Make place for a new delta
          const u64 src = value_length;
-         const u64 dst = needed_space;
+         const u64 dst = value_length + needed_space;
          std::memmove(payload + dst, payload + src, used_space - src);
       }
    }
