@@ -327,6 +327,10 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       active_tx.max_observed_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
+      // We don't have pmem, so we can only avoid remote flushes for real if the tx is a single lookup
+      if (!FLAGS_wal_rfa_pmem_simulate) {
+         needs_remote_flush |= current_tx_mode != TX_MODE::SINGLE_LOOKUP;
+      }
       if (needs_remote_flush) {  // RFA
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
          ready_to_commit_queue.push_back(active_tx);

@@ -65,6 +65,7 @@ DEFINE_bool(out_of_place, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(wal, false, "");
 DEFINE_bool(wal_rfa, true, "Remote Flush Avoidance (RFA)");
+DEFINE_bool(wal_rfa_pmem_simulate, false, "RFA as if we would use pmem (just to check %)");
 DEFINE_uint64(wal_offset_gib, 1, "");
 DEFINE_bool(wal_io_hack, true, "Does not really write logs on SSD");
 DEFINE_bool(wal_fsync, false, "");

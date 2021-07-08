@@ -62,6 +62,7 @@ DECLARE_bool(out_of_place);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(wal);
 DECLARE_bool(wal_rfa);
+DECLARE_bool(wal_rfa_pmem_simulate);
 DECLARE_uint64(wal_offset_gib);
 DECLARE_bool(wal_io_hack);
 DECLARE_bool(wal_fsync);
