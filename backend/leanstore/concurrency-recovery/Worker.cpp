@@ -241,11 +241,10 @@ void Worker::startTX(TX_MODE next_tx_type)
 // -------------------------------------------------------------------------------------
 void Worker::switchToAlwaysUpToDateMode()
 {
-   global_so_starts[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+   global_so_starts[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63), std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
       local_tts_vector[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    }
-   global_so_starts[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63), std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::shutdown()
