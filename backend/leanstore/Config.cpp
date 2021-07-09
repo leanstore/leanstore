@@ -86,6 +86,7 @@ DEFINE_uint64(vi_pgc_batch_size, 2, "");
 DEFINE_bool(vi_skip_stale_leaves, false, "");
 DEFINE_bool(vi_twoq_todo, true, "");
 DEFINE_bool(vi_fat_tuple, true, "");
+DEFINE_uint64(vi_fat_tuple_threshold, 0, "Minimum length of chain length before converting the tuple format to FatTuple");
 DEFINE_bool(vi_dangling_pointer, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(pgc, true, "Precise garbage collection/recycling");

@@ -371,7 +371,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT removeCurrent()
    {
-      if (!(cur >= 0 && cur < leaf->count)) {
+      if (!(leaf.bf != nullptr && cur >= 0 && cur < leaf->count)) {
          ensure(false);
          return OP_RESULT::OTHER;
       } else {

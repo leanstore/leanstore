@@ -99,10 +99,12 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) ChainedTuple : Tuple {
       struct __attribute__((packed)) Stats {
          u8 has_different_length : 1;
-         u16 versions_counter : 15;
+         u8 can_convert_to_fat_tuple : 1;
+         u16 versions_counter : 14;
          Stats() { reset(); }
          void reset()
          {
+            can_convert_to_fat_tuple = 1;
             has_different_length = 0;
             versions_counter = 1;
          }
@@ -145,7 +147,10 @@ class BTreeVI : public BTreeLL
          u64 commited_before_so;
          u8 payload[];  // Descriptor + Diff
          UpdateSameSizeInPlaceDescriptor& getDescriptor() { return *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(payload); }
-         const UpdateSameSizeInPlaceDescriptor& getConstantDescriptor() const{ return *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload); }
+         const UpdateSameSizeInPlaceDescriptor& getConstantDescriptor() const
+         {
+            return *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload);
+         }
       };
       // -------------------------------------------------------------------------------------
       u64 latest_commited_after_so;
@@ -187,7 +192,7 @@ class BTreeVI : public BTreeLL
       u8 key[];
    };
    // -------------------------------------------------------------------------------------
-   void convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
+   bool convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
    // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
@@ -276,7 +281,7 @@ class BTreeVI : public BTreeLL
             s_key = iterator.mutableKeyInBuffer();
             // -------------------------------------------------------------------------------------
             while (getSN(key) != 0) {
-               if (asc) {
+               if constexpr (asc) {
                   if (skip_current_leaf) {
                      iterator.cur = iterator.leaf->count;
                      skip_current_leaf = false;
@@ -297,34 +302,43 @@ class BTreeVI : public BTreeLL
                s_key = iterator.mutableKeyInBuffer();
             }
             // -------------------------------------------------------------------------------------
-            // costs 2K
-            auto reconstruct = reconstructTuple(iterator, s_key, [&](Slice value) {
-               keep_scanning = callback(s_key.data(), s_key.length() - sizeof(ChainSN), value.data(), value.length());
-               visible_chain_found = true;
-               counter++;
-            });
-            const u16 chain_length = std::get<1>(reconstruct);
-            COUNTERS_BLOCK()
-            {
-               WorkerCounters::myCounters().cc_read_chains[dt_id]++;
-               WorkerCounters::myCounters().cc_read_versions_visited[dt_id] += chain_length;
-               if (std::get<0>(reconstruct) != OP_RESULT::OK) {
-                  WorkerCounters::myCounters().cc_read_chains_not_found[dt_id]++;
-                  WorkerCounters::myCounters().cc_read_versions_visited_not_found[dt_id] += chain_length;
+            if (!skip_current_leaf) {
+               auto reconstruct = reconstructTuple(iterator, s_key, [&](Slice value) {
+                  keep_scanning = callback(s_key.data(), s_key.length() - sizeof(ChainSN), value.data(), value.length());
+                  visible_chain_found = true;
+                  counter++;
+               });
+               const u16 chain_length = std::get<1>(reconstruct);
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().cc_read_chains[dt_id]++;
+                  WorkerCounters::myCounters().cc_read_versions_visited[dt_id] += chain_length;
+                  if (std::get<0>(reconstruct) != OP_RESULT::OK) {
+                     WorkerCounters::myCounters().cc_read_chains_not_found[dt_id]++;
+                     WorkerCounters::myCounters().cc_read_versions_visited_not_found[dt_id] += chain_length;
+                  }
+               }
+               if (!keep_scanning) {
+                  jumpmu_return;
+               }
+               if (chain_length > 1) {
+                  setSN(s_key, 0);
+                  ret = iterator.seekExact(Slice(s_key.data(), s_key.length()));
+                  ensure(ret == OP_RESULT::OK);
                }
             }
-            if (!keep_scanning) {
-               jumpmu_return;
-            }
-            if (chain_length > 1) {
-               setSN(s_key, 0);
-               ret = iterator.seekExact(Slice(s_key.data(), s_key.length()));
-               ensure(ret == OP_RESULT::OK);
-            }
             // -------------------------------------------------------------------------------------
-            if (asc) {
+            if constexpr (asc) {
+               if (skip_current_leaf) {
+                  iterator.cur = iterator.leaf->count;
+                  skip_current_leaf = false;
+               }
                ret = iterator.next();
             } else {
+               if (skip_current_leaf) {
+                  iterator.cur = 0;
+                  skip_current_leaf = false;
+               }
                ret = iterator.prev();
             }
          }

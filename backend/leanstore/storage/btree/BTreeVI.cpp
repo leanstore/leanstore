@@ -82,7 +82,7 @@ OP_RESULT BTreeVI::lookupOptimistic(const u8* key, const u16 key_length, functio
             auto& tuple = *reinterpret_cast<Tuple*>(leaf->getPayload(pos));
             if (isVisibleForMe(tuple.worker_id, tuple.tts)) {
                u32 offset = 0;
-               if(tuple.tuple_format == TupleFormat::CHAINED) {
+               if (tuple.tuple_format == TupleFormat::CHAINED) {
                   offset = sizeof(ChainedTuple);
                } else if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
                   offset = sizeof(FatTupleDifferentAttributes);
@@ -141,7 +141,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
       // -------------------------------------------------------------------------------------
       if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
-         const bool res = reinterpret_cast<FatTupleDifferentAttributes*>(&tuple)->update(iterator, o_key, o_key_length, callback, update_descriptor, *this);
+         const bool res =
+             reinterpret_cast<FatTupleDifferentAttributes*>(&tuple)->update(iterator, o_key, o_key_length, callback, update_descriptor, *this);
          ensure(res);  // TODO: what if it fails, then we have to do something else
          tuple.unlock();
          // -------------------------------------------------------------------------------------
@@ -154,6 +155,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          jumpmu_return OP_RESULT::OK;
       } else {
          auto& chain_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
+         const u32 convert_to_fat_tuple_threshold =
+             (FLAGS_vi_fat_tuple_threshold > 0 ? FLAGS_vi_fat_tuple_threshold : cr::Worker::my().workers_count);
          if (FLAGS_vi_fupdate_chained) {  //  (dt_id != 0 && dt_id != 1 && dt_id != 10)
             // WAL
             u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
@@ -175,10 +178,16 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             // -------------------------------------------------------------------------------------
             iterator.contentionSplit();
             jumpmu_return OP_RESULT::OK;
-         } else if (FLAGS_vi_fat_tuple && chain_head.stats.versions_counter > 2) { // dt_id != 2 && dt_id == 0
+         } else if (FLAGS_vi_fat_tuple && chain_head.stats.can_convert_to_fat_tuple &&
+                    chain_head.stats.versions_counter >= convert_to_fat_tuple_threshold) {  // dt_id != 2 && dt_id == 0
             ensure(chain_head.isWriteLocked());
-            convertChainedToFatTupleDifferentAttributes(iterator, m_key);
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
+            const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator, m_key);
+            if (!convert_ret) {
+               chain_head.stats.can_convert_to_fat_tuple = false;
+               chain_head.unlock();
+            } else {
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
+            }
             goto restart;
             UNREACHABLE();
          }
@@ -724,7 +733,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
             node->removeSlot(todo_entry.dangling_pointer.head_slot);
          } else {
-            head.stats.versions_counter = 1;
+            head.stats.reset();
             head.is_gc_scheduled = false;
             head.next_sn = reinterpret_cast<ChainedTupleVersion*>(node->getPayload(todo_entry.dangling_pointer.secondary_slot))->next_sn;
             node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
@@ -775,7 +784,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             iterator.mergeIfNeeded();
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_remove[btree.dt_id]++; }
          } else {
-            primary_version.stats.versions_counter = 1;
+            primary_version.stats.reset();
             primary_version.next_sn = 0;
             primary_version.debugging = -1;
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates[btree.dt_id]++; }
