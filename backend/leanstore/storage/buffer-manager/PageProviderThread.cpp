@@ -29,7 +29,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    pthread_setname_np(pthread_self(), "page_provider");
    using Time = decltype(std::chrono::high_resolution_clock::now());
    // -------------------------------------------------------------------------------------
-   // TODO: register as special worker
+   // TODO: register as special worker [hackaround atm]
+   while (cr::Worker::global_so_starts.get() == nullptr || cr::Worker::global_tts.get() == nullptr)
+      ;
    cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0, ssd_fd);
    // -------------------------------------------------------------------------------------
    // Init AIO Context
