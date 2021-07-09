@@ -746,7 +746,6 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       jumpmuCatch() {}
    }
    // -------------------------------------------------------------------------------------
-   // TODO: atm, we either prune the whole chain or nothing. We should be able to prune expired version from the middle if needed
    const u16 key_length = todo_entry.key_length + sizeof(ChainSN);
    u8 key_buffer[key_length];
    std::memcpy(key_buffer, todo_entry.key, todo_entry.key_length);
@@ -775,45 +774,8 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       // -------------------------------------------------------------------------------------
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       primary_version.is_gc_scheduled = false;
-      const bool is_removed = primary_version.is_removed;
-      const bool safe_to_gc =
-          (primary_version.worker_id == version_worker_id && primary_version.tts == version_tts) && !primary_version.isWriteLocked();
-      if (safe_to_gc) {
-         ChainSN next_sn = primary_version.next_sn;
-         if (is_removed) {
-            ret = iterator.removeCurrent();
-            ensure(ret == OP_RESULT::OK);
-            iterator.mergeIfNeeded();
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_remove[btree.dt_id]++; }
-         } else {
-            primary_version.stats.reset();
-            primary_version.next_sn = 0;
-            primary_version.debugging = -1;
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates[btree.dt_id]++; }
-         }
-         iterator.markAsDirty();
-         // -------------------------------------------------------------------------------------
-         bool next_sn_higher = true;
-         while (next_sn != 0) {
-            next_sn_higher = next_sn >= btree.getSN(key);
-            btree.setSN(m_key, next_sn);
-            ret = iterator.seekExactWithHint(key, next_sn_higher);
-            if (ret != OP_RESULT::OK) {
-               // raise(SIGTRAP); should be fine if the tuple got converted to fat
-               break;
-            }
-            // -------------------------------------------------------------------------------------
-            Slice secondary_payload = iterator.value();
-            const auto& secondary_version = *reinterpret_cast<const ChainedTupleVersion*>(secondary_payload.data());
-            next_sn = secondary_version.next_sn;
-            // -------------------------------------------------------------------------------------
-            iterator.removeCurrent();
-            iterator.mergeIfNeeded();
-            iterator.markAsDirty();
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates_versions_removed[btree.dt_id]++; }
-         }
-         iterator.mergeIfNeeded();
-      } else {
+      if (primary_version.isWriteLocked()) {
+         // Reschedule
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_wasted[btree.dt_id]++; }
          // Cross workers TODO: better solution?
          if (!primary_version.isWriteLocked()) {
@@ -830,6 +792,64 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                                         todo_entry.key_length + sizeof(TODOEntry),
                                         [&](u8* new_entry) { std::memcpy(new_entry, &todo_entry, sizeof(TODOEntry) + todo_entry.key_length); });
             primary_version.is_gc_scheduled = true;
+         }
+      } else {
+         ChainSN remove_next_sn = 0;
+         bool next_sn_higher = true;
+         if (primary_version.worker_id == version_worker_id && primary_version.tts == version_tts) {
+            remove_next_sn = primary_version.next_sn;
+            // Main version is visible we can prune the whole chain
+            if (primary_version.is_removed) {
+               ret = iterator.removeCurrent();
+               ensure(ret == OP_RESULT::OK);
+               iterator.mergeIfNeeded();
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_remove[btree.dt_id]++; }
+            } else {
+               primary_version.stats.reset();
+               primary_version.next_sn = 0;
+               primary_version.debugging = -1;
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_updates[btree.dt_id]++; }
+            }
+         } else {
+            // Search for the first visible-to-all version
+            ChainSN search_next_sn = primary_version.next_sn;
+            while (search_next_sn != 0) {
+               next_sn_higher = search_next_sn >= btree.getSN(key);
+               btree.setSN(m_key, search_next_sn);
+               ret = iterator.seekExactWithHint(key, next_sn_higher);
+               if (ret != OP_RESULT::OK) {
+                  break;
+               }
+               // -------------------------------------------------------------------------------------
+               MutableSlice secondary_payload = iterator.mutableValue();
+               auto& secondary_version = *reinterpret_cast<ChainedTupleVersion*>(secondary_payload.data());
+               if (cr::Worker::my().oldest_so_start > secondary_version.commited_before_so ||
+                   (secondary_version.worker_id == version_worker_id && secondary_version.tts == version_tts)) {
+                  remove_next_sn = secondary_version.next_sn;
+                  secondary_version.next_sn = 0;
+                  break;
+               } else {
+                  search_next_sn = secondary_version.next_sn;
+               }
+            }
+         }
+         while (remove_next_sn != 0) {
+            next_sn_higher = remove_next_sn >= btree.getSN(key);
+            btree.setSN(m_key, remove_next_sn);
+            ret = iterator.seekExactWithHint(key, next_sn_higher);
+            if (ret != OP_RESULT::OK) {
+               // raise(SIGTRAP); should be fine if the tuple got converted to fat
+               break;
+            }
+            // -------------------------------------------------------------------------------------
+            Slice secondary_payload = iterator.value();
+            const auto& secondary_version = *reinterpret_cast<const ChainedTupleVersion*>(secondary_payload.data());
+            remove_next_sn = secondary_version.next_sn;
+            // -------------------------------------------------------------------------------------
+            iterator.removeCurrent();
+            iterator.mergeIfNeeded();
+            iterator.markAsDirty();
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_versions_removed[btree.dt_id]++; }
          }
       }
    }

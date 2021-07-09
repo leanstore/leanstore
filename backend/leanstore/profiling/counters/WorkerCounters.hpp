@@ -76,7 +76,7 @@ struct WorkerCounters {
    atomic<u64> cc_todo_chains[max_dt_id] = {0};
    atomic<u64> cc_todo_remove[max_dt_id] = {0};
    atomic<u64> cc_todo_updates[max_dt_id] = {0};
-   atomic<u64> cc_todo_updates_versions_removed[max_dt_id] = {0};
+   atomic<u64> cc_todo_versions_removed[max_dt_id] = {0};
    atomic<u64> cc_todo_1_break[max_dt_id] = {0};
    atomic<u64> cc_todo_2_break[max_dt_id] = {0};
    atomic<u64> cc_todo_wasted[max_dt_id] = {0};

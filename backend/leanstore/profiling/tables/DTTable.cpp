@@ -94,8 +94,8 @@ void DTTable::open()
    columns.emplace("cc_todo_chains", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_chains, dt_id); });
    columns.emplace("cc_todo_remove", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_remove, dt_id); });
    columns.emplace("cc_todo_updates", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_updates, dt_id); });
-   columns.emplace("cc_todo_updates_versions_removed",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_updates_versions_removed, dt_id); });
+   columns.emplace("cc_todo_versions_removed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_versions_removed, dt_id); });
    // -------------------------------------------------------------------------------------
    columns.emplace("cc_rtodo_opt_staged",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_opt_staged, dt_id); });
