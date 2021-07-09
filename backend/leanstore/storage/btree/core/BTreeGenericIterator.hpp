@@ -49,6 +49,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       // -------------------------------------------------------------------------------------
       leaf.unlock();
       btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+      DEBUG_BLOCK() { assert(keyInCurrentBoundaries(key)); }
       prefix_copied = false;
       // -------------------------------------------------------------------------------------
       if (after_changing_leaf_cb) {
