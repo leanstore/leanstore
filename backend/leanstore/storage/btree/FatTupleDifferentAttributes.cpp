@@ -179,6 +179,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
          deltas_count -= deltas_to_merge.size();
       }
    }
+   explainWhen(deltas_count > (cr::Worker::my().workers_count + 2));
 }
 // -------------------------------------------------------------------------------------
 // Pre: tuple is write locked
@@ -330,7 +331,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
          const u32 needed_space = sizeof(FatTupleDifferentAttributes::Delta) + descriptor_and_diff_length;
          // -------------------------------------------------------------------------------------
          if ((fat_tuple.used_space + sizeof(FatTupleDifferentAttributes::Delta) + needed_space) >= dynamic_buffer.size()) {
-            dynamic_buffer.resize(dynamic_buffer.size() * 2);
+            dynamic_buffer.resize(fat_tuple.used_space + sizeof(FatTupleDifferentAttributes::Delta) + needed_space);
          }
          // -------------------------------------------------------------------------------------
          // Add a FatTuple::Delta
@@ -349,6 +350,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
          // Readers will restart and probably hang on the head's mutex
          ret = iterator.removeCurrent();
          ensure(ret == OP_RESULT::OK);
+         fat_tuple.garbageCollection(*this);  // TODO: temporary hack to calm down overflow bugs
       }
    }
    {
@@ -361,11 +363,8 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
       }
    }
    {
-      // TODO: corner cases
       // Finalize the new FatTuple
-      // We could have more versions than the number of workers because of the way how gc works atm
-      // const u16 space_needed_per_worker_version = sizeof(FatTuple::Delta) + diff_length;
-      // fat_tuple.total_space = (fat_tuple.used_space / std::max<u64>(1, fat_tuple.deltas_count)) * cr::Worker::my().workers_count;
+      // TODO: corner cases, more careful about space usage
       // -------------------------------------------------------------------------------------
       setSN(m_key, 0);
       OP_RESULT ret = iterator.seekExactWithHint(key, false);

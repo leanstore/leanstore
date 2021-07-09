@@ -157,6 +157,9 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          auto& chain_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
          const u32 convert_to_fat_tuple_threshold =
              (FLAGS_vi_fat_tuple_threshold > 0 ? FLAGS_vi_fat_tuple_threshold : cr::Worker::my().workers_count);
+         const bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && chain_head.stats.can_convert_to_fat_tuple &&
+                                           chain_head.stats.versions_counter >= convert_to_fat_tuple_threshold &&
+                                           !(chain_head.worker_id == cr::Worker::my().workerID() && chain_head.tts == cr::Worker::my().TTS());
          if (FLAGS_vi_fupdate_chained) {  //  (dt_id != 0 && dt_id != 1 && dt_id != 10)
             // WAL
             u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
@@ -178,8 +181,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             // -------------------------------------------------------------------------------------
             iterator.contentionSplit();
             jumpmu_return OP_RESULT::OK;
-         } else if (FLAGS_vi_fat_tuple && chain_head.stats.can_convert_to_fat_tuple &&
-                    chain_head.stats.versions_counter >= convert_to_fat_tuple_threshold) {  // dt_id != 2 && dt_id == 0
+         } else if (convert_to_fat_tuple) {  // dt_id != 2 && dt_id == 0
             ensure(chain_head.isWriteLocked());
             const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator, m_key);
             if (!convert_ret) {

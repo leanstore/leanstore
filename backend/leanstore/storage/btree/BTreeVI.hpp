@@ -157,8 +157,9 @@ class BTreeVI : public BTreeLL
       u64 prev_commited_after_so;
       // -------------------------------------------------------------------------------------
       u16 value_length;
-      u16 total_space, used_space;  // From the payload bytes array
-      u16 deltas_count = 0;         // Attention: coupled with used_space
+      u16 total_space;       // From the payload bytes array
+      u32 used_space;        // u32 instead of u16 to make it easier to detect overflow while converting
+      u16 deltas_count = 0;  // Attention: coupled with used_space
       s64 debug = 0;
       u8 payload[];  // value, Delta+Descriptor+Diff[] N2O
       // -------------------------------------------------------------------------------------
