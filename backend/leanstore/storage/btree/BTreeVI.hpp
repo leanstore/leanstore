@@ -49,15 +49,15 @@ class BTreeVI : public BTreeLL
       u64 delta_length;
       u8 before_worker_id;
       u8 after_worker_id;
-      u64 before_tts;
-      u64 after_tts;
+      u64 before_worker_commit_mark;
+      u64 after_worker_commit_mark;
       u8 payload[];
    };
    struct WALRemove : WALEntry {
       u16 key_length;
       u16 value_length;
       u8 before_worker_id;
-      u64 before_tts;
+      u64 before_worker_commit_mark;
       u8 payload[];
    };
    // -------------------------------------------------------------------------------------
@@ -84,10 +84,14 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) Tuple {
       TupleFormat tuple_format;
       u8 worker_id : 8;
-      u64 tts : 56;
+      u64 worker_commit_mark : 56;
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
-      Tuple(TupleFormat tuple_format, u8 worker_id, u64 tts) : tuple_format(tuple_format), worker_id(worker_id), tts(tts) { write_locked = false; }
+      Tuple(TupleFormat tuple_format, u8 worker_id, u64 worker_commit_mark)
+          : tuple_format(tuple_format), worker_id(worker_id), worker_commit_mark(worker_commit_mark)
+      {
+         write_locked = false;
+      }
       bool isWriteLocked() const { return write_locked; }
       void writeLock() { write_locked = true; }
       void unlock() { write_locked = false; }
@@ -118,20 +122,23 @@ class BTreeVI : public BTreeLL
       s64 debugging = 0;
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
-      ChainedTuple(u8 worker_id, u64 tts) : Tuple(TupleFormat::CHAINED, worker_id, tts), is_removed(false), is_gc_scheduled(false) {}
+      ChainedTuple(u8 worker_id, u64 worker_commit_mark)
+          : Tuple(TupleFormat::CHAINED, worker_id, worker_commit_mark), is_removed(false), is_gc_scheduled(false)
+      {
+      }
       bool isFinal() const { return next_sn == 0; }
    };
    struct __attribute__((packed)) ChainedTupleVersion {
       u8 worker_id : 8;
-      u64 tts : 56;
+      u64 worker_commit_mark : 56;
       u64 commited_before_so;  // Helpful for garbage collection
       u8 is_removed : 1;
       u8 is_delta : 1;  // TODO: atm, always true
       ChainSN next_sn;
       u8 payload[];  // UpdateDescriptor + Diff
       // -------------------------------------------------------------------------------------
-      ChainedTupleVersion(u8 worker_id, u64 tts, bool is_removed, bool is_delta, ChainSN next_sn = 0)
-          : worker_id(worker_id), tts(tts), is_removed(is_removed), is_delta(is_delta), next_sn(next_sn)
+      ChainedTupleVersion(u8 worker_id, u64 worker_commit_mark, bool is_removed, bool is_delta, ChainSN next_sn = 0)
+          : worker_id(worker_id), worker_commit_mark(worker_commit_mark), is_removed(is_removed), is_delta(is_delta), next_sn(next_sn)
       {
       }
       bool isFinal() const { return next_sn == 0; }
@@ -140,8 +147,8 @@ class BTreeVI : public BTreeLL
    // We always append the descriptor, one format to keep simple
    struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
       struct __attribute__((packed)) Delta {
-         u64 tts : 56;
          u8 worker_id : 8;
+         u64 worker_commit_mark : 56;
          u64 commited_before_so;
          u8 payload[];  // Descriptor + Diff
          UpdateSameSizeInPlaceDescriptor& getDescriptor() { return *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(payload); }
@@ -248,12 +255,12 @@ class BTreeVI : public BTreeLL
                         if (sn == 0) {
                            auto& primary_version =
                                *reinterpret_cast<ChainedTuple*>(leaf->getPayload(t_i) + leaf->getPayloadLength(t_i) - sizeof(ChainedTuple));
-                           skippable &= primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.tts);
+                           skippable &= primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark);
                         }
                      }
                      if (skippable) {
                         leaf_statistics.skip_if_gsn_equal = leaf.bf->page.GSN;
-                        leaf_statistics.and_if_your_so_start_older = cr::Worker::my().so_start;
+                        leaf_statistics.and_if_your_so_start_older = cr::Worker::my().tx_start;
                      }
                   }
                   leaf.bf->header.meta_data_in_shared_mode_mutex.unlock();
@@ -263,7 +270,7 @@ class BTreeVI : public BTreeLL
             iterator.registerAfterChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
                auto& leaf_statistics = leaf.bf->header.stale_leaf_tracker;
                leaf.bf->header.meta_data_in_shared_mode_mutex.lock_shared();
-               if (leaf_statistics.skip_if_gsn_equal == leaf.bf->page.GSN && leaf_statistics.and_if_your_so_start_older < cr::Worker::my().so_start) {
+               if (leaf_statistics.skip_if_gsn_equal == leaf.bf->page.GSN && leaf_statistics.and_if_your_so_start_older < cr::Worker::my().tx_start) {
                   skip_current_leaf = true;
                   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
                }
@@ -343,8 +350,8 @@ class BTreeVI : public BTreeLL
       jumpmuCatch() { ensure(false); }
    }
    // -------------------------------------------------------------------------------------
-   inline bool isVisibleForMe(u8 worker_id, u64 tts) { return cr::Worker::my().isVisibleForMe(worker_id, tts); }
-   inline bool isVisibleForMe(u64 wtts) { return cr::Worker::my().isVisibleForMe(wtts); }
+   inline bool isVisibleForMe(u8 worker_id, u64 worker_commit_mark) { return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark); }
+   inline bool isVisibleForMe(u64 widcm) { return cr::Worker::my().isVisibleForMe(widcm); }
    inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
    // -------------------------------------------------------------------------------------
    template <typename T>
@@ -361,7 +368,7 @@ class BTreeVI : public BTreeLL
       assert(getSN(key) == 0);
       if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
          const ChainedTuple& primary_version = *reinterpret_cast<const ChainedTuple*>(payload.data());
-         if (isVisibleForMe(primary_version.worker_id, primary_version.tts)) {
+         if (isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark)) {
             if (primary_version.is_removed) {
                return {OP_RESULT::NOT_FOUND, 1};
             }

@@ -43,14 +43,14 @@ struct alignas(512) WALChunk {
 struct Worker {
    // Static
    static thread_local Worker* tls_ptr;
-   static atomic<u64> global_snapshot_clock;
+   static atomic<u64> global_logical_clock;
    static atomic<u64> global_gsn_flushed;       // The minimum of all workers maximum flushed GSN
    static atomic<u64> global_sync_to_this_gsn;  // Artifically increment the workers GSN to this point at the next round to prevent GSN from skewing
                                                 // and undermining RFA
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
-   static unique_ptr<atomic<u64>[]> global_so_starts;
-   static unique_ptr<atomic<u64>[]> global_tts_vector;
+   static unique_ptr<atomic<u64>[]> global_tx_start_timestamps;
+   static unique_ptr<atomic<u64>[]> global_workers_commit_marks;
    // -------------------------------------------------------------------------------------
    enum class TX_MODE : u8 { LONG_TX, SINGLE_LOOKUP, SINGLE_UPSERT };
    TX_MODE current_tx_mode = TX_MODE::LONG_TX;
@@ -58,29 +58,29 @@ struct Worker {
    bool force_si_refresh = false;
    bool workers_sorted = false;
    bool snapshot_order_refreshed = false;
-   u64 so_start;
-   u64 oldest_so_start, oldest_so_start_worker_id;
-   unique_ptr<atomic<u64>[]> local_tts_vector;
-   unique_ptr<u64[]> all_sorted_so_starts;
-   // all_so_starts can lag and it only tells us whether "it" definitely sees a version, but not if it does not
-   unique_ptr<u64[]> all_so_starts;
+   u64 tx_start;
+   u64 oldest_tx_start, oldest_tx_start_worker_id;
+   unique_ptr<atomic<u64>[]> local_workers_commit_marks;
+   unique_ptr<u64[]> local_sorted_tx_start_timestamps;
+   // local_tx_start_timestamps can lag and it only tells us whether "it" definitely sees a version, but not if it does not
+   unique_ptr<u64[]> local_tx_start_timestamps;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
    static constexpr u64 WORKERS_MASK = (1ull << WORKERS_BITS) - 1;
    // -------------------------------------------------------------------------------------
    // Temporary helpers
-   static std::tuple<u8, u64> decomposeWTTS(u64 wtts)
+   static std::tuple<u8, u64> decomposeWIDCM(u64 widcm)
    {
-      u8 worker_id = wtts & WORKERS_MASK;
-      u64 tts = wtts >> WORKERS_BITS;
-      return {worker_id, tts};
+      u8 worker_id = widcm & WORKERS_MASK;
+      u64 worker_commit_mark = widcm >> WORKERS_BITS;
+      return {worker_id, worker_commit_mark};
    }
-   static u64 composeWTTS(u8 worker_id, u64 tts)
+   static u64 composeWIDCM(u8 worker_id, u64 worker_commit_mark)
    {
-      u64 wtts = tts << WORKERS_BITS;
-      wtts |= worker_id;
-      return wtts;
+      u64 widcm = worker_commit_mark << WORKERS_BITS;
+      widcm |= worker_id;
+      return widcm;
    }
    // -------------------------------------------------------------------------------------
    const u64 worker_id;
@@ -91,12 +91,11 @@ struct Worker {
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
    // -------------------------------------------------------------------------------------
-   u64 next_tts = 0;
    // Shared with all workers
    // -------------------------------------------------------------------------------------
    struct TODOEntry {  // In-memory
       u8 version_worker_id;
-      u64 version_tts;
+      u64 version_worker_commit_mark;
       u64 after_so;
       u64 or_before_so;
       DTID dt_id;
@@ -108,9 +107,9 @@ struct Worker {
    u8* todo_lwm_tx_start = nullptr;
    utils::RingBufferST todo_hwm_rb, todo_lwm_rb;
    std::list<TODOEntry> todo_commited_queue, todo_long_running_tx_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
-   void stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
-   void commitTODO(u8 worker_id, u64 tts, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
-   void commitTODOs(u64 so);
+   void stageTODO(u8 worker_id, u64 worker_cm, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
+   void commitTODO(u8 worker_id, u64 worker_cm, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
+   void commitTODOs(u64 tx_start);
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------
@@ -252,9 +251,9 @@ struct Worker {
    void submitDTEntry(u64 total_size);
    // -------------------------------------------------------------------------------------
    inline u8 workerID() { return worker_id; }
-   inline u64 TTS() { return active_tx.tts; }
-   inline u64 WTTS() { return workerID() | (TTS() << 8); }
-   inline u64 SOStart() { return so_start; }
+   inline u64 CM() { return active_tx.commit_mark; }
+   inline u64 WIDCM() { return workerID() | (CM() << 8); }
+   inline u64 TXStart() { return tx_start; }
 
   public:
    // -------------------------------------------------------------------------------------
