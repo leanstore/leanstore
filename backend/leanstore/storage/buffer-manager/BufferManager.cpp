@@ -132,7 +132,7 @@ void BufferManager::writeAllBufferFrames()
       for (u64 bf_i = bf_b; bf_i < bf_e; bf_i++) {
          auto& bf = bfs[bf_i];
          bf.header.latch.mutex.lock();
-         if (bf.page.dt_id < 999 && !bf.isFree()) {
+         if (!bf.isFree()) {
             page.dt_id = bf.page.dt_id;
             page.magic_debugging_number = bf.header.pid;
             DTRegistry::global_dt_registry.checkpoint(bf.page.dt_id, bf, page.dt);
