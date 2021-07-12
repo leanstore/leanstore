@@ -278,13 +278,6 @@ struct Worker {
    bool isVisibleForMe(u8 worker_id, u64 tts);
    bool isVisibleForMe(u64 tts);
    // -------------------------------------------------------------------------------------
-   // Experimentell
-   bool isVisibleForItCommitedBeforeSO(u8 whom_worker_id, u64 cb_so) { return all_so_starts[whom_worker_id] > cb_so; }
-   u64 getCB(u8 from_worker_id, u64 ca_so)
-   {
-      return (all_so_starts[from_worker_id] > ca_so) ? all_so_starts[from_worker_id] : std::numeric_limits<u64>::max();
-   }
-   // -------------------------------------------------------------------------------------
    void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALDTEntryPayload(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);

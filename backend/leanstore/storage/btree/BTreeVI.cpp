@@ -225,7 +225,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          } else {
             secondary_version.commited_before_so = cr::Worker::my().SOStart();
          }
-         secondary_version.commited_after_so = head_version.commited_after_so;
          // -------------------------------------------------------------------------------------
          if (head_version.next_sn <= 1) {
             secondary_sn = leanstore::utils::RandomGenerator::getRand<ChainSN>(1, std::numeric_limits<ChainSN>::max());
@@ -288,7 +287,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          head_version.tts = cr::Worker::my().TTS();
          head_version.next_sn = secondary_sn;
          head_version.stats.versions_counter += 1;
-         head_version.commited_after_so = cr::Worker::my().so_start;
          head_version.debugging = 1;
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_utodo && !head_version.is_gc_scheduled) {
@@ -363,7 +361,6 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          MutableSlice payload = iterator.mutableValue();
          auto& primary_version = *new (payload.data()) ChainedTuple(cr::Worker::my().workerID(), cr::Worker::my().TTS());
          std::memcpy(primary_version.payload, value, value_length);
-         primary_version.commited_after_so = cr::Worker::my().so_start;
          // -------------------------------------------------------------------------------------
          if (cr::Worker::my().current_tx_mode == cr::Worker::TX_MODE::SINGLE_UPSERT) {
             cr::Worker::my().commitTX();
@@ -483,7 +480,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.worker_id = cr::Worker::my().workerID();
          primary_version.tts = cr::Worker::my().TTS();
          primary_version.next_sn = secondary_sn;
-         primary_version.commited_after_so = cr::Worker::my().SOStart();
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_rtodo && !primary_version.is_gc_scheduled) {
             const u64 wtts = cr::Worker::composeWTTS(old_primary_version.worker_id, old_primary_version.tts);

@@ -35,7 +35,6 @@ void BTreeVI::FatTupleDifferentAttributes::undoLastUpdate()
    auto& delta = *reinterpret_cast<Delta*>(payload + value_length);
    worker_id = delta.worker_id;
    tts = delta.tts;
-   latest_commited_after_so = prev_commited_after_so;
    deltas_count -= 1;
    const u32 total_freed_space = sizeof(Delta) + delta.getDescriptor().size() + delta.getDescriptor().diffLength();
    BTreeLL::applyDiff(delta.getDescriptor(), getValue(), delta.payload + delta.getDescriptor().size());
@@ -75,26 +74,6 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
       bool needs_the_loop = true;
       auto is_visible_to_it_optimized = [&](const u64 w_id, const u64 so) { return (cr::Worker::my().all_so_starts[w_id]) > so; };
       // -------------------------------------------------------------------------------------
-      // Skip all workers that see the latest version in FatTuple
-      {
-         const u64 latest_commited_before_so = cr::Worker::my().getCB(other_worker_id, latest_commited_after_so);
-         while (true) {
-            assert(other_worker_id < cr::Worker::my().workers_count);
-            assert(other_worker_index < cr::Worker::my().workers_count);
-            if (is_visible_to_it_optimized(other_worker_id, latest_commited_before_so) ||
-                cr::Worker::my().isVisibleForIt(other_worker_id, worker_id, tts)) {
-               if (++other_worker_index < cr::Worker::my().workers_count) {
-                  other_worker_id = cr::Worker::my().all_sorted_so_starts[other_worker_index] & cr::Worker::WORKERS_MASK;
-               } else {
-                  needs_the_loop = false;
-                  break;
-               }
-            } else {
-               break;
-            }
-         }
-      }
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_skipped[btree.dt_id] += other_worker_index; }
       delta_i = 0;
       offset = value_length;
       std::vector<Delta*> deltas_to_merge;
@@ -225,8 +204,6 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       std::memcpy(new_delta.payload, &update_descriptor, update_descriptor.size());
       BTreeLL::generateDiff(update_descriptor, new_delta.payload + update_descriptor.size(), getValue());
       used_space += needed_space;
-      prev_commited_after_so = latest_commited_after_so;
-      latest_commited_after_so = cr::Worker::my().so_start;
       deltas_count++;
    }
    ensure(total_space >= used_space);
@@ -311,7 +288,6 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
       fat_tuple.used_space += fat_tuple.value_length;
       fat_tuple.worker_id = chain_head.worker_id;
       fat_tuple.tts = chain_head.tts;
-      fat_tuple.latest_commited_after_so = chain_head.commited_after_so;
       // -------------------------------------------------------------------------------------
       next_sn = chain_head.next_sn;
    }

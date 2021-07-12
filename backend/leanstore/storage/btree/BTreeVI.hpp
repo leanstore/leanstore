@@ -114,7 +114,6 @@ class BTreeVI : public BTreeLL
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
       // -------------------------------------------------------------------------------------
-      u64 commited_after_so = 0;
       ChainSN next_sn = 0;
       s64 debugging = 0;
       u8 payload[];  // latest version in-place
@@ -126,7 +125,6 @@ class BTreeVI : public BTreeLL
       u8 worker_id : 8;
       u64 tts : 56;
       u64 commited_before_so;  // Helpful for garbage collection
-      u64 commited_after_so;
       u8 is_removed : 1;
       u8 is_delta : 1;  // TODO: atm, always true
       ChainSN next_sn;
@@ -152,9 +150,6 @@ class BTreeVI : public BTreeLL
             return *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload);
          }
       };
-      // -------------------------------------------------------------------------------------
-      u64 latest_commited_after_so;
-      u64 prev_commited_after_so;
       // -------------------------------------------------------------------------------------
       u16 value_length;
       u16 total_space;       // From the payload bytes array
