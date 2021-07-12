@@ -39,6 +39,10 @@ static inline u16 swap(u16 x)
 {
    return __builtin_bswap16(x);
 }
+static inline u8 swap(u8 x)
+{
+   return x;
+}
 // -------------------------------------------------------------------------------------
 struct BTreeNodeHeader {
    static const u16 underFullSize = EFFECTIVE_PAGE_SIZE * 0.6;

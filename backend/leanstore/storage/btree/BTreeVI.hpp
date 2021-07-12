@@ -96,38 +96,34 @@ class BTreeVI : public BTreeLL
       void writeLock() { write_locked = true; }
       void unlock() { write_locked = false; }
    };
+   static_assert(sizeof(Tuple) <= 10, "");
    // -------------------------------------------------------------------------------------
-   using ChainSN = u32;
+   using ChainSN = u16;
    // -------------------------------------------------------------------------------------
    // Chained: only scheduled gc todos. FatTuple: eager pgc, no scheduled gc todos
    struct __attribute__((packed)) ChainedTuple : Tuple {
-      struct __attribute__((packed)) Stats {
-         u8 has_different_length : 1;
-         u8 can_convert_to_fat_tuple : 1;
-         u16 versions_counter : 14;
-         Stats() { reset(); }
-         void reset()
-         {
-            can_convert_to_fat_tuple = 1;
-            has_different_length = 0;
-            versions_counter = 1;
-         }
-      };
-      static_assert(sizeof(Stats) == 2, "");
-      Stats stats;
+      u8 can_convert_to_fat_tuple : 1;
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
+      u8 versions_counter;
       // -------------------------------------------------------------------------------------
       ChainSN next_sn = 0;
-      s64 debugging = 0;
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
       ChainedTuple(u8 worker_id, u64 worker_commit_mark)
           : Tuple(TupleFormat::CHAINED, worker_id, worker_commit_mark), is_removed(false), is_gc_scheduled(false)
       {
+         reset();
       }
       bool isFinal() const { return next_sn == 0; }
+      void reset()
+      {
+         can_convert_to_fat_tuple = 1;
+         versions_counter = 1;
+      }
    };
+   static_assert(sizeof(ChainedTuple) <= 14, "");
+   // -------------------------------------------------------------------------------------
    struct __attribute__((packed)) ChainedTupleVersion {
       u8 worker_id : 8;
       u64 worker_commit_mark : 56;
@@ -143,6 +139,7 @@ class BTreeVI : public BTreeLL
       }
       bool isFinal() const { return next_sn == 0; }
    };
+   static_assert(sizeof(ChainedTupleVersion) <= 19, "");
    // -------------------------------------------------------------------------------------
    // We always append the descriptor, one format to keep simple
    struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
