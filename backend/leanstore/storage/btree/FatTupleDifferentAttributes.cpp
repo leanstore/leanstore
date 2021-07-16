@@ -51,8 +51,8 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
 {
    u32 offset = value_length, delta_i = 0;
    auto delta = reinterpret_cast<Delta*>(payload + offset);
-   const bool pgc =
-       FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size && !(worker_id == cr::Worker::my().workerID() && worker_commit_mark == cr::Worker::my().CM());
+   const bool pgc = FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size &&
+                    !(worker_id == cr::Worker::my().workerID() && worker_commit_mark == cr::Worker::my().CM());
    // -------------------------------------------------------------------------------------
    if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(delta->commited_before_so)) {
       const u16 removed_deltas = deltas_count - 1;
@@ -229,6 +229,10 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       debug = 1;
       BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), getValue());
       wal_entry.submit();
+      // -------------------------------------------------------------------------------------
+      if (FLAGS_vi_to) {
+         getAtomicReadTS().store(cr::Worker::my().TXStart(), std::memory_order_release);
+      }
    }
    return true;
 }

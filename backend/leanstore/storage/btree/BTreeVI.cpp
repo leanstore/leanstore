@@ -59,8 +59,7 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, funct
       if (ret != OP_RESULT::OK) {  // For debugging
          cout << endl;
          cout << u64(std::get<1>(reconstruct)) << endl;
-         raise(SIGTRAP);
-         jumpmu_return OP_RESULT::NOT_FOUND;
+         // raise(SIGTRAP);
       }
       jumpmu_return ret;
    }
@@ -137,6 +136,9 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       if (tuple.isWriteLocked() || !isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark)) {
          jumpmu_return OP_RESULT::ABORT_TX;
       }
+      if (FLAGS_vi_to && tuple.getAtomicReadTS().load() > cr::Worker::my().TXStart()) {
+         jumpmu_return OP_RESULT::ABORT_TX;
+      }
       tuple.writeLock();
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
       // -------------------------------------------------------------------------------------
@@ -157,9 +159,9 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          auto& chain_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
          const u32 convert_to_fat_tuple_threshold =
              (FLAGS_vi_fat_tuple_threshold > 0 ? FLAGS_vi_fat_tuple_threshold : cr::Worker::my().workers_count);
-         const bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && chain_head.can_convert_to_fat_tuple &&
-                                           chain_head.versions_counter >= convert_to_fat_tuple_threshold &&
-                                           !(chain_head.worker_id == cr::Worker::my().workerID() && chain_head.worker_commit_mark == cr::Worker::my().CM());
+         const bool convert_to_fat_tuple =
+             FLAGS_vi_fat_tuple && chain_head.can_convert_to_fat_tuple && chain_head.versions_counter >= convert_to_fat_tuple_threshold &&
+             !(chain_head.worker_id == cr::Worker::my().workerID() && chain_head.worker_commit_mark == cr::Worker::my().CM());
          if (FLAGS_vi_fupdate_chained) {  //  (dt_id != 0 && dt_id != 1 && dt_id != 10)
             // WAL
             u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
@@ -300,6 +302,10 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                 },
                 head_wtts);
             head_version.is_gc_scheduled = true;
+         }
+         // -------------------------------------------------------------------------------------
+         if (FLAGS_vi_to) {
+            head_version.getAtomicReadTS().store(cr::Worker::my().TXStart(), std::memory_order_release);
          }
          // -------------------------------------------------------------------------------------
          head_version.unlock();

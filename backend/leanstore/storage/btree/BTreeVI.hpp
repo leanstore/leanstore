@@ -82,6 +82,10 @@ class BTreeVI : public BTreeLL
     */
    enum class TupleFormat : u8 { CHAINED = 0, FAT_TUPLE_DIFFERENT_ATTRIBUTES = 1, FAT_TUPLE_SAME_ATTRIBUTES = 2, VISIBLE_FOR_ALL = 3 };
    struct __attribute__((packed)) Tuple {
+      union {
+         alignas(8) u8 read_ts[8];  // Needed for MVTO
+         u64 read_ts_integer = 0;
+      };
       TupleFormat tuple_format;
       u8 worker_id : 8;
       u64 worker_commit_mark : 56;
@@ -95,8 +99,9 @@ class BTreeVI : public BTreeLL
       bool isWriteLocked() const { return write_locked; }
       void writeLock() { write_locked = true; }
       void unlock() { write_locked = false; }
+      std::atomic<u64>& getAtomicReadTS() { return *reinterpret_cast<std::atomic<u64>*>(read_ts); }
    };
-   static_assert(sizeof(Tuple) <= 10, "");
+   static_assert(sizeof(Tuple) <= 24, "");
    // -------------------------------------------------------------------------------------
    using ChainSN = u16;
    // -------------------------------------------------------------------------------------
@@ -122,7 +127,7 @@ class BTreeVI : public BTreeLL
          versions_counter = 1;
       }
    };
-   static_assert(sizeof(ChainedTuple) <= 14, "");
+   static_assert(sizeof(ChainedTuple) <= 24, "");
    // -------------------------------------------------------------------------------------
    struct __attribute__((packed)) ChainedTupleVersion {
       u8 worker_id : 8;
@@ -370,6 +375,18 @@ class BTreeVI : public BTreeLL
                return {OP_RESULT::NOT_FOUND, 1};
             }
             callback(Slice(primary_version.payload, payload.length() - sizeof(ChainedTuple)));
+            if (FLAGS_vi_to) {
+               while (true) {
+                  std::atomic<u64>& read_ts = const_cast<ChainedTuple&>(primary_version).getAtomicReadTS();
+                  u64 expected = read_ts.load();
+                  if (expected > cr::Worker::my().TXStart()) {
+                     break;
+                  }
+                  if (read_ts.compare_exchange_strong(expected, cr::Worker::my().TXStart())) {
+                     break;
+                  }
+               }
+            }
             return {OP_RESULT::OK, 1};
          } else {
             if (primary_version.isFinal()) {
