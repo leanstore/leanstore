@@ -28,6 +28,9 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
    std::memcpy(key, o_key, o_key_length);
    *reinterpret_cast<ChainSN*>(key + o_key_length) = 0;
    // -------------------------------------------------------------------------------------
+   if (FLAGS_vi_to) {
+      return lookupPessimistic(key, key_length, payload_callback);
+   }
    const OP_RESULT ret = lookupOptimistic(key, key_length, payload_callback);
    if (ret == OP_RESULT::OTHER) {
       return lookupPessimistic(key, key_length, payload_callback);
@@ -42,7 +45,7 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, funct
    Slice key(key_buffer, key_length);
    jumpmuTry()
    {
-      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this), FLAGS_vi_to ? LATCH_FALLBACK_MODE::EXCLUSIVE : LATCH_FALLBACK_MODE::SHARED);
       auto ret = iterator.seekExact(key);
       explainIfNot(ret == OP_RESULT::OK);
       if (ret != OP_RESULT::OK) {
@@ -56,10 +59,10 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, funct
          WorkerCounters::myCounters().cc_read_versions_visited[dt_id] += std::get<1>(reconstruct);
       }
       ret = std::get<0>(reconstruct);
-      if (ret != OP_RESULT::OK) {  // For debugging
+      if (ret != OP_RESULT::ABORT_TX && ret != OP_RESULT::OK) {  // For debugging
          cout << endl;
          cout << u64(std::get<1>(reconstruct)) << endl;
-         // raise(SIGTRAP);
+         raise(SIGTRAP);
       }
       jumpmu_return ret;
    }
@@ -425,6 +428,9 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          if (primary_version.isWriteLocked() || !isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark)) {
             jumpmu_return OP_RESULT::ABORT_TX;
          }
+         if (FLAGS_vi_to && primary_version.getAtomicReadTS().load() > cr::Worker::my().TXStart()) {
+            jumpmu_return OP_RESULT::ABORT_TX;
+         }
          ensure(primary_version.is_removed == false);
          primary_version.writeLock();
          // -------------------------------------------------------------------------------------
@@ -485,6 +491,9 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.worker_id = cr::Worker::my().workerID();
          primary_version.worker_commit_mark = cr::Worker::my().CM();
          primary_version.next_sn = secondary_sn;
+         if (FLAGS_vi_to) {
+            primary_version.getAtomicReadTS().store(cr::Worker::my().TXStart(), std::memory_order_release);
+         }
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_rtodo && !primary_version.is_gc_scheduled) {
             const u64 wtts = cr::Worker::composeWIDCM(old_primary_version.worker_id, old_primary_version.worker_commit_mark);
@@ -863,8 +872,7 @@ struct DTRegistry::DTMeta BTreeVI::getMeta()
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::scanDesc(u8* o_key, u16 o_key_length, function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
-   scan<false>(o_key, o_key_length, callback);
-   return OP_RESULT::OK;
+   return scan<false>(o_key, o_key_length, callback);
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::scanAsc(u8* o_key,
@@ -872,8 +880,7 @@ OP_RESULT BTreeVI::scanAsc(u8* o_key,
                            function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback,
                            function<void()>)
 {
-   scan<true>(o_key, o_key_length, callback);
-   return OP_RESULT::OK;
+   return scan<true>(o_key, o_key_length, callback);
 }
 // -------------------------------------------------------------------------------------
 std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator& iterator,

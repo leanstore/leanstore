@@ -45,7 +45,6 @@ class BTreeGeneric
 {
   public:
    // -------------------------------------------------------------------------------------
-   template <LATCH_FALLBACK_MODE mode>
    friend class BTreePessimisticIterator;
    // -------------------------------------------------------------------------------------
    Swip<BufferFrame> meta_node_bf;  // kept in memory

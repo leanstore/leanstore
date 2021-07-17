@@ -41,7 +41,7 @@ struct LeanStoreAdapter : Adapter<Record> {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
-      btree->scanDesc(
+      OP_RESULT ret = btree->scanDesc(
           folded_key, folded_key_len,
           [&](const u8* key, [[maybe_unused]] u16 key_length, const u8* payload, [[maybe_unused]] u16 payload_length) {
              if (key_length != folded_key_len) {
@@ -53,13 +53,16 @@ struct LeanStoreAdapter : Adapter<Record> {
              return cb(typed_key, typed_payload);
           },
           undo);
+      if (ret == leanstore::OP_RESULT::ABORT_TX) {
+         cr::Worker::my().abortTX();
+      }
    }
    // -------------------------------------------------------------------------------------
    void insert(const typename Record::Key& key, const Record& record) final
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
-      const auto res = btree->insert(folded_key, folded_key_len, (u8*)(&record), sizeof(Record));
+      const OP_RESULT res = btree->insert(folded_key, folded_key_len, (u8*)(&record), sizeof(Record));
       ensure(res == leanstore::OP_RESULT::OK || res == leanstore::OP_RESULT::ABORT_TX);
       if (res == leanstore::OP_RESULT::ABORT_TX) {
          cr::Worker::my().abortTX();
@@ -70,11 +73,14 @@ struct LeanStoreAdapter : Adapter<Record> {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
-      const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
+      const OP_RESULT res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          static_cast<void>(payload_length);
          const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
          cb(typed_payload);
       });
+      if (res == leanstore::OP_RESULT::ABORT_TX) {
+         cr::Worker::my().abortTX();
+      }
       ensure(res == leanstore::OP_RESULT::OK);
    }
    // -------------------------------------------------------------------------------------
@@ -82,7 +88,7 @@ struct LeanStoreAdapter : Adapter<Record> {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
-      const auto res = btree->updateSameSizeInPlace(
+      const OP_RESULT res = btree->updateSameSizeInPlace(
           folded_key, folded_key_len,
           [&](u8* payload, u16 payload_length) {
              static_cast<void>(payload_length);
@@ -114,7 +120,7 @@ struct LeanStoreAdapter : Adapter<Record> {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
-      btree->scanAsc(
+      OP_RESULT ret = btree->scanAsc(
           folded_key, folded_key_len,
           [&](const u8* key, u16 key_length, const u8* payload, u16 payload_length) {
              if (key_length != folded_key_len) {
@@ -127,6 +133,9 @@ struct LeanStoreAdapter : Adapter<Record> {
              return cb(typed_key, typed_payload);
           },
           undo);
+      if (ret == leanstore::OP_RESULT::ABORT_TX) {
+         cr::Worker::my().abortTX();
+      }
    }
    // -------------------------------------------------------------------------------------
    template <class Field>
@@ -135,12 +144,15 @@ struct LeanStoreAdapter : Adapter<Record> {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
       Field local_f;
-      const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
+      const OP_RESULT res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          static_cast<void>(payload_length);
          Record& typed_payload = *const_cast<Record*>(reinterpret_cast<const Record*>(payload));
          local_f = (typed_payload).*f;
       });
-      ensure(res == leanstore::OP_RESULT::OK);
+      if (res == leanstore::OP_RESULT::ABORT_TX) {
+         cr::Worker::my().abortTX();
+      }
+      ensure(res == OP_RESULT::OK);
       return local_f;
    }
    // -------------------------------------------------------------------------------------

@@ -14,13 +14,13 @@ namespace btree
 {
 // -------------------------------------------------------------------------------------
 // Iterator
-template <LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED>
 class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
 {
    friend class BTreeGeneric;
 
   public:
    BTreeGeneric& btree;
+   const LATCH_FALLBACK_MODE mode;
    HybridPageGuard<BTreeNode> leaf;
    // -------------------------------------------------------------------------------------
    // Hooks
@@ -48,7 +48,13 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       }
       // -------------------------------------------------------------------------------------
       leaf.unlock();
-      btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
+      if (mode == LATCH_FALLBACK_MODE::SHARED) {
+         btree.findLeafAndLatch<LATCH_FALLBACK_MODE::SHARED>(leaf, key.data(), key.length());
+      } else if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
+         btree.findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.data(), key.length());
+      } else {
+         UNREACHABLE();
+      }
       prefix_copied = false;
       // -------------------------------------------------------------------------------------
       if (after_changing_leaf_cb) {
@@ -59,7 +65,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    virtual bool keyInCurrentBoundaries(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
    // -------------------------------------------------------------------------------------
   public:
-   BTreePessimisticIterator(BTreeGeneric& btree) : btree(btree) {}
+   BTreePessimisticIterator(BTreeGeneric& btree, const LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED) : btree(btree), mode(mode) {}
    // -------------------------------------------------------------------------------------
    void registerBeforeChangingLeafHook(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { before_changing_leaf_cb = cb; }
    void registerAfterChangingLeafHook(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { after_changing_leaf_cb = cb; }
@@ -215,14 +221,19 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    virtual Slice value() override { return Slice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }
 };
 // -------------------------------------------------------------------------------------
-using BTreeSharedIterator = BTreePessimisticIterator<LATCH_FALLBACK_MODE::SHARED>;
-class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>
+class BTreeSharedIterator : public BTreePessimisticIterator
+{
+  public:
+   BTreeSharedIterator(BTreeGeneric& btree, const LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED) : BTreePessimisticIterator(btree, mode) {}
+};
+// -------------------------------------------------------------------------------------
+class BTreeExclusiveIterator : public BTreePessimisticIterator
 {
   private:
   public:
-   BTreeExclusiveIterator(BTreeGeneric& btree) : BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>(btree) {}
+   BTreeExclusiveIterator(BTreeGeneric& btree) : BTreePessimisticIterator(btree, LATCH_FALLBACK_MODE::EXCLUSIVE) {}
    BTreeExclusiveIterator(BTreeGeneric& btree, BufferFrame* bf, const u64 bf_version)
-       : BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>(btree)
+       : BTreePessimisticIterator(btree, LATCH_FALLBACK_MODE::EXCLUSIVE)
    {
       Guard as_it_was_witnessed(bf->header.latch, bf_version);
       leaf = HybridPageGuard<BTreeNode>(as_it_was_witnessed, bf);
@@ -381,7 +392,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    }
    virtual OP_RESULT removeKV(Slice key)
    {
-      auto ret = BTreePessimisticIterator<LATCH_FALLBACK_MODE::EXCLUSIVE>::seekExact(key);
+      auto ret = seekExact(key);
       if (ret == OP_RESULT::OK) {
          leaf->removeSlot(cur);
          return OP_RESULT::OK;
