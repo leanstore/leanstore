@@ -230,7 +230,7 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), getValue());
       wal_entry.submit();
       // -------------------------------------------------------------------------------------
-      if (FLAGS_vi_to) {
+      if (cr::activeTX().isSerializable()) {
          getAtomicReadTS().store(cr::Worker::my().TXStart(), std::memory_order_release);
       }
    }

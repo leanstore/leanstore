@@ -37,6 +37,7 @@ class TPCCWorkload
    const bool order_wdc_index = true;
    const Integer warehouseCount;
    const Integer tpcc_remove;
+   const bool manually_handle_isolation_anomalies;
    const bool cross_warehouses;
    // -------------------------------------------------------------------------------------
    Integer urandexcept(Integer low, Integer high, Integer v)
@@ -292,16 +293,11 @@ class TPCCWorkload
          // -------------------------------------------------------------------------------------
          if (tpcc_remove) {
             const auto ret = neworder.erase({w_id, d_id, o_id});
-            ensure(ret || !FLAGS_si);
+            ensure(ret || manually_handle_isolation_anomalies);
          }
          // -------------------------------------------------------------------------------------
          Integer ol_cnt = minInteger, c_id;
-         if (FLAGS_si) {
-            order.lookup1({w_id, d_id, o_id}, [&](const order_t& rec) {
-               ol_cnt = rec.o_ol_cnt;
-               c_id = rec.o_c_id;
-            });
-         } else {
+         if (manually_handle_isolation_anomalies) {
             order.scan(
                 {w_id, d_id, o_id},
                 [&](const order_t::Key&, const order_t& rec) {
@@ -312,9 +308,14 @@ class TPCCWorkload
                 [&]() {});
             if (ol_cnt == minInteger)
                continue;
+         } else {
+            order.lookup1({w_id, d_id, o_id}, [&](const order_t& rec) {
+               ol_cnt = rec.o_ol_cnt;
+               c_id = rec.o_c_id;
+            });
          }
          // -------------------------------------------------------------------------------------
-         if (!FLAGS_si) {
+         if (manually_handle_isolation_anomalies) {
             bool is_safe_to_continue = false;
             order.scan(
                 {w_id, d_id, o_id},
@@ -337,7 +338,7 @@ class TPCCWorkload
          order.update1(
              {w_id, d_id, o_id}, [&](order_t& rec) { rec.o_carrier_id = carrier_id; }, order_update_descriptor);
          // -------------------------------------------------------------------------------------
-         if (!FLAGS_si) {
+         if (manually_handle_isolation_anomalies) {
             // First check if all orderlines have been inserted, a hack because of the missing transaction and concurrency control
             bool is_safe_to_continue = false;
             orderline.scan(
@@ -828,6 +829,7 @@ class TPCCWorkload
                 bool order_wdc_index,
                 Integer warehouse_count,
                 bool tpcc_remove,
+                bool manually_handle_isolation_anomalies = true,
                 bool cross_warehouses = true)
        : warehouse(w),
          district(d),
@@ -843,6 +845,7 @@ class TPCCWorkload
          order_wdc_index(order_wdc_index),
          warehouseCount(warehouse_count),
          tpcc_remove(tpcc_remove),
+         manually_handle_isolation_anomalies(manually_handle_isolation_anomalies),
          cross_warehouses(cross_warehouses)
    {
    }

@@ -232,7 +232,8 @@ class BTreeVI : public BTreeLL
       // -------------------------------------------------------------------------------------
       jumpmuTry()
       {
-         BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this), FLAGS_vi_to ? LATCH_FALLBACK_MODE::EXCLUSIVE : LATCH_FALLBACK_MODE::SHARED);
+         BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this),
+                                      cr::activeTX().isSerializable() ? LATCH_FALLBACK_MODE::EXCLUSIVE : LATCH_FALLBACK_MODE::SHARED);
          // -------------------------------------------------------------------------------------
          MutableSlice s_key = iterator.mutableKeyInBuffer(o_key_length + sizeof(ChainSN));
          std::memcpy(s_key.data(), o_key, o_key_length);
@@ -258,7 +259,7 @@ class BTreeVI : public BTreeLL
                         if (sn == 0) {
                            auto& primary_version =
                                *reinterpret_cast<ChainedTuple*>(leaf->getPayload(t_i) + leaf->getPayloadLength(t_i) - sizeof(ChainedTuple));
-                           skippable &= primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark);
+                           skippable &= primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false);
                         }
                      }
                      if (skippable) {
@@ -314,7 +315,7 @@ class BTreeVI : public BTreeLL
                   visible_chain_found = true;
                   counter++;
                });
-               if (FLAGS_vi_to) {
+               if (cr::activeTX().isSerializable()) {
                   if (std::get<0>(reconstruct) == OP_RESULT::ABORT_TX) {
                      jumpmu_return OP_RESULT::ABORT_TX;
                   }
@@ -358,8 +359,10 @@ class BTreeVI : public BTreeLL
       jumpmuCatch() { ensure(false); }
    }
    // -------------------------------------------------------------------------------------
-   inline bool isVisibleForMe(u8 worker_id, u64 worker_commit_mark) { return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark); }
-   inline bool isVisibleForMe(u64 widcm) { return cr::Worker::my().isVisibleForMe(widcm); }
+   inline bool isVisibleForMe(u8 worker_id, u64 worker_commit_mark, bool to_write = true)
+   {
+      return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
+   }
    inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
    // -------------------------------------------------------------------------------------
    template <typename T>
@@ -376,12 +379,12 @@ class BTreeVI : public BTreeLL
       assert(getSN(key) == 0);
       if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
          const ChainedTuple& primary_version = *reinterpret_cast<const ChainedTuple*>(payload.data());
-         if (isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark)) {
+         if (isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false)) {
             if (primary_version.is_removed) {
                return {OP_RESULT::NOT_FOUND, 1};
             }
             callback(Slice(primary_version.payload, payload.length() - sizeof(ChainedTuple)));
-            if (FLAGS_vi_to) {
+            if (cr::activeTX().isSerializable() && !cr::activeTX().isReadOnly()) {
                std::atomic<u64>& read_ts = const_cast<ChainedTuple&>(primary_version).getAtomicReadTS();
                if (read_ts.load() < cr::Worker::my().TXStart()) {
                   read_ts.store(cr::Worker::my().TXStart(), std::memory_order_release);
@@ -389,7 +392,7 @@ class BTreeVI : public BTreeLL
             }
             return {OP_RESULT::OK, 1};
          } else {
-            if (FLAGS_vi_to) {
+            if (cr::activeTX().isSerializable() && !cr::activeTX().isReadOnly()) {
                return {OP_RESULT::ABORT_TX, 1};
             }
             if (primary_version.isFinal()) {

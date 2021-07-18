@@ -81,8 +81,12 @@ int main(int argc, char** argv)
    db.registerConfigEntry("ch_a_threads", FLAGS_ch_a_threads);
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
    // -------------------------------------------------------------------------------------
+   leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
+   // -------------------------------------------------------------------------------------
+   const bool should_tpcc_driver_handle_isolation_anomalies = isolation_level < leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION;
    TPCCWorkload<LeanStoreAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
-                                       FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove, FLAGS_tpcc_cross_warehouses);
+                                       FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove,
+                                       should_tpcc_driver_handle_isolation_anomalies, FLAGS_tpcc_cross_warehouses);
    // -------------------------------------------------------------------------------------
    if (!FLAGS_recover) {
       cout << "Loading TPC-C" << endl;
@@ -136,7 +140,7 @@ int main(int argc, char** argv)
          while (keep_running) {
             jumpmuTry()
             {
-               cr::Worker::my().startTX();
+               cr::Worker::my().startTX(leanstore::TX_MODE::LONG_READONLY, isolation_level);
                for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
                   tpcc.analyticalQuery(FLAGS_ch_a_query);
                }
@@ -161,7 +165,7 @@ int main(int argc, char** argv)
          while (keep_running) {
             jumpmuTry()
             {
-               cr::Worker::my().startTX();
+               cr::Worker::my().startTX(leanstore::TX_MODE::LONG_READWRITE, isolation_level);
                u32 w_id;
                if (FLAGS_tpcc_warehouse_affinity) {
                   w_id = t_i + 1;

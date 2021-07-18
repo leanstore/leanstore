@@ -43,7 +43,7 @@ int main(int argc, char** argv)
    RocksDBAdapter<stock_t> stock(rocks_db);
    // -------------------------------------------------------------------------------------
    TPCCWorkload<RocksDBAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
-                                     FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove);
+                                     FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove, true, true);
    // -------------------------------------------------------------------------------------
    tpcc.loadItem();
    tpcc.loadWarehouse();

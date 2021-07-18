@@ -67,13 +67,13 @@ DECLARE_uint64(wal_offset_gib);
 DECLARE_bool(wal_io_hack);
 DECLARE_bool(wal_fsync);
 // -------------------------------------------------------------------------------------
-DECLARE_bool(si);
+DECLARE_string(isolation_level);
+DECLARE_bool(commit_hwm);
 DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
 DECLARE_bool(todo);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(vi);
-DECLARE_bool(vi_to);
 DECLARE_bool(vi_utodo);
 DECLARE_bool(vi_rtodo);
 DECLARE_bool(vi_flookup);

@@ -192,11 +192,18 @@ void Worker::sortWorkers()
    workers_sorted = true;
 }
 // -------------------------------------------------------------------------------------
-void Worker::startTX(TX_MODE next_tx_type)
+void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level)
 {
+   // For single-statement transactions, snapshot isolation and serialization are the same as read committed
+   if (next_tx_type == TX_MODE::SINGLE_READONLY || next_tx_type == TX_MODE::SINGLE_READWRITE) {
+      if (next_tx_isolation_level > TX_ISOLATION_LEVEL::READ_COMMITTED) {
+         next_tx_isolation_level = TX_ISOLATION_LEVEL::READ_COMMITTED;
+      }
+   }
+   // -------------------------------------------------------------------------------------
    if (FLAGS_wal) {
       current_tx_wal_start = wal_wt_cursor;
-      if (next_tx_type != TX_MODE::SINGLE_LOOKUP) {
+      if (next_tx_type != TX_MODE::SINGLE_READONLY && next_tx_type != TX_MODE::LONG_READONLY) {
          WALMetaEntry& entry = reserveWALMetaEntry();
          entry.type = WALEntry::TYPE::TX_START;
          submitWALMetaEntry();
@@ -220,15 +227,15 @@ void Worker::startTX(TX_MODE next_tx_type)
       active_tx.commit_mark = global_workers_commit_marks[worker_id];
       active_tx.min_observed_gsn_when_started = clock_gsn;
       // -------------------------------------------------------------------------------------
-      if (FLAGS_si) {
+      if (FLAGS_commit_hwm) {
          snapshot_order_refreshed = false;
-         if (next_tx_type == TX_MODE::LONG_TX) {
+         if (next_tx_isolation_level > TX_ISOLATION_LEVEL::READ_COMMITTED) {
             if (force_si_refresh || FLAGS_si_refresh_rate == 0 || active_tx.commit_mark % FLAGS_si_refresh_rate == 0) {
                refreshSnapshotHWMs();
             }
             force_si_refresh = false;
          } else {
-            if (current_tx_mode == TX_MODE::LONG_TX) {
+            if (activeTX().atLeastSI()) {
                switchToAlwaysUpToDateMode();
             }
          }
@@ -236,12 +243,15 @@ void Worker::startTX(TX_MODE next_tx_type)
          checkup();
       }
    }
-   current_tx_mode = next_tx_type;
+   active_tx.current_tx_mode = next_tx_type;
+   active_tx.current_tx_isolation_level = next_tx_isolation_level;
+   active_tx.is_durable = FLAGS_wal;  // TODO:
 }
 // -------------------------------------------------------------------------------------
 void Worker::switchToAlwaysUpToDateMode()
 {
-   global_tx_start_timestamps[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63), std::memory_order_release);
+   global_tx_start_timestamps[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63),
+                                               std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
       local_workers_commit_marks[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    }
@@ -256,12 +266,11 @@ void Worker::shutdown()
 // Pre: Refresh Snapshot Ordering
 void Worker::checkup()
 {
-   if (FLAGS_si) {
-      if (!todo_hwm_rb.empty() || !todo_lwm_rb.empty()) {
-         refreshSnapshotOrderingIfNeeded();
-      } else {
+   if (FLAGS_commit_hwm) {
+      if (todo_hwm_rb.empty() && todo_lwm_rb.empty()) {
          return;
       }
+      refreshSnapshotOrderingIfNeeded();
       // -------------------------------------------------------------------------------------
       {
          auto& rb = todo_hwm_rb;
@@ -269,7 +278,8 @@ void Worker::checkup()
             auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
             if (oldest_tx_start > todo.after_so) {
                WorkerCounters::myCounters().cc_rtodo_lng_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_worker_commit_mark);
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
+                                                                       todo.version_worker_commit_mark);
                rb.popFront();
             } else {
                WorkerCounters::myCounters().cc_todo_1_break[todo.dt_id]++;
@@ -284,7 +294,8 @@ void Worker::checkup()
             ensure(todo.or_before_so > 0);
             if (oldest_tx_start > todo.after_so) {
                WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_worker_commit_mark);
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
+                                                                       todo.version_worker_commit_mark);
                rb.popFront();
             } else {
                bool safe_to_gc = true;
@@ -299,7 +310,8 @@ void Worker::checkup()
                }
                if (safe_to_gc) {
                   WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
-                  leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_worker_commit_mark);
+                  leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
+                                                                          todo.version_worker_commit_mark);
                   rb.popFront();
                } else {
                   break;
@@ -312,13 +324,13 @@ void Worker::checkup()
 // -------------------------------------------------------------------------------------
 void Worker::commitTX()
 {
-   if (FLAGS_wal) {
-      if (current_tx_mode == TX_MODE::SINGLE_UPSERT && active_tx.state != Transaction::STATE::STARTED) {
+   if (activeTX().isDurable()) {
+      if (activeTX().isSingleStatement() && active_tx.state != Transaction::STATE::STARTED) {
          return;  // Skip double commit in case of single statement upsert [hacky]
       }
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
-      if (current_tx_mode != TX_MODE::SINGLE_LOOKUP) {
+      if (!activeTX().isReadOnly()) {
          WALMetaEntry& entry = reserveWALMetaEntry();
          entry.type = WALEntry::TYPE::TX_COMMIT;
          submitWALMetaEntry();
@@ -328,7 +340,7 @@ void Worker::commitTX()
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
       // We don't have pmem, so we can only avoid remote flushes for real if the tx is a single lookup
       if (!FLAGS_wal_rfa_pmem_simulate) {
-         needs_remote_flush |= current_tx_mode != TX_MODE::SINGLE_LOOKUP;
+         needs_remote_flush |= !activeTX().isReadOnly();
       }
       if (needs_remote_flush) {  // RFA
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
@@ -339,8 +351,8 @@ void Worker::commitTX()
          CRCounters::myCounters().rfa_committed_tx += 1;
       }
       // -------------------------------------------------------------------------------------
-      if (FLAGS_si) {
-         if (current_tx_mode != TX_MODE::SINGLE_LOOKUP) {
+      if (FLAGS_commit_hwm) {
+         if (!activeTX().isReadOnly()) {
             global_workers_commit_marks[worker_id].store(active_tx.commit_mark + 1, std::memory_order_release);
             commitTODOs(global_logical_clock.fetch_add(WORKERS_INCREMENT));
          }
@@ -374,14 +386,19 @@ bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
    return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->local_workers_commit_marks[what_worker_id] > tts);
 }
 // -------------------------------------------------------------------------------------
-bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
+// It is also used to check whether the tuple is write-locked, hence we need the to_write intention flag
+// There are/will be two types of write locks: ones that are released with commit hwm and ones that are manually released after commit.
+bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts, bool to_write)
 {
+   if (!to_write && activeTX().isReadUncommitted()) {
+      return true;
+   }
    if (worker_id == other_worker_id) {
       return true;
    } else {
       if (local_workers_commit_marks[other_worker_id].load() > tts) {
          return true;
-      } else if (current_tx_mode != TX_MODE::LONG_TX) {
+      } else if (activeTX().isSingleStatement() || activeTX().isReadCommitted()) {
          // Single statement transaction can refresh their vector on-demand
          local_workers_commit_marks[other_worker_id].store(global_workers_commit_marks[other_worker_id].load(), std::memory_order_release);
          return local_workers_commit_marks[other_worker_id].load() > tts;
@@ -400,7 +417,7 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForAll(u64 commited_before_so)
 {
-   if (current_tx_mode != TX_MODE::LONG_TX) {
+   if (activeTX().isSingleStatement()) {
       refreshSnapshotOrderingIfNeeded();
    }
    return commited_before_so < oldest_tx_start;

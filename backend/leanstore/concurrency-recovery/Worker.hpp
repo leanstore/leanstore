@@ -52,8 +52,9 @@ struct Worker {
    static unique_ptr<atomic<u64>[]> global_tx_start_timestamps;
    static unique_ptr<atomic<u64>[]> global_workers_commit_marks;
    // -------------------------------------------------------------------------------------
-   enum class TX_MODE : u8 { LONG_TX, SINGLE_LOOKUP, SINGLE_UPSERT };
-   TX_MODE current_tx_mode = TX_MODE::LONG_TX;
+   Transaction active_tx;
+   WALMetaEntry* active_mt_entry;
+   WALDTEntry* active_dt_entry;
    // -------------------------------------------------------------------------------------
    bool force_si_refresh = false;
    bool workers_sorted = false;
@@ -200,10 +201,6 @@ struct Worker {
    u64 current_tx_wal_start;
    void iterateOverCurrentTXEntries(std::function<void(const WALEntry& entry)> callback);
    // -------------------------------------------------------------------------------------
-   Transaction active_tx;
-   WALMetaEntry* active_mt_entry;
-   WALDTEntry* active_dt_entry;
-   // -------------------------------------------------------------------------------------
   private:
    // Without Payload, by submit no need to update clock (gsn)
    WALMetaEntry& reserveWALMetaEntry();
@@ -258,7 +255,7 @@ struct Worker {
   public:
    // -------------------------------------------------------------------------------------
    // TX Control
-   void startTX(TX_MODE next_tx_type = TX_MODE::LONG_TX);
+   void startTX(TX_MODE next_tx_type = TX_MODE::LONG_READWRITE, TX_ISOLATION_LEVEL next_tx_isolation_level = TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION);
    void commitTX();
    void abortTX();
    void checkup();
@@ -274,13 +271,18 @@ struct Worker {
    void switchToAlwaysUpToDateMode();
    bool isVisibleForAll(u64 commited_before_so);
    bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
-   bool isVisibleForMe(u8 worker_id, u64 tts);
+   bool isVisibleForMe(u8 worker_id, u64 tts, bool to_write = true);
    bool isVisibleForMe(u64 tts);
    // -------------------------------------------------------------------------------------
    void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALDTEntryPayload(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
 };
+// -------------------------------------------------------------------------------------
+inline Transaction& activeTX()
+{
+   return cr::Worker::my().active_tx;
+}
 // -------------------------------------------------------------------------------------
 }  // namespace cr
 }  // namespace leanstore

@@ -28,7 +28,7 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
    std::memcpy(key, o_key, o_key_length);
    *reinterpret_cast<ChainSN*>(key + o_key_length) = 0;
    // -------------------------------------------------------------------------------------
-   if (FLAGS_vi_to) {
+   if (cr::activeTX().isSerializable()) {
       return lookupPessimistic(key, key_length, payload_callback);
    }
    const OP_RESULT ret = lookupOptimistic(key, key_length, payload_callback);
@@ -45,7 +45,8 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, funct
    Slice key(key_buffer, key_length);
    jumpmuTry()
    {
-      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this), FLAGS_vi_to ? LATCH_FALLBACK_MODE::EXCLUSIVE : LATCH_FALLBACK_MODE::SHARED);
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this),
+                                   cr::activeTX().isSerializable() ? LATCH_FALLBACK_MODE::EXCLUSIVE : LATCH_FALLBACK_MODE::SHARED);
       auto ret = iterator.seekExact(key);
       explainIfNot(ret == OP_RESULT::OK);
       if (ret != OP_RESULT::OK) {
@@ -82,7 +83,7 @@ OP_RESULT BTreeVI::lookupOptimistic(const u8* key, const u16 key_length, functio
          s16 pos = leaf->lowerBound<true>(key, key_length);
          if (pos != -1) {
             auto& tuple = *reinterpret_cast<Tuple*>(leaf->getPayload(pos));
-            if (isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark)) {
+            if (isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark, false)) {
                u32 offset = 0;
                if (tuple.tuple_format == TupleFormat::CHAINED) {
                   offset = sizeof(ChainedTuple);
@@ -114,6 +115,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                                          function<void(u8* value, u16 value_size)> callback,
                                          UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
+   assert(!cr::activeTX().isReadOnly());
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    const u16 key_length = o_key_length + sizeof(ChainSN);
    u8 key_buffer[key_length];
@@ -139,7 +141,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       if (tuple.isWriteLocked() || !isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark)) {
          jumpmu_return OP_RESULT::ABORT_TX;
       }
-      if (FLAGS_vi_to && tuple.getAtomicReadTS().load() > cr::Worker::my().TXStart()) {
+      if (cr::activeTX().isSerializable() && tuple.getAtomicReadTS().load() > cr::Worker::my().TXStart()) {
          jumpmu_return OP_RESULT::ABORT_TX;
       }
       tuple.writeLock();
@@ -151,7 +153,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          ensure(res);  // TODO: what if it fails, then we have to do something else
          tuple.unlock();
          // -------------------------------------------------------------------------------------
-         if (cr::Worker::my().current_tx_mode == cr::Worker::TX_MODE::SINGLE_UPSERT) {
+         if (cr::activeTX().isSingleStatement()) {
             cr::Worker::my().commitTX();
          }
          // -------------------------------------------------------------------------------------
@@ -160,12 +162,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          jumpmu_return OP_RESULT::OK;
       } else {
          auto& chain_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
-         const u32 convert_to_fat_tuple_threshold =
-             (FLAGS_vi_fat_tuple_threshold > 0 ? FLAGS_vi_fat_tuple_threshold : cr::Worker::my().workers_count);
-         const bool convert_to_fat_tuple =
-             FLAGS_vi_fat_tuple && chain_head.can_convert_to_fat_tuple && chain_head.versions_counter >= convert_to_fat_tuple_threshold &&
-             !(chain_head.worker_id == cr::Worker::my().workerID() && chain_head.worker_commit_mark == cr::Worker::my().CM());
-         if (FLAGS_vi_fupdate_chained) {  //  (dt_id != 0 && dt_id != 1 && dt_id != 10)
+         if (FLAGS_vi_fupdate_chained) {
             // WAL
             u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
             auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
@@ -186,17 +183,24 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             // -------------------------------------------------------------------------------------
             iterator.contentionSplit();
             jumpmu_return OP_RESULT::OK;
-         } else if (convert_to_fat_tuple) {  // dt_id != 2 && dt_id == 0
-            ensure(chain_head.isWriteLocked());
-            const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator, m_key);
-            if (!convert_ret) {
-               chain_head.can_convert_to_fat_tuple = false;
-               chain_head.unlock();
-            } else {
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
+         } else {
+            const u32 convert_to_fat_tuple_threshold =
+                (FLAGS_vi_fat_tuple_threshold > 0 ? FLAGS_vi_fat_tuple_threshold : cr::Worker::my().workers_count);
+            const bool convert_to_fat_tuple =
+                FLAGS_vi_fat_tuple && chain_head.can_convert_to_fat_tuple && chain_head.versions_counter >= convert_to_fat_tuple_threshold &&
+                !(chain_head.worker_id == cr::Worker::my().workerID() && chain_head.worker_commit_mark == cr::Worker::my().CM());
+            if (convert_to_fat_tuple) {
+               ensure(chain_head.isWriteLocked());
+               const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator, m_key);
+               if (!convert_ret) {
+                  chain_head.can_convert_to_fat_tuple = false;
+                  chain_head.unlock();
+               } else {
+                  COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
+               }
+               goto restart;
+               UNREACHABLE();
             }
-            goto restart;
-            UNREACHABLE();
          }
       }
    }
@@ -307,14 +311,14 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             head_version.is_gc_scheduled = true;
          }
          // -------------------------------------------------------------------------------------
-         if (FLAGS_vi_to) {
+         if (cr::activeTX().isSerializable()) {
             head_version.getAtomicReadTS().store(cr::Worker::my().TXStart(), std::memory_order_release);
          }
          // -------------------------------------------------------------------------------------
          head_version.unlock();
          iterator.contentionSplit();
          // -------------------------------------------------------------------------------------
-         if (cr::Worker::my().current_tx_mode == cr::Worker::TX_MODE::SINGLE_UPSERT) {
+         if (cr::activeTX().isSingleStatement()) {
             cr::Worker::my().commitTX();
          }
          // -------------------------------------------------------------------------------------
@@ -328,6 +332,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_length)
 {
+   assert(!cr::activeTX().isReadOnly());
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    const u16 key_length = o_key_length + sizeof(ChainSN);
    u8 key_buffer[key_length];
@@ -370,7 +375,7 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          auto& primary_version = *new (payload.data()) ChainedTuple(cr::Worker::my().workerID(), cr::Worker::my().CM());
          std::memcpy(primary_version.payload, value, value_length);
          // -------------------------------------------------------------------------------------
-         if (cr::Worker::my().current_tx_mode == cr::Worker::TX_MODE::SINGLE_UPSERT) {
+         if (cr::activeTX().isSingleStatement()) {
             cr::Worker::my().commitTX();
          }
          // -------------------------------------------------------------------------------------
@@ -384,6 +389,7 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
 {
+   assert(!cr::activeTX().isReadOnly());
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    u8 key_buffer[o_key_length + sizeof(ChainSN)];
    const u16 key_length = o_key_length + sizeof(ChainSN);
@@ -428,10 +434,13 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          if (primary_version.isWriteLocked() || !isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark)) {
             jumpmu_return OP_RESULT::ABORT_TX;
          }
-         if (FLAGS_vi_to && primary_version.getAtomicReadTS().load() > cr::Worker::my().TXStart()) {
+         if (cr::activeTX().isSerializable() && primary_version.getAtomicReadTS().load() > cr::Worker::my().TXStart()) {
             jumpmu_return OP_RESULT::ABORT_TX;
          }
-         ensure(primary_version.is_removed == false);
+         ensure(!cr::activeTX().atLeastSI() || primary_version.is_removed == false);
+         if (primary_version.is_removed) {
+            jumpmu_return OP_RESULT::NOT_FOUND;
+         }
          primary_version.writeLock();
          // -------------------------------------------------------------------------------------
          value_length = iterator.value().length() - sizeof(ChainedTuple);
@@ -491,7 +500,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.worker_id = cr::Worker::my().workerID();
          primary_version.worker_commit_mark = cr::Worker::my().CM();
          primary_version.next_sn = secondary_sn;
-         if (FLAGS_vi_to) {
+         if (cr::activeTX().isSerializable()) {
             primary_version.getAtomicReadTS().store(cr::Worker::my().TXStart(), std::memory_order_release);
          }
          // -------------------------------------------------------------------------------------
@@ -511,7 +520,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.unlock();
       }
       // -------------------------------------------------------------------------------------
-      if (cr::Worker::my().current_tx_mode == cr::Worker::TX_MODE::SINGLE_UPSERT) {
+      if (cr::activeTX().isSingleStatement()) {
          cr::Worker::my().commitTX();
       }
       // -------------------------------------------------------------------------------------
@@ -896,7 +905,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
    {
       Slice primary_payload = iterator.value();
       const ChainedTuple& primary_version = *reinterpret_cast<const ChainedTuple*>(primary_payload.data());
-      if (isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark)) {
+      if (isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false)) {
          if (primary_version.is_removed) {
             return {OP_RESULT::NOT_FOUND, 1};
          }
@@ -937,7 +946,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          std::memcpy(materialized_value.get(), secondary_version.payload, materialized_value_length);
       }
       ensure(!secondary_version.is_removed);
-      if (isVisibleForMe(secondary_version.worker_id, secondary_version.worker_commit_mark)) {
+      if (isVisibleForMe(secondary_version.worker_id, secondary_version.worker_commit_mark, false)) {
          if (secondary_version.is_removed) {
             raise(SIGTRAP);
             return {OP_RESULT::NOT_FOUND, chain_length};

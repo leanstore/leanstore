@@ -52,11 +52,12 @@ void ConfigsTable::open()
    columns.emplace("c_wal", [&](Column& col) { col << FLAGS_wal; });
    columns.emplace("c_wal_io_hack", [&](Column& col) { col << FLAGS_wal_io_hack; });
    columns.emplace("c_wal_fsync", [&](Column& col) { col << FLAGS_wal_fsync; });
-   columns.emplace("c_si", [&](Column& col) { col << FLAGS_si; });
+   columns.emplace("c_commit_hwm", [&](Column& col) { col << FLAGS_commit_hwm; });
    columns.emplace("c_todo", [&](Column& col) { col << FLAGS_todo; });
    columns.emplace("c_vw", [&](Column& col) { col << FLAGS_vw; });
    columns.emplace("c_vi", [&](Column& col) { col << FLAGS_vi; });
    columns.emplace("c_pgc", [&](Column& col) { col << FLAGS_pgc; });
+   columns.emplace("c_isolation_level", [&](Column& col) { col << FLAGS_isolation_level; });
    // -------------------------------------------------------------------------------------
    for (auto& c : columns) {
       c.second.generator(c.second);
