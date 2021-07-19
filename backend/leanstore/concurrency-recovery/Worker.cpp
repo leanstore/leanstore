@@ -150,11 +150,13 @@ void Worker::refreshSnapshotHWMs()
    for (u64 w = 0; w < workers_count; w++) {
       local_workers_commit_marks[w].store(global_workers_commit_marks[w], std::memory_order_release);
    }
+   // -------------------------------------------------------------------------------------
+   relations_cut_from_snapshot.reset();
 }
 // -------------------------------------------------------------------------------------
-void Worker::refreshSnapshotOrderingIfNeeded()
+void Worker::refreshTransactionsOrderingIfNeeded()
 {
-   if (!snapshot_order_refreshed && (FLAGS_si_refresh_rate == 0 || active_tx.commit_mark % FLAGS_si_refresh_rate == 0)) {
+   if (!transactions_order_refreshed && (FLAGS_si_refresh_rate == 0 || active_tx.commit_mark % FLAGS_si_refresh_rate == 0)) {
       // cout << "refresh" << endl;
       oldest_tx_start = std::numeric_limits<u64>::max();
       oldest_tx_start_worker_id = worker_id;
@@ -167,20 +169,20 @@ void Worker::refreshSnapshotOrderingIfNeeded()
          local_tx_start_timestamps[w] = its_tx_start;
       }
       workers_sorted = false;
-      snapshot_order_refreshed = true;
+      transactions_order_refreshed = true;
    }
 }
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshot()
 {
-   refreshSnapshotOrderingIfNeeded();
+   refreshTransactionsOrderingIfNeeded();
    refreshSnapshotHWMs();
 }
 // -------------------------------------------------------------------------------------
 void Worker::sortWorkers()
 {
    if (!workers_sorted) {
-      refreshSnapshotOrderingIfNeeded();
+      refreshTransactionsOrderingIfNeeded();
       // Avoid extra work if the last round also was full of single statement workers
       if (oldest_tx_start < std::numeric_limits<u64>::max()) {
          std::memcpy(local_sorted_tx_start_timestamps.get(), local_tx_start_timestamps.get(), workers_count * sizeof(u64));
@@ -228,7 +230,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
       active_tx.min_observed_gsn_when_started = clock_gsn;
       // -------------------------------------------------------------------------------------
       if (FLAGS_commit_hwm) {
-         snapshot_order_refreshed = false;
+         transactions_order_refreshed = false;
          if (next_tx_isolation_level > TX_ISOLATION_LEVEL::READ_COMMITTED) {
             if (force_si_refresh || FLAGS_si_refresh_rate == 0 || active_tx.commit_mark % FLAGS_si_refresh_rate == 0) {
                refreshSnapshotHWMs();
@@ -270,7 +272,7 @@ void Worker::checkup()
       if (todo_hwm_rb.empty() && todo_lwm_rb.empty()) {
          return;
       }
-      refreshSnapshotOrderingIfNeeded();
+      refreshTransactionsOrderingIfNeeded();
       // -------------------------------------------------------------------------------------
       {
          auto& rb = todo_hwm_rb;
@@ -291,7 +293,7 @@ void Worker::checkup()
          auto& rb = todo_lwm_rb;
          while (FLAGS_todo && !rb.empty()) {
             auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
-            ensure(todo.or_before_so > 0);
+            // ensure(todo.or_before_so > 0);
             if (oldest_tx_start > todo.after_so) {
                WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
                leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
@@ -304,8 +306,22 @@ void Worker::checkup()
                   if (local_tx_start_timestamps[w_i] > todo.after_so) {
                      safe_to_gc &= true;
                   } else {
-                     auto decomposed = decomposeWIDCM(todo.or_before_so);
-                     safe_to_gc &= !isVisibleForIt(w_i, std::get<0>(decomposed), std::get<1>(decomposed));
+                     // Check cut relations
+                     bool exempted = false;
+                     const RelationsList& its_cut_relations = all_workers[w_i]->relations_cut_from_snapshot;
+                     const u64 its_cut_relations_count = its_cut_relations.count.load();
+                     for (u64 r_i = 0; r_i < its_cut_relations_count; r_i++) {
+                        if (its_cut_relations.dt_ids[r_i] == todo.dt_id) {
+                           exempted = true;
+                           break;
+                        }
+                     }
+                     if (exempted && global_tx_start_timestamps[w_i].load() == local_tx_start_timestamps[w_i]) {
+                        safe_to_gc &= true;
+                     } else {
+                        auto decomposed = decomposeWIDCM(todo.or_before_so);
+                        safe_to_gc &= !isVisibleForIt(w_i, std::get<0>(decomposed), std::get<1>(decomposed));
+                     }
                   }
                }
                if (safe_to_gc) {
@@ -421,7 +437,7 @@ bool Worker::isVisibleForMe(u64 wtts)
 bool Worker::isVisibleForAll(u64 commited_before_so)
 {
    if (activeTX().isSingleStatement()) {
-      refreshSnapshotOrderingIfNeeded();
+      refreshTransactionsOrderingIfNeeded();
    }
    return commited_before_so < oldest_tx_start;
 }

@@ -58,7 +58,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    bool force_si_refresh = false;
    bool workers_sorted = false;
-   bool snapshot_order_refreshed = false;
+   bool transactions_order_refreshed = false;
    u64 tx_start;
    u64 oldest_tx_start, oldest_tx_start_worker_id;
    unique_ptr<atomic<u64>[]> local_workers_commit_marks;
@@ -121,6 +121,22 @@ struct Worker {
    std::vector<std::unique_ptr<u8[]>> unlock_tasks_after_commit;
    void addUnlockTask(DTID dt_id, u64 payload_length, std::function<void(u8* dst)> callback);
    void executeUnlockTasks();
+   // -------------------------------------------------------------------------------------
+   // Optimization: remove relations from snapshot as soon as we are finished with them (esp. in long read-only tx)
+   static constexpr u64 MAX_RELATIONS_COUNT = 128;
+   struct RelationsList {
+      std::atomic<u64> count = 0;
+      std::atomic<DTID> dt_ids[MAX_RELATIONS_COUNT];
+      void add(DTID dt_id)
+      {
+         const u64 current_index = count.load();
+         assert((current_index + 1) < MAX_RELATIONS_COUNT);
+         dt_ids[current_index].store(dt_id, std::memory_order_release);
+         count.store(current_index + 1, std::memory_order_release);
+      }
+      void reset() { count.store(0, std::memory_order_release); }
+   };
+   RelationsList relations_cut_from_snapshot;
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------
@@ -277,7 +293,7 @@ struct Worker {
    void sortWorkers();
    void refreshSnapshot();
    void refreshSnapshotHWMs();
-   void refreshSnapshotOrderingIfNeeded();
+   void refreshTransactionsOrderingIfNeeded();
    void switchToAlwaysUpToDateMode();
    bool isVisibleForAll(u64 commited_before_so);
    bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);

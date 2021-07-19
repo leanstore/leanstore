@@ -880,7 +880,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                // -------------------------------------------------------------------------------------
                MutableSlice secondary_payload = iterator.mutableValue();
                auto& secondary_version = *reinterpret_cast<ChainedTupleVersion*>(secondary_payload.data());
-               if (cr::Worker::my().oldest_tx_start > secondary_version.commited_before_so ||
+               if (cr::Worker::my().isVisibleForAll(secondary_version.commited_before_so) ||
                    (secondary_version.worker_id == version_worker_id && secondary_version.worker_commit_mark == version_tts)) {
                   remove_next_sn = secondary_version.next_sn;
                   secondary_version.next_sn = 0;
