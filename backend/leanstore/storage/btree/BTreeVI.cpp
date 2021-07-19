@@ -168,48 +168,50 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          iterator.contentionSplit();
          // -------------------------------------------------------------------------------------
          jumpmu_return OP_RESULT::OK;
-      } else {
-         auto& chain_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
-         if (FLAGS_vi_fupdate_chained) {
-            // WAL
-            u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
-            auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
-            wal_entry->type = WAL_LOG_TYPE::WALUpdate;
-            wal_entry->key_length = o_key_length;
-            wal_entry->delta_length = delta_and_descriptor_size;
-            wal_entry->before_worker_id = chain_head.worker_id;
-            wal_entry->before_worker_commit_mark = chain_head.worker_commit_mark;
-            wal_entry->after_worker_id = cr::Worker::my().workerID();
-            wal_entry->after_worker_commit_mark = cr::Worker::my().CM();
-            std::memcpy(wal_entry->payload, o_key, o_key_length);
-            std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
-            BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), chain_head.payload);
-            callback(chain_head.payload, primary_payload.length() - sizeof(ChainedTuple));
-            BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), chain_head.payload);
-            wal_entry.submit();
-            tuple.unlock();
-            // -------------------------------------------------------------------------------------
-            iterator.contentionSplit();
-            jumpmu_return OP_RESULT::OK;
+      }
+      auto& chain_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
+      if (!FLAGS_mv || FLAGS_vi_fupdate_chained) {
+         // Single version
+         // WAL
+         u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
+         auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
+         wal_entry->type = WAL_LOG_TYPE::WALUpdate;
+         wal_entry->key_length = o_key_length;
+         wal_entry->delta_length = delta_and_descriptor_size;
+         wal_entry->before_worker_id = chain_head.worker_id;
+         wal_entry->before_worker_commit_mark = chain_head.worker_commit_mark;
+         wal_entry->after_worker_id = cr::Worker::my().workerID();
+         wal_entry->after_worker_commit_mark = cr::Worker::my().CM();
+         std::memcpy(wal_entry->payload, o_key, o_key_length);
+         std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
+         BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), chain_head.payload);
+         callback(chain_head.payload, primary_payload.length() - sizeof(ChainedTuple));
+         BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), chain_head.payload);
+         wal_entry.submit();
+         // -------------------------------------------------------------------------------------
+         chain_head.worker_id = cr::Worker::my().workerID();
+         chain_head.worker_commit_mark = cr::Worker::my().CM();
+         tuple.unlock();
+         // -------------------------------------------------------------------------------------
+         iterator.contentionSplit();
+         jumpmu_return OP_RESULT::OK;
+      }
+      // -------------------------------------------------------------------------------------
+      const u32 convert_to_fat_tuple_threshold = (FLAGS_vi_fat_tuple_threshold > 0 ? FLAGS_vi_fat_tuple_threshold : cr::Worker::my().workers_count);
+      const bool convert_to_fat_tuple =
+          FLAGS_vi_fat_tuple && chain_head.can_convert_to_fat_tuple && chain_head.versions_counter >= convert_to_fat_tuple_threshold &&
+          !(chain_head.worker_id == cr::Worker::my().workerID() && chain_head.worker_commit_mark == cr::Worker::my().CM());
+      if (convert_to_fat_tuple) {
+         ensure(chain_head.isWriteLocked());
+         const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator, m_key);
+         if (!convert_ret) {
+            chain_head.can_convert_to_fat_tuple = false;
+            chain_head.unlock();
          } else {
-            const u32 convert_to_fat_tuple_threshold =
-                (FLAGS_vi_fat_tuple_threshold > 0 ? FLAGS_vi_fat_tuple_threshold : cr::Worker::my().workers_count);
-            const bool convert_to_fat_tuple =
-                FLAGS_vi_fat_tuple && chain_head.can_convert_to_fat_tuple && chain_head.versions_counter >= convert_to_fat_tuple_threshold &&
-                !(chain_head.worker_id == cr::Worker::my().workerID() && chain_head.worker_commit_mark == cr::Worker::my().CM());
-            if (convert_to_fat_tuple) {
-               ensure(chain_head.isWriteLocked());
-               const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator, m_key);
-               if (!convert_ret) {
-                  chain_head.can_convert_to_fat_tuple = false;
-                  chain_head.unlock();
-               } else {
-                  COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
-               }
-               goto restart;
-               UNREACHABLE();
-            }
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
          }
+         goto restart;
+         UNREACHABLE();
       }
    }
       // -------------------------------------------------------------------------------------
@@ -612,6 +614,22 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                   jumpmu_return;
                }
             }
+            // -------------------------------------------------------------------------------------
+            if (!FLAGS_mv) {
+               auto& chain_head = *reinterpret_cast<ChainedTuple*>(iterator.mutableValue().data());
+               ensure(!chain_head.isWriteLocked());
+               ensure(chain_head.tuple_format == TupleFormat::CHAINED);
+               // -------------------------------------------------------------------------------------
+               chain_head.worker_id = update_entry.before_worker_id;
+               chain_head.worker_commit_mark = update_entry.before_worker_commit_mark;
+               const auto& update_descriptor =
+                   *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(update_entry.payload + update_entry.key_length);
+               BTreeLL::applyXORDiff(update_descriptor, chain_head.payload,
+                                     update_entry.payload + update_entry.key_length + update_descriptor.size());
+               // -------------------------------------------------------------------------------------
+               jumpmu_return;
+            }
+            // -------------------------------------------------------------------------------------
             {
                MutableSlice primary_payload = iterator.mutableValue();
                auto& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());

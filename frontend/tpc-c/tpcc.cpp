@@ -147,7 +147,7 @@ int main(int argc, char** argv)
                cr::Worker::my().commitTX();
                tx_acc++;
             }
-            jumpmuCatch() { ensure(false); }
+            jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
          }
          cr::Worker::my().shutdown();
          // -------------------------------------------------------------------------------------

@@ -257,6 +257,7 @@ struct DTRegistry::DTMeta BTreeLL::getMeta()
                                     .checkpoint = checkpoint,
                                     .undo = undo,
                                     .todo = todo,
+                                    .unlock = unlock,
                                     .serialize = serialize,
                                     .deserialize = deserialize};
    return btree_meta;
