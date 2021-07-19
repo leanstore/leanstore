@@ -107,10 +107,20 @@ struct Worker {
    u8* todo_hwm_tx_start = nullptr;
    u8* todo_lwm_tx_start = nullptr;
    utils::RingBufferST todo_hwm_rb, todo_lwm_rb;
-   std::list<TODOEntry> todo_commited_queue, todo_long_running_tx_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
    void stageTODO(u8 worker_id, u64 worker_cm, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
    void commitTODO(u8 worker_id, u64 worker_cm, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    void commitTODOs(u64 tx_start);
+   // -------------------------------------------------------------------------------------
+   // 2PL unlock datastructures
+   struct UnlockTask {
+      DTID dt_id;
+      u64 payload_length;
+      u8 payload[];
+      UnlockTask(DTID dt_id, u64 payload_length) : dt_id(dt_id), payload_length(payload_length) {}
+   };
+   std::vector<std::unique_ptr<u8[]>> unlock_tasks_after_commit;
+   void addUnlockTask(DTID dt_id, u64 payload_length, std::function<void(u8* dst)> callback);
+   void executeUnlockTasks();
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------

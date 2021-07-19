@@ -141,8 +141,16 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       if (tuple.isWriteLocked() || !isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark)) {
          jumpmu_return OP_RESULT::ABORT_TX;
       }
-      if (cr::activeTX().isSerializable() && tuple.getAtomicReadTS().load() > cr::Worker::my().TXStart()) {
-         jumpmu_return OP_RESULT::ABORT_TX;
+      if (cr::activeTX().isSerializable()) {
+         if (FLAGS_2pl) {
+            if (tuple.read_lock_counter > 0 && tuple.read_lock_counter != (1ull << cr::Worker::my().workerID())) {
+               jumpmu_return OP_RESULT::ABORT_TX;
+            }
+         } else {
+            if (tuple.read_ts > cr::Worker::my().TXStart()) {
+               jumpmu_return OP_RESULT::ABORT_TX;
+            }
+         }
       }
       tuple.writeLock();
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
@@ -312,7 +320,12 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          }
          // -------------------------------------------------------------------------------------
          if (cr::activeTX().isSerializable()) {
-            head_version.getAtomicReadTS().store(cr::Worker::my().TXStart(), std::memory_order_release);
+            if (FLAGS_2pl) {
+               // Nothing, the WorkerID + Commit HWM are the write lock
+               head_version.read_lock_counter = (1ull << cr::Worker::my().workerID());
+            } else {
+               head_version.read_ts = cr::Worker::my().TXStart();
+            }
          }
          // -------------------------------------------------------------------------------------
          head_version.unlock();
@@ -389,6 +402,7 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
 {
+   // TODO: remove fat tuple
    assert(!cr::activeTX().isReadOnly());
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    u8 key_buffer[o_key_length + sizeof(ChainSN)];
@@ -434,8 +448,16 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          if (primary_version.isWriteLocked() || !isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark)) {
             jumpmu_return OP_RESULT::ABORT_TX;
          }
-         if (cr::activeTX().isSerializable() && primary_version.getAtomicReadTS().load() > cr::Worker::my().TXStart()) {
-            jumpmu_return OP_RESULT::ABORT_TX;
+         if (cr::activeTX().isSerializable()) {
+            if (FLAGS_2pl) {
+               if (primary_version.read_lock_counter > 0 && primary_version.read_lock_counter != (1ull << cr::Worker::my().workerID())) {
+                  jumpmu_return OP_RESULT::ABORT_TX;
+               }
+            } else {
+               if (primary_version.read_ts > cr::Worker::my().TXStart()) {
+                  jumpmu_return OP_RESULT::ABORT_TX;
+               }
+            }
          }
          ensure(!cr::activeTX().atLeastSI() || primary_version.is_removed == false);
          if (primary_version.is_removed) {
@@ -501,7 +523,11 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          primary_version.worker_commit_mark = cr::Worker::my().CM();
          primary_version.next_sn = secondary_sn;
          if (cr::activeTX().isSerializable()) {
-            primary_version.getAtomicReadTS().store(cr::Worker::my().TXStart(), std::memory_order_release);
+            if (FLAGS_2pl) {
+               primary_version.read_lock_counter = (1ull << cr::Worker::my().workerID());
+            } else {
+               primary_version.read_ts = cr::Worker::my().TXStart();
+            }
          }
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_rtodo && !primary_version.is_gc_scheduled) {
@@ -534,7 +560,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
 // This undo implementation works only for rollback and not for undo operations during recovery
 void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 {
-   // TODO: accelerate using DanglingPointer
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    static_cast<void>(btree);
    const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
@@ -622,6 +647,10 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                // -------------------------------------------------------------------------------------
                const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(secondary_version.payload);
                BTreeLL::applyDiff(update_descriptor, primary_version.payload, secondary_version.payload + update_descriptor.size());
+               // -------------------------------------------------------------------------------------
+               if (cr::activeTX().isSerializable() && FLAGS_2pl) {
+                  primary_version.read_lock_counter &= ~(1ull << cr::Worker::my().workerID());
+               }
                // -------------------------------------------------------------------------------------
                primary_version.unlock();
                iterator.markAsDirty();  // TODO: write CLS
@@ -866,6 +895,33 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    jumpmuCatch() { UNREACHABLE(); }
 }
 // -------------------------------------------------------------------------------------
+void BTreeVI::unlock(void* btree_object, const u8* entry_ptr)
+{
+   auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
+   const auto& todo_entry = *reinterpret_cast<const UnlockEntry*>(entry_ptr);
+   // -------------------------------------------------------------------------------------
+   const u16 key_length = todo_entry.key_length;
+   u8 key_buffer[key_length];
+   std::memcpy(key_buffer, todo_entry.key, todo_entry.key_length);
+   MutableSlice m_key(key_buffer, key_length);
+   Slice key(key_buffer, key_length);
+   btree.setSN(m_key, 0);
+   OP_RESULT ret;
+   // -------------------------------------------------------------------------------------
+   jumpmuTry()
+   {
+      BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree));
+      ret = iterator.seekExact(key);
+      ensure(ret == OP_RESULT::OK);
+      // -------------------------------------------------------------------------------------
+      MutableSlice primary_payload = iterator.mutableValue();
+      Tuple& primary_version = *reinterpret_cast<Tuple*>(primary_payload.data());
+      // assert(primary_version.read_lock_counter & (1ull << cr::Worker::my().workerID()));
+      primary_version.read_lock_counter &= ~(1ull << cr::Worker::my().workerID());
+   }
+   jumpmuCatch() { UNREACHABLE(); }
+}
+// -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTreeVI::getMeta()
 {
    DTRegistry::DTMeta btree_meta = {.iterate_children = iterateChildrenSwips,
@@ -874,6 +930,7 @@ struct DTRegistry::DTMeta BTreeVI::getMeta()
                                     .checkpoint = checkpoint,
                                     .undo = undo,
                                     .todo = todo,
+                                    .unlock = unlock,
                                     .serialize = serialize,
                                     .deserialize = deserialize};
    return btree_meta;

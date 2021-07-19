@@ -37,6 +37,7 @@ struct Transaction {
    TX_ISOLATION_LEVEL current_tx_isolation_level = TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION;
    bool is_durable = false;
    bool can_use_single_version_mode = false;
+   bool safe_snapshot = false;
    // -------------------------------------------------------------------------------------
    bool isReadOnly() { return current_tx_mode == TX_MODE::LONG_READONLY || current_tx_mode == TX_MODE::SINGLE_READONLY; }
    bool isSingleStatement() { return current_tx_mode == TX_MODE::SINGLE_READWRITE || current_tx_mode == TX_MODE::SINGLE_READONLY; }
@@ -47,6 +48,7 @@ struct Transaction {
    bool isReadCommitted() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::READ_COMMITTED; }
    bool isReadUncommitted() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::READ_UNCOMMITTED; }
    bool canUseSingleVersion() { return can_use_single_version_mode; }
+   bool isSafeSnapshot() { return safe_snapshot; }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr

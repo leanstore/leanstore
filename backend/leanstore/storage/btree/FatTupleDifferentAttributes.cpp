@@ -231,7 +231,7 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       wal_entry.submit();
       // -------------------------------------------------------------------------------------
       if (cr::activeTX().isSerializable()) {
-         getAtomicReadTS().store(cr::Worker::my().TXStart(), std::memory_order_release);
+         read_ts = cr::Worker::my().TXStart();
       }
    }
    return true;

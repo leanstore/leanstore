@@ -1,7 +1,7 @@
 #pragma once
-#include "Units.hpp"
 #include "BMPlainGuard.hpp"
 #include "BufferFrame.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <functional>
@@ -38,6 +38,7 @@ struct DTRegistry {
       // MVCC / SI
       std::function<void(void* dt_object, const u8* entry, u64 tts)> undo;
       std::function<void(void* dt_object, const u8* entry, const u64 version_worker_id, u64 version_tts)> todo;
+      std::function<void(void* dt_object, const u8* entry)> unlock;
       // -------------------------------------------------------------------------------------
       // Serialization
       std::function<std::unordered_map<std::string, std::string>(void* btree_boject)> serialize;
@@ -63,6 +64,7 @@ struct DTRegistry {
    // Recovery / SI
    void undo(DTID dt_id, const u8* wal_entry, u64 tts);
    void todo(DTID dt_id, const u8* entry, const u64 version_worker_id, u64 version_tts);
+   void unlock(DTID dt_id, const u8* entry);
    // Serialization
    std::unordered_map<std::string, std::string> serialize(DTID dt_id);
    void deserialize(DTID dt_id, std::unordered_map<std::string, std::string> map);

@@ -72,6 +72,12 @@ void DTRegistry::todo(DTID dt_id, const u8* entry, const u64 version_worker_id, 
    return dt_types_ht[std::get<0>(dt_meta)].todo(std::get<1>(dt_meta), entry, version_worker_id, version_tts);
 }
 // -------------------------------------------------------------------------------------
+void DTRegistry::unlock(DTID dt_id, const u8* entry)
+{
+   auto dt_meta = dt_instances_ht[dt_id];
+   return dt_types_ht[std::get<0>(dt_meta)].unlock(std::get<1>(dt_meta), entry);
+}
+// -------------------------------------------------------------------------------------
 std::unordered_map<std::string, std::string> DTRegistry::serialize(DTID dt_id)
 {
    auto dt_meta = dt_instances_ht[dt_id];

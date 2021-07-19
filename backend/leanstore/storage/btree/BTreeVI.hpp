@@ -83,8 +83,8 @@ class BTreeVI : public BTreeLL
    enum class TupleFormat : u8 { CHAINED = 0, FAT_TUPLE_DIFFERENT_ATTRIBUTES = 1, FAT_TUPLE_SAME_ATTRIBUTES = 2, VISIBLE_FOR_ALL = 3 };
    struct __attribute__((packed)) Tuple {
       union {
-         alignas(8) u8 read_ts[8];  // Needed for MVTO
-         u64 read_ts_integer = 0;
+         u128 read_ts = 0;
+         u128 read_lock_counter;
       };
       TupleFormat tuple_format;
       u8 worker_id : 8;
@@ -99,9 +99,8 @@ class BTreeVI : public BTreeLL
       bool isWriteLocked() const { return write_locked; }
       void writeLock() { write_locked = true; }
       void unlock() { write_locked = false; }
-      std::atomic<u64>& getAtomicReadTS() { return *reinterpret_cast<std::atomic<u64>*>(read_ts); }
    };
-   static_assert(sizeof(Tuple) <= 24, "");
+   static_assert(sizeof(Tuple) <= 32, "");
    // -------------------------------------------------------------------------------------
    using ChainSN = u16;
    // -------------------------------------------------------------------------------------
@@ -127,7 +126,7 @@ class BTreeVI : public BTreeLL
          versions_counter = 1;
       }
    };
-   static_assert(sizeof(ChainedTuple) <= 24, "");
+   static_assert(sizeof(ChainedTuple) <= 32, "");
    // -------------------------------------------------------------------------------------
    struct __attribute__((packed)) ChainedTupleVersion {
       u8 worker_id : 8;
@@ -190,7 +189,6 @@ class BTreeVI : public BTreeLL
    };
    // -------------------------------------------------------------------------------------
    struct TODOEntry {
-      // TODO converts chained to fat when: it failes to prune more than x times (not sure about this trigger)
       u16 key_length;
       ChainSN sn;
       DanglingPointer dangling_pointer = {0, 0, -1, -1};
@@ -213,11 +211,17 @@ class BTreeVI : public BTreeLL
                       function<void()>) override;
    // -------------------------------------------------------------------------------------
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
-   static void todo(void* btree_object, const u8* wal_entry_ptr, const u64 version_worker_id, const u64 tts);
+   static void todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 tts);
    static void deserialize(void*, std::unordered_map<std::string, std::string>) {}      // TODO:
    static std::unordered_map<std::string, std::string> serialize(void*) { return {}; }  // TODO:
    static DTRegistry::DTMeta getMeta();
    // -------------------------------------------------------------------------------------
+   struct UnlockEntry {
+      u16 key_length;  // SN always = 0
+      DanglingPointer dangling_pointer = {0, 0, -1, -1};
+      u8 key[];
+   };
+   static void unlock(void* btree_object, const u8* entry_ptr);
 
   private:
    OP_RESULT lookupPessimistic(u8* key, const u16 key_length, function<void(const u8*, u16)> payload_callback);
@@ -259,7 +263,8 @@ class BTreeVI : public BTreeLL
                         if (sn == 0) {
                            auto& primary_version =
                                *reinterpret_cast<ChainedTuple*>(leaf->getPayload(t_i) + leaf->getPayloadLength(t_i) - sizeof(ChainedTuple));
-                           skippable &= primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false);
+                           skippable &=
+                               primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false);
                         }
                      }
                      if (skippable) {
@@ -384,15 +389,25 @@ class BTreeVI : public BTreeLL
                return {OP_RESULT::NOT_FOUND, 1};
             }
             callback(Slice(primary_version.payload, payload.length() - sizeof(ChainedTuple)));
-            if (cr::activeTX().isSerializable() && !cr::activeTX().isReadOnly()) {
-               std::atomic<u64>& read_ts = const_cast<ChainedTuple&>(primary_version).getAtomicReadTS();
-               if (read_ts.load() < cr::Worker::my().TXStart()) {
-                  read_ts.store(cr::Worker::my().TXStart(), std::memory_order_release);
+            if (cr::activeTX().isSerializable()) {
+               if (!cr::activeTX().isSafeSnapshot()) {
+                  if (FLAGS_2pl) {
+                     const_cast<ChainedTuple&>(primary_version).read_lock_counter |= 1ull << cr::Worker::my().worker_id;
+                     iterator.assembleKey();
+                     const Slice key = iterator.key();
+                     cr::Worker::my().addUnlockTask(dt_id, sizeof(UnlockEntry) + key.length(), [&](u8* entry) {
+                        auto& unlock_entry = *new (entry) UnlockEntry();
+                        unlock_entry.key_length = key.length();
+                        std::memcpy(unlock_entry.key, key.data(), key.length());
+                     });
+                  } else {
+                     const_cast<ChainedTuple&>(primary_version).read_ts = std::max<u128>(primary_version.read_ts, cr::Worker::my().TXStart());
+                  }
                }
             }
             return {OP_RESULT::OK, 1};
          } else {
-            if (cr::activeTX().isSerializable() && !cr::activeTX().isReadOnly()) {
+            if (cr::activeTX().isSerializable() && !cr::activeTX().isSafeSnapshot()) {
                return {OP_RESULT::ABORT_TX, 1};
             }
             if (primary_version.isFinal()) {

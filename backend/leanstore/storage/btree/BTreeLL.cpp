@@ -236,9 +236,18 @@ u64 BTreeLL::getHeight()
 void BTreeLL::undo(void*, const u8*, const u64)
 {
    // TODO: undo for storage
+   TODOException();
 }
 // -------------------------------------------------------------------------------------
-void BTreeLL::todo(void*, const u8*, const u64, const u64) {}
+void BTreeLL::todo(void*, const u8*, const u64, const u64)
+{
+   UNREACHABLE();
+}
+// -------------------------------------------------------------------------------------
+void BTreeLL::unlock(void*, const u8*)
+{
+   UNREACHABLE();
+}
 // -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTreeLL::getMeta()
 {

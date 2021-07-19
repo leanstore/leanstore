@@ -357,6 +357,7 @@ void Worker::commitTX()
             commitTODOs(global_logical_clock.fetch_add(WORKERS_INCREMENT));
          }
       }
+      executeUnlockTasks();
    }
 }
 // -------------------------------------------------------------------------------------
@@ -371,6 +372,8 @@ void Worker::abortTX()
             leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tts);
          }
       });
+      // -------------------------------------------------------------------------------------
+      executeUnlockTasks();
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.type = WALEntry::TYPE::TX_ABORT;
@@ -594,6 +597,21 @@ void Worker::commitTODO(u8 worker_id, u64 worker_cm, u64 after_so, DTID dt_id, u
    todo_entry.after_so = after_so;
    todo_entry.or_before_so = 0;
    cb(todo_entry.payload);
+}
+// -------------------------------------------------------------------------------------
+void Worker::addUnlockTask(DTID dt_id, u64 payload_length, std::function<void(u8*)> callback)
+{
+   unlock_tasks_after_commit.push_back(std::make_unique<u8[]>(payload_length + sizeof(UnlockTask)));
+   callback((new (unlock_tasks_after_commit.back().get()) UnlockTask(dt_id, payload_length))->payload);
+}
+// -------------------------------------------------------------------------------------
+void Worker::executeUnlockTasks()
+{
+   for (auto& unlock_ptr : unlock_tasks_after_commit) {
+      auto& unlock_task = *reinterpret_cast<UnlockTask*>(unlock_ptr.get());
+      leanstore::storage::DTRegistry::global_dt_registry.unlock(unlock_task.dt_id, unlock_task.payload);
+   }
+   unlock_tasks_after_commit.clear();
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr
