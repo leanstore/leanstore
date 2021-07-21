@@ -27,12 +27,7 @@ std::unique_ptr<atomic<u64>[]> Worker::global_tx_start_timestamps;
 std::unique_ptr<atomic<u64>[]> Worker::global_workers_commit_marks;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
-    : worker_id(worker_id),
-      all_workers(all_workers),
-      workers_count(workers_count),
-      ssd_fd(fd),
-      todo_hwm_rb(1024ull * 1024 * 50),
-      todo_lwm_rb(1024ull * 1024 * 50)
+    : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), ssd_fd(fd)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
@@ -269,72 +264,74 @@ void Worker::shutdown()
 void Worker::checkup()
 {
    if (FLAGS_commit_hwm) {
-      if (todo_hwm_rb.empty() && todo_lwm_rb.empty()) {
+      if (!FLAGS_todo || todo_list.empty()) {
          return;
       }
       refreshTransactionsOrderingIfNeeded();
       // -------------------------------------------------------------------------------------
-      {
-         auto& rb = todo_hwm_rb;
-         while (FLAGS_todo && !rb.empty()) {
-            auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
-            if (oldest_tx_start > todo.after_so) {
-               WorkerCounters::myCounters().cc_rtodo_lng_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
-                                                                       todo.version_worker_commit_mark);
-               rb.popFront();
-            } else {
-               WorkerCounters::myCounters().cc_todo_1_break[todo.dt_id]++;
-               break;
-            }
-         }
+      const bool iterate_over_all = todo_list.size() > FLAGS_tmp4;
+      WorkerCounters::myCounters().cc_rtodo_to_lng[0]++;
+      if (iterate_over_all) {
+         WorkerCounters::myCounters().cc_rtodo_lng_executed[0]++;
       }
-      {
-         auto& rb = todo_lwm_rb;
-         while (FLAGS_todo && !rb.empty()) {
-            auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
-            // ensure(todo.or_before_so > 0);
-            if (oldest_tx_start > todo.after_so) {
-               WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
-                                                                       todo.version_worker_commit_mark);
-               rb.popFront();
-            } else {
-               bool safe_to_gc = true;
-               WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
-               for (u64 w_i = 0; w_i < workers_count && (safe_to_gc); w_i++) {
-                  if (local_tx_start_timestamps[w_i] > todo.after_so) {
-                     safe_to_gc &= true;
-                  } else {
-                     // Check cut relations
-                     bool exempted = false;
-                     const RelationsList& its_cut_relations = all_workers[w_i]->relations_cut_from_snapshot;
-                     const u64 its_cut_relations_count = its_cut_relations.count.load();
-                     for (u64 r_i = 0; r_i < its_cut_relations_count; r_i++) {
-                        if (its_cut_relations.dt_ids[r_i] == todo.dt_id) {
-                           exempted = true;
-                           break;
-                        }
-                     }
-                     if (exempted && global_tx_start_timestamps[w_i].load() == local_tx_start_timestamps[w_i]) {
-                        safe_to_gc &= true;
-                     } else {
-                        auto decomposed = decomposeWIDCM(todo.or_before_so);
-                        safe_to_gc &= !isVisibleForIt(w_i, std::get<0>(decomposed), std::get<1>(decomposed));
+      u64 removed_counter = 0;
+      auto iter = todo_list.begin();
+      while (iter != todo_list.end()) {
+         if (iterate_over_all)
+            WorkerCounters::myCounters().cc_rtodo_shrt_executed[0]++;
+         auto& todo = *reinterpret_cast<TODOEntry*>((*iter).get());
+         if (oldest_tx_start > todo.after_so) {
+            // WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
+            leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
+                                                                    todo.version_worker_commit_mark);
+            assert(iter != todo_tx_start_iter);
+            iter = todo_list.erase(iter);
+            removed_counter++;
+         } else {
+            bool safe_to_gc = true;
+            // WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
+            for (u64 w_i = 0; w_i < workers_count && (safe_to_gc); w_i++) {
+               if (local_tx_start_timestamps[w_i] > todo.after_so) {
+                  safe_to_gc &= true;
+               } else {
+                  // Check cut relations
+                  bool exempted = false;
+                  const RelationsList& its_cut_relations = all_workers[w_i]->relations_cut_from_snapshot;
+                  const u64 its_cut_relations_count = its_cut_relations.count.load();
+                  for (u64 r_i = 0; r_i < its_cut_relations_count; r_i++) {
+                     if (its_cut_relations.dt_ids[r_i] == todo.dt_id) {
+                        exempted = true;
+                        break;
                      }
                   }
+                  if (exempted && global_tx_start_timestamps[w_i].load() == local_tx_start_timestamps[w_i]) {
+                     safe_to_gc &= true;
+                     // cerr << "Tatar" << endl;
+                  } else {
+                     auto decomposed = decomposeWIDCM(todo.or_before_so);
+                     safe_to_gc &= !isVisibleForIt(w_i, std::get<0>(decomposed), std::get<1>(decomposed));
+                  }
                }
-               if (safe_to_gc) {
-                  WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
-                  leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
-                                                                          todo.version_worker_commit_mark);
-                  rb.popFront();
+            }
+            if (safe_to_gc) {
+               // WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
+                                                                       todo.version_worker_commit_mark);
+               assert(iter != todo_tx_start_iter);
+               iter = todo_list.erase(iter);
+               removed_counter++;
+            } else {
+               if (iterate_over_all) {
+                  // cerr << "tata" << endl;
+                  iter++;
                } else {
                   break;
                }
             }
          }
       }
+      if (iterate_over_all)
+         WorkerCounters::myCounters().cc_rtodo_opt_executed[0] += removed_counter;
    }
 }
 // -------------------------------------------------------------------------------------
@@ -373,7 +370,9 @@ void Worker::commitTX()
             commitTODOs(global_logical_clock.fetch_add(WORKERS_INCREMENT));
          }
       }
-      executeUnlockTasks();
+      if (activeTX().isSerializable()) {
+         executeUnlockTasks();
+      }
    }
 }
 // -------------------------------------------------------------------------------------
@@ -562,50 +561,31 @@ outofmemory : {
 // TODO: rename or_before_so
 void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb, u64 head_widcm)
 {
-   u8* todo_ptr;
-   const u64 total_todo_length = payload_length + sizeof(TODOEntry);
-   auto decompose = decomposeWIDCM(head_widcm);
-   if (FLAGS_vi_twoq_todo && head_widcm && !isVisibleForIt(oldest_tx_start_worker_id, std::get<0>(decompose), std::get<1>(decompose))) {
-      // TODO: Alternatively, we can check if oldest_tx_start > start_tx of the chain head
-      todo_ptr = todo_lwm_rb.pushBack(total_todo_length);
-      if (todo_lwm_tx_start == nullptr) {
-         todo_lwm_tx_start = todo_ptr;
-      }
-      WorkerCounters::myCounters().cc_rtodo_opt_staged[dt_id]++;
-   } else {
-      head_widcm = 0;
-      todo_ptr = todo_hwm_rb.pushBack(total_todo_length);
-      if (todo_hwm_tx_start == nullptr) {
-         todo_hwm_tx_start = todo_ptr;
-      }
-   }
-   auto& todo_entry = *new (todo_ptr) TODOEntry();
+   auto& todo_entry = *new (todo_list.emplace_back(std::make_unique<u8[]>(payload_length + sizeof(TODOEntry))).get()) TODOEntry();
    todo_entry.version_worker_id = worker_id;
    todo_entry.version_worker_commit_mark = tts;
    todo_entry.dt_id = dt_id;
    todo_entry.payload_length = payload_length;
+   todo_entry.after_so = std::numeric_limits<u64>::max();
    todo_entry.or_before_so = head_widcm;
-   // -------------------------------------------------------------------------------------
    cb(todo_entry.payload);
+   // -------------------------------------------------------------------------------------
+   if (todo_tx_start_iter == todo_list.end()) {
+      todo_tx_start_iter = std::prev(todo_list.end());
+   }
 }
 // -------------------------------------------------------------------------------------
 void Worker::commitTODOs(u64 so)
 {
-   if (todo_hwm_tx_start) {
-      todo_hwm_rb.iterateUntilTail(todo_hwm_tx_start, [&](u8* rb_payload) { reinterpret_cast<TODOEntry*>(rb_payload)->after_so = so; });
-      todo_hwm_tx_start = nullptr;
-   }
-   if (todo_lwm_tx_start) {
-      todo_lwm_rb.iterateUntilTail(todo_lwm_tx_start, [&](u8* rb_payload) { reinterpret_cast<TODOEntry*>(rb_payload)->after_so = so; });
-      todo_lwm_tx_start = nullptr;
+   while (todo_tx_start_iter != todo_list.end()) {
+      reinterpret_cast<TODOEntry*>((*todo_tx_start_iter).get())->after_so = so;
+      todo_tx_start_iter++;
    }
 }
 // -------------------------------------------------------------------------------------
 void Worker::commitTODO(u8 worker_id, u64 worker_cm, u64 after_so, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb)
 {
-   const u64 total_todo_length = sizeof(TODOEntry) + payload_length;
-   u8* todo_ptr = todo_hwm_rb.pushBack(total_todo_length);
-   auto& todo_entry = *new (todo_ptr) TODOEntry();
+   auto& todo_entry = *new (todo_list.emplace_back(std::make_unique<u8[]>(payload_length + sizeof(TODOEntry))).get()) TODOEntry();
    todo_entry.version_worker_id = worker_id;
    todo_entry.version_worker_commit_mark = worker_cm;
    todo_entry.dt_id = dt_id;

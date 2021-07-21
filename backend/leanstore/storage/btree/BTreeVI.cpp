@@ -846,9 +846,9 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                new_todo_worker_id = version_worker_id;
                new_todo_tts = version_tts;
             }
-            cr::Worker::my().commitTODO(new_todo_worker_id, new_todo_tts, cr::Worker::my().tx_start, btree.dt_id,
-                                        todo_entry.key_length + sizeof(TODOEntry),
-                                        [&](u8* new_entry) { std::memcpy(new_entry, &todo_entry, sizeof(TODOEntry) + todo_entry.key_length); });
+            // cr::Worker::my().commitTODO(new_todo_worker_id, new_todo_tts, cr::Worker::my().tx_start, btree.dt_id,
+            //                             todo_entry.key_length + sizeof(TODOEntry),
+            //                             [&](u8* new_entry) { std::memcpy(new_entry, &todo_entry, sizeof(TODOEntry) + todo_entry.key_length); });
             primary_version.is_gc_scheduled = true;
          }
       } else {

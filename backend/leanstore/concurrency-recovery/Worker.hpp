@@ -104,9 +104,8 @@ struct Worker {
       // -------------------------------------------------------------------------------------
       u8 payload[];  // TODO: dyanmically allocating buffer is costly
    };
-   u8* todo_hwm_tx_start = nullptr;
-   u8* todo_lwm_tx_start = nullptr;
-   utils::RingBufferST todo_hwm_rb, todo_lwm_rb;
+   std::list<std::unique_ptr<u8[]>> todo_list;
+   std::list<std::unique_ptr<u8[]>>::iterator todo_tx_start_iter = todo_list.end();
    void stageTODO(u8 worker_id, u64 worker_cm, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
    void commitTODO(u8 worker_id, u64 worker_cm, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    void commitTODOs(u64 tx_start);

@@ -102,5 +102,35 @@ class RingBufferST
    void popFront() { read_cursor += reinterpret_cast<Entry*>(buffer.get() + read_cursor)->length + sizeof(Entry); }
 };
 // -------------------------------------------------------------------------------------
+class FRingBufferST
+{
+  private:
+   std::list<std::unique_ptr<u8[]>> entries;
+   std::list<std::unique_ptr<u8[]>>::iterator iter;
+
+  public:
+   FRingBufferST(u64) { iter = entries.end(); }
+   bool canInsert(u64) { return true; }
+   u8* pushBack(u64 payload_length)
+   {
+      entries.emplace_back(std::make_unique<u8[]>(payload_length));
+      if (iter == entries.end()) {
+         iter = std::prev(entries.end());
+      }
+      return entries.back().get();
+   }
+   void iterateUntilTail(u8*, std::function<void(u8* entry)> cb)
+   {
+      while (iter != entries.end()) {
+         cb((*iter).get());
+         iter++;
+      }
+      iter = entries.end();
+   }
+   bool empty() { return entries.empty(); }
+   u8* front() { return entries.front().get(); }
+   void popFront() { entries.pop_front(); }
+};
+// -------------------------------------------------------------------------------------
 }  // namespace utils
 }  // namespace leanstore

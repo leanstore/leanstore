@@ -70,7 +70,7 @@ DEFINE_uint64(wal_offset_gib, 10, "");
 DEFINE_bool(wal_io_hack, true, "Does not really write logs on SSD");
 DEFINE_bool(wal_fsync, false, "");
 // -------------------------------------------------------------------------------------
-DEFINE_string(isolation_level, "ru", "options: ru (READ_UNCOMMITTED), rc (READ_COMMITTED), si (SNAPSHOT_ISOLATION), ser (SERIALIZABLE)");
+DEFINE_string(isolation_level, "si", "options: ru (READ_UNCOMMITTED), rc (READ_COMMITTED), si (SNAPSHOT_ISOLATION), ser (SERIALIZABLE)");
 DEFINE_bool(mv, true, "Multi-version");
 DEFINE_bool(2pl, false, "");
 DEFINE_bool(commit_hwm, true, "");
