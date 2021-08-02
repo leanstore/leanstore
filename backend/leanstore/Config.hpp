@@ -33,6 +33,8 @@ DECLARE_bool(xmerge);
 DECLARE_uint64(xmerge_k);
 DECLARE_double(xmerge_target_pct);
 // -------------------------------------------------------------------------------------
+DECLARE_bool(optimistic_scan);
+// -------------------------------------------------------------------------------------
 DECLARE_string(zipf_path);
 DECLARE_double(zipf_factor);
 DECLARE_double(target_gib);
@@ -74,6 +76,7 @@ DECLARE_bool(commit_hwm);
 DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
 DECLARE_bool(todo);
+DECLARE_uint64(todo_threshold);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(vi);
 DECLARE_bool(vi_utodo);

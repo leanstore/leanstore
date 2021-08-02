@@ -998,9 +998,9 @@ class TPCCWorkload
    {
       // TODO: implement CH analytical queries
       if (FLAGS_tmp5) {
-         for (u64 i = 0; i < 10; i++)
-            leanstore::cr::Worker::my().relations_cut_from_snapshot.add(i);
-         leanstore::cr::Worker::my().relations_cut_from_snapshot.add(5);
+         for (u64 i = 0; i <= 10; i++)
+            if (i != 5)
+               leanstore::cr::Worker::my().relations_cut_from_snapshot.add(i);
       }
       if (query_no == 0) {
          Integer sum = 0, last_w = 0, last_i = 0;

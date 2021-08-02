@@ -269,27 +269,19 @@ void Worker::checkup()
       }
       refreshTransactionsOrderingIfNeeded();
       // -------------------------------------------------------------------------------------
-      const bool iterate_over_all = todo_list.size() > FLAGS_tmp4;
-      WorkerCounters::myCounters().cc_rtodo_to_lng[0]++;
-      if (iterate_over_all) {
-         WorkerCounters::myCounters().cc_rtodo_lng_executed[0]++;
-      }
-      u64 removed_counter = 0;
+      const bool iterate_over_all = todo_list.size() > FLAGS_todo_threshold;
       auto iter = todo_list.begin();
       while (iter != todo_list.end()) {
-         if (iterate_over_all)
-            WorkerCounters::myCounters().cc_rtodo_shrt_executed[0]++;
          auto& todo = *reinterpret_cast<TODOEntry*>((*iter).get());
          if (oldest_tx_start > todo.after_so) {
-            // WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
+            WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
             leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
                                                                     todo.version_worker_commit_mark);
             assert(iter != todo_tx_start_iter);
             iter = todo_list.erase(iter);
-            removed_counter++;
          } else {
             bool safe_to_gc = true;
-            // WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
+            WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
             for (u64 w_i = 0; w_i < workers_count && (safe_to_gc); w_i++) {
                if (local_tx_start_timestamps[w_i] > todo.after_so) {
                   safe_to_gc &= true;
@@ -306,7 +298,6 @@ void Worker::checkup()
                   }
                   if (exempted && global_tx_start_timestamps[w_i].load() == local_tx_start_timestamps[w_i]) {
                      safe_to_gc &= true;
-                     // cerr << "Tatar" << endl;
                   } else {
                      auto decomposed = decomposeWIDCM(todo.or_before_so);
                      safe_to_gc &= !isVisibleForIt(w_i, std::get<0>(decomposed), std::get<1>(decomposed));
@@ -314,24 +305,21 @@ void Worker::checkup()
                }
             }
             if (safe_to_gc) {
-               // WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
+               WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
                leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
                                                                        todo.version_worker_commit_mark);
                assert(iter != todo_tx_start_iter);
                iter = todo_list.erase(iter);
-               removed_counter++;
             } else {
                if (iterate_over_all) {
-                  // cerr << "tata" << endl;
-                  iter++;
+                  iter = todo_list.erase(iter);
+                  // iter++;
                } else {
                   break;
                }
             }
          }
       }
-      if (iterate_over_all)
-         WorkerCounters::myCounters().cc_rtodo_opt_executed[0] += removed_counter;
    }
 }
 // -------------------------------------------------------------------------------------

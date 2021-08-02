@@ -261,8 +261,7 @@ class BTreeVI : public BTreeLL
                         ensure(leaf->getKeyLen(t_i) >= sizeof(BTreeVI::ChainSN));
                         auto& sn = *reinterpret_cast<ChainSN*>(leaf->getKey(t_i) + leaf->getKeyLen(t_i) - sizeof(BTreeVI::ChainSN));
                         if (sn == 0) {
-                           auto& primary_version =
-                               *reinterpret_cast<ChainedTuple*>(leaf->getPayload(t_i) + leaf->getPayloadLength(t_i) - sizeof(ChainedTuple));
+                           auto& primary_version = *reinterpret_cast<ChainedTuple*>(leaf->getPayload(t_i));
                            skippable &=
                                primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false);
                         }

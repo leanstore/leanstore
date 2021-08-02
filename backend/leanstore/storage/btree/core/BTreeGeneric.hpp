@@ -103,7 +103,6 @@ class BTreeGeneric
    template <LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED>
    void findLeafAndLatch(HybridPageGuard<BTreeNode>& target_guard, const u8* key, u16 key_length)
    {
-      u32 volatile mask = 1;
       while (true) {
          jumpmuTry()
          {
@@ -115,7 +114,7 @@ class BTreeGeneric
             }
             jumpmu_return;
          }
-         jumpmuCatch() { BACKOFF_STRATEGIES() }
+         jumpmuCatch() {}
       }
    }
    // -------------------------------------------------------------------------------------

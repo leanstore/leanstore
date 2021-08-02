@@ -44,6 +44,8 @@ DEFINE_bool(xmerge, false, "");
 DEFINE_uint64(xmerge_k, 5, "");
 DEFINE_double(xmerge_target_pct, 80, "");
 // -------------------------------------------------------------------------------------
+DEFINE_bool(optimistic_scan, true, "Jump to next leaf directly if the pointer in the parent has not changed");
+// -------------------------------------------------------------------------------------
 DEFINE_uint64(backoff, 512, "");
 // -------------------------------------------------------------------------------------
 DEFINE_double(tmp1, 0.0, "for ad-hoc experiments");
@@ -77,6 +79,7 @@ DEFINE_bool(commit_hwm, true, "");
 DEFINE_uint64(si_refresh_rate, 0, "");
 DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(todo, true, "");
+DEFINE_uint64(todo_threshold, 10000, "#todos");  // TODO: track MiB
 // -------------------------------------------------------------------------------------
 DEFINE_bool(vi, false, "BTree with SI using in-place version");
 DEFINE_bool(vi_utodo, true, "");

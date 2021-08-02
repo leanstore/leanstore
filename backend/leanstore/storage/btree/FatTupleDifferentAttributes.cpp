@@ -1,10 +1,10 @@
 #include "BTreeVI.hpp"
-
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
 #include <signal.h>
+
 #include <map>
 #include <unordered_map>
 // -------------------------------------------------------------------------------------
@@ -124,6 +124,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
             } else {
                if (++other_worker_index < cr::Worker::my().workers_count) {
                   other_worker_id = cr::Worker::my().local_sorted_tx_start_timestamps[other_worker_index] & cr::Worker::WORKERS_MASK;
+                  explainWhen(other_worker_id == 255);
                   continue;
                } else {
                   break;

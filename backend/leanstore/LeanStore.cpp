@@ -49,6 +49,9 @@ LeanStore::LeanStore()
    if ((FLAGS_vi || FLAGS_vw) && !FLAGS_wal) {
       SetupFailed("You have to enable WAL");
    }
+   if (FLAGS_isolation_level == "si" && (!FLAGS_mv | !FLAGS_vi)) {
+      SetupFailed("You have to enable mv (multi-versioning)");
+   }
    // -------------------------------------------------------------------------------------
    // Set the default logger to file logger
    // Init SSD pool
