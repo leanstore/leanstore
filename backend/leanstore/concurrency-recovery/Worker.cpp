@@ -226,7 +226,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
       // -------------------------------------------------------------------------------------
       if (FLAGS_commit_hwm) {
          transactions_order_refreshed = false;
-         if (next_tx_isolation_level > TX_ISOLATION_LEVEL::READ_COMMITTED) {
+         if (next_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION) {
             if (force_si_refresh || FLAGS_si_refresh_rate == 0 || active_tx.commit_mark % FLAGS_si_refresh_rate == 0) {
                refreshSnapshotHWMs();
             }
@@ -247,8 +247,8 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
 // -------------------------------------------------------------------------------------
 void Worker::switchToAlwaysUpToDateMode()
 {
-   global_tx_start_timestamps[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63),
-                                               std::memory_order_release);
+   const u64 flagged_tx_start = (std::numeric_limits<u64>::max() - WORKERS_MASK + worker_id);
+   global_tx_start_timestamps[worker_id].store(flagged_tx_start, std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
       local_workers_commit_marks[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    }
