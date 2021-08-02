@@ -283,7 +283,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // -------------------------------------------------------------------------------------
          // Head WTTS if needed
          u64 head_wtts = 0;
-         if (head_version.versions_counter == 1) {
+         if (head_version.versions_counter == 0) {
             head_wtts = cr::Worker::composeWIDCM(head_version.worker_id, head_version.worker_commit_mark);
          }
          // WAL

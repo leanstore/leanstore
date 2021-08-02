@@ -109,7 +109,7 @@ class BTreeVI : public BTreeLL
       u8 can_convert_to_fat_tuple : 1;
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
-      u8 versions_counter;
+      u8 versions_counter;  // # versions not including the tuple itself
       // -------------------------------------------------------------------------------------
       ChainSN next_sn = 0;
       u8 payload[];  // latest version in-place
@@ -123,7 +123,7 @@ class BTreeVI : public BTreeLL
       void reset()
       {
          can_convert_to_fat_tuple = 1;
-         versions_counter = 1;
+         versions_counter = 0;
       }
    };
    static_assert(sizeof(ChainedTuple) <= 32, "");
