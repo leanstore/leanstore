@@ -131,7 +131,7 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) ChainedTupleVersion {
       u8 worker_id : 8;
       u64 worker_commit_mark : 56;
-      u64 commited_before_so;  // Helpful for garbage collection
+      u64 committed_before_sat;  // Helpful for garbage collection
       u8 is_removed : 1;
       u8 is_delta : 1;  // TODO: atm, always true
       ChainSN next_sn;
@@ -150,7 +150,7 @@ class BTreeVI : public BTreeLL
       struct __attribute__((packed)) Delta {
          u8 worker_id : 8;
          u64 worker_commit_mark : 56;
-         u64 commited_before_so;
+         u64 committed_before_sat;
          u8 payload[];  // Descriptor + Diff
          UpdateSameSizeInPlaceDescriptor& getDescriptor() { return *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(payload); }
          const UpdateSameSizeInPlaceDescriptor& getConstantDescriptor() const
@@ -268,7 +268,7 @@ class BTreeVI : public BTreeLL
                      }
                      if (skippable) {
                         leaf_statistics.skip_if_gsn_equal = leaf.bf->page.GSN;
-                        leaf_statistics.and_if_your_so_start_older = cr::Worker::my().tx_start;
+                        leaf_statistics.and_if_your_sat_older = cr::Worker::my().snapshotAcquistionTime();
                      }
                   }
                   leaf.bf->header.meta_data_in_shared_mode_mutex.unlock();
@@ -278,7 +278,8 @@ class BTreeVI : public BTreeLL
             iterator.registerAfterChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
                auto& leaf_statistics = leaf.bf->header.stale_leaf_tracker;
                leaf.bf->header.meta_data_in_shared_mode_mutex.lock_shared();
-               if (leaf_statistics.skip_if_gsn_equal == leaf.bf->page.GSN && leaf_statistics.and_if_your_so_start_older < cr::Worker::my().tx_start) {
+               if (leaf_statistics.skip_if_gsn_equal == leaf.bf->page.GSN &&
+                   leaf_statistics.and_if_your_sat_older < cr::Worker::my().snapshotAcquistionTime()) {
                   skip_current_leaf = true;
                   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
                }
@@ -400,7 +401,7 @@ class BTreeVI : public BTreeLL
                         std::memcpy(unlock_entry.key, key.data(), key.length());
                      });
                   } else {
-                     const_cast<ChainedTuple&>(primary_version).read_ts = std::max<u128>(primary_version.read_ts, cr::Worker::my().TXStart());
+                     const_cast<ChainedTuple&>(primary_version).read_ts = std::max<u128>(primary_version.read_ts, cr::activeTX().TTS());
                   }
                }
             }

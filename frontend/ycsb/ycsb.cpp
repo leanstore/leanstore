@@ -82,7 +82,6 @@ int main(int argc, char** argv)
       utils::Parallelize::range(FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
          crm.scheduleJobAsync(t_i, [&, begin, end]() {
             TX_MODE tx_type = FLAGS_ycsb_single_statement_tx ? TX_MODE::SINGLE_READWRITE : TX_MODE::LONG_READWRITE;
-            cr::Worker::my().refreshSnapshot();
             for (u64 i = begin; i < end; i++) {
                YCSBPayload payload;
                utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));

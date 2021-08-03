@@ -31,7 +31,7 @@ struct Transaction {
    enum class TYPE : u8 { USER, SYSTEM };
    enum class STATE { IDLE, STARTED, READY_TO_COMMIT, COMMITED, ABORTED };
    STATE state = STATE::IDLE;
-   u64 commit_mark = 0;
+   u64 tts = 0;
    LID min_observed_gsn_when_started, max_observed_gsn;
    TX_MODE current_tx_mode = TX_MODE::LONG_READWRITE;
    TX_ISOLATION_LEVEL current_tx_isolation_level = TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION;
@@ -49,6 +49,8 @@ struct Transaction {
    bool isReadUncommitted() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::READ_UNCOMMITTED; }
    bool canUseSingleVersion() { return can_use_single_version_mode; }
    bool isSafeSnapshot() { return safe_snapshot; }
+   // -------------------------------------------------------------------------------------
+   inline u64 TTS() { return tts; }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr

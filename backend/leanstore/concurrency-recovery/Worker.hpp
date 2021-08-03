@@ -49,8 +49,12 @@ struct Worker {
                                                 // and undermining RFA
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
-   static unique_ptr<atomic<u64>[]> global_tx_start_timestamps;
+   static unique_ptr<atomic<u64>[]> global_workers_snapshot_acquistion_time;
    static unique_ptr<atomic<u64>[]> global_workers_commit_marks;
+   // -------------------------------------------------------------------------------------
+   static unique_ptr<atomic<u64>[]> global_workers_snapshot_lwm;
+   static atomic<u64> global_snapshot_lwm;
+   // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;
@@ -59,12 +63,12 @@ struct Worker {
    bool force_si_refresh = false;
    bool workers_sorted = false;
    bool transactions_order_refreshed = false;
-   u64 tx_start;
-   u64 oldest_tx_start, oldest_tx_start_worker_id;
+   u64 oldest_tx_sat, oldest_tx_sat_worker_id;
    unique_ptr<atomic<u64>[]> local_workers_commit_marks;
-   unique_ptr<u64[]> local_sorted_tx_start_timestamps;
-   // local_tx_start_timestamps can lag and it only tells us whether "it" definitely sees a version, but not if it does not
-   unique_ptr<u64[]> local_tx_start_timestamps;
+   // local_workers_sta can lag and it only tells us whether "it" definitely sees a version, but not if it does not
+   unique_ptr<u64[]> local_workers_sta;
+   unique_ptr<u64[]> local_workers_sta_sorted;
+   u64 local_snapshot_acquisition_time = 0;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
@@ -273,9 +277,7 @@ struct Worker {
    void submitDTEntry(u64 total_size);
    // -------------------------------------------------------------------------------------
    inline u8 workerID() { return worker_id; }
-   inline u64 CM() { return active_tx.commit_mark; }
-   inline u64 WIDCM() { return workerID() | (CM() << 8); }
-   inline u64 TXStart() { return tx_start; }
+   inline u64 snapshotAcquistionTime() { return local_snapshot_acquisition_time; }  // SAT
 
   public:
    // -------------------------------------------------------------------------------------
@@ -290,7 +292,6 @@ struct Worker {
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
    void sortWorkers();
-   void refreshSnapshot();
    void refreshSnapshotHWMs();
    void refreshTransactionsOrderingIfNeeded();
    void switchToAlwaysUpToDateMode();

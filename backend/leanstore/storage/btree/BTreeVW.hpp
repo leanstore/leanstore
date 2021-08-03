@@ -107,7 +107,7 @@ class BTreeVW : public BTreeLL
    bool reconstructTuple(u8* payload, u16& payload_length, u8 worker_id, u64 lsn, u32 in_memory_offset);
    static void applyDelta(u8* dst, u16 dst_size, const u8* delta, u16 delta_size);
    inline u8 myWorkerID() { return cr::Worker::my().worker_id; }
-   inline u64 myTTS() { return cr::Worker::my().active_tx.commit_mark; }
+   inline u64 myTTS() { return cr::activeTX().TTS(); }
    inline u64 myWTTS() { return myWorkerID() | (myTTS() << 8); }
    inline bool isVisibleForMe(u8 worker_id, u64 tts) { return cr::Worker::my().isVisibleForMe(worker_id, tts); }
 };
