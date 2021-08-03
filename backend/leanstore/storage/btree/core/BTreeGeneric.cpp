@@ -208,12 +208,17 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
       // -------------------------------------------------------------------------------------
+      p_guard.incrementGSN();
+      c_guard.incrementGSN();
+      l_guard.incrementGSN();
+      // -------------------------------------------------------------------------------------
       if (!l_x_guard->merge(pos - 1, p_x_guard, c_x_guard)) {
          p_guard = std::move(p_x_guard);
          c_guard = std::move(c_x_guard);
          l_guard = std::move(l_x_guard);
          return false;
       }
+      // -------------------------------------------------------------------------------------
       l_x_guard.reclaim();
       // -------------------------------------------------------------------------------------
       p_guard = std::move(p_x_guard);
@@ -235,6 +240,10 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
       // -------------------------------------------------------------------------------------
+      p_guard.incrementGSN();
+      c_guard.incrementGSN();
+      r_guard.incrementGSN();
+      // -------------------------------------------------------------------------------------
       assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf());
       if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
          p_guard = std::move(p_x_guard);
@@ -242,6 +251,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          r_guard = std::move(r_x_guard);
          return false;
       }
+      // -------------------------------------------------------------------------------------
       c_x_guard.reclaim();
       // -------------------------------------------------------------------------------------
       p_guard = std::move(p_x_guard);
@@ -455,20 +465,22 @@ BTreeGeneric::~BTreeGeneric() {}
 // Called by buffer manager before eviction
 // Returns true if the buffer manager has to restart and pick another buffer frame for eviction
 // Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
-bool BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferFrame& bf, BMOptimisticGuard& o_guard, ParentSwipHandler& parent_handler)
+SpaceCheckResult BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
    if (FLAGS_xmerge) {
       auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
+      ParentSwipHandler parent_handler = btree.findParent(btree, bf);
       HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-      HybridPageGuard<BTreeNode> c_guard(o_guard.guard, &bf);
+      HybridPageGuard<BTreeNode> c_guard(p_guard, parent_handler.swip.cast<BTreeNode>());
       XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
-      o_guard.guard = std::move(c_guard.guard);
-      parent_handler.parent_guard = std::move(p_guard.guard);
       p_guard.unlock();
       c_guard.unlock();
-      return (return_code != XMergeReturnCode::NOTHING);
+      if (return_code != XMergeReturnCode::NOTHING) {
+         return SpaceCheckResult::PICK_ANOTHER_BF;
+      }
+      return SpaceCheckResult::RETRY_SAME_BF;
    }
-   return false;
+   return SpaceCheckResult::NOTHING;
 }
 // -------------------------------------------------------------------------------------
 // pre: source buffer frame is shared latched

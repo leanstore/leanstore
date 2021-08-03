@@ -65,7 +65,7 @@ class BTreeLL : public KVInterface, public BTreeGeneric
    virtual u64 countEntries() override;
    virtual u64 getHeight() override;
    // -------------------------------------------------------------------------------------
-   static bool checkSpaceUtilization(void* btree_object, BufferFrame& bf);
+   static SpaceCheckResult checkSpaceUtilization(void* btree_object, BufferFrame& bf);
    static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
    static void todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 tts);

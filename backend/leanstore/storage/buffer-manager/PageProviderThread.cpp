@@ -111,7 +111,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                }
                // -------------------------------------------------------------------------------------
                r_guard.recheck();
-               if (getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer, r_guard, parent_handler)) {
+               const SpaceCheckResult space_check_res = getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);
+               if (space_check_res == SpaceCheckResult::RETRY_SAME_BF) {
+                  continue;
+               } else if (space_check_res == SpaceCheckResult::PICK_ANOTHER_BF) {
                   r_buffer = &randomBufferFrame();
                   continue;
                }

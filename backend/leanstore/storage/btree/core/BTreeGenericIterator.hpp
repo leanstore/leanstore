@@ -342,7 +342,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
        : BTreePessimisticIterator(btree, LATCH_FALLBACK_MODE::EXCLUSIVE)
    {
       Guard as_it_was_witnessed(bf->header.latch, bf_version);
-      leaf = HybridPageGuard<BTreeNode>(as_it_was_witnessed, bf);
+      leaf = HybridPageGuard<BTreeNode>(std::move(as_it_was_witnessed), bf);
       leaf.toExclusive();
    }
    // -------------------------------------------------------------------------------------

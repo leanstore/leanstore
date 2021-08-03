@@ -767,9 +767,28 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
    }
 }
 // -------------------------------------------------------------------------------------
-bool BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf, BMOptimisticGuard& o_guard, ParentSwipHandler& parent_handler)
+SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
-   return BTreeGeneric::checkSpaceUtilization(btree_object, bf, o_guard, parent_handler);
+   auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
+   Guard bf_guard(bf.header.latch);
+   bf_guard.toOptimisticOrJump();
+   HybridPageGuard<BTreeNode> c_guard(std::move(bf_guard), &bf);
+   if (!c_guard->is_leaf) {
+      return SpaceCheckResult::NOTHING;
+   }
+   for (u16 s_i = 0; s_i < c_guard->count; s_i++) {
+      auto& sn = *reinterpret_cast<ChainSN*>(c_guard->getKey(s_i) + c_guard->getKeyLen(s_i) - sizeof(ChainSN));
+      if (sn == 0) {
+        // TODO: GC removed tuples, and fix FatTuple size
+      } else {
+         auto& chained_tuple_version = *reinterpret_cast<ChainedTupleVersion*>(c_guard->getPayload(s_i));
+         if (chained_tuple_version.gc_trigger) {
+            raise(SIGTRAP);
+         }
+      }
+   }
+   return SpaceCheckResult::NOTHING;
+   // return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
 }
 // -------------------------------------------------------------------------------------
 void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 version_tts)

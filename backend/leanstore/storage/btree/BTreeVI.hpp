@@ -211,7 +211,7 @@ class BTreeVI : public BTreeLL
                       function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                       function<void()>) override;
    // -------------------------------------------------------------------------------------
-   static bool checkSpaceUtilization(void* btree_object, BufferFrame&, BMOptimisticGuard&, ParentSwipHandler&);
+   static SpaceCheckResult checkSpaceUtilization(void* btree_object, BufferFrame&);
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
    static void todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 tts);
    static void deserialize(void*, std::unordered_map<std::string, std::string>) {}      // TODO:
