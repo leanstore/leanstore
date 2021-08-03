@@ -263,6 +263,12 @@ struct DTRegistry::DTMeta BTreeLL::getMeta()
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------
+bool BTreeLL::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
+{
+   auto& btree = *reinterpret_cast<BTreeLL*>(btree_object);
+   return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
+}
+// -------------------------------------------------------------------------------------
 struct ParentSwipHandler BTreeLL::findParent(void* btree_object, BufferFrame& to_find)
 {
    return BTreeGeneric::findParent(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
