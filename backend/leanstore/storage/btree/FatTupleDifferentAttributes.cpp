@@ -275,6 +275,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTupl
 bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator, MutableSlice& m_key)
 {
    Slice key(m_key.data(), m_key.length());
+   u16 number_of_deltas_to_replace = 0;
    std::vector<u8> dynamic_buffer;
    dynamic_buffer.resize(PAGE_SIZE * 4);
    u8* fat_tuple_payload = dynamic_buffer.data();
@@ -300,6 +301,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    {
       // Iterate over the rest
       while (next_sn != 0) {
+         number_of_deltas_to_replace++;
          const bool next_higher = next_sn >= getSN(m_key);
          setSN(m_key, next_sn);
          OP_RESULT ret = iterator.seekExactWithHint(key, next_higher);
@@ -328,22 +330,20 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
          // -------------------------------------------------------------------------------------
          fat_tuple.deltas_count++;
          next_sn = chain_delta.next_sn;
-         // Readers will restart and probably hang on the head's mutex
-         ret = iterator.removeCurrent();
-         ensure(ret == OP_RESULT::OK);
          fat_tuple.garbageCollection(*this);  // TODO: temporary hack to calm down overflow bugs
       }
    }
    {
-      fat_tuple.garbageCollection(*this);
-      if (fat_tuple.used_space > fat_tuple.total_space) {
-         setSN(m_key, 0);
-         OP_RESULT ret = iterator.seekExactWithHint(key, false);
-         ensure(ret == OP_RESULT::OK);
-         return false;
-      }
+      setSN(m_key, 0);
+      OP_RESULT ret = iterator.seekExactWithHint(key, false);
+      ensure(ret == OP_RESULT::OK);
    }
-   {
+   auto& chain_head = *reinterpret_cast<ChainedTuple*>(iterator.mutableValue().data());
+   if (fat_tuple.used_space > fat_tuple.total_space) {
+      chain_head.unlock();
+      return false;
+   }
+   if (number_of_deltas_to_replace >= cr::Worker::my().workers_count) {
       // Finalize the new FatTuple
       // TODO: corner cases, more careful about space usage
       // -------------------------------------------------------------------------------------
@@ -360,8 +360,11 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
          iterator.shorten(fat_tuple_length);
       }
       std::memcpy(iterator.mutableValue().data(), fat_tuple_payload, fat_tuple_length);
+      return true;
+   } else {
+      chain_head.unlock();
+      return false;
    }
-   return true;
 }
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore::storage::btree

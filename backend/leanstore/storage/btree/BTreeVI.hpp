@@ -72,8 +72,8 @@ class BTreeVI : public BTreeLL
      When FatTuple runs out of space, we simply crash for now (real solutions approx variable-size pages or fallback to chained keys)
      ----------------------------------------------------------------------------
      How to convert CHAINED to FAT_TUPLE:
-     using versions_counter and value_length, allocate fat_tuple on the stack and append all diffs to the fat tuple
-     FOR NOW, we assume same_diffs
+     Random number generation, similar to contention split, don't eagerly remove the deltas to allow concurrent readers to continue without
+     complicating the logic if we fail
      ----------------------------------------------------------------------------
      Glossary:
         UpdateDescriptor: (offset, length)[]
@@ -109,7 +109,6 @@ class BTreeVI : public BTreeLL
       u8 can_convert_to_fat_tuple : 1;
       u8 is_removed : 1;
       u8 is_gc_scheduled : 1;
-      u8 versions_counter;  // # versions not including the tuple itself
       // -------------------------------------------------------------------------------------
       ChainSN next_sn = 0;
       u8 payload[];  // latest version in-place
@@ -120,11 +119,7 @@ class BTreeVI : public BTreeLL
          reset();
       }
       bool isFinal() const { return next_sn == 0; }
-      void reset()
-      {
-         can_convert_to_fat_tuple = 1;
-         versions_counter = 0;
-      }
+      void reset() { can_convert_to_fat_tuple = 1; }
    };
    static_assert(sizeof(ChainedTuple) <= 32, "");
    // -------------------------------------------------------------------------------------
@@ -134,16 +129,22 @@ class BTreeVI : public BTreeLL
       u64 committed_before_sat;  // Helpful for garbage collection
       u8 is_removed : 1;
       u8 is_delta : 1;  // TODO: atm, always true
+      u64 gc_trigger;
       ChainSN next_sn;
       u8 payload[];  // UpdateDescriptor + Diff
       // -------------------------------------------------------------------------------------
-      ChainedTupleVersion(u8 worker_id, u64 worker_commit_mark, bool is_removed, bool is_delta, ChainSN next_sn = 0)
-          : worker_id(worker_id), worker_commit_mark(worker_commit_mark), is_removed(is_removed), is_delta(is_delta), next_sn(next_sn)
+      ChainedTupleVersion(u8 worker_id, u64 worker_commit_mark, bool is_removed, bool is_delta, u64 gc_trigger, ChainSN next_sn = 0)
+          : worker_id(worker_id),
+            worker_commit_mark(worker_commit_mark),
+            is_removed(is_removed),
+            is_delta(is_delta),
+            gc_trigger(gc_trigger),
+            next_sn(next_sn)
       {
       }
       bool isFinal() const { return next_sn == 0; }
    };
-   static_assert(sizeof(ChainedTupleVersion) <= 19, "");
+   static_assert(sizeof(ChainedTupleVersion) <= 27, "");
    // -------------------------------------------------------------------------------------
    // We always append the descriptor, one format to keep simple
    struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
@@ -210,6 +211,7 @@ class BTreeVI : public BTreeLL
                       function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                       function<void()>) override;
    // -------------------------------------------------------------------------------------
+   static bool checkSpaceUtilization(void* btree_object, BufferFrame&, BMOptimisticGuard&, ParentSwipHandler&);
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
    static void todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 tts);
    static void deserialize(void*, std::unordered_map<std::string, std::string>) {}      // TODO:
@@ -379,7 +381,6 @@ class BTreeVI : public BTreeLL
    static void applyDelta(u8* dst, const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* src);
    inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback)
    {
-   restart : {
       Slice payload = iterator.value();
       assert(getSN(key) == 0);
       if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
@@ -413,18 +414,12 @@ class BTreeVI : public BTreeLL
             if (primary_version.isFinal()) {
                return {OP_RESULT::NOT_FOUND, 1};
             } else {
-               jumpmuTry()
-               {
-                  auto ret = reconstructChainedTuple(iterator, key, callback);
-                  jumpmu_return ret;
-               }
-               jumpmuCatch() { goto restart; }
+               return reconstructChainedTuple(iterator, key, callback);
             }
          }
       } else {
          return reinterpret_cast<const FatTupleDifferentAttributes*>(payload.data())->reconstructTuple(callback);
       }
-   }
    }
    std::tuple<OP_RESULT, u16> reconstructChainedTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback);
 };
