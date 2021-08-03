@@ -305,7 +305,9 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
          const bool next_higher = next_sn >= getSN(m_key);
          setSN(m_key, next_sn);
          OP_RESULT ret = iterator.seekExactWithHint(key, next_higher);
-         ensure(ret == OP_RESULT::OK);
+         if (ret != OP_RESULT::OK) {
+            break;
+         }
          // -------------------------------------------------------------------------------------
          const Slice delta_slice = iterator.value();
          const auto& chain_delta = *reinterpret_cast<const ChainedTupleVersion*>(delta_slice.data());

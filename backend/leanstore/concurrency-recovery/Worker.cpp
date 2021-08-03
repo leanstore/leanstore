@@ -153,7 +153,12 @@ void Worker::refreshSnapshotHWMs()
    }
    global_workers_snapshot_lwm[worker_id].store(commit_marks_lwm, std::memory_order_release);
    // -------------------------------------------------------------------------------------
-   // TODO: calculate the global minimum lwm
+   u64 snapshot_lwm = std::numeric_limits<u64>::max();
+   for (u64 w_i = 0; w_i < workers_count; w_i++) {
+      snapshot_lwm = std::min<u64>(snapshot_lwm, global_workers_snapshot_lwm[w_i].load());
+   }
+   // TODO: CAS
+   global_snapshot_lwm.store(snapshot_lwm, std::memory_order_release);
    // -------------------------------------------------------------------------------------
    relations_cut_from_snapshot.reset();
 }

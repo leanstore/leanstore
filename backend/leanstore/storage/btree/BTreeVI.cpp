@@ -776,18 +776,45 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
    if (!c_guard->is_leaf) {
       return SpaceCheckResult::NOTHING;
    }
-   for (u16 s_i = 0; s_i < c_guard->count; s_i++) {
+   // -------------------------------------------------------------------------------------
+   bool has_removed_anything = false;
+   for (u16 s_i = 0; s_i < c_guard->count;) {
       auto& sn = *reinterpret_cast<ChainSN*>(c_guard->getKey(s_i) + c_guard->getKeyLen(s_i) - sizeof(ChainSN));
       if (sn == 0) {
-        // TODO: GC removed tuples, and fix FatTuple size
+         auto& tuple = *reinterpret_cast<Tuple*>(c_guard->getPayload(s_i));
+         if (tuple.tuple_format == TupleFormat::CHAINED) {
+            auto& chained_tuple = *reinterpret_cast<ChainedTuple*>(c_guard->getPayload(s_i));
+            if (chained_tuple.is_removed && chained_tuple.worker_commit_mark <= cr::Worker::my().global_snapshot_lwm) {
+               if (!has_removed_anything) {
+                  has_removed_anything = true;
+                  c_guard.toExclusive();
+               }
+               c_guard->removeSlot(s_i);
+            } else {
+               s_i++;
+            }
+         } else if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
+            // TODO: Fix FatTuple size
+            s_i++;
+         }
       } else {
          auto& chained_tuple_version = *reinterpret_cast<ChainedTupleVersion*>(c_guard->getPayload(s_i));
-         if (chained_tuple_version.gc_trigger) {
-            raise(SIGTRAP);
+         if (chained_tuple_version.gc_trigger <= cr::Worker::my().global_snapshot_lwm) {
+            if (!has_removed_anything) {
+               has_removed_anything = true;
+               c_guard.toExclusive();
+            }
+            c_guard->removeSlot(s_i);
+         } else {
+            s_i++;
          }
       }
    }
-   return SpaceCheckResult::NOTHING;
+   if (has_removed_anything) {
+      return SpaceCheckResult::RETRY_SAME_BF;
+   } else {
+      return SpaceCheckResult::NOTHING;
+   }
    // return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
 }
 // -------------------------------------------------------------------------------------
