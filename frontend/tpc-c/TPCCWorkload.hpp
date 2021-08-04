@@ -1002,8 +1002,8 @@ class TPCCWorkload
             if (i != 5)
                leanstore::cr::Worker::my().relations_cut_from_snapshot.add(i);
       }
+      Integer sum = 0, last_w = 0, last_i = 0;
       if (query_no == 0) {
-         Integer sum = 0, last_w = 0, last_i = 0;
          stock.scan(
              {1, 0},
              [&](const stock_t::Key& key, const stock_t&) {
@@ -1021,7 +1021,19 @@ class TPCCWorkload
          }
       } else if (query_no == 1) {
          district.scan(
-             {1, 0}, [&](const district_t::Key&, const district_t&) { return true; }, [&]() {});
+             {1, 0},
+             [&](const district_t::Key& key, const district_t&) {
+                sum++;
+                last_w = key.d_w_id;
+                last_i = key.d_id;
+                return true;
+             },
+             [&]() {});
+         if (sum != warehouseCount * 10) {
+            cout << "#district = " << sum << endl;
+            cout << last_w << "," << last_i << endl;
+            ensure(false);
+         }
       } else if (query_no == 2) {
          orderline.scan(
              {0, 0, 0, 0}, [&](const orderline_t::Key&, const orderline_t&) { return true; }, [&]() {});
