@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------------------
 
 #include <algorithm>
+#include <bitset>
 #include <cassert>
 #include <cstring>
 #include <fstream>
@@ -71,6 +72,9 @@ struct BTreeNodeHeader {
 
    static const u16 hint_count = 16;
    u32 hint[hint_count];
+   // -------------------------------------------------------------------------------------
+   // Needed for GC
+   std::bitset<512> bitset;
    // -------------------------------------------------------------------------------------
    BTreeNodeHeader(bool is_leaf) : is_leaf(is_leaf) {}
    ~BTreeNodeHeader() {}

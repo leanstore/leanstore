@@ -101,14 +101,14 @@ struct Worker {
    struct TODOEntry {  // In-memory
       u8 version_worker_id;
       u64 version_worker_commit_mark;
-      u64 after_so;
-      u64 or_before_so;
+      u64 after_sat;
+      u64 or_before_sat;
       DTID dt_id;
       u64 payload_length;
       // -------------------------------------------------------------------------------------
       u8 payload[];  // TODO: dyanmically allocating buffer is costly
    };
-   std::list<std::unique_ptr<u8[]>> todo_list;
+   std::list<std::unique_ptr<u8[]>> todo_list, performance_priority_todo_list;
    std::list<std::unique_ptr<u8[]>>::iterator todo_tx_start_iter = todo_list.end();
    void stageTODO(u8 worker_id, u64 worker_cm, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
    void commitTODO(u8 worker_id, u64 worker_cm, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);

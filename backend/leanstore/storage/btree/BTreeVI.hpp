@@ -108,16 +108,11 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) ChainedTuple : Tuple {
       u8 can_convert_to_fat_tuple : 1;
       u8 is_removed : 1;
-      u8 is_gc_scheduled : 1;
       // -------------------------------------------------------------------------------------
       ChainSN next_sn = 0;
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
-      ChainedTuple(u8 worker_id, u64 worker_commit_mark)
-          : Tuple(TupleFormat::CHAINED, worker_id, worker_commit_mark), is_removed(false), is_gc_scheduled(false)
-      {
-         reset();
-      }
+      ChainedTuple(u8 worker_id, u64 worker_commit_mark) : Tuple(TupleFormat::CHAINED, worker_id, worker_commit_mark), is_removed(false) { reset(); }
       bool isFinal() const { return next_sn == 0; }
       void reset() { can_convert_to_fat_tuple = 1; }
    };
@@ -169,7 +164,7 @@ class BTreeVI : public BTreeLL
       // -------------------------------------------------------------------------------------
       FatTupleDifferentAttributes() : Tuple(TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES, 0, 0) {}
       // returns false to fallback to chained mode
-      bool update(BTreeExclusiveIterator& iterator,
+      static bool update(BTreeExclusiveIterator& iterator,
                   u8* key,
                   u16 o_key_length,
                   function<void(u8* value, u16 value_size)>,
@@ -186,7 +181,9 @@ class BTreeVI : public BTreeLL
       BufferFrame* bf = nullptr;
       u64 version = -1;
       s32 head_slot = -1, secondary_slot = -1;
-      bool isValid() const { return secondary_slot != -1; }
+      bool remove_operation = false;
+      bool valid = false;
+      bool isValid() const { return valid; }
    };
    // -------------------------------------------------------------------------------------
    struct TODOEntry {

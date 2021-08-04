@@ -161,6 +161,8 @@ class HybridPageGuard
    // Use with caution!
    void toShared() { guard.toShared(); }
    void toExclusive() { guard.toExclusive(); }
+   void tryToShared() { guard.tryToShared(); }        // Can jump
+   void tryToExclusive() { guard.tryToExclusive(); }  // Can jump
    // -------------------------------------------------------------------------------------
    // Parent should be exclusively locked, we need a Swip in the parent
    // This is the child page that we want to cool

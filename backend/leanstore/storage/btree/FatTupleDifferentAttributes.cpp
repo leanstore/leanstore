@@ -170,8 +170,9 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
                                                   UpdateSameSizeInPlaceDescriptor& update_descriptor,
                                                   BTreeVI& btree)
 {
+   auto fat_tuple = reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data());
    if (FLAGS_vi_fupdate_fat_tuple) {
-      cb(getValue(), value_length);
+      cb(fat_tuple->getValue(), fat_tuple->value_length);
       return true;
    }
    // -------------------------------------------------------------------------------------
@@ -179,35 +180,45 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
    // Otherwise we would crash during undo although the end result is the same if the transaction would commit (overwrite)
    const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
    const u32 needed_space = sizeof(Delta) + descriptor_and_diff_length;
-   if (deltas_count > 0) {
+   if (fat_tuple->deltas_count > 0) {
       // Garbage collection first
-      this->garbageCollection(btree);
-      ensure(total_space >= (needed_space + used_space));
-      if (deltas_count > 0) {
-         // Make place for a new delta
-         const u64 src = value_length;
-         const u64 dst = value_length + needed_space;
-         std::memmove(payload + dst, payload + src, used_space - src);
-      }
+      fat_tuple->garbageCollection(btree);
+   }
+   ensure((needed_space + fat_tuple->used_space) <= 3 * 1024);  // TODO:
+   if (fat_tuple->total_space < (needed_space + fat_tuple->used_space)) {
+      const u32 fat_tuple_length = needed_space + fat_tuple->used_space + sizeof(FatTupleDifferentAttributes);
+      assert(fat_tuple_length < PAGE_SIZE);
+      u8 buffer[PAGE_SIZE];
+      std::memcpy(buffer, iterator.value().data(), iterator.value().length());
+      iterator.extendPayload(fat_tuple_length);
+      std::memcpy(iterator.mutableValue().data(), buffer, fat_tuple_length);
+      fat_tuple = reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data());
+      fat_tuple->total_space = needed_space + fat_tuple->used_space;
+   }
+   if (fat_tuple->deltas_count > 0) {
+      // Make place for a new delta
+      const u64 src = fat_tuple->value_length;
+      const u64 dst = fat_tuple->value_length + needed_space;
+      std::memmove(fat_tuple->payload + dst, fat_tuple->payload + src, fat_tuple->used_space - src);
    }
    // -------------------------------------------------------------------------------------
    {
       // Insert the new delta
-      auto& new_delta = *new (payload + value_length) Delta();
-      new_delta.worker_id = worker_id;
-      new_delta.worker_commit_mark = worker_commit_mark;
+      auto& new_delta = *new (fat_tuple->payload + fat_tuple->value_length) Delta();
+      new_delta.worker_id = fat_tuple->worker_id;
+      new_delta.worker_commit_mark = fat_tuple->worker_commit_mark;
       // Attention: we should not timestamp a delta that we created as committed!
-      if (worker_id == cr::Worker::my().workerID() && worker_commit_mark == cr::activeTX().TTS()) {
+      if (fat_tuple->worker_id == cr::Worker::my().workerID() && fat_tuple->worker_commit_mark == cr::activeTX().TTS()) {
          new_delta.committed_before_sat = std::numeric_limits<u64>::max();
       } else {
          new_delta.committed_before_sat = cr::Worker::my().snapshotAcquistionTime();
       }
       std::memcpy(new_delta.payload, &update_descriptor, update_descriptor.size());
-      BTreeLL::generateDiff(update_descriptor, new_delta.payload + update_descriptor.size(), getValue());
-      used_space += needed_space;
-      deltas_count++;
+      BTreeLL::generateDiff(update_descriptor, new_delta.payload + update_descriptor.size(), fat_tuple->getValue());
+      fat_tuple->used_space += needed_space;
+      fat_tuple->deltas_count++;
    }
-   ensure(total_space >= used_space);
+   ensure(fat_tuple->total_space >= fat_tuple->used_space);
    // -------------------------------------------------------------------------------------
    {
       // WAL
@@ -216,23 +227,23 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       wal_entry->type = WAL_LOG_TYPE::WALUpdate;
       wal_entry->key_length = o_key_length;
       wal_entry->delta_length = delta_and_descriptor_size;
-      wal_entry->before_worker_id = worker_id;
-      wal_entry->before_worker_commit_mark = worker_commit_mark;
-      worker_id = cr::Worker::my().workerID();
-      worker_commit_mark = cr::activeTX().TTS();
-      wal_entry->after_worker_id = worker_id;
-      wal_entry->after_worker_commit_mark = worker_commit_mark;
+      wal_entry->before_worker_id = fat_tuple->worker_id;
+      wal_entry->before_worker_commit_mark = fat_tuple->worker_commit_mark;
+      fat_tuple->worker_id = cr::Worker::my().workerID();
+      fat_tuple->worker_commit_mark = cr::activeTX().TTS();
+      wal_entry->after_worker_id = fat_tuple->worker_id;
+      wal_entry->after_worker_commit_mark = fat_tuple->worker_commit_mark;
       std::memcpy(wal_entry->payload, o_key, o_key_length);
       std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
       // Update the value in-place
-      BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), getValue());
-      cb(getValue(), value_length);
-      debug = 1;
-      BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), getValue());
+      BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), fat_tuple->getValue());
+      cb(fat_tuple->getValue(), fat_tuple->value_length);
+      fat_tuple->debug = 1;
+      BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), fat_tuple->getValue());
       wal_entry.submit();
       // -------------------------------------------------------------------------------------
       if (cr::activeTX().isSerializable()) {
-         read_ts = cr::activeTX().TTS();
+         fat_tuple->read_ts = cr::activeTX().TTS();
       }
    }
    return true;
@@ -345,6 +356,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
       chain_head.unlock();
       return false;
    }
+   fat_tuple.total_space = fat_tuple.used_space;
    if (number_of_deltas_to_replace >= cr::Worker::my().workers_count) {
       // Finalize the new FatTuple
       // TODO: corner cases, more careful about space usage
