@@ -181,6 +181,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          if (FLAGS_optimistic_scan) {
             jumpmuTry()
             {
+               ensure(leaf_pos_in_parent != -1);
                if ((leaf_pos_in_parent + 1) <= p_guard->count) {
                   // -------------------------------------------------------------------------------------
                   if (cur != -1 && before_changing_leaf_cb) {
@@ -189,12 +190,13 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                   // -------------------------------------------------------------------------------------
                   s32 next_leaf_pos = leaf_pos_in_parent + 1;
                   Swip<BTreeNode>& c_swip = (next_leaf_pos < p_guard->count) ? p_guard->getChild(next_leaf_pos) : p_guard->upper;
-                  leaf = HybridPageGuard(p_guard, c_swip, mode);
+                  HybridPageGuard next_leaf(p_guard, c_swip, LATCH_FALLBACK_MODE::JUMP);
                   if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
-                     leaf.toExclusive();
+                     next_leaf.tryToExclusive();
                   } else {
-                     leaf.toShared();
+                     next_leaf.tryToShared();
                   }
+                  leaf = std::move(next_leaf);
                   leaf_pos_in_parent = next_leaf_pos;
                   cur = 0;
                   prefix_copied = false;
@@ -250,6 +252,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                   // -------------------------------------------------------------------------------------
                   s32 prev_leaf_pos = leaf_pos_in_parent - 1;
                   Swip<BTreeNode>& c_swip = p_guard->getChild(prev_leaf_pos);
+                  leaf.unlock();
                   leaf = HybridPageGuard(p_guard, c_swip, mode);
                   if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
                      leaf.toExclusive();
