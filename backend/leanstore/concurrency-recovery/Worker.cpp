@@ -147,8 +147,11 @@ void Worker::refreshSnapshotHWMs()
    // -------------------------------------------------------------------------------------
    u64 commit_marks_lwm = std::numeric_limits<u64>::max();
    for (u64 w_i = 0; w_i < workers_count; w_i++) {
-      const u64 its_commit_mark = global_workers_commit_marks[w_i];
-      commit_marks_lwm = std::min<u64>(its_commit_mark, commit_marks_lwm);
+      u64 its_commit_mark = global_workers_commit_marks[w_i];
+      if ((its_commit_mark & (1ull << 63)) == 0) {
+         commit_marks_lwm = std::min<u64>(its_commit_mark, commit_marks_lwm);
+      }
+      its_commit_mark &= ~(1ull << 63);
       local_workers_commit_marks[w_i].store(its_commit_mark, std::memory_order_release);
    }
    global_workers_snapshot_lwm[worker_id].store(commit_marks_lwm, std::memory_order_release);
@@ -233,6 +236,12 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
       active_tx.tts = tts;
       active_tx.min_observed_gsn_when_started = clock_gsn;
       // -------------------------------------------------------------------------------------
+      // TODO: better way
+      if (next_tx_type == TX_MODE::LONG_READONLY || next_tx_type == TX_MODE::SINGLE_READONLY) {
+         const u64 last_commit_mark_flagged = global_workers_commit_marks[worker_id].load() | (1ull << 63);
+         global_workers_commit_marks[worker_id].store(last_commit_mark_flagged, std::memory_order_release);
+      }
+      // -------------------------------------------------------------------------------------
       if (FLAGS_commit_hwm) {
          transactions_order_refreshed = false;
          if (next_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION) {
@@ -256,6 +265,11 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
 // -------------------------------------------------------------------------------------
 void Worker::switchToAlwaysUpToDateMode()
 {
+   {
+      const u64 last_commit_mark_flagged = global_workers_commit_marks[worker_id].load() | (1ull << 63);
+      global_workers_commit_marks[worker_id].store(last_commit_mark_flagged, std::memory_order_release);
+   }
+   global_workers_snapshot_lwm[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    global_workers_snapshot_acquistion_time[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
       local_workers_commit_marks[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
@@ -342,7 +356,7 @@ void Worker::commitTX()
 {
    if (activeTX().isDurable()) {
       if (activeTX().isSingleStatement() && active_tx.state != Transaction::STATE::STARTED) {
-         return;  // Skip double commit in case of single statement upsert [hacky]
+         return;  // Skip double commit in case of single statement upsert [hack]
       }
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
@@ -421,7 +435,8 @@ bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts, bool to_write)
          return true;
       } else if (activeTX().isSingleStatement() || activeTX().isReadCommitted()) {
          // Single statement transaction can refresh their vector on-demand
-         local_workers_commit_marks[other_worker_id].store(global_workers_commit_marks[other_worker_id].load(), std::memory_order_release);
+         const u64 its_commit_mark = global_workers_commit_marks[other_worker_id].load() & ~(1ull << 63);
+         local_workers_commit_marks[other_worker_id].store(its_commit_mark, std::memory_order_release);
          return local_workers_commit_marks[other_worker_id].load() >= tts;
       } else {
          return false;
@@ -586,16 +601,13 @@ void Worker::commitTODOs(u64 sat)
    }
 }
 // -------------------------------------------------------------------------------------
-void Worker::commitTODO(u8 worker_id, u64 worker_cm, u64 after_so, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb)
+void Worker::schedulePerformanceTODO(DTID dt_id, u64 payload_length, std::function<void(u8*)> cb)
 {
    auto& todo_entry =
        *new (performance_priority_todo_list.emplace_back(std::make_unique<u8[]>(payload_length + sizeof(TODOEntry))).get()) TODOEntry();
    todo_entry.version_worker_id = worker_id;
-   todo_entry.version_worker_commit_mark = worker_cm;
    todo_entry.dt_id = dt_id;
    todo_entry.payload_length = payload_length;
-   todo_entry.after_sat = after_so;
-   todo_entry.or_before_sat = 0;
    cb(todo_entry.payload);
 }
 // -------------------------------------------------------------------------------------

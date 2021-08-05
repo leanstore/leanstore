@@ -230,7 +230,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          ChainedTuple& head_version = *reinterpret_cast<ChainedTuple*>(head_payload.data());
          // -------------------------------------------------------------------------------------
          dangling_pointer.bf = iterator.leaf.bf;
-         dangling_pointer.version = iterator.leaf.guard.latch->version;
+         dangling_pointer.latch_version_should_be = iterator.leaf.guard.latch->version + 1;
          dangling_pointer.head_slot = iterator.cur;
          dangling_pointer.remove_operation = false;
          // -------------------------------------------------------------------------------------
@@ -269,7 +269,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       {
          // Return to the head
          MutableSlice head_payload(nullptr, 0);
-         if (dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.version == iterator.leaf.guard.latch->version) {
+         if (dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.latch_version_should_be == (iterator.leaf.guard.latch->version + 1)) {
             dangling_pointer.secondary_slot = iterator.cur;
             dangling_pointer.valid = true;
             iterator.cur = dangling_pointer.head_slot;
@@ -307,9 +307,9 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // -------------------------------------------------------------------------------------
          if (FLAGS_vi_utodo) {
             cr::Worker::my().stageTODO(
-                head_version.worker_id, head_version.worker_commit_mark, dt_id, key_length + sizeof(TODOEntry),
+                head_version.worker_id, head_version.worker_commit_mark, dt_id, key_length + sizeof(TODOPoint),
                 [&](u8* entry) {
-                   auto& todo_entry = *new (entry) TODOEntry();
+                   auto& todo_entry = *new (entry) TODOPoint();
                    todo_entry.key_length = o_key_length;
                    todo_entry.sn = secondary_sn;
                    todo_entry.dangling_pointer = dangling_pointer;
@@ -438,7 +438,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
          // -------------------------------------------------------------------------------------
          dangling_pointer.bf = iterator.leaf.bf;
-         dangling_pointer.version = iterator.leaf.guard.version;
+         dangling_pointer.latch_version_should_be = iterator.leaf.guard.version + 1;
          dangling_pointer.head_slot = iterator.cur;
          dangling_pointer.remove_operation = true;
          // -------------------------------------------------------------------------------------
@@ -487,7 +487,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       {
          // Return to the head
          MutableSlice primary_payload(nullptr, 0);
-         if (dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.version == iterator.leaf.guard.version) {
+         if (dangling_pointer.bf == iterator.leaf.bf && dangling_pointer.latch_version_should_be == (iterator.leaf.guard.version + 1)) {
             dangling_pointer.secondary_slot = iterator.cur;
             dangling_pointer.valid = true;
             iterator.cur = dangling_pointer.head_slot;
@@ -533,9 +533,9 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          if (FLAGS_vi_rtodo) {
             const u64 wtts = cr::Worker::composeWIDCM(old_primary_version.worker_id, old_primary_version.worker_commit_mark);
             cr::Worker::my().stageTODO(
-                cr::Worker::my().workerID(), cr::activeTX().TTS(), dt_id, key_length + sizeof(TODOEntry),
+                cr::Worker::my().workerID(), cr::activeTX().TTS(), dt_id, key_length + sizeof(TODOPoint),
                 [&](u8* entry) {
-                   auto& todo_entry = *new (entry) TODOEntry();
+                   auto& todo_entry = *new (entry) TODOPoint();
                    todo_entry.key_length = o_key_length;
                    todo_entry.dangling_pointer = dangling_pointer;
                    std::memcpy(todo_entry.key, o_key, o_key_length);
@@ -815,33 +815,81 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
    } else {
       return SpaceCheckResult::NOTHING;
    }
-   // return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
+   // TODO: return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
 }
 // -------------------------------------------------------------------------------------
 void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 version_tts)
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
-   const TODOEntry& todo_entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
+   const TODOEntry& entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
    // -------------------------------------------------------------------------------------
-   if (FLAGS_vi_dangling_pointer && todo_entry.dangling_pointer.isValid()) {
+   if (entry.type == TODOPoint::TYPE::PAGE) {
+      jumpmuTry()
+      {
+         // TODO: precise GC
+         const TODOPage& page_todo = *reinterpret_cast<const TODOPage*>(entry_ptr);
+         // Guard bf_guard(page_todo.bf->header.latch);
+         // bf_guard.toOptimisticOrJump();
+         // if (page_todo.bf->page.dt_id != btree.dt_id) {
+         //    jumpmu::jump();
+         // }
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree), page_todo.bf, page_todo.latch_version_should_be);
+         if (!iterator.leaf->is_leaf) {
+            jumpmu_return;
+         }
+         // -------------------------------------------------------------------------------------
+         for (u16 s_i = 0; s_i < iterator.leaf->count;) {
+            auto& sn = *reinterpret_cast<ChainSN*>(iterator.leaf->getKey(s_i) + iterator.leaf->getKeyLen(s_i) - sizeof(ChainSN));
+            if (sn == 0) {
+               auto& tuple = *reinterpret_cast<Tuple*>(iterator.leaf->getPayload(s_i));
+               if (tuple.tuple_format == TupleFormat::CHAINED) {
+                  auto& chained_tuple = *reinterpret_cast<ChainedTuple*>(iterator.leaf->getPayload(s_i));
+                  if (chained_tuple.is_removed && chained_tuple.worker_commit_mark <= cr::Worker::my().global_snapshot_lwm) {
+                     iterator.leaf->removeSlot(s_i);
+                     // cout << "tata" << endl;
+                  } else {
+                     s_i++;
+                  }
+               } else if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
+                  // TODO: Fix FatTuple size
+                  s_i++;
+               }
+            } else {
+               auto& chained_tuple_version = *reinterpret_cast<ChainedTupleVersion*>(iterator.leaf->getPayload(s_i));
+               if (chained_tuple_version.gc_trigger <= cr::Worker::my().global_snapshot_lwm) {
+                  iterator.leaf->removeSlot(s_i);
+                  // cout << "tata" << endl;
+               } else {
+                  s_i++;
+               }
+            }
+         }
+         iterator.mergeIfNeeded();
+         jumpmu_return;
+      }
+      jumpmuCatch() {}
+      return;
+   }
+   // -------------------------------------------------------------------------------------
+   const TODOPoint& point_todo = *reinterpret_cast<const TODOPoint*>(entry_ptr);
+   if (FLAGS_vi_dangling_pointer && point_todo.dangling_pointer.isValid()) {
       // Optimistic fast path
       jumpmuTry()
       {
-         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree), todo_entry.dangling_pointer.bf,
-                                         todo_entry.dangling_pointer.version + 1);
-         assert(todo_entry.dangling_pointer.bf != nullptr);
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree), point_todo.dangling_pointer.bf, point_todo.dangling_pointer.latch_version_should_be);
+         assert(point_todo.dangling_pointer.bf != nullptr);
          auto& node = iterator.leaf;
-         auto& head = *reinterpret_cast<ChainedTuple*>(node->getPayload(todo_entry.dangling_pointer.head_slot));
+         auto& head = *reinterpret_cast<ChainedTuple*>(node->getPayload(point_todo.dangling_pointer.head_slot));
          // Being chained is implicit because we check for version, so the state can not be changed after staging the todo
          ensure(head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked());
          ensure(head.worker_id == version_worker_id && head.worker_commit_mark == version_tts);
          if (head.is_removed) {
-            node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
-            node->removeSlot(todo_entry.dangling_pointer.head_slot);
+            node->removeSlot(point_todo.dangling_pointer.secondary_slot);
+            node->removeSlot(point_todo.dangling_pointer.head_slot);
          } else {
             head.reset();
-            head.next_sn = reinterpret_cast<ChainedTupleVersion*>(node->getPayload(todo_entry.dangling_pointer.secondary_slot))->next_sn;
-            node->removeSlot(todo_entry.dangling_pointer.secondary_slot);
+            head.next_sn = reinterpret_cast<ChainedTupleVersion*>(node->getPayload(point_todo.dangling_pointer.secondary_slot))->next_sn;
+            node->removeSlot(point_todo.dangling_pointer.secondary_slot);
          }
          iterator.mergeIfNeeded();
          jumpmu_return;
@@ -849,9 +897,9 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       jumpmuCatch() {}
    }
    // -------------------------------------------------------------------------------------
-   const u16 key_length = todo_entry.key_length + sizeof(ChainSN);
+   const u16 key_length = point_todo.key_length + sizeof(ChainSN);
    u8 key_buffer[key_length];
-   std::memcpy(key_buffer, todo_entry.key, todo_entry.key_length);
+   std::memcpy(key_buffer, point_todo.key, point_todo.key_length);
    MutableSlice m_key(key_buffer, key_length);
    Slice key(key_buffer, key_length);
    btree.setSN(m_key, 0);

@@ -111,7 +111,7 @@ struct Worker {
    std::list<std::unique_ptr<u8[]>> todo_list, performance_priority_todo_list;
    std::list<std::unique_ptr<u8[]>>::iterator todo_tx_start_iter = todo_list.end();
    void stageTODO(u8 worker_id, u64 worker_cm, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
-   void commitTODO(u8 worker_id, u64 worker_cm, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
+   void schedulePerformanceTODO(DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
    void commitTODOs(u64 tx_start);
    // -------------------------------------------------------------------------------------
    // 2PL unlock datastructures

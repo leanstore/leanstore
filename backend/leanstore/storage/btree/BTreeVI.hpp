@@ -165,11 +165,11 @@ class BTreeVI : public BTreeLL
       FatTupleDifferentAttributes() : Tuple(TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES, 0, 0) {}
       // returns false to fallback to chained mode
       static bool update(BTreeExclusiveIterator& iterator,
-                  u8* key,
-                  u16 o_key_length,
-                  function<void(u8* value, u16 value_size)>,
-                  UpdateSameSizeInPlaceDescriptor&,
-                  BTreeVI& btree);
+                         u8* key,
+                         u16 o_key_length,
+                         function<void(u8* value, u16 value_size)>,
+                         UpdateSameSizeInPlaceDescriptor&,
+                         BTreeVI& btree);
       void garbageCollection(BTreeVI& btree);
       void undoLastUpdate();
       inline constexpr u8* getValue() { return payload; }
@@ -179,7 +179,7 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    struct DanglingPointer {
       BufferFrame* bf = nullptr;
-      u64 version = -1;
+      u64 latch_version_should_be = -1;
       s32 head_slot = -1, secondary_slot = -1;
       bool remove_operation = false;
       bool valid = false;
@@ -187,10 +187,20 @@ class BTreeVI : public BTreeLL
    };
    // -------------------------------------------------------------------------------------
    struct TODOEntry {
+      enum class TYPE : u8 { POINT, PAGE };
+      TYPE type;
+   };
+   struct TODOPage : public TODOEntry {
+      BufferFrame* bf;
+      u64 latch_version_should_be;
+      TODOPage() { type = TODOEntry::TYPE::PAGE; }
+   };
+   struct TODOPoint : public TODOEntry {
       u16 key_length;
       ChainSN sn;
       DanglingPointer dangling_pointer = {0, 0, -1, -1};
       u8 key[];
+      TODOPoint() { type = TODOEntry::TYPE::POINT; }
    };
    // -------------------------------------------------------------------------------------
    bool convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
@@ -271,6 +281,13 @@ class BTreeVI : public BTreeLL
                      }
                   }
                   leaf.bf->header.meta_data_in_shared_mode_mutex.unlock();
+                  // -------------------------------------------------------------------------------------
+                  cr::Worker::my().schedulePerformanceTODO(dt_id, sizeof(TODOPage), [&](u8* entry) {
+                     auto& todo_entry = *new (entry) TODOPage();
+                     todo_entry.bf = leaf.bf;
+                     todo_entry.latch_version_should_be = iterator.leaf.guard.version;
+                  });
+                  // -------------------------------------------------------------------------------------
                }
                visible_chain_found = false;
             });
