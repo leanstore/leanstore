@@ -257,7 +257,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          setSN(m_key, secondary_sn);
          ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
          if (ret == OP_RESULT::OK) {
-            iterator.leaf->bitset.set(iterator.cur, true);
+            iterator.leaf->gc_space_used += iterator.leaf->getKVConsumedSpace(iterator.cur);
             break;
          } else {
             secondary_sn = leanstore::utils::RandomGenerator::getRand<ChainSN>(1, std::numeric_limits<ChainSN>::max());
@@ -769,7 +769,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 // -------------------------------------------------------------------------------------
 SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
-   auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
+   [[maybe_unused]] auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
    Guard bf_guard(bf.header.latch);
    bf_guard.toOptimisticOrJump();
    HybridPageGuard<BTreeNode> c_guard(std::move(bf_guard), &bf);
@@ -876,7 +876,8 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       // Optimistic fast path
       jumpmuTry()
       {
-         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree), point_todo.dangling_pointer.bf, point_todo.dangling_pointer.latch_version_should_be);
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree), point_todo.dangling_pointer.bf,
+                                         point_todo.dangling_pointer.latch_version_should_be);
          assert(point_todo.dangling_pointer.bf != nullptr);
          auto& node = iterator.leaf;
          auto& head = *reinterpret_cast<ChainedTuple*>(node->getPayload(point_todo.dangling_pointer.head_slot));

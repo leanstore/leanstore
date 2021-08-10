@@ -159,13 +159,8 @@ bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, Exclusi
       right->copyKeyValueRange(&tmp, count, 0, right->count);
       parent->removeSlot(slotId);
       // -------------------------------------------------------------------------------------
-      // Fix bitset
-      for (u16 s_i = 0; s_i < count; s_i++) {
-         tmp.bitset.set(s_i, bitset[s_i]);
-      }
-      for (u16 s_i = 0; s_i < right->count; s_i++) {
-         tmp.bitset.set(count + s_i, right->bitset[s_i]);
-      }
+      // TODO: Fix garbage counters
+
       // -------------------------------------------------------------------------------------
       memcpy(reinterpret_cast<u8*>(right.ptr()), &tmp, sizeof(BTreeNode));
       right->makeHint();
@@ -383,13 +378,8 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot + 1);
       copyKeyValueRange(nodeRight, 0, nodeLeft->count, count - nodeLeft->count);
       // -------------------------------------------------------------------------------------
-      // Fix bitset TODO:
-      for (u16 s_i = 0; s_i < sepSlot + 1; s_i++) {
-         nodeLeft->bitset.set(s_i, bitset[s_i]);
-      }
-      for (u16 s_i = 0; s_i < count - nodeLeft->count ; s_i++) {
-         nodeRight->bitset.set(s_i, bitset[s_i + sepSlot + 1]);
-      }
+      // TODO: Fix garbage tracker
+
       // -------------------------------------------------------------------------------------
    } else {
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot);

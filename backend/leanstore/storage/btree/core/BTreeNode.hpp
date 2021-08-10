@@ -8,7 +8,6 @@
 // -------------------------------------------------------------------------------------
 
 #include <algorithm>
-#include <bitset>
 #include <cassert>
 #include <cstring>
 #include <fstream>
@@ -74,7 +73,7 @@ struct BTreeNodeHeader {
    u32 hint[hint_count];
    // -------------------------------------------------------------------------------------
    // Needed for GC
-   std::bitset<512> bitset;
+   u16 gc_space_used = 0;
    // -------------------------------------------------------------------------------------
    BTreeNodeHeader(bool is_leaf) : is_leaf(is_leaf) {}
    ~BTreeNodeHeader() {}
@@ -130,6 +129,7 @@ struct BTreeNode : public BTreeNodeHeader {
    inline u16 getPayloadLength(u16 slotId) { return slot[slotId].payload_len; }
    inline u8* getPayload(u16 slotId) { return ptr() + slot[slotId].offset + slot[slotId].key_len; }
    inline SwipType& getChild(u16 slotId) { return *reinterpret_cast<SwipType*>(getPayload(slotId)); }
+   inline u16 getKVConsumedSpace(u16 slot_id) { return sizeof(Slot) + getKeyLen(slot_id) + getPayloadLength(slot_id); }
    // -------------------------------------------------------------------------------------
    // Attention: the caller has to hold a copy of the existing payload
    inline void shortenPayload(u16 slotId, u16 len)
