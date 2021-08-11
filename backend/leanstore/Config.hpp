@@ -76,7 +76,7 @@ DECLARE_bool(commit_hwm);
 DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
 DECLARE_bool(todo);
-DECLARE_uint64(todo_threshold);
+DECLARE_double(todo_mib);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(vi);
 DECLARE_bool(vi_utodo);

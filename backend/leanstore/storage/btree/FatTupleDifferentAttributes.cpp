@@ -6,6 +6,7 @@
 #include <signal.h>
 
 #include <map>
+#include <set>
 #include <unordered_map>
 // -------------------------------------------------------------------------------------
 using namespace std;
@@ -311,6 +312,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    // TODO: check for used_space overflow
    {
       // Iterate over the rest
+      std::set<ChainSN> processed_sns;
       while (next_sn != 0) {
          number_of_deltas_to_replace++;
          const bool next_higher = next_sn >= getSN(m_key);
@@ -319,9 +321,11 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
          if (ret != OP_RESULT::OK) {
             break;
          }
+         processed_sns.insert(next_sn);
          // -------------------------------------------------------------------------------------
          const Slice delta_slice = iterator.value();
          const auto& chain_delta = *reinterpret_cast<const ChainedTupleVersion*>(delta_slice.data());
+         // -------------------------------------------------------------------------------------
          const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(chain_delta.payload);
          const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
          const u32 needed_space = sizeof(FatTupleDifferentAttributes::Delta) + descriptor_and_diff_length;
@@ -344,6 +348,10 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
          fat_tuple.deltas_count++;
          next_sn = chain_delta.next_sn;
          fat_tuple.garbageCollection(*this);  // TODO: temporary hack to calm down overflow bugs
+         // -------------------------------------------------------------------------------------
+         if (processed_sns.count(next_sn)) {
+            break;
+         }
       }
    }
    {

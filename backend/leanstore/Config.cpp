@@ -79,7 +79,7 @@ DEFINE_bool(commit_hwm, true, "");
 DEFINE_uint64(si_refresh_rate, 0, "");
 DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(todo, true, "");
-DEFINE_uint64(todo_threshold, 10000, "#todos");  // TODO: track MiB
+DEFINE_double(todo_mib, 10, "size of todos ring buffer");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(vi, false, "BTree with SI using in-place version");
 DEFINE_bool(vi_utodo, true, "");
