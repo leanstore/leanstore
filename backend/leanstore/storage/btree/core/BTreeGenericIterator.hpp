@@ -24,7 +24,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    // Hooks
    std::function<void(HybridPageGuard<BTreeNode>& leaf)> before_changing_leaf_cb;
-   std::function<void(HybridPageGuard<BTreeNode>& leaf)> after_changing_leaf_cb;
+   std::function<void(HybridPageGuard<BTreeNode>& leaf)> leaf_access_cb;
    // -------------------------------------------------------------------------------------
    s32 cur = -1;                        // Reset after every leaf change
    bool prefix_copied = false;          // Reset after every leaf change
@@ -72,6 +72,12 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             } else {
                target_guard.toShared();
             }
+            // -------------------------------------------------------------------------------------
+            prefix_copied = false;
+            if (leaf_access_cb) {
+               leaf_access_cb(leaf);
+            }
+            // -------------------------------------------------------------------------------------
             jumpmu_return;
          }
          jumpmuCatch() {}
@@ -95,16 +101,11 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       // -------------------------------------------------------------------------------------
       leaf.unlock();
       if (mode == LATCH_FALLBACK_MODE::SHARED) {
-         findLeafAndLatch<LATCH_FALLBACK_MODE::SHARED>(leaf, key.data(), key.length());
+         this->findLeafAndLatch<LATCH_FALLBACK_MODE::SHARED>(leaf, key.data(), key.length());
       } else if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
-         findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.data(), key.length());
+         this->findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.data(), key.length());
       } else {
          UNREACHABLE();
-      }
-      prefix_copied = false;
-      // -------------------------------------------------------------------------------------
-      if (after_changing_leaf_cb) {
-         after_changing_leaf_cb(leaf);
       }
    }
    // -------------------------------------------------------------------------------------
@@ -114,7 +115,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    BTreePessimisticIterator(BTreeGeneric& btree, const LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED) : btree(btree), mode(mode) {}
    // -------------------------------------------------------------------------------------
    void registerBeforeChangingLeafHook(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { before_changing_leaf_cb = cb; }
-   void registerAfterChangingLeafHook(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { after_changing_leaf_cb = cb; }
+   void registerLeafAccessHook(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { leaf_access_cb = cb; }
    // -------------------------------------------------------------------------------------
    OP_RESULT seekExactWithHint(Slice key, bool higher = true)  // EXP
    {
@@ -201,8 +202,8 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                   cur = 0;
                   prefix_copied = false;
                   // -------------------------------------------------------------------------------------
-                  if (after_changing_leaf_cb) {
-                     after_changing_leaf_cb(leaf);
+                  if (leaf_access_cb) {
+                     leaf_access_cb(leaf);
                   }
                   // -------------------------------------------------------------------------------------
                   jumpmu_return OP_RESULT::OK;
@@ -214,17 +215,18 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          if (leaf->upper_fence.length == 0) {
             return OP_RESULT::NOT_FOUND;
          } else {
-            const u16 key_length = leaf->upper_fence.length + 1;
-            u8 key[key_length];
-            std::memcpy(key, leaf->getUpperFenceKey(), leaf->upper_fence.length);
-            key[key_length - 1] = 0;
-            gotoPage(Slice(key, key_length));
+            // Construct the next key (lower bound)
+            const u16 pper_fence_length_plus = leaf->upper_fence.length + 1;
+            u8 upper_fence[pper_fence_length_plus];
+            std::memcpy(upper_fence, leaf->getUpperFenceKey(), leaf->upper_fence.length);
+            upper_fence[pper_fence_length_plus - 1] = 0;
+            gotoPage(Slice(upper_fence, pper_fence_length_plus));
             // -------------------------------------------------------------------------------------
             if (leaf->count == 0) {
                COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++; }
                goto retry;
             }
-            cur = leaf->lowerBound<false>(key, key_length);
+            cur = leaf->lowerBound<false>(upper_fence, pper_fence_length_plus);
             if (cur == leaf->count) {
                goto retry;
             }
@@ -263,8 +265,8 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                   cur = 0;
                   prefix_copied = false;
                   // -------------------------------------------------------------------------------------
-                  if (after_changing_leaf_cb) {
-                     after_changing_leaf_cb(leaf);
+                  if (leaf_access_cb) {
+                     leaf_access_cb(leaf);
                   }
                   // -------------------------------------------------------------------------------------
                   jumpmu_return OP_RESULT::OK;
@@ -276,16 +278,16 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          if (leaf->lower_fence.length == 0) {
             return OP_RESULT::OK;
          } else {
-            const u16 key_length = leaf->lower_fence.length;
-            u8 key[key_length];
-            std::memcpy(key, leaf->getLowerFenceKey(), leaf->lower_fence.length);
-            gotoPage(Slice(key, key_length));
+            const u16 lower_fence_length = leaf->lower_fence.length;
+            u8 lower_fence[lower_fence_length];
+            std::memcpy(lower_fence, leaf->getLowerFenceKey(), leaf->lower_fence.length);
+            gotoPage(Slice(lower_fence, lower_fence_length));
             // -------------------------------------------------------------------------------------
             if (leaf->count == 0) {
                goto retry;
             } else {
                bool is_equal = false;
-               cur = leaf->lowerBound<false>(key, key_length, &is_equal);
+               cur = leaf->lowerBound<false>(lower_fence, lower_fence_length, &is_equal);
                ensure(is_equal || cur == leaf->count);
                if (is_equal) {
                   return OP_RESULT::OK;

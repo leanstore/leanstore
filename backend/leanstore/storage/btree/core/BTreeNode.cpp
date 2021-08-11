@@ -159,8 +159,8 @@ bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, Exclusi
       right->copyKeyValueRange(&tmp, count, 0, right->count);
       parent->removeSlot(slotId);
       // -------------------------------------------------------------------------------------
-      // TODO: Fix garbage counters
-
+      // Fix garbage tracker TODO: better interface
+      tmp.gc_space_used = std::max<u16>(gc_space_used, right->gc_space_used);
       // -------------------------------------------------------------------------------------
       memcpy(reinterpret_cast<u8*>(right.ptr()), &tmp, sizeof(BTreeNode));
       right->makeHint();
@@ -378,8 +378,9 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot + 1);
       copyKeyValueRange(nodeRight, 0, nodeLeft->count, count - nodeLeft->count);
       // -------------------------------------------------------------------------------------
-      // TODO: Fix garbage tracker
-
+      // Fix garbage tracker TODO: better interface
+      nodeRight->gc_space_used = gc_space_used;
+      nodeLeft->gc_space_used = gc_space_used;
       // -------------------------------------------------------------------------------------
    } else {
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot);

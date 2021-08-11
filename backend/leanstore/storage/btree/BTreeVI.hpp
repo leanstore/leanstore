@@ -258,48 +258,20 @@ class BTreeVI : public BTreeLL
             ret = iterator.seekForPrev(Slice(s_key.data(), s_key.length()));
          }
          // -------------------------------------------------------------------------------------
-         bool visible_chain_found = false, skip_current_leaf = false;
-         if (FLAGS_vi_skip_stale_leaves) {  // TODO: Refactor
-            iterator.registerBeforeChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
-               if (!visible_chain_found) {
-                  auto& leaf_statistics = leaf.bf->header.stale_leaf_tracker;
-                  leaf.bf->header.meta_data_in_shared_mode_mutex.lock();
-                  if (leaf_statistics.skip_if_gsn_equal < leaf.bf->page.GSN) {
-                     bool skippable = true;
-                     for (u64 t_i = 0; t_i < leaf->count && skippable; t_i++) {
-                        ensure(leaf->getKeyLen(t_i) >= sizeof(BTreeVI::ChainSN));
-                        auto& sn = *reinterpret_cast<ChainSN*>(leaf->getKey(t_i) + leaf->getKeyLen(t_i) - sizeof(BTreeVI::ChainSN));
-                        if (sn == 0) {
-                           auto& primary_version = *reinterpret_cast<ChainedTuple*>(leaf->getPayload(t_i));
-                           skippable &=
-                               primary_version.is_removed && isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false);
-                        }
-                     }
-                     if (skippable) {
-                        leaf_statistics.skip_if_gsn_equal = leaf.bf->page.GSN;
-                        leaf_statistics.and_if_your_sat_older = cr::Worker::my().snapshotAcquistionTime();
-                     }
+         bool skip_current_leaf = false;
+         if (FLAGS_vi_skip_stale_leaves) {
+            iterator.registerLeafAccessHook([&](HybridPageGuard<BTreeNode>& leaf) {
+               if (triggerPageWiseGarbageCollection(leaf)) {
+                  // TODO: The case when the page can be reclaimed after the long running tx finishes
+                  if (leaf->skip_if_gsn_equal == leaf.bf->page.GSN && leaf->and_if_your_sat_older < cr::Worker::my().snapshotAcquistionTime()) {
+                     skip_current_leaf = true;
+                     COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
+                     return;
                   }
-                  leaf.bf->header.meta_data_in_shared_mode_mutex.unlock();
-                  // -------------------------------------------------------------------------------------
-                  cr::Worker::my().schedulePerformanceTODO(dt_id, sizeof(TODOPage), [&](u8* entry) {
-                     auto& todo_entry = *new (entry) TODOPage();
-                     todo_entry.bf = leaf.bf;
-                     todo_entry.latch_version_should_be = iterator.leaf.guard.version;
-                  });
-                  // -------------------------------------------------------------------------------------
+                  leaf.unlock();
+                  leaf.toExclusive();
+                  precisePageWiseGarbageCollection(leaf);
                }
-               visible_chain_found = false;
-            });
-            iterator.registerAfterChangingLeafHook([&](HybridPageGuard<BTreeNode>& leaf) {
-               auto& leaf_statistics = leaf.bf->header.stale_leaf_tracker;
-               leaf.bf->header.meta_data_in_shared_mode_mutex.lock_shared();
-               if (leaf_statistics.skip_if_gsn_equal == leaf.bf->page.GSN &&
-                   leaf_statistics.and_if_your_sat_older < cr::Worker::my().snapshotAcquistionTime()) {
-                  skip_current_leaf = true;
-                  COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
-               }
-               leaf.bf->header.meta_data_in_shared_mode_mutex.unlock_shared();
             });
          }
          // -------------------------------------------------------------------------------------
@@ -333,7 +305,6 @@ class BTreeVI : public BTreeLL
             if (!skip_current_leaf) {
                auto reconstruct = reconstructTuple(iterator, s_key, [&](Slice value) {
                   keep_scanning = callback(s_key.data(), s_key.length() - sizeof(ChainSN), value.data(), value.length());
-                  visible_chain_found = true;
                   counter++;
                });
                if (cr::activeTX().isSerializable()) {
@@ -385,6 +356,11 @@ class BTreeVI : public BTreeLL
       return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
    }
    inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
+   static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard)
+   {
+      return (guard->gc_space_used >= (FLAGS_garbage_in_page_pct * PAGE_SIZE * 1.0 / 100));
+   }
+   void precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard);
    // -------------------------------------------------------------------------------------
    template <typename T>
    inline ChainSN getSN(T key)
@@ -392,7 +368,6 @@ class BTreeVI : public BTreeLL
       return swap(*reinterpret_cast<const ChainSN*>(key.data() + key.length() - sizeof(ChainSN)));
    }
    inline void setSN(MutableSlice key, ChainSN sn) { *reinterpret_cast<ChainSN*>(key.data() + key.length() - sizeof(ChainSN)) = swap(sn); }
-   static void applyDelta(u8* dst, const UpdateSameSizeInPlaceDescriptor& update_descriptor, u8* src);
    inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback)
    {
       Slice payload = iterator.value();
@@ -436,7 +411,7 @@ class BTreeVI : public BTreeLL
       }
    }
    std::tuple<OP_RESULT, u16> reconstructChainedTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback);
-};
+};  // namespace btree
 // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage

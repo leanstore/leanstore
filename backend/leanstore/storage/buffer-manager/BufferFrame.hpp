@@ -42,14 +42,6 @@ struct BufferFrame {
       };
       ContentionTracker contention_tracker;
       // -------------------------------------------------------------------------------------
-      struct StaleLeafTracker {
-         u64 skip_if_gsn_equal = 0;
-         u64 and_if_your_sat_older = 0;
-         std::shared_mutex mutex;
-      };
-      StaleLeafTracker stale_leaf_tracker;
-      std::shared_mutex meta_data_in_shared_mode_mutex;  // TODO: remove
-      // -------------------------------------------------------------------------------------
       u64 debug;
    };
    struct alignas(512) Page {

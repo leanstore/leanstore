@@ -291,14 +291,7 @@ void Worker::checkup()
       }
       refreshTransactionsOrderingIfNeeded();
       // -------------------------------------------------------------------------------------
-      // Priority todos
-      for (auto& todo_ptr : performance_priority_todo_list) {
-         auto& todo = *reinterpret_cast<TODOEntry*>(todo_ptr.get());
-         leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_worker_commit_mark);
-      }
-      performance_priority_todo_list.clear();
-      // -------------------------------------------------------------------------------------
-      const bool iterate_over_all = todo_list.size() > FLAGS_todo_threshold;
+      const bool iterate_over_all = 0 && todo_list.size() > FLAGS_todo_threshold;
       auto iter = todo_list.begin();
       while (iter != todo_list.end()) {
          auto& todo = *reinterpret_cast<TODOEntry*>((*iter).get());
@@ -333,7 +326,7 @@ void Worker::checkup()
                   }
                }
             }
-            if (0 && safe_to_gc) {
+            if (safe_to_gc) {
                WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
                leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
                                                                        todo.version_worker_commit_mark);
@@ -599,16 +592,6 @@ void Worker::commitTODOs(u64 sat)
       reinterpret_cast<TODOEntry*>((*todo_tx_start_iter).get())->after_sat = sat;
       todo_tx_start_iter++;
    }
-}
-// -------------------------------------------------------------------------------------
-void Worker::schedulePerformanceTODO(DTID dt_id, u64 payload_length, std::function<void(u8*)> cb)
-{
-   auto& todo_entry =
-       *new (performance_priority_todo_list.emplace_back(std::make_unique<u8[]>(payload_length + sizeof(TODOEntry))).get()) TODOEntry();
-   todo_entry.version_worker_id = worker_id;
-   todo_entry.dt_id = dt_id;
-   todo_entry.payload_length = payload_length;
-   cb(todo_entry.payload);
 }
 // -------------------------------------------------------------------------------------
 void Worker::addUnlockTask(DTID dt_id, u64 payload_length, std::function<void(u8*)> callback)

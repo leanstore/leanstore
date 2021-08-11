@@ -96,6 +96,7 @@ DEFINE_uint64(vi_fat_tuple_threshold, 4, "Minimum length of chain length before 
 DEFINE_bool(vi_dangling_pointer, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(pgc, true, "Precise garbage collection/recycling");
+DEFINE_double(garbage_in_page_pct, 5, "Threshold to trigger page-wise garbage collection (%)");
 DEFINE_uint64(vi_max_chain_length, 1000, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");

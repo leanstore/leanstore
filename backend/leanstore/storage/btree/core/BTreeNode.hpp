@@ -73,6 +73,8 @@ struct BTreeNodeHeader {
    u32 hint[hint_count];
    // -------------------------------------------------------------------------------------
    // Needed for GC
+   u64 skip_if_gsn_equal = 0;
+   u64 and_if_your_sat_older = 0;
    u16 gc_space_used = 0;
    // -------------------------------------------------------------------------------------
    BTreeNodeHeader(bool is_leaf) : is_leaf(is_leaf) {}

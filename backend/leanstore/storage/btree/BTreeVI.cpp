@@ -482,6 +482,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
             ret = iterator.insertKV(key, Slice(secondary_payload, secondary_payload_length));
          } while (ret != OP_RESULT::OK);
       }
+      iterator.leaf->gc_space_used += iterator.leaf->getKVConsumedSpace(iterator.cur);
       iterator.markAsDirty();
       // -------------------------------------------------------------------------------------
       {
@@ -542,6 +543,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
                 },
                 wtts);
          }
+         iterator.leaf->gc_space_used += iterator.leaf->getKVConsumedSpace(iterator.cur);
          primary_version.unlock();
       }
       // -------------------------------------------------------------------------------------
@@ -767,13 +769,67 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
    }
 }
 // -------------------------------------------------------------------------------------
+void BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_guard)
+{
+   bool all_tuples_heads_are_invisible = true;  // WRT scanners
+   u32 garbage_seen_in_bytes = 0;
+   u32 freed_bytes = 0;
+   for (u16 s_i = 0; s_i < c_guard->count;) {
+      auto& sn = *reinterpret_cast<ChainSN*>(c_guard->getKey(s_i) + c_guard->getKeyLen(s_i) - sizeof(ChainSN));
+      if (sn == 0) {
+         auto& tuple = *reinterpret_cast<Tuple*>(c_guard->getPayload(s_i));
+         if (tuple.tuple_format == TupleFormat::CHAINED) {
+            auto& chained_tuple = *reinterpret_cast<ChainedTuple*>(c_guard->getPayload(s_i));
+            if (chained_tuple.is_removed) {
+               const u32 size = c_guard->getKVConsumedSpace(s_i);
+               garbage_seen_in_bytes += size;
+               if (chained_tuple.worker_commit_mark <= cr::Worker::my().global_snapshot_lwm) {
+                  c_guard->removeSlot(s_i);
+                  freed_bytes += size;
+               } else {
+                  s_i++;
+               }
+            } else {
+               all_tuples_heads_are_invisible &= !(isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark));
+               s_i++;
+            }
+         } else if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
+            // TODO: Fix FatTuple size
+            all_tuples_heads_are_invisible &= !(isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark));
+            s_i++;
+         }
+      } else {
+         auto& chained_tuple_version = *reinterpret_cast<ChainedTupleVersion*>(c_guard->getPayload(s_i));
+         const u32 size = c_guard->getKVConsumedSpace(s_i);
+         if (chained_tuple_version.gc_trigger <= cr::Worker::my().global_snapshot_lwm) {
+            c_guard->removeSlot(s_i);
+            freed_bytes += size;
+         } else {
+            garbage_seen_in_bytes += size;
+            s_i++;
+         }
+      }
+   }
+   c_guard->gc_space_used = garbage_seen_in_bytes;
+   // -------------------------------------------------------------------------------------
+   const bool have_we_modified_the_page = (freed_bytes > 0) || (all_tuples_heads_are_invisible);
+   if (have_we_modified_the_page) {
+      c_guard.incrementGSN();
+   }
+   // -------------------------------------------------------------------------------------
+   if (all_tuples_heads_are_invisible) {
+      c_guard->skip_if_gsn_equal = c_guard.bf->page.GSN;
+      c_guard->and_if_your_sat_older = cr::Worker::my().snapshotAcquistionTime();
+   }
+}
+// -------------------------------------------------------------------------------------
 SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
    [[maybe_unused]] auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
    Guard bf_guard(bf.header.latch);
    bf_guard.toOptimisticOrJump();
    HybridPageGuard<BTreeNode> c_guard(std::move(bf_guard), &bf);
-   if (!c_guard->is_leaf) {
+   if (!c_guard->is_leaf || !triggerPageWiseGarbageCollection(c_guard)) {
       return SpaceCheckResult::NOTHING;
    }
    // -------------------------------------------------------------------------------------
@@ -821,56 +877,7 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
 void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 version_tts)
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
-   const TODOEntry& entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
-   // -------------------------------------------------------------------------------------
-   if (entry.type == TODOPoint::TYPE::PAGE) {
-      jumpmuTry()
-      {
-         // TODO: precise GC
-         const TODOPage& page_todo = *reinterpret_cast<const TODOPage*>(entry_ptr);
-         // Guard bf_guard(page_todo.bf->header.latch);
-         // bf_guard.toOptimisticOrJump();
-         // if (page_todo.bf->page.dt_id != btree.dt_id) {
-         //    jumpmu::jump();
-         // }
-         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree), page_todo.bf, page_todo.latch_version_should_be);
-         if (!iterator.leaf->is_leaf) {
-            jumpmu_return;
-         }
-         // -------------------------------------------------------------------------------------
-         for (u16 s_i = 0; s_i < iterator.leaf->count;) {
-            auto& sn = *reinterpret_cast<ChainSN*>(iterator.leaf->getKey(s_i) + iterator.leaf->getKeyLen(s_i) - sizeof(ChainSN));
-            if (sn == 0) {
-               auto& tuple = *reinterpret_cast<Tuple*>(iterator.leaf->getPayload(s_i));
-               if (tuple.tuple_format == TupleFormat::CHAINED) {
-                  auto& chained_tuple = *reinterpret_cast<ChainedTuple*>(iterator.leaf->getPayload(s_i));
-                  if (chained_tuple.is_removed && chained_tuple.worker_commit_mark <= cr::Worker::my().global_snapshot_lwm) {
-                     iterator.leaf->removeSlot(s_i);
-                     // cout << "tata" << endl;
-                  } else {
-                     s_i++;
-                  }
-               } else if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
-                  // TODO: Fix FatTuple size
-                  s_i++;
-               }
-            } else {
-               auto& chained_tuple_version = *reinterpret_cast<ChainedTupleVersion*>(iterator.leaf->getPayload(s_i));
-               if (chained_tuple_version.gc_trigger <= cr::Worker::my().global_snapshot_lwm) {
-                  iterator.leaf->removeSlot(s_i);
-                  // cout << "tata" << endl;
-               } else {
-                  s_i++;
-               }
-            }
-         }
-         iterator.mergeIfNeeded();
-         jumpmu_return;
-      }
-      jumpmuCatch() {}
-      return;
-   }
-   // -------------------------------------------------------------------------------------
+   // Only point-gc
    const TODOPoint& point_todo = *reinterpret_cast<const TODOPoint*>(entry_ptr);
    if (FLAGS_vi_dangling_pointer && point_todo.dangling_pointer.isValid()) {
       // Optimistic fast path
@@ -885,11 +892,14 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          ensure(head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked());
          ensure(head.worker_id == version_worker_id && head.worker_commit_mark == version_tts);
          if (head.is_removed) {
+            iterator.leaf->gc_space_used -= iterator.leaf->getKVConsumedSpace(point_todo.dangling_pointer.secondary_slot);
+            iterator.leaf->gc_space_used -= iterator.leaf->getKVConsumedSpace(point_todo.dangling_pointer.head_slot);
             node->removeSlot(point_todo.dangling_pointer.secondary_slot);
             node->removeSlot(point_todo.dangling_pointer.head_slot);
          } else {
             head.reset();
             head.next_sn = reinterpret_cast<ChainedTupleVersion*>(node->getPayload(point_todo.dangling_pointer.secondary_slot))->next_sn;
+            iterator.leaf->gc_space_used -= iterator.leaf->getKVConsumedSpace(point_todo.dangling_pointer.secondary_slot);
             node->removeSlot(point_todo.dangling_pointer.secondary_slot);
          }
          iterator.mergeIfNeeded();
@@ -932,6 +942,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             remove_next_sn = primary_version.next_sn;
             // Main version is visible we can prune the whole chain
             if (primary_version.is_removed) {
+               iterator.leaf->gc_space_used -= iterator.leaf->getKVConsumedSpace(iterator.cur);
                ret = iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);
                iterator.mergeIfNeeded();
@@ -977,6 +988,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             const auto& secondary_version = *reinterpret_cast<const ChainedTupleVersion*>(secondary_payload.data());
             remove_next_sn = secondary_version.next_sn;
             // -------------------------------------------------------------------------------------
+            iterator.leaf->gc_space_used -= iterator.leaf->getKVConsumedSpace(iterator.cur);
             iterator.removeCurrent();
             iterator.mergeIfNeeded();
             iterator.markAsDirty();
@@ -1008,7 +1020,6 @@ void BTreeVI::unlock(void* btree_object, const u8* entry_ptr)
       // -------------------------------------------------------------------------------------
       MutableSlice primary_payload = iterator.mutableValue();
       Tuple& primary_version = *reinterpret_cast<Tuple*>(primary_payload.data());
-      // assert(primary_version.read_lock_counter & (1ull << cr::Worker::my().workerID()));
       primary_version.read_lock_counter &= ~(1ull << cr::Worker::my().workerID());
    }
    jumpmuCatch() { UNREACHABLE(); }
