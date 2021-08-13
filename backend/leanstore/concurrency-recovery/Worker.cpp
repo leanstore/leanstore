@@ -385,12 +385,17 @@ void Worker::abortTX()
 {
    if (FLAGS_wal) {
       ensure(active_tx.state == Transaction::STATE::STARTED);
+      std::vector<const WALEntry*> entries;
       iterateOverCurrentTXEntries([&](const WALEntry& entry) {
-         const u64 tts = active_tx.TTS();
          if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
-            const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
-            leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tts);
+            entries.push_back(&entry);
          }
+      });
+      // -------------------------------------------------------------------------------------
+      const u64 tts = active_tx.TTS();
+      std::for_each(entries.rbegin(), entries.rend(), [&](const WALEntry* entry) {
+         const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(entry);
+         leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tts);
       });
       // -------------------------------------------------------------------------------------
       executeUnlockTasks();
