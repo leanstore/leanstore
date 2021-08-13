@@ -151,6 +151,9 @@ struct BTreeNode : public BTreeNodeHeader {
    {
       // Move key | payload to a new location
       assert(canExtendPayload(slot_id, new_payload_length));
+      const u16 extra_space_needed = new_payload_length - getPayloadLength(slot_id);
+      requestSpaceFor(extra_space_needed);
+      // -------------------------------------------------------------------------------------
       const u16 key_length = getKeyLen(slot_id);
       const u16 old_total_length = key_length + getPayloadLength(slot_id);
       const u16 new_total_length = key_length + new_payload_length;

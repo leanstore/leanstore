@@ -783,6 +783,7 @@ void BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
          if (tuple.tuple_format == TupleFormat::CHAINED) {
             auto& chained_tuple = *reinterpret_cast<ChainedTuple*>(c_guard->getPayload(s_i));
             if (chained_tuple.is_removed) {
+               all_tuples_heads_are_invisible &= (isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark));
                const u32 size = c_guard->getKVConsumedSpace(s_i);
                garbage_seen_in_bytes += size;
                if (chained_tuple.worker_commit_mark <= cr::Worker::my().global_snapshot_lwm) {
@@ -1088,6 +1089,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
       setSN(key, secondary_sn);
       ret = iterator.seekExactWithHint(Slice(key.data(), key.length()), next_sn_higher);
       if (ret != OP_RESULT::OK) {
+         explainWhen(dt_id == 0);
          return {OP_RESULT::NOT_FOUND, chain_length};
       }
       chain_length++;

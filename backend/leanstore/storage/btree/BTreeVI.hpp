@@ -116,7 +116,7 @@ class BTreeVI : public BTreeLL
       bool isFinal() const { return next_sn == 0; }
       void reset() { can_convert_to_fat_tuple = 1; }
    };
-   static_assert(sizeof(ChainedTuple) <= 32, "");
+   static_assert(sizeof(ChainedTuple) <= 42, "");
    // -------------------------------------------------------------------------------------
    struct __attribute__((packed)) ChainedTupleVersion {
       u8 worker_id : 8;
@@ -260,17 +260,27 @@ class BTreeVI : public BTreeLL
          // -------------------------------------------------------------------------------------
          bool skip_current_leaf = false;
          if (FLAGS_vi_skip_stale_leaves) {
-            iterator.registerLeafAccessHook([&](HybridPageGuard<BTreeNode>& leaf) {
-               if (triggerPageWiseGarbageCollection(leaf)) {
-                  // TODO: The case when the page can be reclaimed after the long running tx finishes
-                  if (leaf->skip_if_gsn_equal == leaf.bf->page.GSN && leaf->and_if_your_sat_older < cr::Worker::my().snapshotAcquistionTime()) {
-                     skip_current_leaf = true;
-                     COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
-                     return;
-                  }
-                  leaf.unlock();
-                  leaf.toExclusive();
-                  precisePageWiseGarbageCollection(leaf);
+            iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+               if (leaf->skip_if_gsn_equal == leaf.bf->page.GSN && leaf->and_if_your_sat_older < cr::Worker::my().snapshotAcquistionTime()) {
+                  skip_current_leaf = true;
+                  COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
+               }
+               if (triggerPageWiseGarbageCollection(leaf) && leaf->upper_fence.offset > 0) {
+                  std::basic_string<u8> key(leaf->getUpperFenceKey(), leaf->upper_fence.length);
+                  iterator.cleanup_cb = [&, key]() {
+                     // TODO: The case when the page can be reclaimed after the long running tx finishes
+                     jumpmuTry()
+                     {
+                        HybridPageGuard<BTreeNode> leaf;
+                        this->findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.c_str(), key.length());
+                        precisePageWiseGarbageCollection(leaf);
+                        if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+                           leaf.unlock();
+                           tryMerge(*leaf.bf);
+                        }
+                     }
+                     jumpmuCatch() {}
+                  };
                }
             });
          }
