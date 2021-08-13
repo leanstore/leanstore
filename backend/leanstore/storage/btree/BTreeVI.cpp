@@ -671,7 +671,9 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                primary_version.unlock();
                iterator.markAsDirty();  // TODO: write CLS
             }
-            {
+            // TODO: atm, we don't delete the undo_sn to keep the chain for the readers intact
+            // TODO: we can instead let the readers restart the chain when the first secondary_sn is not found
+            if (0) {
                btree.setSN(m_key, undo_sn);
                ret = iterator.seekExactWithHint(key, true);
                ensure(ret == OP_RESULT::OK);
