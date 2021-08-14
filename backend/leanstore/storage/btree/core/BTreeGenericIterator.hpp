@@ -59,13 +59,17 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                   c_swip = &target_guard->upper;
                } else {
                   c_swip = &target_guard->getChild(leaf_pos_in_parent);
-                  // TODO:
                   if (FLAGS_vi_skip_stale_swips && target_guard->getPayloadLength(leaf_pos_in_parent) == 16) {
-                     const u64 cond = *reinterpret_cast<u64*>(target_guard->getPayload(leaf_pos_in_parent) + 8);
-                     // TODO: revisit if we can delete
-                     if (cond < cr::Worker::my().snapshotAcquistionTime() && cr::Worker::my().local_oldest_tx_sat < cond) {
-                        leaf_pos_in_parent++;
-                        goto retry;
+                     if (mode == LATCH_FALLBACK_MODE::SHARED) {
+                        const u64 cond = *reinterpret_cast<u64*>(target_guard->getPayload(leaf_pos_in_parent) + 8);
+                        // Revisit if we can GC
+                        if (cond < cr::Worker::my().snapshotAcquistionTime() && cr::Worker::my().local_oldest_tx_sat < cond) {
+                           leaf_pos_in_parent++;
+                           goto retry;
+                        }
+                     } else {
+                        // Unfreeze
+                        target_guard->shortenPayload(leaf_pos_in_parent, 8);
                      }
                   }
                }
