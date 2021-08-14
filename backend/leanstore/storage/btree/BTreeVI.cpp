@@ -14,7 +14,7 @@ using OP_RESULT = leanstore::OP_RESULT;
 // 1) We don't insert an already removed key
 // 2) Secondary Versions contain delta
 // Keep in mind that garbage collection may leave pages completely empty
-// Missing points: FatTuple::remove
+// Missing points: FatTuple::remove, garbage leaves can escape from us
 namespace leanstore
 {
 namespace storage
@@ -1094,7 +1094,12 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
       setSN(key, secondary_sn);
       ret = iterator.seekExactWithHint(Slice(key.data(), key.length()), next_sn_higher);
       if (ret != OP_RESULT::OK) {
-         explainWhen(dt_id == 0);
+         if (cr::activeTX().isReadCommitted()) {
+            setSN(key, 0);
+            ret = iterator.seekExactWithHint(Slice(key.data(), key.length()), false);
+            ensure(ret == OP_RESULT::OK);  // TODO: what if other tx removed it
+            jumpmu::jump();
+         }
          return {OP_RESULT::NOT_FOUND, chain_length};
       }
       chain_length++;

@@ -405,44 +405,52 @@ class BTreeVI : public BTreeLL
    inline void setSN(MutableSlice key, ChainSN sn) { *reinterpret_cast<ChainSN*>(key.data() + key.length() - sizeof(ChainSN)) = swap(sn); }
    inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback)
    {
-      Slice payload = iterator.value();
-      assert(getSN(key) == 0);
-      if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
-         const ChainedTuple& primary_version = *reinterpret_cast<const ChainedTuple*>(payload.data());
-         if (isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false)) {
-            if (primary_version.is_removed) {
-               return {OP_RESULT::NOT_FOUND, 1};
-            }
-            callback(Slice(primary_version.payload, payload.length() - sizeof(ChainedTuple)));
-            if (cr::activeTX().isSerializable()) {
-               if (!cr::activeTX().isSafeSnapshot()) {
-                  if (FLAGS_2pl) {
-                     const_cast<ChainedTuple&>(primary_version).read_lock_counter |= 1ull << cr::Worker::my().worker_id;
-                     iterator.assembleKey();
-                     const Slice key = iterator.key();
-                     cr::Worker::my().addUnlockTask(dt_id, sizeof(UnlockEntry) + key.length(), [&](u8* entry) {
-                        auto& unlock_entry = *new (entry) UnlockEntry();
-                        unlock_entry.key_length = key.length();
-                        std::memcpy(unlock_entry.key, key.data(), key.length());
-                     });
+      while (true) {
+         jumpmuTry()
+         {
+            Slice payload = iterator.value();
+            assert(getSN(key) == 0);
+            if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
+               const ChainedTuple& primary_version = *reinterpret_cast<const ChainedTuple*>(payload.data());
+               if (isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false)) {
+                  if (primary_version.is_removed) {
+                     jumpmu_return{OP_RESULT::NOT_FOUND, 1};
+                  }
+                  callback(Slice(primary_version.payload, payload.length() - sizeof(ChainedTuple)));
+                  if (cr::activeTX().isSerializable()) {
+                     if (!cr::activeTX().isSafeSnapshot()) {
+                        if (FLAGS_2pl) {
+                           const_cast<ChainedTuple&>(primary_version).read_lock_counter |= 1ull << cr::Worker::my().worker_id;
+                           iterator.assembleKey();
+                           const Slice key = iterator.key();
+                           cr::Worker::my().addUnlockTask(dt_id, sizeof(UnlockEntry) + key.length(), [&](u8* entry) {
+                              auto& unlock_entry = *new (entry) UnlockEntry();
+                              unlock_entry.key_length = key.length();
+                              std::memcpy(unlock_entry.key, key.data(), key.length());
+                           });
+                        } else {
+                           const_cast<ChainedTuple&>(primary_version).read_ts = std::max<u128>(primary_version.read_ts, cr::activeTX().TTS());
+                        }
+                     }
+                  }
+                  jumpmu_return{OP_RESULT::OK, 1};
+               } else {
+                  if (cr::activeTX().isSerializable() && !cr::activeTX().isSafeSnapshot()) {
+                     jumpmu_return{OP_RESULT::ABORT_TX, 1};
+                  }
+                  if (primary_version.isFinal()) {
+                     jumpmu_return{OP_RESULT::NOT_FOUND, 1};
                   } else {
-                     const_cast<ChainedTuple&>(primary_version).read_ts = std::max<u128>(primary_version.read_ts, cr::activeTX().TTS());
+                     auto ret = reconstructChainedTuple(iterator, key, callback);
+                     jumpmu_return ret;
                   }
                }
-            }
-            return {OP_RESULT::OK, 1};
-         } else {
-            if (cr::activeTX().isSerializable() && !cr::activeTX().isSafeSnapshot()) {
-               return {OP_RESULT::ABORT_TX, 1};
-            }
-            if (primary_version.isFinal()) {
-               return {OP_RESULT::NOT_FOUND, 1};
             } else {
-               return reconstructChainedTuple(iterator, key, callback);
+               auto ret = reinterpret_cast<const FatTupleDifferentAttributes*>(payload.data())->reconstructTuple(callback);
+               jumpmu_return ret;
             }
          }
-      } else {
-         return reinterpret_cast<const FatTupleDifferentAttributes*>(payload.data())->reconstructTuple(callback);
+         jumpmuCatch() {}
       }
    }
    std::tuple<OP_RESULT, u16> reconstructChainedTuple(BTreeSharedIterator& iterator, MutableSlice key, std::function<void(Slice value)> callback);
