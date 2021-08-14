@@ -475,10 +475,11 @@ SpaceCheckResult BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferF
       XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
       p_guard.unlock();
       c_guard.unlock();
-      if (return_code != XMergeReturnCode::NOTHING) {
+      if (return_code == XMergeReturnCode::NOTHING) {
+         return SpaceCheckResult::NOTHING;
+      } else {
          return SpaceCheckResult::PICK_ANOTHER_BF;
       }
-      return SpaceCheckResult::RETRY_SAME_BF;
    }
    return SpaceCheckResult::NOTHING;
 }

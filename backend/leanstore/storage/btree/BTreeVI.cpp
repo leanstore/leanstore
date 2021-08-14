@@ -874,11 +874,15 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
       }
    }
    if (has_removed_anything) {
-      return SpaceCheckResult::RETRY_SAME_BF;
+      const SpaceCheckResult xmerge_ret = BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
+      if (xmerge_ret == SpaceCheckResult::PICK_ANOTHER_BF) {
+         return SpaceCheckResult::PICK_ANOTHER_BF;
+      } else {
+         return SpaceCheckResult::RETRY_SAME_BF;
+      }
    } else {
-      return SpaceCheckResult::NOTHING;
+      return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
    }
-   // TODO: return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
 }
 // -------------------------------------------------------------------------------------
 void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 version_tts)
