@@ -187,12 +187,6 @@ BufferFrame& BufferManager::allocatePage()
    free_bf.header.pid = free_pid;
    free_bf.header.state = BufferFrame::STATE::HOT;
    free_bf.header.last_written_gsn = free_bf.page.GSN = 0;
-   // -------------------------------------------------------------------------------------
-   if (free_pid == dram_pool_size) {
-      cout << "-------------------------------------------------------------------------------------" << endl;
-      cout << "Going out of memory !" << endl;
-      cout << "-------------------------------------------------------------------------------------" << endl;
-   }
    free_bf.header.latch.assertExclusivelyLatched();
    // -------------------------------------------------------------------------------------
    COUNTERS_BLOCK() { WorkerCounters::myCounters().allocate_operations_counter++; }
