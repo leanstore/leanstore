@@ -14,6 +14,7 @@ using OP_RESULT = leanstore::OP_RESULT;
 // 1) We don't insert an already removed key
 // 2) Secondary Versions contain delta
 // Keep in mind that garbage collection may leave pages completely empty
+// Missing points: FatTuple::remove
 namespace leanstore
 {
 namespace storage
@@ -138,7 +139,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
    restart : {
       MutableSlice primary_payload = iterator.mutableValue();
       auto& tuple = *reinterpret_cast<Tuple*>(primary_payload.data());
-      if (tuple.isWriteLocked() || !isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark)) {
+      if (tuple.isWriteLocked() || !isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark, true)) {
          jumpmu_return OP_RESULT::ABORT_TX;
       }
       if (cr::activeTX().isSerializable()) {
@@ -362,7 +363,7 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          if (ret == OP_RESULT::DUPLICATE) {
             MutableSlice primary_payload = iterator.mutableValue();
             auto& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
-            if (primary_version.isWriteLocked() || !isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark)) {
+            if (primary_version.isWriteLocked() || !isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, true)) {
                jumpmu_return OP_RESULT::ABORT_TX;
             }
             ensure(false);  // Not implemented: maybe it has been removed but no GCed
@@ -416,7 +417,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
       OP_RESULT ret = iterator.seekExact(key);
       if (ret != OP_RESULT::OK) {
-         raise(SIGTRAP);
+         explainWhen(cr::activeTX().atLeastSI());
          jumpmu_return OP_RESULT::NOT_FOUND;
       }
       // -------------------------------------------------------------------------------------
@@ -443,7 +444,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          dangling_pointer.remove_operation = true;
          // -------------------------------------------------------------------------------------
          ensure(primary_version.tuple_format == TupleFormat::CHAINED);  // TODO: removing fat tuple is not supported atm
-         if (primary_version.isWriteLocked() || !isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark)) {
+         if (primary_version.isWriteLocked() || !isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, true)) {
             jumpmu_return OP_RESULT::ABORT_TX;
          }
          if (cr::activeTX().isSerializable()) {
@@ -785,7 +786,7 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
          if (tuple.tuple_format == TupleFormat::CHAINED) {
             auto& chained_tuple = *reinterpret_cast<ChainedTuple*>(c_guard->getPayload(s_i));
             if (chained_tuple.is_removed) {
-               all_tuples_heads_are_invisible &= (isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark));
+               all_tuples_heads_are_invisible &= (isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark, false));
                const u32 size = c_guard->getKVConsumedSpace(s_i);
                garbage_seen_in_bytes += size;
                if (chained_tuple.worker_commit_mark <= cr::Worker::my().global_snapshot_lwm) {
@@ -795,12 +796,12 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
                   s_i++;
                }
             } else {
-               all_tuples_heads_are_invisible &= !(isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark));
+               all_tuples_heads_are_invisible &= !(isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark, false));
                s_i++;
             }
          } else if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
             // TODO: Fix FatTuple size
-            all_tuples_heads_are_invisible &= !(isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark));
+            all_tuples_heads_are_invisible &= !(isVisibleForMe(tuple.worker_id, tuple.worker_commit_mark, false));
             s_i++;
          }
       } else {

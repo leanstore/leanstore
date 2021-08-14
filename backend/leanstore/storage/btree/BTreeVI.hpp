@@ -265,17 +265,19 @@ class BTreeVI : public BTreeLL
                   skip_current_leaf = true;
                   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
                }
+               if (!cr::activeTX().atLeastSI()) {
+                  return;
+               }
                if (triggerPageWiseGarbageCollection(leaf) && leaf->upper_fence.offset > 0) {
                   std::basic_string<u8> key(leaf->getUpperFenceKey(), leaf->upper_fence.length);
                   BufferFrame* to_find = leaf.bf;
                   BTreeGeneric* btree_generic = static_cast<BTreeGeneric*>(reinterpret_cast<BTreeVI*>(this));
                   iterator.cleanup_cb = [&, key, btree_generic, to_find]() {
-                     // TODO: The case when the page can be reclaimed after the long running tx finishes
                      jumpmuTry()
                      {
                         HybridPageGuard<BTreeNode> leaf;
                         this->findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.c_str(), key.length());
-                        const bool ret = precisePageWiseGarbageCollection(leaf);
+                        const bool should_freeze_leaf = precisePageWiseGarbageCollection(leaf);
                         // -------------------------------------------------------------------------------------
                         if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
                            leaf.unlock();
@@ -284,7 +286,7 @@ class BTreeVI : public BTreeLL
                         }
                         // -------------------------------------------------------------------------------------
                         leaf.unlock();
-                        if (FLAGS_vi_skip_stale_swips && leaf->and_if_your_sat_older > 0) {
+                        if (FLAGS_vi_skip_stale_swips && should_freeze_leaf) {
                            ParentSwipHandler parent_handler = BTreeGeneric::findParent(*btree_generic, *to_find);
                            HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
                            HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());

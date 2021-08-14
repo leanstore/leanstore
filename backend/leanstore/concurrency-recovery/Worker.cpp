@@ -274,7 +274,7 @@ void Worker::switchToAlwaysUpToDateMode()
    global_workers_snapshot_lwm[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    global_workers_snapshot_acquistion_time[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    for (u64 w = 0; w < workers_count; w++) {
-      local_workers_commit_marks[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+      local_workers_commit_marks[w].store(1ull << 63, std::memory_order_release);
    }
 }
 // -------------------------------------------------------------------------------------
@@ -424,15 +424,21 @@ bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts, bool to_write)
    if (worker_id == other_worker_id) {
       return true;
    } else {
-      if (local_workers_commit_marks[other_worker_id].load() >= tts) {
-         return true;
-      } else if (activeTX().isSingleStatement() || activeTX().isReadCommitted()) {
-         // Single statement transaction can refresh their vector on-demand
-         const u64 its_commit_mark = global_workers_commit_marks[other_worker_id].load() & ~(1ull << 63);
-         local_workers_commit_marks[other_worker_id].store(its_commit_mark, std::memory_order_release);
+      if (activeTX().isReadCommitted() || activeTX().isReadUncommitted()) {
+         const u64 masked_commit_mark = local_workers_commit_marks[other_worker_id].load() & ~(1ull << 63);
+         if (masked_commit_mark >= tts) {
+            return true;
+         } else {
+            // Refresh
+            const u64 its_commit_mark = global_workers_commit_marks[other_worker_id].load() & ~(1ull << 63);
+            const u64 flagged_commit_mark = its_commit_mark | (1ull << 63);
+            local_workers_commit_marks[other_worker_id].store(flagged_commit_mark, std::memory_order_release);
+            return (its_commit_mark >= tts);
+         }
+      } else if (activeTX().atLeastSI()) {
          return local_workers_commit_marks[other_worker_id].load() >= tts;
       } else {
-         return false;
+         UNREACHABLE();
       }
    }
 }
