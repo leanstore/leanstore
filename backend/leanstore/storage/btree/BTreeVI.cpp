@@ -822,11 +822,6 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
    if (have_we_modified_the_page) {
       c_guard.incrementGSN();
    }
-   // -------------------------------------------------------------------------------------
-   if (all_tuples_heads_are_invisible) {
-      c_guard->skip_if_gsn_equal = c_guard.bf->page.GSN;
-      c_guard->and_if_your_sat_older = cr::Worker::my().snapshotAcquistionTime();
-   }
    return all_tuples_heads_are_invisible;
 }
 // -------------------------------------------------------------------------------------

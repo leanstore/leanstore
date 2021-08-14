@@ -248,6 +248,12 @@ class BTreeVI : public BTreeLL
          BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this),
                                       cr::activeTX().isSerializable() ? LATCH_FALLBACK_MODE::EXCLUSIVE : LATCH_FALLBACK_MODE::SHARED);
          // -------------------------------------------------------------------------------------
+         if (FLAGS_vi_skip_stale_swips) {
+            if constexpr (!asc) {
+               iterator.shift_to_right_on_frozen_swips = false;
+            }
+         }
+         // -------------------------------------------------------------------------------------
          MutableSlice s_key = iterator.mutableKeyInBuffer(o_key_length + sizeof(ChainSN));
          std::memcpy(s_key.data(), o_key, o_key_length);
          setSN(s_key, 0);
@@ -261,10 +267,6 @@ class BTreeVI : public BTreeLL
          bool skip_current_leaf = false;
          if (FLAGS_vi_skip_stale_leaves) {
             iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
-               if (leaf->skip_if_gsn_equal == leaf.bf->page.GSN && leaf->and_if_your_sat_older < cr::Worker::my().snapshotAcquistionTime()) {
-                  skip_current_leaf = true;
-                  COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[dt_id]++; }
-               }
                if (!cr::activeTX().atLeastSI()) {
                   return;
                }
@@ -272,7 +274,7 @@ class BTreeVI : public BTreeLL
                   std::basic_string<u8> key(leaf->getUpperFenceKey(), leaf->upper_fence.length);
                   BufferFrame* to_find = leaf.bf;
                   BTreeGeneric* btree_generic = static_cast<BTreeGeneric*>(reinterpret_cast<BTreeVI*>(this));
-                  iterator.cleanup_cb = [&, key, btree_generic, to_find]() {
+                  iterator.cleanUpCallback([&, key, btree_generic, to_find]() {
                      jumpmuTry()
                      {
                         HybridPageGuard<BTreeNode> leaf;
@@ -297,7 +299,7 @@ class BTreeVI : public BTreeLL
                                  auto swip_backup = *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos));
                                  p_x_guard->extendPayload(parent_handler.pos, 16);
                                  *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos)) = swip_backup;
-                                 *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos) + 8) = leaf->and_if_your_sat_older;
+                                 *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos) + 8) = cr::Worker::my().snapshotAcquistionTime();
                               } else {
                                  // TODO: trySplit parent
                               }
@@ -305,7 +307,7 @@ class BTreeVI : public BTreeLL
                         }
                      }
                      jumpmuCatch() {}
-                  };
+                  });
                }
             });
          }

@@ -32,6 +32,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    HybridPageGuard<BTreeNode> leaf;     // Reset after every leaf change
    HybridPageGuard<BTreeNode> p_guard;  // Reset after every leaf change
    s32 leaf_pos_in_parent = -1;         // Reset after every leaf change
+   bool shift_to_right_on_frozen_swips = true;
    // -------------------------------------------------------------------------------------
    u8 buffer[PAGE_SIZE];
    // -------------------------------------------------------------------------------------
@@ -64,8 +65,14 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                         const u64 cond = *reinterpret_cast<u64*>(target_guard->getPayload(leaf_pos_in_parent) + 8);
                         // Revisit if we can GC
                         if (cond < cr::Worker::my().snapshotAcquistionTime() && cr::Worker::my().local_oldest_tx_sat < cond) {
-                           leaf_pos_in_parent++;
-                           goto retry;
+                           COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[btree.dt_id]++; }
+                           if (shift_to_right_on_frozen_swips) {
+                              leaf_pos_in_parent++;
+                              goto retry;
+                           } else if (leaf_pos_in_parent > 0) {
+                              leaf_pos_in_parent--;
+                              goto retry;
+                           }
                         }
                      } else {
                         // Unfreeze
@@ -111,6 +118,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          }
       }
       // -------------------------------------------------------------------------------------
+      // TODO: refactor when we get ride of serializability tests
       if (mode == LATCH_FALLBACK_MODE::SHARED) {
          this->findLeafAndLatch<LATCH_FALLBACK_MODE::SHARED>(leaf, key.data(), key.length());
       } else if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
@@ -126,7 +134,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    BTreePessimisticIterator(BTreeGeneric& btree, const LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED) : btree(btree), mode(mode) {}
    // -------------------------------------------------------------------------------------
    void enterLeafCallback(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { enter_leaf_cb = cb; }
-   void exitLeafCallback(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { exit_leaf_cb = cb; }
+   void cleanUpCallback(std::function<void()> cb) { cleanup_cb = cb; }
    // -------------------------------------------------------------------------------------
    OP_RESULT seekExactWithHint(Slice key, bool higher = true)  // EXP
    {
