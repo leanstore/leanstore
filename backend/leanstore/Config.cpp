@@ -90,6 +90,7 @@ DEFINE_bool(vi_fupdate_chained, false, "");
 DEFINE_bool(vi_fupdate_fat_tuple, false, "");
 DEFINE_uint64(vi_pgc_batch_size, 2, "");
 DEFINE_bool(vi_skip_stale_leaves, true, "");
+DEFINE_bool(vi_skip_stale_swips, true, "");
 DEFINE_bool(vi_twoq_todo, true, "");
 DEFINE_bool(vi_fat_tuple, true, "");
 DEFINE_uint64(vi_fat_tuple_threshold, 4, "Minimum length of chain length before converting the tuple format to FatTuple");

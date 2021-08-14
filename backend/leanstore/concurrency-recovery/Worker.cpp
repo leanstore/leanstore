@@ -171,13 +171,13 @@ void Worker::refreshSnapshotHWMs()
 void Worker::refreshTransactionsOrderingIfNeeded()
 {
    if (!transactions_order_refreshed) {
-      oldest_tx_sat = std::numeric_limits<u64>::max();
-      oldest_tx_sat_worker_id = worker_id;
+      local_oldest_tx_sat = std::numeric_limits<u64>::max();
+      local_oldest_tx_sat_worker_id = worker_id;
       for (u64 w_i = 0; w_i < workers_count; w_i++) {
          const u64 its_tx_start = global_workers_snapshot_acquistion_time[w_i].load();
-         if (its_tx_start < oldest_tx_sat) {
-            oldest_tx_sat = its_tx_start;
-            oldest_tx_sat_worker_id = w_i;
+         if (its_tx_start < local_oldest_tx_sat) {
+            local_oldest_tx_sat = its_tx_start;
+            local_oldest_tx_sat_worker_id = w_i;
          }
          local_workers_sta[w_i] = its_tx_start;
       }
@@ -195,7 +195,7 @@ void Worker::sortWorkers()
          local_workers_sta_sorted[w_i] = (local_workers_sta[w_i] << WORKERS_BITS) | w_i;
       }
       // Avoid extra work if the last round also was full of single statement workers
-      if (oldest_tx_sat < std::numeric_limits<u64>::max()) {
+      if (local_oldest_tx_sat < std::numeric_limits<u64>::max()) {
          std::sort(local_workers_sta_sorted.get(), local_workers_sta_sorted.get() + workers_count, std::greater<u64>());
       }
    }
@@ -295,7 +295,7 @@ void Worker::checkup()
       // -------------------------------------------------------------------------------------
       while (!todo_rb->empty()) {
          auto& todo = *reinterpret_cast<TODOEntry*>(todo_rb->front());
-         if (oldest_tx_sat > todo.after_sat) {
+         if (local_oldest_tx_sat > todo.after_sat) {
             WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
             leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
                                                                     todo.version_worker_commit_mark);
@@ -449,7 +449,7 @@ bool Worker::isVisibleForAll(u64 commited_before_so)
    if (activeTX().isSingleStatement()) {
       refreshTransactionsOrderingIfNeeded();
    }
-   return commited_before_so < oldest_tx_sat;
+   return commited_before_so < local_oldest_tx_sat;
 }
 // -------------------------------------------------------------------------------------
 // Called by worker, so concurrent writes on the buffer

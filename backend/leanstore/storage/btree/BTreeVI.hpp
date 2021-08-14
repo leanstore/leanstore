@@ -267,16 +267,39 @@ class BTreeVI : public BTreeLL
                }
                if (triggerPageWiseGarbageCollection(leaf) && leaf->upper_fence.offset > 0) {
                   std::basic_string<u8> key(leaf->getUpperFenceKey(), leaf->upper_fence.length);
-                  iterator.cleanup_cb = [&, key]() {
+                  BufferFrame* to_find = leaf.bf;
+                  BTreeGeneric* btree_generic = static_cast<BTreeGeneric*>(reinterpret_cast<BTreeVI*>(this));
+                  iterator.cleanup_cb = [&, key, btree_generic, to_find]() {
                      // TODO: The case when the page can be reclaimed after the long running tx finishes
                      jumpmuTry()
                      {
                         HybridPageGuard<BTreeNode> leaf;
                         this->findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.c_str(), key.length());
-                        precisePageWiseGarbageCollection(leaf);
+                        const bool ret = precisePageWiseGarbageCollection(leaf);
+                        // -------------------------------------------------------------------------------------
                         if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
                            leaf.unlock();
-                           tryMerge(*leaf.bf);
+                           tryMerge(*to_find);
+                           jumpmu_return;
+                        }
+                        // -------------------------------------------------------------------------------------
+                        leaf.unlock();
+                        if (FLAGS_vi_skip_stale_swips && leaf->and_if_your_sat_older > 0) {
+                           ParentSwipHandler parent_handler = BTreeGeneric::findParent(*btree_generic, *to_find);
+                           HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
+                           HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
+                           auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
+                           auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+                           if (p_x_guard->getPayloadLength(parent_handler.pos) == 8 && parent_handler.pos < p_x_guard->count) {
+                              if (p_x_guard->canExtendPayload(parent_handler.pos, 16)) {
+                                 auto swip_backup = *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos));
+                                 p_x_guard->extendPayload(parent_handler.pos, 16);
+                                 *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos)) = swip_backup;
+                                 *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos) + 8) = leaf->and_if_your_sat_older;
+                              } else {
+                                 // TODO: trySplit parent
+                              }
+                           }
                         }
                      }
                      jumpmuCatch() {}
@@ -370,7 +393,7 @@ class BTreeVI : public BTreeLL
    {
       return (guard->gc_space_used >= (FLAGS_garbage_in_page_pct * PAGE_SIZE * 1.0 / 100));
    }
-   void precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard);
+   bool precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard);
    // -------------------------------------------------------------------------------------
    template <typename T>
    inline ChainSN getSN(T key)

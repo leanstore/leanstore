@@ -771,7 +771,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
    }
 }
 // -------------------------------------------------------------------------------------
-void BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_guard)
+bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_guard)
 {
    bool all_tuples_heads_are_invisible = true;  // WRT scanners
    u32 garbage_seen_in_bytes = 0;
@@ -824,6 +824,7 @@ void BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
       c_guard->skip_if_gsn_equal = c_guard.bf->page.GSN;
       c_guard->and_if_your_sat_older = cr::Worker::my().snapshotAcquistionTime();
    }
+   return all_tuples_heads_are_invisible;
 }
 // -------------------------------------------------------------------------------------
 SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)

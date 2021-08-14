@@ -63,7 +63,7 @@ struct Worker {
    bool force_si_refresh = false;
    bool workers_sorted = false;
    bool transactions_order_refreshed = false;
-   u64 oldest_tx_sat, oldest_tx_sat_worker_id;
+   u64 local_oldest_tx_sat, local_oldest_tx_sat_worker_id;
    unique_ptr<atomic<u64>[]> local_workers_commit_marks;
    // local_workers_sta can lag and it only tells us whether "it" definitely sees a version, but not if it does not
    unique_ptr<u64[]> local_workers_sta;
