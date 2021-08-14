@@ -181,59 +181,6 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT next() override
    {
-      // COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_next_tuple[btree.dt_id]++; }
-      // if ((cur + 1) < leaf->count) {
-      //    cur += 1;
-      //    return OP_RESULT::OK;
-      // } else {
-      //    if (FLAGS_optimistic_scan) {
-      //       jumpmuTry()
-      //       {
-      //          ensure(leaf_pos_in_parent != -1);
-      //          if ((leaf_pos_in_parent + 1) <= p_guard->count) {
-      //             // -------------------------------------------------------------------------------------
-      //             s32 next_leaf_pos = leaf_pos_in_parent + 1;
-      //             Swip<BTreeNode>& c_swip = (next_leaf_pos < p_guard->count) ? p_guard->getChild(next_leaf_pos) : p_guard->upper;
-      //             HybridPageGuard next_leaf(p_guard, c_swip, LATCH_FALLBACK_MODE::JUMP);
-      //             if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
-      //                next_leaf.tryToExclusive();
-      //             } else {
-      //                next_leaf.tryToShared();
-      //             }
-      //             leaf = std::move(next_leaf);
-      //             leaf_pos_in_parent = next_leaf_pos;
-      //             cur = 0;
-      //             prefix_copied = false;
-      //             // -------------------------------------------------------------------------------------
-      //             jumpmu_return OP_RESULT::OK;
-      //          }
-      //       }
-      //       jumpmuCatch() {}
-      //    }
-      // retry : {
-      //    if (leaf->upper_fence.length == 0) {
-      //       return OP_RESULT::NOT_FOUND;
-      //    } else {
-      //       // Construct the next key (lower bound)
-      //       const u16 pper_fence_length_plus = leaf->upper_fence.length + 1;
-      //       u8 upper_fence[pper_fence_length_plus];
-      //       std::memcpy(upper_fence, leaf->getUpperFenceKey(), leaf->upper_fence.length);
-      //       upper_fence[pper_fence_length_plus - 1] = 0;
-      //       gotoPage(Slice(upper_fence, pper_fence_length_plus));
-      //       // -------------------------------------------------------------------------------------
-      //       if (leaf->count == 0) {
-      //          COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++; }
-      //          goto retry;
-      //       }
-      //       cur = leaf->lowerBound<false>(upper_fence, pper_fence_length_plus);
-      //       if (cur == leaf->count) {
-      //          goto retry;
-      //       }
-      //       return OP_RESULT::OK;
-      //    }
-      // }
-      // }
-
       COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_next_tuple[btree.dt_id]++; }
       while (true) {
          ensure(leaf.guard.state != GUARD_STATE::OPTIMISTIC);
@@ -306,65 +253,74 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    virtual OP_RESULT prev() override
    {
       COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_prev_tuple[btree.dt_id]++; }
-      if ((cur - 1) >= 0) {
-         cur -= 1;
-         return OP_RESULT::OK;
-      } else {
-         if (FLAGS_optimistic_scan) {
-            UNREACHABLE();
-            jumpmuTry()
-            {
-               if (leaf_pos_in_parent > 0) {
-                  s32 prev_leaf_pos = leaf_pos_in_parent - 1;
-                  Swip<BTreeNode>& c_swip = p_guard->getChild(prev_leaf_pos);
-                  leaf.unlock();
-                  leaf = HybridPageGuard(p_guard, c_swip, mode);
-                  if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
-                     leaf.toExclusive();
-                  } else {
-                     leaf.toShared();
-                  }
-                  leaf_pos_in_parent = prev_leaf_pos;
-                  cur = 0;
-                  prefix_copied = false;
-                  // -------------------------------------------------------------------------------------
-                  if (enter_leaf_cb) {
-                     enter_leaf_cb(leaf);
-                  }
-                  // -------------------------------------------------------------------------------------
-                  jumpmu_return OP_RESULT::OK;
-               }
-            }
-            jumpmuCatch() {}
-         }
-      retry : {
-         if (leaf->lower_fence.length == 0) {
+      // -------------------------------------------------------------------------------------
+      while (true) {
+         ensure(leaf.guard.state != GUARD_STATE::OPTIMISTIC);
+         if ((cur - 1) >= 0) {
+            cur -= 1;
             return OP_RESULT::OK;
+         } else if (leaf->lower_fence.length == 0) {
+            return OP_RESULT::NOT_FOUND;
          } else {
             const u16 lower_fence_length = leaf->lower_fence.length;
             u8 lower_fence[lower_fence_length];
-            std::memcpy(lower_fence, leaf->getLowerFenceKey(), leaf->lower_fence.length);
+            std::memcpy(lower_fence, leaf->getLowerFenceKey(), lower_fence_length);
+            // -------------------------------------------------------------------------------------
+            p_guard.unlock();
+            leaf.unlock();
+            if (cleanup_cb) {
+               cleanup_cb();
+               cleanup_cb = nullptr;
+            }
+            // -------------------------------------------------------------------------------------
+            if (FLAGS_optimistic_scan) {
+               jumpmuTry()
+               {
+                  ensure(leaf_pos_in_parent != -1);
+                  if ((leaf_pos_in_parent - 1) <= 0) {
+                     s32 next_leaf_pos = leaf_pos_in_parent - 1;
+                     Swip<BTreeNode>& c_swip = p_guard->getChild(next_leaf_pos);
+                     HybridPageGuard next_leaf(p_guard, c_swip, LATCH_FALLBACK_MODE::JUMP);
+                     if (mode == LATCH_FALLBACK_MODE::EXCLUSIVE) {
+                        next_leaf.tryToExclusive();
+                     } else {
+                        next_leaf.tryToShared();
+                     }
+                     leaf.recheck();
+                     leaf = std::move(next_leaf);
+                     leaf_pos_in_parent = next_leaf_pos;
+                     cur = leaf->count - 1;
+                     prefix_copied = false;
+                     // -------------------------------------------------------------------------------------
+                     if (enter_leaf_cb) {
+                        enter_leaf_cb(leaf);
+                     }
+                     // -------------------------------------------------------------------------------------
+                     if (leaf->count == 0) {
+                        jumpmu_continue;
+                     }
+                     jumpmu_return OP_RESULT::OK;
+                  }
+               }
+               jumpmuCatch() {}
+            }
+            // Construct the next key (lower bound)
             gotoPage(Slice(lower_fence, lower_fence_length));
             // -------------------------------------------------------------------------------------
             if (leaf->count == 0) {
-               goto retry;
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++; }
+               continue;
+            }
+            bool is_equal = false;
+            cur = leaf->lowerBound<false>(lower_fence, lower_fence_length, &is_equal);
+            if (is_equal) {
+               return OP_RESULT::OK;
+            } else if (cur > 0) {
+               cur -= 1;
             } else {
-               bool is_equal = false;
-               cur = leaf->lowerBound<false>(lower_fence, lower_fence_length, &is_equal);
-               ensure(is_equal || cur == leaf->count);
-               if (is_equal) {
-                  return OP_RESULT::OK;
-               }
-               // Must go one step backward
-               if (cur > 0) {
-                  cur -= 1;
-                  return OP_RESULT::OK;
-               } else {
-                  goto retry;
-               }
+               continue;
             }
          }
-      }
       }
    }
    // -------------------------------------------------------------------------------------
