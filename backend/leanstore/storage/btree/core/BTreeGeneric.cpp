@@ -471,7 +471,7 @@ SpaceCheckResult BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferF
       auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
       ParentSwipHandler parent_handler = btree.findParent(btree, bf);
       HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-      HybridPageGuard<BTreeNode> c_guard(p_guard, parent_handler.swip.cast<BTreeNode>());
+      HybridPageGuard<BTreeNode> c_guard(p_guard, parent_handler.swip.cast<BTreeNode>(), LATCH_FALLBACK_MODE::JUMP);
       XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
       p_guard.unlock();
       c_guard.unlock();

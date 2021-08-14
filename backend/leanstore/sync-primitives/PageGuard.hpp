@@ -207,7 +207,7 @@ class ExclusivePageGuard
    ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard)
    {
       ref_guard.guard.toExclusive();
-      if (!FLAGS_wal || 1) {
+      if (!FLAGS_wal || 1) {  // TODO
          ref_guard.incrementGSN();
       }
    }

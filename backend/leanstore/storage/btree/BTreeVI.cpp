@@ -832,12 +832,12 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
 // -------------------------------------------------------------------------------------
 SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
-   [[maybe_unused]] auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
+   auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    Guard bf_guard(bf.header.latch);
    bf_guard.toOptimisticOrJump();
    HybridPageGuard<BTreeNode> c_guard(std::move(bf_guard), &bf);
    if (!c_guard->is_leaf || !triggerPageWiseGarbageCollection(c_guard)) {
-      return SpaceCheckResult::NOTHING;
+      return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
    }
    // -------------------------------------------------------------------------------------
    bool has_removed_anything = false;
@@ -850,7 +850,7 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
             if (chained_tuple.is_removed && chained_tuple.worker_commit_mark <= cr::Worker::my().global_snapshot_lwm) {
                if (!has_removed_anything) {
                   has_removed_anything = true;
-                  c_guard.toExclusive();
+                  c_guard.tryToExclusive();
                }
                c_guard->removeSlot(s_i);
             } else {
@@ -865,7 +865,7 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
          if (chained_tuple_version.gc_trigger <= cr::Worker::my().global_snapshot_lwm) {
             if (!has_removed_anything) {
                has_removed_anything = true;
-               c_guard.toExclusive();
+               c_guard.tryToExclusive();
             }
             c_guard->removeSlot(s_i);
          } else {
