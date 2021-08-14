@@ -544,6 +544,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
                 wtts);
          }
          iterator.leaf->gc_space_used += iterator.leaf->getKVConsumedSpace(iterator.cur);
+         iterator.markAsDirty();
          primary_version.unlock();
       }
       // -------------------------------------------------------------------------------------
@@ -716,6 +717,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                ensure(primary_version.worker_id == cr::Worker::my().workerID());
                ensure(primary_version.worker_commit_mark == cr::activeTX().TTS());
                primary_version.writeLock();
+               iterator.markAsDirty();
             }
             // -------------------------------------------------------------------------------------
             {
@@ -906,6 +908,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             iterator.leaf->gc_space_used -= iterator.leaf->getKVConsumedSpace(point_todo.dangling_pointer.secondary_slot);
             node->removeSlot(point_todo.dangling_pointer.secondary_slot);
          }
+         iterator.markAsDirty();
          iterator.mergeIfNeeded();
          jumpmu_return;
       }
