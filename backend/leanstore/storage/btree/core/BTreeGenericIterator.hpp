@@ -277,7 +277,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                jumpmuTry()
                {
                   ensure(leaf_pos_in_parent != -1);
-                  if ((leaf_pos_in_parent - 1) <= 0) {
+                  if ((leaf_pos_in_parent - 1) >= 0) {
                      s32 next_leaf_pos = leaf_pos_in_parent - 1;
                      Swip<BTreeNode>& c_swip = p_guard->getChild(next_leaf_pos);
                      HybridPageGuard next_leaf(p_guard, c_swip, LATCH_FALLBACK_MODE::JUMP);
