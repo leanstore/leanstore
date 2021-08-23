@@ -138,6 +138,11 @@ int main(int argc, char** argv)
             jumpmuTry()
             {
                cr::Worker::my().startTX(leanstore::TX_MODE::LONG_READONLY, isolation_level);
+               if (FLAGS_tmp5) {
+                  for (u64 i = 0; i <= 10; i++)
+                     if (i != 5)
+                        leanstore::cr::Worker::my().relations_cut_from_snapshot.add(i);
+               }
                for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
                   tpcc.analyticalQuery(FLAGS_ch_a_query);
                }

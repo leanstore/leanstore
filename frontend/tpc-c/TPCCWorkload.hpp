@@ -997,11 +997,6 @@ class TPCCWorkload
    void analyticalQuery(s32 query_no = 0)
    {
       // TODO: implement CH analytical queries
-      if (FLAGS_tmp5) {
-         for (u64 i = 0; i <= 10; i++)
-            if (i != 5)
-               leanstore::cr::Worker::my().relations_cut_from_snapshot.add(i);
-      }
       Integer sum = 0, last_w = 0, last_i = 0;
       if (query_no == 0) {
          stock.scan(
