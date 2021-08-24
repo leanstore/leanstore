@@ -35,19 +35,19 @@ int main(int argc, char** argv)
    gflags::SetUsageMessage("WiredTiger TPC-C");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
-   WiredTigerDB rocks_db;
-   rocks_db.prepareThread();
-   WiredTigerAdapter<warehouse_t> warehouse(rocks_db);
-   WiredTigerAdapter<district_t> district(rocks_db);
-   WiredTigerAdapter<customer_t> customer(rocks_db);
-   WiredTigerAdapter<customer_wdl_t> customerwdl(rocks_db);
-   WiredTigerAdapter<history_t> history(rocks_db);
-   WiredTigerAdapter<neworder_t> neworder(rocks_db);
-   WiredTigerAdapter<order_t> order(rocks_db);
-   WiredTigerAdapter<order_wdc_t> order_wdc(rocks_db);
-   WiredTigerAdapter<orderline_t> orderline(rocks_db);
-   WiredTigerAdapter<item_t> item(rocks_db);
-   WiredTigerAdapter<stock_t> stock(rocks_db);
+   WiredTigerDB wiredtiger_db;
+   wiredtiger_db.prepareThread();
+   WiredTigerAdapter<warehouse_t> warehouse(wiredtiger_db);
+   WiredTigerAdapter<district_t> district(wiredtiger_db);
+   WiredTigerAdapter<customer_t> customer(wiredtiger_db);
+   WiredTigerAdapter<customer_wdl_t> customerwdl(wiredtiger_db);
+   WiredTigerAdapter<history_t> history(wiredtiger_db);
+   WiredTigerAdapter<neworder_t> neworder(wiredtiger_db);
+   WiredTigerAdapter<order_t> order(wiredtiger_db);
+   WiredTigerAdapter<order_wdc_t> order_wdc(wiredtiger_db);
+   WiredTigerAdapter<orderline_t> orderline(wiredtiger_db);
+   WiredTigerAdapter<item_t> item(wiredtiger_db);
+   WiredTigerAdapter<stock_t> stock(wiredtiger_db);
    // -------------------------------------------------------------------------------------
    leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
    const bool should_tpcc_driver_handle_isolation_anomalies = isolation_level < leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION;
@@ -61,7 +61,7 @@ int main(int argc, char** argv)
    tpcc.loadWarehouse();
    for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       threads.emplace_back([&]() {
-         rocks_db.prepareThread();
+         wiredtiger_db.prepareThread();
          while (true) {
             const u32 w_id = g_w_id++;
             if (w_id > FLAGS_tpcc_warehouse_count) {
@@ -94,12 +94,12 @@ int main(int argc, char** argv)
          if (FLAGS_pin_threads) {
             leanstore::utils::pinThisThread(t_i);
          }
-         rocks_db.prepareThread();
+         wiredtiger_db.prepareThread();
          tpcc.prepare();
          while (keep_running) {
             jumpmuTry()
             {
-               rocks_db.session->begin_transaction(rocks_db.session, NULL);
+               wiredtiger_db.session->begin_transaction(wiredtiger_db.session, NULL);
                Integer w_id;
                if (FLAGS_tpcc_warehouse_affinity) {
                   w_id = t_i + 1;
@@ -107,7 +107,7 @@ int main(int argc, char** argv)
                   w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
                }
                tpcc.tx(w_id);
-               rocks_db.session->commit_transaction(rocks_db.session, NULL);
+               wiredtiger_db.session->commit_transaction(wiredtiger_db.session, NULL);
                thread_committed[t_i]++;
             }
             jumpmuCatch() { thread_aborted[t_i]++; }
