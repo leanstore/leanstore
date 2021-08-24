@@ -83,6 +83,7 @@ DECLARE_bool(vi_utodo);
 DECLARE_bool(vi_rtodo);
 DECLARE_bool(vi_flookup);
 DECLARE_bool(vi_fremove);
+DECLARE_bool(vi_update_version_elision);
 DECLARE_bool(vi_fupdate_chained);
 DECLARE_bool(vi_fupdate_fat_tuple);
 DECLARE_uint64(vi_fat_tuple_threshold);

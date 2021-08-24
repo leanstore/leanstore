@@ -50,7 +50,7 @@ LeanStore::LeanStore()
       SetupFailed("You have to enable WAL");
    }
    if (FLAGS_isolation_level == "si" && (!FLAGS_mv | !FLAGS_vi)) {
-      SetupFailed("You have to enable mv (multi-versioning)");
+      SetupFailed("You have to enable mv an vi (multi-versioning)");
    }
    // -------------------------------------------------------------------------------------
    // Set the default logger to file logger

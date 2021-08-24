@@ -171,8 +171,17 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // -------------------------------------------------------------------------------------
          jumpmu_return OP_RESULT::OK;
       }
+      // -------------------------------------------------------------------------------------
       auto& chain_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
-      if (!FLAGS_mv || FLAGS_vi_fupdate_chained) {
+      bool update_without_versioning = (FLAGS_vi_update_version_elision || !FLAGS_mv || FLAGS_vi_fupdate_chained);
+      if (update_without_versioning && !FLAGS_vi_fupdate_chained && FLAGS_vi_update_version_elision) {
+         // Avoid creating version if all transactions are running in read-committed mode and the current tx is single-statement
+         update_without_versioning &= cr::activeTX().isSingleStatement();
+         for (u64 w_i = 0; w_i < cr::Worker::my().workers_count && update_without_versioning; w_i++) {
+            update_without_versioning &= cr::Worker::my().global_workers_snapshot_acquistion_time[w_i].load() == std::numeric_limits<u64>::max();
+         }
+      }
+      if (update_without_versioning) {
          // Single version
          // WAL
          u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();

@@ -81,11 +81,12 @@ DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(todo, true, "");
 DEFINE_double(todo_mib, 10, "size of todos ring buffer");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(vi, false, "BTree with SI using in-place version");
+DEFINE_bool(vi, true, "BTree with SI using in-place version");
 DEFINE_bool(vi_utodo, true, "");
 DEFINE_bool(vi_rtodo, true, "");
 DEFINE_bool(vi_flookup, false, "");
 DEFINE_bool(vi_fremove, false, "");
+DEFINE_bool(vi_update_version_elision, false, "");
 DEFINE_bool(vi_fupdate_chained, false, "");
 DEFINE_bool(vi_fupdate_fat_tuple, false, "");
 DEFINE_uint64(vi_pgc_batch_size, 2, "");
