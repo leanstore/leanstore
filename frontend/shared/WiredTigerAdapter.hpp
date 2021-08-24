@@ -7,6 +7,7 @@
 #include "leanstore/Config.hpp"
 #include "leanstore/KVInterface.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
+#include "leanstore/utils/JumpMU.hpp"
 // -------------------------------------------------------------------------------------
 #include <cassert>
 #include <cstdint>
@@ -82,6 +83,10 @@ struct WiredTigerAdapter : public Adapter<Record> {
       cursor->set_key(cursor, &key_item);
       cursor->set_value(cursor, &payload_item);
       ret = cursor->insert(cursor);
+      if (ret == WT_ROLLBACK) {
+         error_check(map.session->rollback_transaction(map.session, NULL));
+         jumpmu::jump();
+      }
       error_check(ret);
    }
    // -------------------------------------------------------------------------------------
@@ -137,6 +142,10 @@ struct WiredTigerAdapter : public Adapter<Record> {
       // -------------------------------------------------------------------------------------
       cursor->set_key(cursor, &key_item);
       ret = cursor->remove(cursor);
+      if (ret == WT_ROLLBACK) {
+         error_check(map.session->rollback_transaction(map.session, NULL));
+         jumpmu::jump();
+      }
       return (ret == 0);
    }
    // -------------------------------------------------------------------------------------
