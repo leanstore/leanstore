@@ -22,7 +22,7 @@
 struct WiredTigerDB {
    WT_CONNECTION* conn;
    static thread_local WT_SESSION* session;
-   static thread_local WT_CURSOR* cursor;
+   static thread_local WT_CURSOR* cursor[20];
 
    WiredTigerDB()
    {
@@ -33,14 +33,15 @@ struct WiredTigerDB {
    }
    void prepareThread()
    {
-      // TODO: isolation level
-      int ret = conn->open_session(conn, NULL, NULL, &session);
-      error_check(ret);
-      // -------------------------------------------------------------------------------------
-      ret = session->create(session, "table:access", "key_format=S,value_format=S");  // ,type=lsm
-      error_check(ret);
-      // -------------------------------------------------------------------------------------
-      ret = session->open_cursor(session, "table:access", NULL, "raw", &cursor);
+      std::string session_config("isolation=");
+      if (FLAGS_isolation_level == "si") {
+         session_config.append("snapshot");
+      } else if (FLAGS_isolation_level == "rc") {
+         session_config.append("read-committed");
+      } else if (FLAGS_isolation_level == "ru") {
+         session_config.append("read-uncommitted");
+      }
+      int ret = conn->open_session(conn, NULL, session_config.c_str(), &session);
       error_check(ret);
    }
    ~WiredTigerDB() { conn->close(conn, NULL); }
@@ -50,41 +51,64 @@ struct WiredTigerDB {
 template <class Record>
 struct WiredTigerAdapter : public Adapter<Record> {
    WiredTigerDB& map;
-   using SEP = u32;  // use 32-bits integer as separator instead of column family
+   std::string table_name;
 
-   WiredTigerAdapter(WiredTigerDB& map) : map(map) {}
+   WiredTigerAdapter(WiredTigerDB& map) : map(map)
+   {
+      table_name = std::string("table:tree_" + std::to_string(Record::id));
+      int ret = map.session->create(map.session, table_name.c_str(), "key_format=S,value_format=S");  // ,type=lsm
+      error_check(ret);
+   }
    // -------------------------------------------------------------------------------------
    void insert(const typename Record::Key& key, const Record& record) final
    {
-      u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
-      const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
+      u8 folded_key[Record::maxFoldLength()];
+      const u32 folded_key_len = Record::foldKey(folded_key, key);
+      int ret;
       // -------------------------------------------------------------------------------------
-      WT_ITEM key_item{folded_key, folded_key_len};
-      WT_ITEM payload_item{&record, sizeof(record)};
-
-      map.cursor->set_key(map.cursor, &key_item);
-      map.cursor->set_value(map.cursor, &payload_item);
-      int ret = map.cursor->insert(map.cursor);
-      if (ret != 0)
-         throw;
-      map.cursor->reset(map.cursor);
+      if (map.cursor[Record::id] == nullptr) {
+         ret = map.session->open_cursor(map.session, table_name.c_str(), NULL, "raw", &map.cursor[Record::id]);
+         error_check(ret);
+      }
+      WT_CURSOR* cursor = map.cursor[Record::id];
+      // -------------------------------------------------------------------------------------
+      WT_ITEM key_item;
+      key_item.data = folded_key;
+      key_item.size = folded_key_len;
+      WT_ITEM payload_item;
+      payload_item.data = &record;
+      payload_item.size = sizeof(record);
+      // -------------------------------------------------------------------------------------
+      cursor->set_key(cursor, &key_item);
+      cursor->set_value(cursor, &payload_item);
+      ret = cursor->insert(cursor);
+      error_check(ret);
    }
    // -------------------------------------------------------------------------------------
    void lookup1(const typename Record::Key& key, const std::function<void(const Record&)>& fn) final
    {
-      u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
-      const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
+      u8 folded_key[Record::maxFoldLength()];
+      const u32 folded_key_len = Record::foldKey(folded_key, key);
+      int ret;
       // -------------------------------------------------------------------------------------
-      WT_ITEM key_item{folded_key, folded_key_len};
+      if (map.cursor[Record::id] == nullptr) {
+         ret = map.session->open_cursor(map.session, table_name.c_str(), NULL, "raw", &map.cursor[Record::id]);
+         error_check(ret);
+      }
+      WT_CURSOR* cursor = map.cursor[Record::id];
+      // -------------------------------------------------------------------------------------
+      WT_ITEM key_item;
+      key_item.data = folded_key;
+      key_item.size = folded_key_len;
       WT_ITEM payload_item;
-      map.cursor->set_key(map.cursor, &key_item);
-      int ret = map.cursor->search(map.cursor);
-      if (ret != 0)
-         throw;
-      ret = map.cursor->get_value(map.cursor, &payload_item);
+      // -------------------------------------------------------------------------------------
+      cursor->set_key(cursor, &key_item);
+      ret = cursor->search(cursor);
+      error_check(ret);
+      ret = cursor->get_value(cursor, &payload_item);
       const Record& record = *reinterpret_cast<const Record*>(payload_item.data);
       fn(record);
-      map.cursor->reset(map.cursor);
+      cursor->reset(cursor);
    }
    // -------------------------------------------------------------------------------------
    void update1(const typename Record::Key& key, const std::function<void(Record&)>& fn, leanstore::UpdateSameSizeInPlaceDescriptor&) final
@@ -97,47 +121,56 @@ struct WiredTigerAdapter : public Adapter<Record> {
    // -------------------------------------------------------------------------------------
    bool erase(const typename Record::Key& key) final
    {
-      u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
-      const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
+      u8 folded_key[Record::maxFoldLength()];
+      const u32 folded_key_len = Record::foldKey(folded_key, key);
+      int ret;
       // -------------------------------------------------------------------------------------
-      WT_ITEM key_item{folded_key, folded_key_len};
-
-      map.cursor->set_key(map.cursor, &key_item);
-      int ret = map.cursor->remove(map.cursor);
-      map.cursor->reset(map.cursor);
-      if (ret != 0)
-         return false;
-      return true;
-   }
-   // -------------------------------------------------------------------------------------
-   template <class T>
-   SEP getId(const T& str)
-   {
-      return __builtin_bswap32(*reinterpret_cast<const SEP*>(str.data)) ^ (1ul << 31);
+      if (map.cursor[Record::id] == nullptr) {
+         ret = map.session->open_cursor(map.session, table_name.c_str(), NULL, "raw", &map.cursor[Record::id]);
+         error_check(ret);
+      }
+      WT_CURSOR* cursor = map.cursor[Record::id];
+      // -------------------------------------------------------------------------------------
+      WT_ITEM key_item;
+      key_item.data = folded_key;
+      key_item.size = folded_key_len;
+      // -------------------------------------------------------------------------------------
+      cursor->set_key(cursor, &key_item);
+      ret = cursor->remove(cursor);
+      return (ret == 0);
    }
    // -------------------------------------------------------------------------------------
    void scan(const typename Record::Key& key, const std::function<bool(const typename Record::Key&, const Record&)>& fn, std::function<void()>) final
    {
-      u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
-      const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
+      u8 folded_key[Record::maxFoldLength()];
+      const u32 folded_key_len = Record::foldKey(folded_key, key);
+      int ret;
       // -------------------------------------------------------------------------------------
-      WT_ITEM key_item = {folded_key, folded_key_len}, payload_item;
-      map.cursor->set_key(map.cursor, &key_item);
-      int exact;
-      int ret = map.cursor->search_near(map.cursor, &exact);
-      if (exact < 0)
-         ret = map.cursor->next(map.cursor);
-      while (ret == 0) {
-         map.cursor->get_key(map.cursor, &key_item);
-         map.cursor->get_value(map.cursor, &payload_item);
-         typename Record::Key s_key;
-         Record::unfoldKey(reinterpret_cast<const u8*>(key_item.data + sizeof(SEP)), s_key);
-         const Record& s_value = *reinterpret_cast<const Record*>(payload_item.data);
-         if ((getId(key_item) != Record::id) || !fn(s_key, s_value))
-            break;
-         ret = map.cursor->next(map.cursor);
+      if (map.cursor[Record::id] == nullptr) {
+         ret = map.session->open_cursor(map.session, table_name.c_str(), NULL, "raw", &map.cursor[Record::id]);
+         error_check(ret);
       }
-      map.cursor->reset(map.cursor);
+      WT_CURSOR* cursor = map.cursor[Record::id];
+      // -------------------------------------------------------------------------------------
+      WT_ITEM key_item, payload_item;
+      key_item.data = folded_key;
+      key_item.size = folded_key_len;
+      // -------------------------------------------------------------------------------------
+      cursor->set_key(cursor, &key_item);
+      int exact;
+      ret = cursor->search_near(cursor, &exact);
+      if (exact < 0)
+         ret = cursor->next(cursor);
+      while (ret == 0) {
+         cursor->get_key(cursor, &key_item);
+         cursor->get_value(cursor, &payload_item);
+         typename Record::Key s_key;
+         Record::unfoldKey(reinterpret_cast<const u8*>(key_item.data), s_key);
+         const Record& s_value = *reinterpret_cast<const Record*>(payload_item.data);
+         if (!fn(s_key, s_value))
+            break;
+         ret = cursor->next(cursor);
+      }
    }
    // -------------------------------------------------------------------------------------
    void scanDesc(const typename Record::Key& key,
@@ -145,27 +178,36 @@ struct WiredTigerAdapter : public Adapter<Record> {
                  std::function<void()>) final
    {
       u64 counter = 0;
-      u8 folded_key[Record::maxFoldLength() + sizeof(SEP)];
-      const u32 folded_key_len = fold(folded_key, Record::id) + Record::foldKey(folded_key + sizeof(SEP), key);
+      u8 folded_key[Record::maxFoldLength()];
+      const u32 folded_key_len = Record::foldKey(folded_key, key);
+      int ret;
       // -------------------------------------------------------------------------------------
-      WT_ITEM key_item{folded_key, folded_key_len}, payload_item;
-      map.cursor->set_key(map.cursor, &key_item);
+      if (map.cursor[Record::id] == nullptr) {
+         ret = map.session->open_cursor(map.session, table_name.c_str(), NULL, "raw", &map.cursor[Record::id]);
+         error_check(ret);
+      }
+      WT_CURSOR* cursor = map.cursor[Record::id];
+      // -------------------------------------------------------------------------------------
+      WT_ITEM key_item, payload_item;
+      key_item.data = folded_key;
+      key_item.size = folded_key_len;
+      // -------------------------------------------------------------------------------------
+      cursor->set_key(cursor, &key_item);
       int exact;
-      int ret = map.cursor->search_near(map.cursor, &exact);
+      ret = cursor->search_near(cursor, &exact);
       if (exact > 0)
-         ret = map.cursor->prev(map.cursor);
+         ret = cursor->prev(cursor);
       while (ret == 0) {
          counter++;
-         map.cursor->get_key(map.cursor, &key_item);
-         map.cursor->get_value(map.cursor, &payload_item);
+         cursor->get_key(cursor, &key_item);
+         cursor->get_value(cursor, &payload_item);
          typename Record::Key s_key;
-         Record::unfoldKey(reinterpret_cast<const u8*>(key_item.data + sizeof(SEP)), s_key);
+         Record::unfoldKey(reinterpret_cast<const u8*>(key_item.data), s_key);
          const Record& s_value = *reinterpret_cast<const Record*>(payload_item.data);
-         if ((getId(key_item) != Record::id) || !fn(s_key, s_value))
+         if (!fn(s_key, s_value))
             break;
-         ret = map.cursor->prev(map.cursor);
+         ret = cursor->prev(cursor);
       }
-      map.cursor->reset(map.cursor);
    }
    // -------------------------------------------------------------------------------------
    template <class Field>
@@ -183,23 +225,29 @@ struct WiredTigerAdapter : public Adapter<Record> {
    // -------------------------------------------------------------------------------------
    uint64_t count()
    {
-      uint8_t keyStorage[sizeof(SEP)];
-      fold(keyStorage, Record::id);
-      WT_ITEM key{keyStorage, sizeof(SEP)};
-      map.cursor->set_key(map.cursor, &key);
+      int ret;
+      // -------------------------------------------------------------------------------------
+      if (map.cursor[Record::id] == nullptr) {
+         ret = map.session->open_cursor(map.session, table_name.c_str(), NULL, "raw", &map.cursor[Record::id]);
+         error_check(ret);
+      }
+      WT_CURSOR* cursor = map.cursor[Record::id];
+      // -------------------------------------------------------------------------------------
+      WT_ITEM key;
+      key.data = "";
+      key.size = 0;
+      // -------------------------------------------------------------------------------------
+      cursor->set_key(cursor, &key);
       int exact;
-      int ret = map.cursor->search_near(map.cursor, &exact);
+      ret = cursor->search_near(cursor, &exact);
       if (exact < 0)
-         ret = map.cursor->next(map.cursor);
+         ret = cursor->next(cursor);
       uint64_t count = 0;
       while (ret == 0) {
-         map.cursor->get_key(map.cursor, &key);
-         if (getId(key) != Record::id)
-            break;
+         cursor->get_key(cursor, &key);
          count++;
-         ret = map.cursor->next(map.cursor);
+         ret = cursor->next(cursor);
       }
-      map.cursor->reset(map.cursor);
       return count;
    }
 };

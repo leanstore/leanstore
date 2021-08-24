@@ -24,7 +24,7 @@ DEFINE_bool(tpcc_remove, true, "");
 DEFINE_bool(order_wdc_index, true, "");
 // -------------------------------------------------------------------------------------
 thread_local WT_SESSION* WiredTigerDB::session = nullptr;
-thread_local WT_CURSOR* WiredTigerDB::cursor = nullptr;
+thread_local WT_CURSOR* WiredTigerDB::cursor[20] = {nullptr};
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
