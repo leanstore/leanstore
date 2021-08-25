@@ -26,6 +26,9 @@ DEFINE_bool(tpcc_cross_warehouses, true, "");
 DEFINE_bool(tpcc_fast_load, false, "");
 DEFINE_bool(tpcc_remove, true, "");
 DEFINE_bool(order_wdc_index, true, "");
+DEFINE_uint64(ch_a_threads, 0, "CH analytical threads");
+DEFINE_uint64(ch_a_rounds, 1, "");
+DEFINE_uint64(ch_a_query, 2, "");
 // -------------------------------------------------------------------------------------
 thread_local WT_SESSION* WiredTigerDB::session = nullptr;
 thread_local WT_CURSOR* WiredTigerDB::cursor[20] = {nullptr};
@@ -67,12 +70,18 @@ int main(int argc, char** argv)
             if (w_id > FLAGS_tpcc_warehouse_count) {
                return;
             }
-            tpcc.loadStock(w_id);
-            tpcc.loadDistrinct(w_id);
-            for (Integer d_id = 1; d_id <= 10; d_id++) {
-               tpcc.loadCustomer(w_id, d_id);
-               tpcc.loadOrders(w_id, d_id);
+            jumpmuTry()
+            {
+               // wiredtiger_db.session->begin_transaction(wiredtiger_db.session, NULL);
+               tpcc.loadStock(w_id);
+               tpcc.loadDistrinct(w_id);
+               for (Integer d_id = 1; d_id <= 10; d_id++) {
+                  tpcc.loadCustomer(w_id, d_id);
+                  tpcc.loadOrders(w_id, d_id);
+               }
+               // wiredtiger_db.session->commit_transaction(wiredtiger_db.session, NULL);
             }
+            jumpmuCatch() { UNREACHABLE(); }
          }
       });
    }
@@ -85,7 +94,8 @@ int main(int argc, char** argv)
    atomic<u64> keep_running = true;
    std::atomic<u64> thread_committed[FLAGS_worker_threads];
    std::atomic<u64> thread_aborted[FLAGS_worker_threads];
-   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+   // -------------------------------------------------------------------------------------
+   for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
       thread_committed[t_i] = 0;
       thread_aborted[t_i] = 0;
       // -------------------------------------------------------------------------------------
@@ -99,7 +109,34 @@ int main(int argc, char** argv)
          while (keep_running) {
             jumpmuTry()
             {
-               wiredtiger_db.session->begin_transaction(wiredtiger_db.session, NULL);
+               wiredtiger_db.startTX();
+               for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
+                  tpcc.analyticalQuery(FLAGS_ch_a_query);
+               }
+               wiredtiger_db.commitTX();
+               thread_committed[t_i]++;
+            }
+            jumpmuCatch() { thread_aborted[t_i]++; }
+         }
+         running_threads_counter--;
+      });
+   }
+   // -------------------------------------------------------------------------------------
+   for (u64 t_i = FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
+      thread_committed[t_i] = 0;
+      thread_aborted[t_i] = 0;
+      // -------------------------------------------------------------------------------------
+      threads.emplace_back([&, t_i]() {
+         running_threads_counter++;
+         if (FLAGS_pin_threads) {
+            leanstore::utils::pinThisThread(t_i);
+         }
+         wiredtiger_db.prepareThread();
+         tpcc.prepare();
+         while (keep_running) {
+            jumpmuTry()
+            {
+               wiredtiger_db.startTX();
                Integer w_id;
                if (FLAGS_tpcc_warehouse_affinity) {
                   w_id = t_i + 1;
@@ -107,7 +144,7 @@ int main(int argc, char** argv)
                   w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
                }
                tpcc.tx(w_id);
-               wiredtiger_db.session->commit_transaction(wiredtiger_db.session, NULL);
+               wiredtiger_db.commitTX();
                thread_committed[t_i]++;
             }
             jumpmuCatch() { thread_aborted[t_i]++; }
@@ -120,7 +157,15 @@ int main(int argc, char** argv)
       running_threads_counter++;
       while (keep_running) {
          u64 total_committed = 0, total_aborted = 0;
-         for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+         for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
+            total_committed += thread_committed[t_i].exchange(0);
+            total_aborted += thread_aborted[t_i].exchange(0);
+         }
+         cout << total_committed << "," << total_aborted << ",";
+         total_committed = 0;
+         total_aborted = 0;
+         // -------------------------------------------------------------------------------------
+         for (u64 t_i = FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
             total_committed += thread_committed[t_i].exchange(0);
             total_aborted += thread_aborted[t_i].exchange(0);
          }

@@ -1,6 +1,6 @@
 #include <gflags/gflags.h>
 
-#include "../shared/WiredTigerAdapter.hpp"
+#include "../shared/RocksDBAdapter.hpp"
 #include "Schema.hpp"
 #include "Units.hpp"
 #include "leanstore/Config.hpp"
@@ -27,9 +27,6 @@ DEFINE_uint32(ycsb_warmup_rounds, 0, "");
 DEFINE_bool(ycsb_single_statement_tx, true, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
 // -------------------------------------------------------------------------------------
-thread_local WT_SESSION* WiredTigerDB::session = nullptr;
-thread_local WT_CURSOR* WiredTigerDB::cursor[20] = {nullptr};
-// -------------------------------------------------------------------------------------
 using YCSBKey = u64;
 using YCSBPayload = BytesPayload<120>;
 using YCSBTable = Relation<YCSBKey, YCSBPayload>;
@@ -47,9 +44,9 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    chrono::high_resolution_clock::time_point begin, end;
    // -------------------------------------------------------------------------------------
-   WiredTigerDB wiredtiger_db;
-   wiredtiger_db.prepareThread();
-   WiredTigerAdapter<YCSBTable> table(wiredtiger_db);
+   RocksDB rocks_db;
+   rocks_db.prepareThread();
+   RocksDBAdapter<YCSBTable> table(rocks_db);
    // -------------------------------------------------------------------------------------
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
@@ -57,7 +54,6 @@ int main(int argc, char** argv)
    cout << "Inserting " << ycsb_tuple_count << " values" << endl;
    begin = chrono::high_resolution_clock::now();
    leanstore::utils::Parallelize::range(FLAGS_worker_threads, ycsb_tuple_count, [&](u64 t_i, u64 begin, u64 end) {
-      wiredtiger_db.prepareThread();
       for (u64 i = begin; i < end; i++) {
          YCSBPayload payload;
          leanstore::utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
@@ -84,11 +80,10 @@ int main(int argc, char** argv)
       // -------------------------------------------------------------------------------------
       threads.emplace_back([&, t_i] {
          running_threads_counter++;
-         wiredtiger_db.prepareThread();
          while (keep_running) {
             jumpmuTry()
             {
-               wiredtiger_db.startTX();
+               rocks_db.session->begin_transaction(rocks_db.session, NULL);
                YCSBKey key;
                if (FLAGS_zipf_factor == 0) {
                   key = leanstore::utils::RandomGenerator::getRandU64(0, ycsb_tuple_count);
@@ -105,7 +100,7 @@ int main(int argc, char** argv)
                   table.update1(
                       {key}, [&](YCSBTable& rec) { rec.my_payload = result; }, tabular_update_descriptor);
                }
-               wiredtiger_db.commitTX();
+               rocks_db.session->commit_transaction(rocks_db.session, NULL);
                thread_committed[t_i]++;
             }
             jumpmuCatch() { thread_aborted[t_i]++; }

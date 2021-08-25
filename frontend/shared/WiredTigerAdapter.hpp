@@ -29,6 +29,8 @@ struct WiredTigerDB {
    {
       std::string config_string("create, direct_io=[data, log, checkpoint], log=(enabled=false), session_max=2000, cache_size=" +
                                 std::to_string(u64(FLAGS_dram_gib * 1024)) + "M");
+      std::string cmd("rm -rf " + FLAGS_ssd_path);
+      cmd = std::string("mkdir -p " + FLAGS_ssd_path);
       int ret = wiredtiger_open(FLAGS_ssd_path.c_str(), NULL, config_string.c_str(), &conn);
       error_check(ret);
    }
@@ -45,6 +47,8 @@ struct WiredTigerDB {
       int ret = conn->open_session(conn, NULL, session_config.c_str(), &session);
       error_check(ret);
    }
+   void startTX() { session->begin_transaction(session, NULL); }
+   void commitTX() { session->commit_transaction(session, NULL); }
    ~WiredTigerDB() { conn->close(conn, NULL); }
 };
 // -------------------------------------------------------------------------------------
