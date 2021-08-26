@@ -35,7 +35,7 @@ void BTreeVI::FatTupleDifferentAttributes::undoLastUpdate()
    ensure(deltas_count >= 1);
    auto& delta = *reinterpret_cast<Delta*>(payload + value_length);
    worker_id = delta.worker_id;
-   worker_commit_mark = delta.worker_commit_mark;
+   worker_commit_mark = delta.worker_txid;
    deltas_count -= 1;
    const u32 total_freed_space = sizeof(Delta) + delta.getDescriptor().size() + delta.getDescriptor().diffLength();
    BTreeLL::applyDiff(delta.getDescriptor(), getValue(), delta.payload + delta.getDescriptor().size());
@@ -55,7 +55,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
    const bool pgc = FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size &&
                     !(worker_id == cr::Worker::my().workerID() && worker_commit_mark == cr::activeTX().TTS());
    // -------------------------------------------------------------------------------------
-   if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(delta->committed_before_sat)) {
+   if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(delta->committed_before_txid)) {
       const u16 removed_deltas = deltas_count - 1;
       used_space = value_length + sizeof(Delta) + delta->getDescriptor().size() +
                    delta->getDescriptor().diffLength();  // Delete everything after the first delta
@@ -71,17 +71,19 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
       cr::Worker::my().sortWorkers();
       u64 other_worker_index = 0;  // In the sorted array
-      u64 other_worker_id = cr::Worker::my().local_workers_sta_sorted[other_worker_index] & cr::Worker::WORKERS_MASK;
       bool needs_the_loop = true;
-      auto is_visible_to_it_optimized = [&](const u64 w_id, const u64 so) { return (cr::Worker::my().local_workers_sta[w_id]) > so; };
+      auto is_visible_to_it_optimized = [&](const u64 w_id, const u64 so) {
+         return (cr::Worker::my().local_workers_sorted_txids[w_id] >> cr::Worker::WORKERS_BITS) > so;
+      };
       // -------------------------------------------------------------------------------------
       delta_i = 0;
       offset = value_length;
       std::vector<Delta*> deltas_to_merge;
       // other_worker_index does not see the main version and current_version_offset points to the first delta
       while (needs_the_loop) {
-         if (is_visible_to_it_optimized(other_worker_id, delta->committed_before_sat) ||
-             cr::Worker::my().isVisibleForIt(other_worker_id, delta->worker_id, delta->worker_commit_mark)) {
+         const u64 other_worker_id = cr::Worker::my().local_workers_sorted_txids[other_worker_index] & cr::Worker::WORKERS_MASK;
+         if (is_visible_to_it_optimized(other_worker_index, delta->committed_before_txid) ||
+             cr::Worker::my().isVisibleForIt(other_worker_id, delta->worker_id, delta->worker_txid)) {
             if (deltas_to_merge.size()) {
                // Merge all deltas in deltas_to_merge in delta*
                using Slot = UpdateSameSizeInPlaceDescriptor::Slot;
@@ -124,8 +126,6 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
                deltas_to_merge.clear();
             } else {
                if (++other_worker_index < cr::Worker::my().workers_count) {
-                  other_worker_id = cr::Worker::my().local_workers_sta_sorted[other_worker_index] & cr::Worker::WORKERS_MASK;
-                  explainWhen(other_worker_id == 255);
                   continue;
                } else {
                   break;
@@ -207,12 +207,12 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       // Insert the new delta
       auto& new_delta = *new (fat_tuple->payload + fat_tuple->value_length) Delta();
       new_delta.worker_id = fat_tuple->worker_id;
-      new_delta.worker_commit_mark = fat_tuple->worker_commit_mark;
+      new_delta.worker_txid = fat_tuple->worker_commit_mark;
       // Attention: we should not timestamp a delta that we created as committed!
       if (fat_tuple->worker_id == cr::Worker::my().workerID() && fat_tuple->worker_commit_mark == cr::activeTX().TTS()) {
-         new_delta.committed_before_sat = std::numeric_limits<u64>::max();
+         new_delta.committed_before_txid = std::numeric_limits<u64>::max();
       } else {
-         new_delta.committed_before_sat = cr::Worker::my().snapshotAcquistionTime();
+         new_delta.committed_before_txid = cr::Worker::my().snapshotAcquistionTime();
       }
       std::memcpy(new_delta.payload, &update_descriptor, update_descriptor.size());
       BTreeLL::generateDiff(update_descriptor, new_delta.payload + update_descriptor.size(), fat_tuple->getValue());
@@ -264,7 +264,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTupl
       u32 offset = value_length;
       auto delta = reinterpret_cast<const Delta*>(payload + offset);
       while (delta_i < deltas_count) {
-         if (cr::Worker::my().isVisibleForMe(delta->worker_id, delta->worker_commit_mark)) {
+         if (cr::Worker::my().isVisibleForMe(delta->worker_id, delta->worker_txid)) {
             BTreeLL::applyDiff(delta->getConstantDescriptor(), materialized_value,
                                delta->payload + delta->getConstantDescriptor().size());  // Apply diff
             cb(Slice(materialized_value, value_length));
@@ -338,8 +338,8 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
          auto& new_delta = *new (fat_tuple.payload + fat_tuple.used_space) FatTupleDifferentAttributes::Delta();
          fat_tuple.used_space += sizeof(FatTupleDifferentAttributes::Delta);
          new_delta.worker_id = chain_delta.worker_id;
-         new_delta.worker_commit_mark = chain_delta.worker_commit_mark;
-         new_delta.committed_before_sat = chain_delta.committed_before_sat;
+         new_delta.worker_txid = chain_delta.worker_txid;
+         new_delta.committed_before_txid = chain_delta.committed_before_txid;
          // -------------------------------------------------------------------------------------
          // Copy Descriptor + Diff
          std::memcpy(fat_tuple.payload + fat_tuple.used_space, &update_descriptor, descriptor_and_diff_length);

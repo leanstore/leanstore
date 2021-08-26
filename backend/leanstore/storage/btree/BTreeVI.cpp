@@ -178,7 +178,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // Avoid creating version if all transactions are running in read-committed mode and the current tx is single-statement
          update_without_versioning &= cr::activeTX().isSingleStatement();
          for (u64 w_i = 0; w_i < cr::Worker::my().workers_count && update_without_versioning; w_i++) {
-            update_without_versioning &= cr::Worker::my().global_workers_snapshot_acquistion_time[w_i].load() == std::numeric_limits<u64>::max();
+            update_without_versioning &= (cr::Worker::my().global_workers_in_progress_txid[w_i].load() & (1ull << 63));
          }
       }
       if (update_without_versioning) {
@@ -248,10 +248,10 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // -------------------------------------------------------------------------------------
          new (secondary_payload) ChainedTupleVersion(head_version.worker_id, head_version.worker_commit_mark, false, true, cr::activeTX().TTS());
          secondary_version.next_sn = head_version.next_sn;
-         if (secondary_version.worker_id == cr::Worker::my().workerID() && secondary_version.worker_commit_mark == cr::activeTX().TTS()) {
-            secondary_version.committed_before_sat = std::numeric_limits<u64>::max();
+         if (secondary_version.worker_id == cr::Worker::my().workerID() && secondary_version.worker_txid == cr::activeTX().TTS()) {
+            secondary_version.committed_before_txid = std::numeric_limits<u64>::max();
          } else {
-            secondary_version.committed_before_sat = cr::activeTX().TTS();
+            secondary_version.committed_before_txid = cr::activeTX().TTS();
          }
          // -------------------------------------------------------------------------------------
          if (head_version.next_sn <= 1) {
@@ -478,7 +478,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          new (secondary_payload)
              ChainedTupleVersion(primary_version.worker_id, primary_version.worker_commit_mark, false, false, cr::activeTX().TTS());
          secondary_version.worker_id = primary_version.worker_id;
-         secondary_version.worker_commit_mark = primary_version.worker_commit_mark;
+         secondary_version.worker_txid = primary_version.worker_commit_mark;
          secondary_version.next_sn = primary_version.next_sn;
          std::memcpy(secondary_version.payload, primary_payload.data(), value_length);
          iterator.markAsDirty();
@@ -669,7 +669,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                auto& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
                const auto& secondary_version = *reinterpret_cast<ChainedTupleVersion*>(secondary_payload);
                primary_version.next_sn = secondary_version.next_sn;
-               primary_version.worker_commit_mark = secondary_version.worker_commit_mark;
+               primary_version.worker_commit_mark = secondary_version.worker_txid;
                primary_version.worker_id = secondary_version.worker_id;
                // -------------------------------------------------------------------------------------
                const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(secondary_version.payload);
@@ -739,7 +739,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                removed_value_length = secondary_payload.length() - sizeof(ChainedTupleVersion);
                std::memcpy(removed_value, secondary_version.payload, removed_value_length);
                undo_worker_id = secondary_version.worker_id;
-               undo_tts = secondary_version.worker_commit_mark;
+               undo_tts = secondary_version.worker_txid;
                undo_next_sn = secondary_version.next_sn;
                iterator.markAsDirty();
             }
@@ -981,8 +981,8 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                // -------------------------------------------------------------------------------------
                MutableSlice secondary_payload = iterator.mutableValue();
                auto& secondary_version = *reinterpret_cast<ChainedTupleVersion*>(secondary_payload.data());
-               if (cr::Worker::my().isVisibleForAll(secondary_version.committed_before_sat) ||
-                   (secondary_version.worker_id == version_worker_id && secondary_version.worker_commit_mark == version_tts)) {
+               if (cr::Worker::my().isVisibleForAll(secondary_version.committed_before_txid) ||
+                   (secondary_version.worker_id == version_worker_id && secondary_version.worker_txid == version_tts)) {
                   remove_next_sn = secondary_version.next_sn;
                   secondary_version.next_sn = 0;
                   break;
@@ -1089,6 +1089,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          return {OP_RESULT::OK, 1};
       }
       if (primary_version.isFinal()) {
+         raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, 1};
       }
       materialized_value_length = primary_payload.length() - sizeof(ChainedTuple);
@@ -1108,6 +1109,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
             ensure(ret == OP_RESULT::OK);  // TODO: what if other tx removed it
             jumpmu::jump();
          }
+         raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, chain_length};
       }
       chain_length++;
@@ -1124,7 +1126,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          std::memcpy(materialized_value.get(), secondary_version.payload, materialized_value_length);
       }
       ensure(!secondary_version.is_removed);
-      if (isVisibleForMe(secondary_version.worker_id, secondary_version.worker_commit_mark, false)) {
+      if (isVisibleForMe(secondary_version.worker_id, secondary_version.worker_txid, false)) {
          if (secondary_version.is_removed) {
             return {OP_RESULT::NOT_FOUND, chain_length};
          }
@@ -1132,12 +1134,14 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          return {OP_RESULT::OK, chain_length};
       }
       if (secondary_version.isFinal()) {
+         raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, chain_length};
       } else {
          next_sn_higher = secondary_version.next_sn >= secondary_sn;
          secondary_sn = secondary_version.next_sn;
       }
    }
+   raise(SIGTRAP);
    return {OP_RESULT::NOT_FOUND, chain_length};
 }
 // -------------------------------------------------------------------------------------

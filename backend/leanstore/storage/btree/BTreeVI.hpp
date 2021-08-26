@@ -120,8 +120,8 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    struct __attribute__((packed)) ChainedTupleVersion {
       u8 worker_id : 8;
-      u64 worker_commit_mark : 56;
-      u64 committed_before_sat;  // Helpful for garbage collection
+      u64 worker_txid : 56;
+      u64 committed_before_txid;  // Helpful for garbage collection
       u8 is_removed : 1;
       u8 is_delta : 1;  // TODO: atm, always true
       u64 gc_trigger;
@@ -130,7 +130,7 @@ class BTreeVI : public BTreeLL
       // -------------------------------------------------------------------------------------
       ChainedTupleVersion(u8 worker_id, u64 worker_commit_mark, bool is_removed, bool is_delta, u64 gc_trigger, ChainSN next_sn = 0)
           : worker_id(worker_id),
-            worker_commit_mark(worker_commit_mark),
+            worker_txid(worker_commit_mark),
             is_removed(is_removed),
             is_delta(is_delta),
             gc_trigger(gc_trigger),
@@ -145,8 +145,8 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
       struct __attribute__((packed)) Delta {
          u8 worker_id : 8;
-         u64 worker_commit_mark : 56;
-         u64 committed_before_sat;
+         u64 worker_txid : 56;
+         u64 committed_before_txid;
          u8 payload[];  // Descriptor + Diff
          UpdateSameSizeInPlaceDescriptor& getDescriptor() { return *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(payload); }
          const UpdateSameSizeInPlaceDescriptor& getConstantDescriptor() const
@@ -441,6 +441,7 @@ class BTreeVI : public BTreeLL
                      jumpmu_return{OP_RESULT::ABORT_TX, 1};
                   }
                   if (primary_version.isFinal()) {
+                     raise(SIGTRAP);
                      jumpmu_return{OP_RESULT::NOT_FOUND, 1};
                   } else {
                      auto ret = reconstructChainedTuple(iterator, key, callback);

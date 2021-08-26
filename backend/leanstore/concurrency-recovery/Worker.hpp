@@ -49,8 +49,7 @@ struct Worker {
                                                 // and undermining RFA
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
-   static unique_ptr<atomic<u64>[]> global_workers_snapshot_acquistion_time;
-   static unique_ptr<atomic<u64>[]> global_workers_commit_marks;
+   static unique_ptr<atomic<u64>[]> global_workers_in_progress_txid;
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_workers_snapshot_lwm;
    static atomic<u64> global_snapshot_lwm;
@@ -60,15 +59,14 @@ struct Worker {
    WALMetaEntry* active_mt_entry;
    WALDTEntry* active_dt_entry;
    // -------------------------------------------------------------------------------------
+   // Snapshot Acquisition Time (SAT) = TXID = CommitMark - 1
    bool force_si_refresh = false;
    bool workers_sorted = false;
    bool transactions_order_refreshed = false;
-   u64 local_oldest_tx_sat, local_oldest_tx_sat_worker_id;
-   unique_ptr<atomic<u64>[]> local_workers_commit_marks;
+   u64 local_oldest_txid, local_oldest_txid_worker_id;
+   unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;
    // local_workers_sta can lag and it only tells us whether "it" definitely sees a version, but not if it does not
-   unique_ptr<u64[]> local_workers_sta;
-   unique_ptr<u64[]> local_workers_sta_sorted;
-   u64 local_snapshot_acquisition_time = 0;
+   unique_ptr<u64[]> local_workers_sorted_txids;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
@@ -101,12 +99,12 @@ struct Worker {
    struct TODOEntry {  // In-memory
       u8 version_worker_id;
       u64 version_worker_commit_mark;
-      u64 after_sat;
+      u64 after_txid;
       u64 or_before_sat;
       DTID dt_id;
       u64 payload_length;
       // -------------------------------------------------------------------------------------
-      u8 payload[];  // TODO: dyanmically allocating buffer is costly
+      u8 payload[];
    };
    std::unique_ptr<utils::RingBufferST> todo_rb;
    u8* todo_tx_start_iter = nullptr;
@@ -276,7 +274,7 @@ struct Worker {
    void submitDTEntry(u64 total_size);
    // -------------------------------------------------------------------------------------
    inline u8 workerID() { return worker_id; }
-   inline u64 snapshotAcquistionTime() { return local_snapshot_acquisition_time; }  // SAT
+   inline u64 snapshotAcquistionTime() { return active_tx.TTS(); }  // SAT
 
   public:
    // -------------------------------------------------------------------------------------
@@ -292,7 +290,6 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    void sortWorkers();
    void refreshSnapshotHWMs();
-   void refreshTransactionsOrderingIfNeeded();
    void switchToAlwaysUpToDateMode();
    bool isVisibleForAll(u64 commited_before_so);
    bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
