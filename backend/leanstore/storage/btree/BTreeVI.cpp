@@ -96,6 +96,11 @@ OP_RESULT BTreeVI::lookupOptimistic(const u8* key, const u16 key_length, functio
                }
                payload_callback(leaf->getPayload(pos) + offset, leaf->getPayloadLength(pos) - offset);
                leaf.recheck();
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().cc_read_chains[dt_id]++;
+                  WorkerCounters::myCounters().cc_read_versions_visited[dt_id] += 1;
+               }
                jumpmu_return OP_RESULT::OK;
             } else {
                jumpmu_break;
