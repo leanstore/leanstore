@@ -216,7 +216,10 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          needs_remote_flush = true;
       }
       // -------------------------------------------------------------------------------------
-      const u64 txid = global_logical_clock.fetch_add(1);
+      u64 txid = global_logical_clock.fetch_add(1);
+      if (txid <= active_tx.txid) {
+         txid = global_logical_clock.fetch_add(1);
+      }
       global_workers_in_progress_txid[worker_id].store(txid, std::memory_order_release);
       active_tx.state = Transaction::STATE::STARTED;
       active_tx.txid = txid;
@@ -314,8 +317,8 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       if (FLAGS_commit_hwm) {
          if (!activeTX().isReadOnly()) {
+            global_workers_in_progress_txid[worker_id].store(active_tx.TTS() + 1, std::memory_order_release);
             const u64 commit_timestamp = global_logical_clock.fetch_add(1);
-            global_workers_in_progress_txid[worker_id].store(commit_timestamp, std::memory_order_release);
             commitTODOs(commit_timestamp);
          }
       }
@@ -380,7 +383,7 @@ bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts, bool to_write)
             return (its_commit_mark > tts);
          }
       } else if (activeTX().atLeastSI()) {
-         return local_workers_in_progress_txids[other_worker_id].load() >= tts;
+         return local_workers_in_progress_txids[other_worker_id].load() > tts;
       } else {
          UNREACHABLE();
       }

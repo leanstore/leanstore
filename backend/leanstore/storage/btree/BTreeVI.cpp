@@ -1089,7 +1089,6 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          return {OP_RESULT::OK, 1};
       }
       if (primary_version.isFinal()) {
-         raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, 1};
       }
       materialized_value_length = primary_payload.length() - sizeof(ChainedTuple);
@@ -1109,7 +1108,6 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
             ensure(ret == OP_RESULT::OK);  // TODO: what if other tx removed it
             jumpmu::jump();
          }
-         raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, chain_length};
       }
       chain_length++;
@@ -1134,14 +1132,12 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          return {OP_RESULT::OK, chain_length};
       }
       if (secondary_version.isFinal()) {
-         raise(SIGTRAP);
          return {OP_RESULT::NOT_FOUND, chain_length};
       } else {
          next_sn_higher = secondary_version.next_sn >= secondary_sn;
          secondary_sn = secondary_version.next_sn;
       }
    }
-   raise(SIGTRAP);
    return {OP_RESULT::NOT_FOUND, chain_length};
 }
 // -------------------------------------------------------------------------------------

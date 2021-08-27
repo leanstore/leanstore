@@ -441,7 +441,6 @@ class BTreeVI : public BTreeLL
                      jumpmu_return{OP_RESULT::ABORT_TX, 1};
                   }
                   if (primary_version.isFinal()) {
-                     raise(SIGTRAP);
                      jumpmu_return{OP_RESULT::NOT_FOUND, 1};
                   } else {
                      auto ret = reconstructChainedTuple(iterator, key, callback);
