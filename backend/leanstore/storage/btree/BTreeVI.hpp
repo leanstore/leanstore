@@ -88,11 +88,11 @@ class BTreeVI : public BTreeLL
       };
       TupleFormat tuple_format;
       u8 worker_id : 8;
-      u64 worker_commit_mark : 56;
+      u64 worker_txid : 56;
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
       Tuple(TupleFormat tuple_format, u8 worker_id, u64 worker_commit_mark)
-          : tuple_format(tuple_format), worker_id(worker_id), worker_commit_mark(worker_commit_mark)
+          : tuple_format(tuple_format), worker_id(worker_id), worker_txid(worker_commit_mark)
       {
          write_locked = false;
       }
@@ -414,7 +414,7 @@ class BTreeVI : public BTreeLL
             assert(getSN(key) == 0);
             if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
                const ChainedTuple& primary_version = *reinterpret_cast<const ChainedTuple*>(payload.data());
-               if (isVisibleForMe(primary_version.worker_id, primary_version.worker_commit_mark, false)) {
+               if (isVisibleForMe(primary_version.worker_id, primary_version.worker_txid, false)) {
                   if (primary_version.is_removed) {
                      jumpmu_return{OP_RESULT::NOT_FOUND, 1};
                   }

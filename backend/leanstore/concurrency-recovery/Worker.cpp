@@ -149,8 +149,6 @@ void Worker::refreshSnapshotHWMs()
       if ((its_commit_mark & (1ull << 63)) == 0) {
          local_oldest_txid = std::min<u64>(its_commit_mark, local_oldest_txid);
          local_oldest_txid_worker_id = w_i;
-      } else {
-         raise(SIGTRAP);
       }
       its_commit_mark &= ~(1ull << 63);
       local_workers_in_progress_txids[w_i].store(its_commit_mark, std::memory_order_release);
@@ -158,14 +156,16 @@ void Worker::refreshSnapshotHWMs()
    workers_sorted = false;
    // -------------------------------------------------------------------------------------
    // Calculate the global minimum
-   if (global_workers_snapshot_lwm[worker_id].load() <= global_snapshot_lwm.load()) {
-      // TODO: CAS
-      global_workers_snapshot_lwm[worker_id].store(local_oldest_txid, std::memory_order_release);
+   global_workers_snapshot_lwm[worker_id].store(local_oldest_txid, std::memory_order_release);
+   u64 current_snapshot_lwm = global_snapshot_lwm.load();
+   while (global_workers_snapshot_lwm[worker_id].load() > current_snapshot_lwm) {
       u64 snapshot_lwm = std::numeric_limits<u64>::max();
       for (u64 w_i = 0; w_i < workers_count; w_i++) {
          snapshot_lwm = std::min<u64>(snapshot_lwm, global_workers_snapshot_lwm[w_i].load());
       }
-      global_snapshot_lwm.store(snapshot_lwm, std::memory_order_release);
+      if (current_snapshot_lwm >= snapshot_lwm || global_snapshot_lwm.compare_exchange_strong(current_snapshot_lwm, snapshot_lwm)) {
+         break;
+      }
    }
    // -------------------------------------------------------------------------------------
    relations_cut_from_snapshot.reset();
@@ -178,7 +178,7 @@ void Worker::sortWorkers()
          local_workers_sorted_txids[w_i] = (local_workers_in_progress_txids[w_i] << WORKERS_BITS) | w_i;
       }
       // Avoid extra work if the last round also was full of single statement workers
-      if (1 || local_oldest_txid < std::numeric_limits<u64>::max()) {
+      if (local_oldest_txid < std::numeric_limits<u64>::max()) {
          std::sort(local_workers_sorted_txids.get(), local_workers_sorted_txids.get() + workers_count, std::greater<u64>());
       }
    }

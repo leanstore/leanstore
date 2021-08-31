@@ -55,6 +55,7 @@ void ConfigsTable::open()
    columns.emplace("c_commit_hwm", [&](Column& col) { col << FLAGS_commit_hwm; });
    columns.emplace("c_todo", [&](Column& col) { col << FLAGS_todo; });
    columns.emplace("c_vw", [&](Column& col) { col << FLAGS_vw; });
+   columns.emplace("c_mv", [&](Column& col) { col << FLAGS_mv; });
    columns.emplace("c_vi", [&](Column& col) { col << FLAGS_vi; });
    columns.emplace("c_pgc", [&](Column& col) { col << FLAGS_pgc; });
    columns.emplace("c_isolation_level", [&](Column& col) { col << FLAGS_isolation_level; });
