@@ -35,6 +35,8 @@ using PID = u64;
 using LID = u64;   // Log ID
 using TTS = u64;   // Transaction Time Stamp
 using DTID = s64;  // Datastructure ID
+using WORKERID = u8;
+using TXID = u64;
 // -------------------------------------------------------------------------------------
 using TINYINT = s8;
 using SMALLINT = s16;

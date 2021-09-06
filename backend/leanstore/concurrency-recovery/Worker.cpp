@@ -244,6 +244,8 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
    active_tx.current_tx_mode = next_tx_type;
    active_tx.current_tx_isolation_level = next_tx_isolation_level;
    active_tx.is_durable = FLAGS_wal;  // TODO:
+   // -------------------------------------------------------------------------------------
+   command_id = 0;
 }
 // -------------------------------------------------------------------------------------
 void Worker::switchToAlwaysUpToDateMode()

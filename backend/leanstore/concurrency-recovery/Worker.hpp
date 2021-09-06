@@ -1,5 +1,6 @@
 #pragma once
 #include "Transaction.hpp"
+#include "VersionsSpace.hpp"
 #include "WALEntry.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/utils/RingBufferST.hpp"
@@ -49,11 +50,12 @@ struct Worker {
                                                 // and undermining RFA
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
-   static unique_ptr<atomic<u64>[]> global_workers_in_progress_txid;
+   u64 command_id = 0;
+   VersionsSpace versions_space;
    // -------------------------------------------------------------------------------------
+   static unique_ptr<atomic<u64>[]> global_workers_in_progress_txid;
    static unique_ptr<atomic<u64>[]> global_workers_snapshot_lwm;
    static atomic<u64> global_snapshot_lwm;
-   // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;

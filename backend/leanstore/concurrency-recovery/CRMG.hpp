@@ -1,6 +1,7 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "Units.hpp"
+#include "VersionsSpace.hpp"
 #include "Worker.hpp"
 #include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
@@ -23,7 +24,7 @@ namespace cr
 class CRManager
 {
   public:
-   static constexpr u64 MAX_WORKER_THREADS = 256;
+   static constexpr u64 MAX_WORKER_THREADS = std::numeric_limits<WORKERID>::max();
    static CRManager* global;
    Worker* workers[MAX_WORKER_THREADS];
    // -------------------------------------------------------------------------------------
