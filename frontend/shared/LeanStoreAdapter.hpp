@@ -21,12 +21,12 @@ struct LeanStoreAdapter : Adapter<Record> {
    LeanStoreAdapter(LeanStore& db, string name) : name(name)
    {
       if (FLAGS_vw) {
-         btree = &db.registerBTreeVW(name);
+         btree = &db.registerBTreeVW(name, FLAGS_wal);
       } else if (FLAGS_vi) {
-         btree = &db.registerBTreeVI(name);
+         btree = &db.registerBTreeVI(name, FLAGS_wal);
       } else {
          if (!FLAGS_recover) {
-            btree = &db.registerBTreeLL(name);
+            btree = &db.registerBTreeLL(name, FLAGS_wal);
          } else {
             btree = &db.retrieveBTreeLL(name);
          }

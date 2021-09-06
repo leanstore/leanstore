@@ -50,10 +50,11 @@ class BTreeGeneric
    Swip<BufferFrame> meta_node_bf;  // kept in memory
    atomic<u64> height = 1;
    DTID dt_id;
+   bool is_wal_enabled;
    // -------------------------------------------------------------------------------------
-   BTreeGeneric();
+   BTreeGeneric() = default;
    // -------------------------------------------------------------------------------------
-   void create(DTID dtid);
+   void create(DTID dtid, bool enable_wal);
    // -------------------------------------------------------------------------------------
    bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
    // -------------------------------------------------------------------------------------

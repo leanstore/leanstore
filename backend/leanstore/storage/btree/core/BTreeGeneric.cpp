@@ -13,11 +13,11 @@ using namespace leanstore::storage;
 namespace leanstore::storage::btree
 {
 // -------------------------------------------------------------------------------------
-BTreeGeneric::BTreeGeneric() = default;
-// -------------------------------------------------------------------------------------
-void BTreeGeneric::create(DTID dtid)
+void BTreeGeneric::create(DTID dtid, bool enable_wal)
 {
    this->dt_id = dtid;
+   this->is_wal_enabled = enable_wal;
+   // -------------------------------------------------------------------------------------
    meta_node_bf = &BMC::global_bf->allocatePage();
    Guard guard(meta_node_bf.asBufferFrame().header.latch, GUARD_STATE::EXCLUSIVE);
    meta_node_bf.asBufferFrame().header.keep_in_memory = true;
@@ -78,7 +78,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          // -------------------------------------------------------------------------------------
          c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
       };
-      if (FLAGS_wal) {
+      if (is_wal_enabled) {
          auto new_root_init_wal = new_root.reserveWALEntry<WALInitPage>(0);
          new_root_init_wal->type = WAL_LOG_TYPE::WALInitPage;
          new_root_init_wal->dt_id = dt_id;
@@ -134,7 +134,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
             c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
          };
          // -------------------------------------------------------------------------------------
-         if (FLAGS_wal) {
+         if (is_wal_enabled) {
             auto new_left_init_wal = new_left_node.reserveWALEntry<WALInitPage>(0);
             new_left_init_wal->type = WAL_LOG_TYPE::WALInitPage;
             new_left_init_wal->dt_id = dt_id;

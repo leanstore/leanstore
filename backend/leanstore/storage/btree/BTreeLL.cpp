@@ -108,7 +108,7 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_length)
 {
-   if (FLAGS_wal) {
+   if (is_wal_enabled) {
       cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
    const Slice key(o_key, o_key_length);
@@ -118,7 +118,7 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
       OP_RESULT ret = iterator.insertKV(key, value);
       ensure(ret == OP_RESULT::OK);
-      if (FLAGS_wal) {
+      if (is_wal_enabled) {
          auto wal_entry = iterator.leaf.reserveWALEntry<WALInsert>(key.length() + value.length());
          wal_entry->type = WAL_LOG_TYPE::WALInsert;
          wal_entry->key_length = key.length();
@@ -141,7 +141,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
                                          function<void(u8* payload, u16 payload_size)> callback,
                                          UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
-   if (FLAGS_wal) {
+   if (is_wal_enabled) {
       cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
    Slice key(o_key, o_key_length);
@@ -153,7 +153,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
          jumpmu_return ret;
       }
       auto current_value = iterator.mutableValue();
-      if (FLAGS_wal) {
+      if (is_wal_enabled) {
          assert(update_descriptor.count > 0);  // if it is a secondary index, then we can not use updateSameSize
          // -------------------------------------------------------------------------------------
          const u16 delta_length = update_descriptor.size() + update_descriptor.diffLength();
@@ -185,7 +185,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
 {
-   if (FLAGS_wal) {
+   if (is_wal_enabled) {
       cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
    const Slice key(o_key, o_key_length);
@@ -197,7 +197,7 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
          jumpmu_return ret;
       }
       Slice value = iterator.value();
-      if (FLAGS_wal) {
+      if (is_wal_enabled) {
          auto wal_entry = iterator.leaf.reserveWALEntry<WALRemove>(o_key_length + value.length());
          wal_entry->type = WAL_LOG_TYPE::WALRemove;
          wal_entry->key_length = o_key_length;

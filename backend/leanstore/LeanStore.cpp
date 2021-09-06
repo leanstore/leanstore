@@ -213,31 +213,31 @@ void LeanStore::startProfilingThread()
    profiling_thread.detach();
 }
 // -------------------------------------------------------------------------------------
-storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name)
+storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name, bool enable_wal)
 {
    assert(btrees_ll.find(name) == btrees_ll.end());
    auto& btree = btrees_ll[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(0, reinterpret_cast<void*>(&btree), name);
-   btree.create(dtid);
+   btree.create(dtid, enable_wal);
    return btree;
 }
 
 // -------------------------------------------------------------------------------------
-storage::btree::BTreeVW& LeanStore::registerBTreeVW(string name)
+storage::btree::BTreeVW& LeanStore::registerBTreeVW(string name, bool enable_wal)
 {
    assert(btrees_vw.find(name) == btrees_vw.end());
    auto& btree = btrees_vw[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(1, reinterpret_cast<void*>(&btree), name);
-   btree.create(dtid);
+   btree.create(dtid, enable_wal);
    return btree;
 }
 // -------------------------------------------------------------------------------------
-storage::btree::BTreeVI& LeanStore::registerBTreeVI(string name)
+storage::btree::BTreeVI& LeanStore::registerBTreeVI(string name, bool enable_wal)
 {
    assert(btrees_vi.find(name) == btrees_vi.end());
    auto& btree = btrees_vi[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(2, reinterpret_cast<void*>(&btree), name);
-   btree.create(dtid);
+   btree.create(dtid, enable_wal);
    return btree;
 }
 // -------------------------------------------------------------------------------------
