@@ -168,22 +168,23 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       }
       // -------------------------------------------------------------------------------------
       // TODO:
-      // bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && chain_head.can_convert_to_fat_tuple &&
-      //                             !(chain_head.worker_id == cr::Worker::my().workerID() && chain_head.worker_txid == cr::activeTX().TTS());
-      // if (convert_to_fat_tuple) {
-      //    // const u64 random_number = utils::RandomGenerator::getRandU64();
-      //    // convert_to_fat_tuple &= ((random_number & ((1ull << FLAGS_vi_fat_tuple_threshold) - 1)) == 0);
-      //    convert_to_fat_tuple &= cr::Worker::my().global_snapshot_lwm.load() < chain_head.worker_txid;
-      // }
-      // if (convert_to_fat_tuple) {
-      //    ensure(chain_head.isWriteLocked());
-      //    const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator, m_key);
-      //    if (convert_ret) {
-      //       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
-      //    }
-      //    goto restart;
-      //    UNREACHABLE();
-      // }
+      auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
+      bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && tuple_head.can_convert_to_fat_tuple &&
+                                  !(tuple_head.worker_id == cr::Worker::my().workerID() && tuple_head.tx_id == cr::activeTX().TTS());
+      if (convert_to_fat_tuple) {
+         // const u64 random_number = utils::RandomGenerator::getRandU64();
+         // convert_to_fat_tuple &= ((random_number & ((1ull << FLAGS_vi_fat_tuple_threshold) - 1)) == 0);
+         convert_to_fat_tuple &= cr::Worker::my().global_snapshot_lwm.load() < tuple_head.tx_id;
+      }
+      if (convert_to_fat_tuple) {
+         ensure(tuple.isWriteLocked());
+         const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator);
+         if (convert_ret) {
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
+         }
+         goto restart;
+         UNREACHABLE();
+      }
       // -------------------------------------------------------------------------------------
    }
       bool update_without_versioning = (FLAGS_vi_update_version_elision || !FLAGS_mv || FLAGS_vi_fupdate_chained);
@@ -344,39 +345,39 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       const u64 command_id = cr::Worker::my().command_id++;
       // -------------------------------------------------------------------------------------
       auto payload = iterator.mutableValue();
-      ChainedTuple& tuple_head = *reinterpret_cast<ChainedTuple*>(payload.data());
+      ChainedTuple& chain_head = *reinterpret_cast<ChainedTuple*>(payload.data());
       // -------------------------------------------------------------------------------------
-      ensure(tuple_head.tuple_format == TupleFormat::CHAINED);  // TODO: removing fat tuple is not supported atm
-      if (tuple_head.isWriteLocked() || !isVisibleForMe(tuple_head.worker_id, tuple_head.tx_id, true)) {
+      ensure(chain_head.tuple_format == TupleFormat::CHAINED);  // TODO: removing fat tuple is not supported atm
+      if (chain_head.isWriteLocked() || !isVisibleForMe(chain_head.worker_id, chain_head.tx_id, true)) {
          jumpmu_return OP_RESULT::ABORT_TX;
       }
       if (cr::activeTX().isSerializable()) {
          if (FLAGS_2pl) {
-            if (tuple_head.read_lock_counter > 0 && tuple_head.read_lock_counter != (1ull << cr::Worker::my().workerID())) {
+            if (chain_head.read_lock_counter > 0 && chain_head.read_lock_counter != (1ull << cr::Worker::my().workerID())) {
                jumpmu_return OP_RESULT::ABORT_TX;
             }
          } else {
-            if (tuple_head.read_ts > cr::activeTX().TTS()) {
+            if (chain_head.read_ts > cr::activeTX().TTS()) {
                jumpmu_return OP_RESULT::ABORT_TX;
             }
          }
       }
-      ensure(!cr::activeTX().atLeastSI() || tuple_head.is_removed == false);
-      if (tuple_head.is_removed) {
+      ensure(!cr::activeTX().atLeastSI() || chain_head.is_removed == false);
+      if (chain_head.is_removed) {
          jumpmu_return OP_RESULT::NOT_FOUND;
       }
       // -------------------------------------------------------------------------------------
-      tuple_head.writeLock();
+      chain_head.writeLock();
       // -------------------------------------------------------------------------------------
       const u16 value_length = iterator.value().length() - sizeof(ChainedTuple);
       const u16 secondary_payload_length = sizeof(ChainedTupleVersion) + value_length;
       cr::Worker::my().versions_space.insertVersion(cr::activeTX().TTS(), dt_id, command_id, secondary_payload_length, [&](u8* secondary_payload) {
          auto& secondary_version =
-             *new (secondary_payload) ChainedTupleVersion(tuple_head.worker_id, tuple_head.tx_id, false, false, cr::activeTX().TTS());
-         secondary_version.worker_id = tuple_head.worker_id;
-         secondary_version.tx_id = tuple_head.tx_id;
-         secondary_version.command_id = tuple_head.command_id;
-         std::memcpy(secondary_version.payload, tuple_head.payload, value_length);
+             *new (secondary_payload) ChainedTupleVersion(chain_head.worker_id, chain_head.tx_id, false, false, cr::activeTX().TTS());
+         secondary_version.worker_id = chain_head.worker_id;
+         secondary_version.tx_id = chain_head.tx_id;
+         secondary_version.command_id = chain_head.command_id;
+         std::memcpy(secondary_version.payload, chain_head.payload, value_length);
       });
       iterator.markAsDirty();
       DanglingPointer dangling_pointer;
@@ -389,25 +390,25 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       wal_entry->type = WAL_LOG_TYPE::WALRemove;
       wal_entry->key_length = o_key_length;
       wal_entry->value_length = value_length;
-      wal_entry->before_worker_id = tuple_head.worker_id;
-      wal_entry->before_tx_id = tuple_head.tx_id;
-      wal_entry->before_command_id = tuple_head.command_id;
+      wal_entry->before_worker_id = chain_head.worker_id;
+      wal_entry->before_tx_id = chain_head.tx_id;
+      wal_entry->before_command_id = chain_head.command_id;
       std::memcpy(wal_entry->payload, o_key, o_key_length);
-      std::memcpy(wal_entry->payload + o_key_length, tuple_head.payload, value_length);
+      std::memcpy(wal_entry->payload + o_key_length, chain_head.payload, value_length);
       wal_entry.submit();
       // -------------------------------------------------------------------------------------
       if (payload.length() - sizeof(ChainedTuple) > 1) {
          iterator.shorten(sizeof(ChainedTuple));
       }
-      tuple_head.is_removed = true;
-      tuple_head.worker_id = cr::Worker::my().workerID();
-      tuple_head.tx_id = cr::activeTX().TTS();
-      tuple_head.command_id = command_id;
+      chain_head.is_removed = true;
+      chain_head.worker_id = cr::Worker::my().workerID();
+      chain_head.tx_id = cr::activeTX().TTS();
+      chain_head.command_id = command_id;
       if (cr::activeTX().isSerializable()) {
          if (FLAGS_2pl) {
-            tuple_head.read_lock_counter = (1ull << cr::Worker::my().workerID());
+            chain_head.read_lock_counter = (1ull << cr::Worker::my().workerID());
          } else {
-            tuple_head.read_ts = cr::activeTX().TTS();
+            chain_head.read_ts = cr::activeTX().TTS();
          }
       }
       // -------------------------------------------------------------------------------------
@@ -420,7 +421,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          });
       }
       // -------------------------------------------------------------------------------------
-      tuple_head.unlock();
+      chain_head.unlock();
       // -------------------------------------------------------------------------------------
       if (cr::activeTX().isSingleStatement()) {
          cr::Worker::my().commitTX();
@@ -721,27 +722,27 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
    u16 chain_length = 1;
    u16 materialized_value_length;
    std::unique_ptr<u8[]> materialized_value;
-   Slice primary_payload = iterator.value();
-   const ChainedTuple& tuple_head = *reinterpret_cast<const ChainedTuple*>(primary_payload.data());
-   if (isVisibleForMe(tuple_head.worker_id, tuple_head.tx_id, false)) {
-      if (tuple_head.is_removed) {
+   Slice head_payload = iterator.value();
+   const ChainedTuple& chain_head = *reinterpret_cast<const ChainedTuple*>(head_payload.data());
+   if (isVisibleForMe(chain_head.worker_id, chain_head.tx_id, false)) {
+      if (chain_head.is_removed) {
          return {OP_RESULT::NOT_FOUND, 1};
       } else {
-         callback(Slice(tuple_head.payload, primary_payload.length() - sizeof(ChainedTuple)));
+         callback(Slice(chain_head.payload, head_payload.length() - sizeof(ChainedTuple)));
          return {OP_RESULT::OK, 1};
       }
    }
    // -------------------------------------------------------------------------------------
    // Head is not visible
-   if (tuple_head.isFinal()) {
+   if (chain_head.isFinal()) {
       return {OP_RESULT::NOT_FOUND, 1};
    }
-   materialized_value_length = primary_payload.length() - sizeof(ChainedTuple);
+   materialized_value_length = head_payload.length() - sizeof(ChainedTuple);
    materialized_value = std::make_unique<u8[]>(materialized_value_length);
-   std::memcpy(materialized_value.get(), tuple_head.payload, materialized_value_length);
-   WORKERID next_worker_id = tuple_head.worker_id;
-   TXID next_tx_id = tuple_head.tx_id;
-   ChainSN next_command_id = tuple_head.command_id;
+   std::memcpy(materialized_value.get(), chain_head.payload, materialized_value_length);
+   WORKERID next_worker_id = chain_head.worker_id;
+   TXID next_tx_id = chain_head.tx_id;
+   ChainSN next_command_id = chain_head.command_id;
    // -------------------------------------------------------------------------------------
    while (true) {
       bool is_removed;

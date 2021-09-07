@@ -52,8 +52,8 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
 {
    u32 offset = value_length, delta_i = 0;
    auto delta = reinterpret_cast<Delta*>(payload + offset);
-   const bool pgc = FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size &&
-                    !(worker_id == cr::Worker::my().workerID() && tx_id == cr::activeTX().TTS());
+   const bool pgc =
+       FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size && !(worker_id == cr::Worker::my().workerID() && tx_id == cr::activeTX().TTS());
    // -------------------------------------------------------------------------------------
    if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(delta->committed_before_txid)) {
       const u16 removed_deltas = deltas_count - 1;
@@ -284,82 +284,67 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTupl
    }
 }
 // -------------------------------------------------------------------------------------
-bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator, MutableSlice& m_key)
+bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator)
 {
-   Slice key(m_key.data(), m_key.length());
    u16 number_of_deltas_to_replace = 0;
    std::vector<u8> dynamic_buffer;
    dynamic_buffer.resize(PAGE_SIZE * 4);
    u8* fat_tuple_payload = dynamic_buffer.data();
-   ChainSN next_sn;
    auto& fat_tuple = *new (fat_tuple_payload) FatTupleDifferentAttributes();
    fat_tuple.total_space = 3 * 1024;
    fat_tuple.used_space = 0;
-   {
-      // Process the chain head
-      MutableSlice head = iterator.mutableValue();
-      auto& chain_head = *reinterpret_cast<ChainedTuple*>(head.data());
-      ensure(chain_head.isWriteLocked());
-      // -------------------------------------------------------------------------------------
-      fat_tuple.value_length = head.length() - sizeof(ChainedTuple);
-      std::memcpy(fat_tuple.payload + fat_tuple.used_space, chain_head.payload, fat_tuple.value_length);
-      fat_tuple.used_space += fat_tuple.value_length;
-      fat_tuple.worker_id = chain_head.worker_id;
-      fat_tuple.tx_id = chain_head.tx_id;
-      // -------------------------------------------------------------------------------------
-      next_sn = chain_head.command_id;
-   }
+   // -------------------------------------------------------------------------------------
+   WORKERID next_worker_id;
+   TXID next_tx_id;
+   ChainSN next_command_id;
+   // -------------------------------------------------------------------------------------
+   // Process the chain head
+   MutableSlice head = iterator.mutableValue();
+   auto& chain_head = *reinterpret_cast<ChainedTuple*>(head.data());
+   ensure(chain_head.isWriteLocked());
+   // -------------------------------------------------------------------------------------
+   fat_tuple.value_length = head.length() - sizeof(ChainedTuple);
+   std::memcpy(fat_tuple.payload + fat_tuple.used_space, chain_head.payload, fat_tuple.value_length);
+   fat_tuple.used_space += fat_tuple.value_length;
+   fat_tuple.worker_id = chain_head.worker_id;
+   fat_tuple.tx_id = chain_head.tx_id;
+   // -------------------------------------------------------------------------------------
+   next_worker_id = chain_head.worker_id;
+   next_tx_id = chain_head.tx_id;
+   next_command_id = chain_head.command_id;
    // TODO: check for used_space overflow
-   {
-      // Iterate over the rest
-      std::set<ChainSN> processed_sns;
-      while (next_sn != 0) {
-         number_of_deltas_to_replace++;
-         const bool next_higher = next_sn >= getSN(m_key);
-         setSN(m_key, next_sn);
-         OP_RESULT ret = iterator.seekExactWithHint(key, next_higher);
-         if (ret != OP_RESULT::OK) {
-            break;
-         }
-         processed_sns.insert(next_sn);
-         // -------------------------------------------------------------------------------------
-         const Slice delta_slice = iterator.value();
-         const auto& chain_delta = *reinterpret_cast<const ChainedTupleVersion*>(delta_slice.data());
-         // -------------------------------------------------------------------------------------
-         const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(chain_delta.payload);
-         const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
-         const u32 needed_space = sizeof(FatTupleDifferentAttributes::Delta) + descriptor_and_diff_length;
-         // -------------------------------------------------------------------------------------
-         if ((fat_tuple.used_space + sizeof(FatTupleDifferentAttributes::Delta) + needed_space) >= dynamic_buffer.size()) {
-            dynamic_buffer.resize(fat_tuple.used_space + sizeof(FatTupleDifferentAttributes::Delta) + needed_space);
-         }
-         // -------------------------------------------------------------------------------------
-         // Add a FatTuple::Delta
-         auto& new_delta = *new (fat_tuple.payload + fat_tuple.used_space) FatTupleDifferentAttributes::Delta();
-         fat_tuple.used_space += sizeof(FatTupleDifferentAttributes::Delta);
-         new_delta.worker_id = chain_delta.worker_id;
-         new_delta.worker_txid = chain_delta.tx_id;
-         new_delta.committed_before_txid = chain_delta.committed_before_txid;
-         // -------------------------------------------------------------------------------------
-         // Copy Descriptor + Diff
-         std::memcpy(fat_tuple.payload + fat_tuple.used_space, &update_descriptor, descriptor_and_diff_length);
-         fat_tuple.used_space += descriptor_and_diff_length;
-         // -------------------------------------------------------------------------------------
-         fat_tuple.deltas_count++;
-         next_sn = chain_delta.command_id;
-         fat_tuple.garbageCollection(*this);  // TODO: temporary hack to calm down overflow bugs
-         // -------------------------------------------------------------------------------------
-         if (processed_sns.count(next_sn)) {
-            break;
-         }
-      }
+   while (true) {
+      const bool found =
+          cr::Worker::my().versions_space.retrieveVersion(next_tx_id, dt_id, next_command_id, [&](u8* version, [[maybe_unused]] u64 payload_length) {
+             const auto& chain_delta = *reinterpret_cast<const ChainedTupleVersion*>(version);
+             const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(chain_delta.payload);
+             const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
+             const u32 needed_space = sizeof(FatTupleDifferentAttributes::Delta) + descriptor_and_diff_length;
+             // -------------------------------------------------------------------------------------
+             if ((fat_tuple.used_space + sizeof(FatTupleDifferentAttributes::Delta) + needed_space) >= dynamic_buffer.size()) {
+                dynamic_buffer.resize(fat_tuple.used_space + sizeof(FatTupleDifferentAttributes::Delta) + needed_space);
+             }
+             // -------------------------------------------------------------------------------------
+             // Add a FatTuple::Delta
+             auto& new_delta = *new (fat_tuple.payload + fat_tuple.used_space) FatTupleDifferentAttributes::Delta();
+             fat_tuple.used_space += sizeof(FatTupleDifferentAttributes::Delta);
+             new_delta.worker_id = chain_delta.worker_id;
+             new_delta.worker_txid = chain_delta.tx_id;
+             new_delta.committed_before_txid = chain_delta.committed_before_txid;
+             // -------------------------------------------------------------------------------------
+             // Copy Descriptor + Diff
+             std::memcpy(fat_tuple.payload + fat_tuple.used_space, &update_descriptor, descriptor_and_diff_length);
+             fat_tuple.deltas_count++;
+             fat_tuple.used_space += descriptor_and_diff_length;
+             // -------------------------------------------------------------------------------------
+             next_worker_id = chain_delta.worker_id;
+             next_tx_id = chain_delta.tx_id;
+             next_command_id = chain_delta.command_id;
+             fat_tuple.garbageCollection(*this);  // TODO: temporary hack to hide overflow bugs
+          });
+      if (!found)
+         break;
    }
-   {
-      setSN(m_key, 0);
-      OP_RESULT ret = iterator.seekExactWithHint(key, false);
-      ensure(ret == OP_RESULT::OK);
-   }
-   auto& chain_head = *reinterpret_cast<ChainedTuple*>(iterator.mutableValue().data());
    if (fat_tuple.used_space > fat_tuple.total_space) {
       chain_head.unlock();
       return false;
@@ -368,11 +353,6 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    if (1 || number_of_deltas_to_replace >= FLAGS_vi_fat_tuple_threshold) {
       // Finalize the new FatTuple
       // TODO: corner cases, more careful about space usage
-      // -------------------------------------------------------------------------------------
-      setSN(m_key, 0);
-      OP_RESULT ret = iterator.seekExactWithHint(key, false);
-      ensure(ret == OP_RESULT::OK);
-      ensure(reinterpret_cast<Tuple*>(iterator.mutableValue().data())->isWriteLocked());
       // -------------------------------------------------------------------------------------
       ensure(fat_tuple.total_space >= fat_tuple.used_space);
       const u16 fat_tuple_length = sizeof(FatTupleDifferentAttributes) + fat_tuple.total_space;

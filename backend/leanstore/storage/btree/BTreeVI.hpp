@@ -199,7 +199,7 @@ class BTreeVI : public BTreeLL
       TODOPoint() { type = TODOEntry::TYPE::POINT; }
    };
    // -------------------------------------------------------------------------------------
-   bool convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator, MutableSlice& s_key);
+   bool convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator);
    // -------------------------------------------------------------------------------------
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
