@@ -148,6 +148,8 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          return OP_RESULT::OK;
       }
    }
+   // -------------------------------------------------------------------------------------
+   // ==
    virtual OP_RESULT seekExact(Slice key) override
    {
       if (cur == -1 || !keyInCurrentBoundaries(key)) {
@@ -161,6 +163,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       }
    }
    // -------------------------------------------------------------------------------------
+   // >=
    virtual OP_RESULT seek(Slice key) override
    {
       if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
@@ -174,6 +177,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       }
    }
    // -------------------------------------------------------------------------------------
+   // <=
    virtual OP_RESULT seekForPrev(Slice key) override
    {
       if (cur == -1 || leaf->compareKeyWithBoundaries(key.data(), key.length()) != 0) {
@@ -542,7 +546,9 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
          return ret;
       }
    }
-   virtual void mergeIfNeeded()
+   // -------------------------------------------------------------------------------------
+   // Returns true if it tried to merge
+   bool mergeIfNeeded()
    {
       if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
          leaf.unlock();
@@ -552,8 +558,15 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
          {
             // nothing, it is fine not to merge
          }
+         return true;
+      } else {
+         return false;
       }
    }
+   // -------------------------------------------------------------------------------------
+   bool isValid() { return cur != -1; }
+   void releaseLatch() { leaf.unlock(); }
+   void reacquireLatch() { leaf.toExclusive(); }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace btree

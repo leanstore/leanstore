@@ -1,5 +1,7 @@
 #include "VersionsSpace.hpp"
+
 #include "Units.hpp"
+#include "leanstore/storage/btree/core/BTreeGenericIterator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
@@ -14,8 +16,9 @@ namespace leanstore
 {
 namespace cr
 {
+using namespace leanstore::storage::btree;
 // -------------------------------------------------------------------------------------
-void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, DTID dt_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb)
+void VersionsSpace::insertVersion(WORKERID, TXID tx_id, DTID dt_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb)
 {
    u64 key_length = sizeof(tx_id) + sizeof(dt_id) + sizeof(command_id);
    u8 key[key_length];
@@ -29,7 +32,7 @@ void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, DTID dt_id, u
    btree->insert(key, key_length, payload, payload_length);
 }
 // -------------------------------------------------------------------------------------
-bool VersionsSpace::retrieveVersion(WORKERID session_id, TXID tx_id, DTID dt_id, u64 command_id, std::function<void(const u8*, u64 payload_length)> cb)
+bool VersionsSpace::retrieveVersion(WORKERID, TXID tx_id, DTID dt_id, u64 command_id, std::function<void(const u8*, u64 payload_length)> cb)
 {
    u64 key_length = sizeof(tx_id) + sizeof(dt_id) + sizeof(command_id);
    u8 key[key_length];
@@ -46,15 +49,34 @@ bool VersionsSpace::retrieveVersion(WORKERID session_id, TXID tx_id, DTID dt_id,
    }
 }
 // -------------------------------------------------------------------------------------
+// Pre: TXID is unsigned integer
 void VersionsSpace::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
 {  // [from, to]
-   // std::basic_string<u8> begin, end;
-   // begin.resize(sizeof(from_tx_id));
-   // utils::fold(begin.data(), from_tx_id);
-   // end.resize(sizeof(from_tx_id));
-   // utils::fold(end.data(), to_tx_id);
-   // std::shared_lock guard(mutex);
-   // auto range = map.range(begin)
+   Slice key(reinterpret_cast<u8*>(&from_tx_id), sizeof(TXID));
+   // -------------------------------------------------------------------------------------
+   jumpmuTry()
+   {
+   retry : {
+      leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
+      OP_RESULT ret = iterator.seek(key);
+      while (ret == OP_RESULT::OK) {
+         iterator.assembleKey();
+         auto& current_tx_id = *reinterpret_cast<const TXID*>(iterator.key().data());
+         if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
+            iterator.removeCurrent();
+            iterator.markAsDirty();
+            if (iterator.mergeIfNeeded()) {
+               goto retry;
+            }
+            ret = iterator.next();
+         } else {
+            break;
+         }
+      }
+      jumpmu_return;
+   }
+   }
+   jumpmuCatch() {}
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr
