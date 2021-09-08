@@ -20,7 +20,7 @@ using namespace leanstore::storage::btree;
 // -------------------------------------------------------------------------------------
 void VersionsSpace::insertVersion(WORKERID, TXID tx_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb)
 {
-   u64 key_length = sizeof(tx_id) + sizeof(command_id);
+   const u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key[key_length];
    u64 offset = 0;
    offset += utils::fold(key + offset, tx_id);
@@ -33,31 +33,33 @@ void VersionsSpace::insertVersion(WORKERID, TXID tx_id, u64 command_id, u64 payl
 // -------------------------------------------------------------------------------------
 bool VersionsSpace::retrieveVersion(WORKERID, TXID tx_id, u64 command_id, std::function<void(const u8*, u64)> cb)
 {
-   u64 key_length = sizeof(tx_id) + sizeof(command_id);
-   u8 key[key_length];
+   const u64 key_length = sizeof(tx_id) + sizeof(command_id);
+   u8 key_buffer[key_length];
    u64 offset = 0;
-   offset += utils::fold(key + offset, tx_id);
-   offset += utils::fold(key + offset, command_id);
+   offset += utils::fold(key_buffer + offset, tx_id);
+   offset += utils::fold(key_buffer + offset, command_id);
    // -------------------------------------------------------------------------------------
-   u8 buffer[PAGE_SIZE];
-   u64 pl = 0;
-   OP_RESULT ret = btree->lookup(key, key_length, [&](const u8* payload, u16 payload_length) {
-      payload_length = std::min<u16>(payload_length, 200);
-      std::memcpy(buffer, payload, payload_length);
-      pl = payload_length;
-   });
-   if (ret == OP_RESULT::OK) {
-      cb(buffer, pl);
-      return true;
-   } else {
-      return false;
+   Slice key(key_buffer, key_length);
+   jumpmuTry()
+   {
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(btree), LATCH_FALLBACK_MODE::SHARED);
+      OP_RESULT ret = iterator.seekExact(key);
+      if (ret != OP_RESULT::OK) {
+         jumpmu_return false;
+      }
+      Slice payload = iterator.value();
+      cb(payload.data(), payload.length());
+      jumpmu_return true;
    }
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return false;
 }
 // -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer
 void VersionsSpace::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
 {
-   return;
+  return;
    // [from, to]
    Slice key(reinterpret_cast<u8*>(&from_tx_id), sizeof(TXID));
    // -------------------------------------------------------------------------------------

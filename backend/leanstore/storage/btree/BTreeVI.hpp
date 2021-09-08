@@ -84,7 +84,7 @@ class BTreeVI : public BTreeLL
         Delta: WWTS + diff + (descriptor)?
     */
    enum class TupleFormat : u8 { CHAINED = 0, FAT_TUPLE_DIFFERENT_ATTRIBUTES = 1, FAT_TUPLE_SAME_ATTRIBUTES = 2, VISIBLE_FOR_ALL = 3 };
-   using ChainSN = u16;
+   using ChainSN = u64;
    // -------------------------------------------------------------------------------------
    struct __attribute__((packed)) Tuple {
       union {
@@ -351,6 +351,8 @@ class BTreeVI : public BTreeLL
          jumpmu_return OP_RESULT::OK;
       }
       jumpmuCatch() { ensure(false); }
+      UNREACHABLE();
+      jumpmu_return OP_RESULT::OTHER;
    }
    // -------------------------------------------------------------------------------------
    inline bool isVisibleForMe(u8 worker_id, u64 worker_commit_mark, bool to_write = true)

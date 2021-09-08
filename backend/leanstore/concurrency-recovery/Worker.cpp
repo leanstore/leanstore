@@ -224,7 +224,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
       active_tx.state = Transaction::STATE::STARTED;
       active_tx.tx_id = tx_id;
       active_tx.min_observed_gsn_when_started = clock_gsn;
-      // command_id = 0; TODO: not working!
+      command_id = 0;  // TODO: not working!
       // -------------------------------------------------------------------------------------
       if (FLAGS_commit_hwm) {
          transactions_order_refreshed = false;
@@ -338,17 +338,16 @@ void Worker::abortTX()
 {
    if (FLAGS_wal) {
       ensure(active_tx.state == Transaction::STATE::STARTED);
+      const u64 tx_id = active_tx.TTS();
       std::vector<const WALEntry*> entries;
       iterateOverCurrentTXEntries([&](const WALEntry& entry) {
          if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
             entries.push_back(&entry);
          }
       });
-      // -------------------------------------------------------------------------------------
-      const u64 tts = active_tx.TTS();
       std::for_each(entries.rbegin(), entries.rend(), [&](const WALEntry* entry) {
          const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(entry);
-         leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tts);
+         leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tx_id);
       });
       // -------------------------------------------------------------------------------------
       if (activeTX().isSerializable()) {

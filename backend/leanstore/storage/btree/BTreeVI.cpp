@@ -756,6 +756,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
              const auto& secondary_version = *reinterpret_cast<const ChainedTupleVersion*>(version);
              if (secondary_version.is_delta) {
                 // Apply delta
+                explainWhen(dt_id == 10);
                 const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(secondary_version.payload);
                 BTreeLL::applyDiff(update_descriptor, materialized_value.get(), secondary_version.payload + update_descriptor.size());
              } else {
