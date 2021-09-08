@@ -27,9 +27,9 @@ std::unique_ptr<atomic<u64>[]> Worker::global_workers_in_progress_txid;  // All 
 // -------------------------------------------------------------------------------------
 std::unique_ptr<atomic<u64>[]> Worker::global_workers_snapshot_lwm;
 atomic<u64> Worker::global_snapshot_lwm = 0;  // No worker should start with TTS == 0
-// -------------------------------------------------------------------------------------
-Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
-    : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), ssd_fd(fd)
+                                              // -------------------------------------------------------------------------------------
+Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface& versions_space, s32 fd)
+    : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), versions_space(versions_space), ssd_fd(fd)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
@@ -276,10 +276,13 @@ void Worker::checkup()
       // -------------------------------------------------------------------------------------
       while (!todo_rb->empty()) {
          auto& todo = *reinterpret_cast<TODOEntry*>(todo_rb->front());
-         if (local_oldest_txid > todo.after_txid) {
-            WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
-            leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id,
-                                                                    todo.version_worker_commit_mark);
+         if (local_oldest_txid > todo.commit_tts) {
+            if (todo.dt_id < std::numeric_limits<DTID>::max()) {
+               WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
+               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.worker_id, todo.tx_id);
+            } else {
+               versions_space.purgeTXIDRange(todo.tx_id, todo.tx_id);
+            }
             todo_rb->popFront();
          } else {
             break;
@@ -321,6 +324,8 @@ void Worker::commitTX()
          if (!activeTX().isReadOnly()) {
             global_workers_in_progress_txid[worker_id].store(active_tx.TTS() + 1, std::memory_order_release);
             const u64 commit_timestamp = global_logical_clock.fetch_add(1);
+            stageTODO(
+                worker_id, active_tx.TTS(), std::numeric_limits<DTID>::max(), 0, [&](u8*) {}, 0);
             commitTODOs(commit_timestamp);
          }
       }
@@ -522,7 +527,7 @@ outofmemory : {
 }
 // -------------------------------------------------------------------------------------
 // TODO: rename or_before_sat
-void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb, u64 head_widcm)
+void Worker::stageTODO(u8 worker_id, u64 tx_id, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb, u64 head_tx_id)
 {
    const u32 total_todo_length = payload_length + sizeof(TODOEntry);
    while (!todo_rb->canInsert(total_todo_length)) {
@@ -536,12 +541,12 @@ void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, st
    }
    u8* todo_ptr = todo_rb->pushBack(total_todo_length);
    auto& todo_entry = *new (todo_ptr) TODOEntry();
-   todo_entry.version_worker_id = worker_id;
-   todo_entry.version_worker_commit_mark = tts;
+   todo_entry.worker_id = worker_id;
+   todo_entry.tx_id = tx_id;
    todo_entry.dt_id = dt_id;
    todo_entry.payload_length = payload_length;
-   todo_entry.after_txid = std::numeric_limits<u64>::max();
-   todo_entry.or_before_sat = head_widcm;
+   todo_entry.commit_tts = std::numeric_limits<u64>::max();
+   todo_entry.or_before_tx_id = head_tx_id;
    cb(todo_entry.payload);
    // -------------------------------------------------------------------------------------
    if (todo_tx_start_iter == nullptr) {
@@ -549,10 +554,10 @@ void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, st
    }
 }
 // -------------------------------------------------------------------------------------
-void Worker::commitTODOs(u64 sat)
+void Worker::commitTODOs(u64 commit_tts)
 {
    if (todo_tx_start_iter != nullptr) {
-      todo_rb->iterateUntilTail(todo_tx_start_iter, [&](u8* rb_payload) { reinterpret_cast<TODOEntry*>(rb_payload)->after_txid = sat; });
+      todo_rb->iterateUntilTail(todo_tx_start_iter, [&](u8* rb_payload) { reinterpret_cast<TODOEntry*>(rb_payload)->commit_tts = commit_tts; });
       todo_tx_start_iter = nullptr;
    }
 }

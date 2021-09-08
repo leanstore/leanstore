@@ -1,10 +1,8 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "Units.hpp"
-#include "VersionsSpaceInterface.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/KVInterface.hpp"
-#include "leanstore/storage/btree/BTreeLL.hpp"
 #include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -22,14 +20,12 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-using BTreeLL = leanstore::storage::btree::BTreeLL;
-class VersionsSpace : public VersionsSpaceInterface
+class VersionsSpaceInterface
 {
   public:
-   BTreeLL* btree;
-   virtual void insertVersion(WORKERID session_id, TXID tx_id, DTID dt_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb);
-   virtual bool retrieveVersion(WORKERID session_id, TXID tx_id, DTID dt_id, u64 command_id, std::function<void(const u8*, u64 payload_length)> cb);
-   virtual void purgeTXIDRange(TXID from_tx_id, TXID to_tx_id);  // [from, to]
+   virtual void insertVersion(WORKERID session_id, TXID tx_id, DTID dt_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb) = 0;
+   virtual bool retrieveVersion(WORKERID session_id, TXID tx_id, DTID dt_id, u64 command_id, std::function<void(const u8*, u64 payload_length)> cb) = 0;
+   virtual void purgeTXIDRange(TXID from_tx_id, TXID to_tx_id) = 0;  // [from, to]
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr

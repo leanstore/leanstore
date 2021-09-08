@@ -1,6 +1,6 @@
 #pragma once
 #include "Transaction.hpp"
-#include "VersionsSpace.hpp"
+#include "VersionsSpaceInterface.hpp"
 #include "WALEntry.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/utils/RingBufferST.hpp"
@@ -50,13 +50,11 @@ struct Worker {
                                                 // and undermining RFA
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
-   u64 command_id = 0;
-   VersionsSpace versions_space;
-   // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_workers_in_progress_txid;
    static unique_ptr<atomic<u64>[]> global_workers_snapshot_lwm;
    static atomic<u64> global_snapshot_lwm;
    // -------------------------------------------------------------------------------------
+   u64 command_id = 0;
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;
    WALDTEntry* active_dt_entry;
@@ -91,19 +89,20 @@ struct Worker {
    const u64 worker_id;
    Worker** all_workers;
    const u64 workers_count;
+   VersionsSpaceInterface &versions_space;
    const s32 ssd_fd;
-   Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd);
+   Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface &versions_space, s32 fd);
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
    // -------------------------------------------------------------------------------------
    // Shared with all workers
    // -------------------------------------------------------------------------------------
    struct TODOEntry {  // In-memory
-      u8 version_worker_id;
-      u64 version_worker_commit_mark;
-      u64 after_txid;
-      u64 or_before_sat;
-      DTID dt_id;
+      WORKERID worker_id;
+      TXID tx_id;
+      TXID commit_tts;
+      TXID or_before_tx_id;
+      DTID dt_id;  // max value -> purge the whole tx
       u64 payload_length;
       // -------------------------------------------------------------------------------------
       u8 payload[];
@@ -303,6 +302,7 @@ struct Worker {
    void getWALDTEntryPayload(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
 };
 // -------------------------------------------------------------------------------------
+// Shortcuts
 inline Transaction& activeTX()
 {
    return cr::Worker::my().active_tx;

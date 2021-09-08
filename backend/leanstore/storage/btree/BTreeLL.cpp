@@ -42,7 +42,7 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
             jumpmu_return OP_RESULT::OK;
          } else {
             leaf.recheck();
-            raise(SIGTRAP);
+            // raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }

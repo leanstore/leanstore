@@ -1,7 +1,7 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "Units.hpp"
-#include "VersionsSpace.hpp"
+#include "VersionsSpaceInterface.hpp"
 #include "Worker.hpp"
 #include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
@@ -31,6 +31,8 @@ class CRManager
    std::atomic<u64> running_threads = 0;
    std::atomic<bool> keep_running = true;
    // -------------------------------------------------------------------------------------
+   std::atomic<VersionsSpaceInterface*> versions_space;
+   // -------------------------------------------------------------------------------------
    struct WorkerThread {
       std::mutex mutex;
       std::condition_variable cv;
@@ -46,7 +48,7 @@ class CRManager
    const s32 ssd_fd;
    const u64 end_of_block_device;
    // -------------------------------------------------------------------------------------
-   CRManager(s32 ssd_fd, u64 end_of_block_device);
+   CRManager(VersionsSpaceInterface&, s32 ssd_fd, u64 end_of_block_device);
    ~CRManager();
    // -------------------------------------------------------------------------------------
    void groupCommiter();

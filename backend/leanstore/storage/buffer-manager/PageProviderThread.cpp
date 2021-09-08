@@ -30,7 +30,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    using Time = decltype(std::chrono::high_resolution_clock::now());
    // -------------------------------------------------------------------------------------
    // TODO: register as special worker
-   cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0, ssd_fd);
+   cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0, *reinterpret_cast<cr::VersionsSpaceInterface*>(0xa), ssd_fd);
    // -------------------------------------------------------------------------------------
    // Init AIO Context
    AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size);

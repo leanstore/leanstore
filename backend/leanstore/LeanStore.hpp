@@ -1,11 +1,13 @@
 #pragma once
 #include "Config.hpp"
+#include "leanstore/concurrency-recovery/VersionsSpace.hpp"
+#include "leanstore/concurrency-recovery/VersionsSpaceSTD.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
+#include "leanstore/storage/btree/BTreeLL.hpp"
+#include "leanstore/storage/btree/BTreeVI.hpp"
+#include "leanstore/storage/btree/BTreeVW.hpp"
+#include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "rapidjson/document.h"
-#include "storage/btree/BTreeLL.hpp"
-#include "storage/btree/BTreeVI.hpp"
-#include "storage/btree/BTreeVW.hpp"
-#include "storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <unordered_map>
@@ -36,6 +38,8 @@ class LeanStore
    profiling::ConfigsTable configs_table;
    u64 config_hash = 0;
    GlobalStats global_stats;
+   // -------------------------------------------------------------------------------------
+   std::unique_ptr<cr::VersionsSpace> versions_space;
    // -------------------------------------------------------------------------------------
   private:
    static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;

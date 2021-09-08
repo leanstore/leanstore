@@ -314,8 +314,8 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    next_command_id = chain_head.command_id;
    // TODO: check for used_space overflow
    while (true) {
-      const bool found =
-          cr::Worker::my().versions_space.retrieveVersion(next_tx_id, dt_id, next_command_id, [&](u8* version, [[maybe_unused]] u64 payload_length) {
+      const bool found = cr::Worker::my().versions_space.retrieveVersion(
+          cr::Worker::my().worker_id, next_tx_id, dt_id, next_command_id, [&](const u8* version, [[maybe_unused]] u64 payload_length) {
              const auto& chain_delta = *reinterpret_cast<const ChainedTupleVersion*>(version);
              const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(chain_delta.payload);
              const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
