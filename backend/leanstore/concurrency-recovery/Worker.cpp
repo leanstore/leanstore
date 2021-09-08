@@ -216,14 +216,15 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          needs_remote_flush = true;
       }
       // -------------------------------------------------------------------------------------
-      u64 txid = global_logical_clock.fetch_add(1);
-      if (txid <= active_tx.txid) {
-         txid = global_logical_clock.fetch_add(1);
+      u64 tx_id = global_logical_clock.fetch_add(1);
+      if (tx_id <= active_tx.tx_id) {
+         tx_id = global_logical_clock.fetch_add(1);
       }
-      global_workers_in_progress_txid[worker_id].store(txid, std::memory_order_release);
+      global_workers_in_progress_txid[worker_id].store(tx_id, std::memory_order_release);
       active_tx.state = Transaction::STATE::STARTED;
-      active_tx.txid = txid;
+      active_tx.tx_id = tx_id;
       active_tx.min_observed_gsn_when_started = clock_gsn;
+      // command_id = 0; TODO: not working!
       // -------------------------------------------------------------------------------------
       if (FLAGS_commit_hwm) {
          transactions_order_refreshed = false;
@@ -244,8 +245,6 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
    active_tx.current_tx_mode = next_tx_type;
    active_tx.current_tx_isolation_level = next_tx_isolation_level;
    active_tx.is_durable = FLAGS_wal;  // TODO:
-   // -------------------------------------------------------------------------------------
-   command_id = 0;
 }
 // -------------------------------------------------------------------------------------
 void Worker::switchToAlwaysUpToDateMode()
@@ -352,7 +351,10 @@ void Worker::abortTX()
          leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tts);
       });
       // -------------------------------------------------------------------------------------
-      executeUnlockTasks();
+      if (activeTX().isSerializable()) {
+         executeUnlockTasks();
+      }
+      versions_space.purgeTXIDRange(active_tx.TTS(), active_tx.TTS());
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.type = WALEntry::TYPE::TX_ABORT;

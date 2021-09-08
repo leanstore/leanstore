@@ -94,6 +94,7 @@ LeanStore::LeanStore()
       end_of_block_device = FLAGS_wal_offset_gib * 1024 * 1024 * 1024;
    }
    // -------------------------------------------------------------------------------------
+   versions_space_std = std::make_unique<cr::VersionsSpaceSTD>();
    versions_space = std::make_unique<cr::VersionsSpace>();
    cr_manager = make_unique<cr::CRManager>(*versions_space.get(), ssd_fd, end_of_block_device);
    cr::CRManager::global = cr_manager.get();

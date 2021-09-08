@@ -40,6 +40,7 @@ class LeanStore
    GlobalStats global_stats;
    // -------------------------------------------------------------------------------------
    std::unique_ptr<cr::VersionsSpace> versions_space;
+   std::unique_ptr<cr::VersionsSpaceSTD> versions_space_std;
    // -------------------------------------------------------------------------------------
   private:
    static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;

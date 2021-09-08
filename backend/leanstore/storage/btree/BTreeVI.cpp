@@ -209,7 +209,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // Write the ChainedTupleDelta
       if (!update_without_versioning) {
          cr::Worker::my().versions_space.insertVersion(
-             cr::Worker::my().worker_id, cr::activeTX().TTS(), dt_id, command_id, secondary_payload_length, [&](u8* version_payload) {
+             cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, secondary_payload_length, [&](u8* version_payload) {
                 auto& secondary_version =
                     *new (version_payload) ChainedTupleVersion(tuple_head.worker_id, tuple_head.tx_id, false, true, cr::activeTX().TTS());
                 std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
@@ -376,7 +376,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       const u16 value_length = iterator.value().length() - sizeof(ChainedTuple);
       const u16 secondary_payload_length = sizeof(ChainedTupleVersion) + value_length;
       cr::Worker::my().versions_space.insertVersion(
-          cr::Worker::my().worker_id, cr::activeTX().TTS(), dt_id, command_id, secondary_payload_length, [&](u8* secondary_payload) {
+          cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, secondary_payload_length, [&](u8* secondary_payload) {
              auto& secondary_version =
                  *new (secondary_payload) ChainedTupleVersion(chain_head.worker_id, chain_head.tx_id, false, false, cr::activeTX().TTS());
              secondary_version.worker_id = chain_head.worker_id;
@@ -752,7 +752,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
    while (true) {
       bool is_removed;
       bool found = cr::Worker::my().versions_space.retrieveVersion(
-          cr::Worker::my().worker_id, next_tx_id, dt_id, next_command_id, [&](const u8* version, u64 version_length) {
+          cr::Worker::my().worker_id, next_tx_id, next_command_id, [&](const u8* version, u64 version_length) {
              const auto& secondary_version = *reinterpret_cast<const ChainedTupleVersion*>(version);
              if (secondary_version.is_delta) {
                 // Apply delta

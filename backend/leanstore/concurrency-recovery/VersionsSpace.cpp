@@ -18,13 +18,12 @@ namespace cr
 {
 using namespace leanstore::storage::btree;
 // -------------------------------------------------------------------------------------
-void VersionsSpace::insertVersion(WORKERID, TXID tx_id, DTID dt_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb)
+void VersionsSpace::insertVersion(WORKERID, TXID tx_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb)
 {
-   u64 key_length = sizeof(tx_id) + sizeof(dt_id) + sizeof(command_id);
+   u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key[key_length];
    u64 offset = 0;
    offset += utils::fold(key + offset, tx_id);
-   offset += utils::fold(key + offset, dt_id);
    offset += utils::fold(key + offset, command_id);
    // -------------------------------------------------------------------------------------
    u8 payload[payload_length];
@@ -32,17 +31,23 @@ void VersionsSpace::insertVersion(WORKERID, TXID tx_id, DTID dt_id, u64 command_
    btree->insert(key, key_length, payload, payload_length);
 }
 // -------------------------------------------------------------------------------------
-bool VersionsSpace::retrieveVersion(WORKERID, TXID tx_id, DTID dt_id, u64 command_id, std::function<void(const u8*, u64 payload_length)> cb)
+bool VersionsSpace::retrieveVersion(WORKERID, TXID tx_id, u64 command_id, std::function<void(const u8*, u64)> cb)
 {
-   u64 key_length = sizeof(tx_id) + sizeof(dt_id) + sizeof(command_id);
+   u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key[key_length];
    u64 offset = 0;
    offset += utils::fold(key + offset, tx_id);
-   offset += utils::fold(key + offset, dt_id);
    offset += utils::fold(key + offset, command_id);
    // -------------------------------------------------------------------------------------
-   OP_RESULT ret = btree->lookup(key, key_length, [&](const u8* payload, u16 payload_length) { cb(payload, payload_length); });
+   u8 buffer[PAGE_SIZE];
+   u64 pl = 0;
+   OP_RESULT ret = btree->lookup(key, key_length, [&](const u8* payload, u16 payload_length) {
+      payload_length = std::min<u16>(payload_length, 200);
+      std::memcpy(buffer, payload, payload_length);
+      pl = payload_length;
+   });
    if (ret == OP_RESULT::OK) {
+      cb(buffer, pl);
       return true;
    } else {
       return false;
@@ -51,7 +56,9 @@ bool VersionsSpace::retrieveVersion(WORKERID, TXID tx_id, DTID dt_id, u64 comman
 // -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer
 void VersionsSpace::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
-{  // [from, to]
+{
+   return;
+   // [from, to]
    Slice key(reinterpret_cast<u8*>(&from_tx_id), sizeof(TXID));
    // -------------------------------------------------------------------------------------
    jumpmuTry()
