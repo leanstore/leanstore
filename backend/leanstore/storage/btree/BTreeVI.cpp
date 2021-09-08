@@ -212,14 +212,15 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
              cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, secondary_payload_length, [&](u8* version_payload) {
                 auto& secondary_version =
                     *new (version_payload) ChainedTupleVersion(tuple_head.worker_id, tuple_head.tx_id, false, true, cr::activeTX().TTS());
-                std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
-                BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
                 secondary_version.command_id = tuple_head.command_id;
                 if (secondary_version.worker_id == cr::Worker::my().workerID() && secondary_version.tx_id == cr::activeTX().TTS()) {
                    secondary_version.committed_before_txid = std::numeric_limits<u64>::max();
                 } else {
                    secondary_version.committed_before_txid = cr::activeTX().TTS();
                 }
+                secondary_version.dt_id = dt_id;
+                std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
+                BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
              });
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
       }
@@ -382,6 +383,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
              secondary_version.worker_id = chain_head.worker_id;
              secondary_version.tx_id = chain_head.tx_id;
              secondary_version.command_id = chain_head.command_id;
+             secondary_version.dt_id = dt_id;
              std::memcpy(secondary_version.payload, chain_head.payload, value_length);
           });
       iterator.markAsDirty();
@@ -478,8 +480,8 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data())->undoLastUpdate();
             } else {
                auto& chain_head = *reinterpret_cast<ChainedTuple*>(iterator.mutableValue().data());
-               ensure(!chain_head.isWriteLocked());
-               ensure(chain_head.tuple_format == TupleFormat::CHAINED);
+               ensure(chain_head.tx_id == update_entry.after_tx_id);
+               ensure(chain_head.command_id == update_entry.after_command_id);
                // -------------------------------------------------------------------------------------
                chain_head.worker_id = update_entry.before_worker_id;
                chain_head.tx_id = update_entry.before_tx_id;
@@ -754,9 +756,9 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
       bool found = cr::Worker::my().versions_space.retrieveVersion(
           cr::Worker::my().worker_id, next_tx_id, next_command_id, [&](const u8* version, u64 version_length) {
              const auto& secondary_version = *reinterpret_cast<const ChainedTupleVersion*>(version);
+             ensure(secondary_version.dt_id == dt_id);
              if (secondary_version.is_delta) {
                 // Apply delta
-                explainWhen(dt_id == 10);
                 const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(secondary_version.payload);
                 BTreeLL::applyDiff(update_descriptor, materialized_value.get(), secondary_version.payload + update_descriptor.size());
              } else {

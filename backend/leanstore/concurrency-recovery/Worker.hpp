@@ -44,6 +44,7 @@ struct alignas(512) WALChunk {
 struct Worker {
    // Static
    static thread_local Worker* tls_ptr;
+   // -------------------------------------------------------------------------------------
    static atomic<u64> global_logical_clock;
    static atomic<u64> global_gsn_flushed;       // The minimum of all workers maximum flushed GSN
    static atomic<u64> global_sync_to_this_gsn;  // Artifically increment the workers GSN to this point at the next round to prevent GSN from skewing
@@ -89,9 +90,9 @@ struct Worker {
    const u64 worker_id;
    Worker** all_workers;
    const u64 workers_count;
-   VersionsSpaceInterface &versions_space;
+   VersionsSpaceInterface& versions_space;
    const s32 ssd_fd;
-   Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface &versions_space, s32 fd);
+   Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface& versions_space, s32 fd);
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
    // -------------------------------------------------------------------------------------

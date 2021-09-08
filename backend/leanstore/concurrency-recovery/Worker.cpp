@@ -216,15 +216,12 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          needs_remote_flush = true;
       }
       // -------------------------------------------------------------------------------------
-      u64 tx_id = global_logical_clock.fetch_add(1);
-      if (tx_id <= active_tx.tx_id) {
-         tx_id = global_logical_clock.fetch_add(1);
-      }
+      const TXID tx_id = global_logical_clock.fetch_add(1);
       global_workers_in_progress_txid[worker_id].store(tx_id, std::memory_order_release);
+      command_id = 0;
       active_tx.state = Transaction::STATE::STARTED;
       active_tx.tx_id = tx_id;
       active_tx.min_observed_gsn_when_started = clock_gsn;
-      command_id = 0;  // TODO: not working!
       // -------------------------------------------------------------------------------------
       if (FLAGS_commit_hwm) {
          transactions_order_refreshed = false;
@@ -315,7 +312,7 @@ void Worker::commitTX()
          ready_to_commit_queue.push_back(active_tx);
          ready_to_commit_queue_size += 1;
       } else {
-         active_tx.state = Transaction::STATE::COMMITED;
+         active_tx.state = Transaction::STATE::COMMITTED;
          CRCounters::myCounters().rfa_committed_tx += 1;
       }
       // -------------------------------------------------------------------------------------

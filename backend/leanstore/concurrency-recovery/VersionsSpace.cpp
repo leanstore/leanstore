@@ -59,7 +59,6 @@ bool VersionsSpace::retrieveVersion(WORKERID, TXID tx_id, u64 command_id, std::f
 // Pre: TXID is unsigned integer
 void VersionsSpace::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
 {
-  return;
    // [from, to]
    Slice key(reinterpret_cast<u8*>(&from_tx_id), sizeof(TXID));
    // -------------------------------------------------------------------------------------

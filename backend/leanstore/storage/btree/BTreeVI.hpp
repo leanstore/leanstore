@@ -86,6 +86,7 @@ class BTreeVI : public BTreeLL
    enum class TupleFormat : u8 { CHAINED = 0, FAT_TUPLE_DIFFERENT_ATTRIBUTES = 1, FAT_TUPLE_SAME_ATTRIBUTES = 2, VISIBLE_FOR_ALL = 3 };
    using ChainSN = u64;
    // -------------------------------------------------------------------------------------
+   // NEVER SHADOW A MEMBER!!!
    struct __attribute__((packed)) Tuple {
       union {
          u128 read_ts = 0;
@@ -98,7 +99,7 @@ class BTreeVI : public BTreeLL
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
       Tuple(TupleFormat tuple_format, u8 worker_id, u64 worker_commit_mark)
-          : tuple_format(tuple_format), worker_id(worker_id), tx_id(worker_commit_mark)
+          : tuple_format(tuple_format), worker_id(worker_id), tx_id(worker_commit_mark), command_id(9999)
       {
          write_locked = false;
       }
@@ -113,7 +114,6 @@ class BTreeVI : public BTreeLL
       u8 can_convert_to_fat_tuple : 1;
       u8 is_removed : 1;
       // -------------------------------------------------------------------------------------
-      ChainSN command_id = 0;
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
       ChainedTuple(u8 worker_id, u64 worker_commit_mark) : Tuple(TupleFormat::CHAINED, worker_id, worker_commit_mark), is_removed(false) { reset(); }
@@ -126,6 +126,7 @@ class BTreeVI : public BTreeLL
       WORKERID worker_id;
       TXID tx_id;
       TXID committed_before_txid;  // Helpful for garbage collection
+      DTID dt_id;
       u8 is_removed : 1;
       u8 is_delta : 1;  // TODO: atm, always true
       u64 gc_trigger;

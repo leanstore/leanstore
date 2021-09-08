@@ -223,7 +223,7 @@ void CRManager::groupCommiter()
                // -------------------------------------------------------------------------------------
                while (tx_i < worker.group_commit_data.ready_to_commit_cut) {
                   if (worker.ready_to_commit_queue[tx_i].max_observed_gsn < worker.group_commit_data.max_safe_gsn_to_commit) {
-                     worker.ready_to_commit_queue[tx_i].state = Transaction::STATE::COMMITED;
+                     worker.ready_to_commit_queue[tx_i].state = Transaction::STATE::COMMITTED;
                      committed_tx++;
                      tx_i++;
                   } else {

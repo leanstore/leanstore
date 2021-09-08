@@ -29,7 +29,7 @@ namespace cr
 // -------------------------------------------------------------------------------------
 struct Transaction {
    enum class TYPE : u8 { USER, SYSTEM };
-   enum class STATE { IDLE, STARTED, READY_TO_COMMIT, COMMITED, ABORTED };
+   enum class STATE { IDLE, STARTED, READY_TO_COMMIT, COMMITTED, ABORTED };
    STATE state = STATE::IDLE;
    u64 tx_id = 0;
    LID min_observed_gsn_when_started, max_observed_gsn;
