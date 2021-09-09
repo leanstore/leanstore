@@ -29,6 +29,8 @@ class VersionsSpace : public VersionsSpaceInterface
    struct alignas(64) Session {
       BufferFrame* bf;
       u64 version;
+      s64 pos = -1;
+      TXID last_tx_id;
       bool init = false;
    };
    Session sessions[leanstore::cr::STATIC_MAX_WORKERS];

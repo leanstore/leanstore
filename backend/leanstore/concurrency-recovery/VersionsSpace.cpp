@@ -34,7 +34,12 @@ void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, u64 command_i
          BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree), session.bf, session.version);
          OP_RESULT ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::OK && iterator.keyInCurrentBoundaries(key)) {
-            iterator.insertInCurrentNode(key, payload_length);
+            if (session.last_tx_id == tx_id) {
+               iterator.leaf->insertDoNotCopyPayload(key.data(), key.length(), payload_length, session.pos);
+               iterator.cur = session.pos;
+            } else {
+               iterator.insertInCurrentNode(key, payload_length);
+            }
             cb(iterator.mutableValue().data());
             iterator.markAsDirty();
             jumpmu_return;
@@ -60,6 +65,8 @@ void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, u64 command_i
          // -------------------------------------------------------------------------------------
          session.bf = iterator.leaf.bf;
          session.version = iterator.leaf.guard.version + 1;
+         session.pos = iterator.cur + 1;
+         session.last_tx_id = tx_id;
          session.init = true;
          jumpmu_return;
       }
