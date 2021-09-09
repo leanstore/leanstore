@@ -477,7 +477,12 @@ BTreeGeneric::XMergeReturnCode BTreeGeneric::XMerge(HybridPageGuard<BTreeNode>& 
    return ret_code;
 }
 // -------------------------------------------------------------------------------------
-BTreeGeneric::~BTreeGeneric() {}
+BTreeGeneric::~BTreeGeneric()
+{
+   if (FLAGS_btree_print_height) {
+      cout << "dt_id = " << dt_id << ", " << height << endl;
+   }
+}
 // -------------------------------------------------------------------------------------
 // Called by buffer manager before eviction
 // Returns true if the buffer manager has to restart and pick another buffer frame for eviction

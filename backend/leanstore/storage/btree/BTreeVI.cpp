@@ -737,8 +737,8 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
    // -------------------------------------------------------------------------------------
    while (true) {
       bool is_removed;
-      bool found = cr::Worker::my().versions_space.retrieveVersion(
-          cr::Worker::my().worker_id, next_tx_id, next_command_id, [&](const u8* version, u64 version_length) {
+      bool found =
+          cr::Worker::my().versions_space.retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version, u64 version_length) {
              const auto& secondary_version = *reinterpret_cast<const ChainedTupleVersion*>(version);
              if (secondary_version.is_delta) {
                 // Apply delta

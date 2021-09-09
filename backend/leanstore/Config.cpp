@@ -56,6 +56,8 @@ DEFINE_double(tmp5, 0.0, "");
 DEFINE_double(tmp6, 0.0, "");
 DEFINE_double(tmp7, 0.0, "");
 // -------------------------------------------------------------------------------------
+DEFINE_bool(btree_print_height, false, "Print BTree height in destructor");
+// -------------------------------------------------------------------------------------
 DEFINE_bool(bulk_insert, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_int64(trace_dt_id, -1, "Print a stack trace for page reads for this DT ID");

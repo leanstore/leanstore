@@ -1,6 +1,7 @@
 #include "VersionsSpace.hpp"
 
 #include "Units.hpp"
+#include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/storage/btree/core/BTreeGenericIterator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -18,11 +19,12 @@ namespace cr
 {
 using namespace leanstore::storage::btree;
 // -------------------------------------------------------------------------------------
-void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb)
+void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, COMMANDID command_id, u64 payload_length, std::function<void(u8*)> cb)
 {
-   const u64 key_length = sizeof(tx_id) + sizeof(command_id);
+   const u64 key_length = sizeof(session_id) + sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];
    u64 offset = 0;
+   offset += utils::fold(key_buffer + offset, session_id);
    offset += utils::fold(key_buffer + offset, tx_id);
    offset += utils::fold(key_buffer + offset, command_id);
    Slice key(key_buffer, key_length);
@@ -42,6 +44,8 @@ void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, u64 command_i
             }
             cb(iterator.mutableValue().data());
             iterator.markAsDirty();
+            COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_inserted_opt++; }
+            iterator.leaf.unlock();
             jumpmu_return;
          }
       }
@@ -68,17 +72,20 @@ void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, u64 command_i
          session.pos = iterator.cur + 1;
          session.last_tx_id = tx_id;
          session.init = true;
+         // -------------------------------------------------------------------------------------
+         COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_inserted++; }
          jumpmu_return;
       }
       jumpmuCatch() {}
    }
 }
 // -------------------------------------------------------------------------------------
-bool VersionsSpace::retrieveVersion(WORKERID, TXID tx_id, u64 command_id, std::function<void(const u8*, u64)> cb)
+bool VersionsSpace::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, std::function<void(const u8*, u64)> cb)
 {
-   const u64 key_length = sizeof(tx_id) + sizeof(command_id);
+   const u64 key_length = sizeof(worker_id) + sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];
    u64 offset = 0;
+   offset += utils::fold(key_buffer + offset, worker_id);
    offset += utils::fold(key_buffer + offset, tx_id);
    offset += utils::fold(key_buffer + offset, command_id);
    // -------------------------------------------------------------------------------------
@@ -103,23 +110,30 @@ bool VersionsSpace::retrieveVersion(WORKERID, TXID tx_id, u64 command_id, std::f
 void VersionsSpace::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
 {
    // [from, to]
-   Slice key(reinterpret_cast<u8*>(&to_tx_id), sizeof(TXID));
+   WORKERID worker_id = cr::Worker::my().worker_id;
+   const u64 key_length = sizeof(worker_id) + sizeof(to_tx_id);
+   u8 key_buffer[key_length];
+   u64 offset = 0;
+   offset += utils::fold(key_buffer + offset, worker_id);
+   offset += utils::fold(key_buffer + offset, from_tx_id);
+   Slice key(key_buffer, key_length);
    // -------------------------------------------------------------------------------------
    jumpmuTry()
    {
    retry : {
       leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
-      OP_RESULT ret = iterator.seekForPrev(key);
+      OP_RESULT ret = iterator.seek(key);
       while (ret == OP_RESULT::OK) {
          iterator.assembleKey();
-         auto& current_tx_id = *reinterpret_cast<const TXID*>(iterator.key().data());
+         auto& current_tx_id = *reinterpret_cast<const TXID*>(iterator.key().data() + sizeof(WORKERID));
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
             iterator.removeCurrent();
+            COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
             iterator.markAsDirty();
             if (iterator.mergeIfNeeded()) {
                goto retry;
             }
-            ret = iterator.prev();
+            ret = iterator.next();
          } else {
             break;
          }

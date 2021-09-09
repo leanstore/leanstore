@@ -24,6 +24,10 @@ struct CRCounters {
    atomic<u64> gct_committed_tx = 0;
    atomic<u64> rfa_committed_tx = 0;
    // -------------------------------------------------------------------------------------
+   atomic<u64> cc_versions_space_removed = {0};
+   atomic<u64> cc_versions_space_inserted = {0};
+   atomic<u64> cc_versions_space_inserted_opt = {0};
+   // -------------------------------------------------------------------------------------
    CRCounters() {}
    // -------------------------------------------------------------------------------------
    static tbb::enumerable_thread_specific<CRCounters> cr_counters;

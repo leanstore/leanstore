@@ -38,7 +38,7 @@ using DTID = s64;  // Datastructure ID
 // -------------------------------------------------------------------------------------
 using WORKERID = u8;
 using TXID = u64;
-using COMMANDID = u64;
+using COMMANDID = u16;
 // -------------------------------------------------------------------------------------
 using TINYINT = s8;
 using SMALLINT = s16;

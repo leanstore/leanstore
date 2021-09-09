@@ -44,6 +44,11 @@ void CRTable::open()
    columns.emplace("wal_miss", [&](Column& col) { col << wal_miss; });
    columns.emplace("wal_hit", [&](Column& col) { col << wal_hits; });
    columns.emplace("wal_total", [&](Column& col) { col << wal_total; });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("cc_versions_space_removed", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_versions_space_removed); });
+   columns.emplace("cc_versions_space_inserted", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_versions_space_inserted); });
+   columns.emplace("cc_versions_space_inserted_opt",
+                   [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_versions_space_inserted_opt); });
 }
 // -------------------------------------------------------------------------------------
 void CRTable::next()

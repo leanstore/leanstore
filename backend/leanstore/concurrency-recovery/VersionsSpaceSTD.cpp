@@ -16,7 +16,7 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-void VersionsSpaceSTD::insertVersion(WORKERID, TXID tx_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb)
+void VersionsSpaceSTD::insertVersion(WORKERID, TXID tx_id, COMMANDID command_id, u64 payload_length, std::function<void(u8*)> cb)
 {
    u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key[key_length];
@@ -33,7 +33,7 @@ void VersionsSpaceSTD::insertVersion(WORKERID, TXID tx_id, u64 command_id, u64 p
    map[key_str] = payload_str;
 }
 // -------------------------------------------------------------------------------------
-bool VersionsSpaceSTD::retrieveVersion(WORKERID, TXID tx_id, u64 command_id, std::function<void(const u8*, u64 payload_length)> cb)
+bool VersionsSpaceSTD::retrieveVersion(WORKERID, TXID tx_id, COMMANDID command_id, std::function<void(const u8*, u64 payload_length)> cb)
 {
    u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key[key_length];
