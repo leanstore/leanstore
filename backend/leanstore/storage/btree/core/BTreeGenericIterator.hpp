@@ -128,8 +128,6 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       }
    }
    // -------------------------------------------------------------------------------------
-   virtual bool keyInCurrentBoundaries(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
-   // -------------------------------------------------------------------------------------
   public:
    BTreePessimisticIterator(BTreeGeneric& btree, const LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED) : btree(btree), mode(mode) {}
    // -------------------------------------------------------------------------------------
@@ -365,7 +363,9 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    virtual Slice keyWithoutPrefix() override { return Slice(leaf->getKey(cur), leaf->getKeyLen(cur)); }
    virtual u16 valueLength() { return leaf->getPayloadLength(cur); }
    virtual Slice value() override { return Slice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }
-};  // namespace btree
+   // -------------------------------------------------------------------------------------
+   virtual bool keyInCurrentBoundaries(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
+};
 // -------------------------------------------------------------------------------------
 class BTreeSharedIterator : public BTreePessimisticIterator
 {
@@ -565,8 +565,6 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
    }
    // -------------------------------------------------------------------------------------
    bool isValid() { return cur != -1; }
-   void releaseLatch() { leaf.unlock(); }
-   void reacquireLatch() { leaf.toExclusive(); }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace btree

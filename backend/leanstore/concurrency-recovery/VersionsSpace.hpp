@@ -25,6 +25,14 @@ namespace cr
 using BTreeLL = leanstore::storage::btree::BTreeLL;
 class VersionsSpace : public VersionsSpaceInterface
 {
+  private:
+   struct alignas(64) Session {
+      BufferFrame* bf;
+      u64 version;
+      bool init = false;
+   };
+   Session sessions[leanstore::cr::STATIC_MAX_WORKERS];
+
   public:
    BTreeLL* btree;
    virtual void insertVersion(WORKERID session_id, TXID tx_id, u64 command_id, u64 payload_length, std::function<void(u8*)> cb);
