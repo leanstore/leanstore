@@ -50,9 +50,6 @@ class BTreeVI : public BTreeLL
       u8 before_worker_id;
       u64 before_tx_id;
       u64 before_command_id;
-      u8 after_worker_id;
-      u64 after_tx_id;
-      u64 after_command_id;
       u8 payload[];
    };
    struct WALRemove : WALEntry {
@@ -84,7 +81,6 @@ class BTreeVI : public BTreeLL
         Delta: WWTS + diff + (descriptor)?
     */
    enum class TupleFormat : u8 { CHAINED = 0, FAT_TUPLE_DIFFERENT_ATTRIBUTES = 1, FAT_TUPLE_SAME_ATTRIBUTES = 2, VISIBLE_FOR_ALL = 3 };
-   using ChainSN = u64;
    // -------------------------------------------------------------------------------------
    // NEVER SHADOW A MEMBER!!!
    struct __attribute__((packed)) Tuple {
@@ -95,7 +91,7 @@ class BTreeVI : public BTreeLL
       TupleFormat tuple_format;
       WORKERID worker_id;
       TXID tx_id;
-      ChainSN command_id;
+      COMMANDID command_id;
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
       Tuple(TupleFormat tuple_format, u8 worker_id, u64 worker_commit_mark)
@@ -126,15 +122,13 @@ class BTreeVI : public BTreeLL
       WORKERID worker_id;
       TXID tx_id;
       TXID committed_before_txid;  // Helpful for garbage collection
-      DTID dt_id;
+      COMMANDID command_id;
       u8 is_removed : 1;
-      u8 is_delta : 1;  // TODO: atm, always true
-      u64 gc_trigger;
-      ChainSN command_id;
+      u8 is_delta : 1;
       u8 payload[];  // UpdateDescriptor + Diff
       // -------------------------------------------------------------------------------------
-      ChainedTupleVersion(u8 worker_id, u64 worker_commit_mark, bool is_removed, bool is_delta, u64 gc_trigger, ChainSN next_sn = 0)
-          : worker_id(worker_id), tx_id(worker_commit_mark), is_removed(is_removed), is_delta(is_delta), gc_trigger(gc_trigger), command_id(next_sn)
+      ChainedTupleVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, bool is_removed, bool is_delta)
+          : worker_id(worker_id), tx_id(tx_id), command_id(command_id), is_removed(is_removed), is_delta(is_delta)
       {
       }
       bool isFinal() const { return command_id == 0; }
@@ -187,14 +181,9 @@ class BTreeVI : public BTreeLL
       enum class TYPE : u8 { POINT, PAGE };
       TYPE type;
    };
-   struct TODOPage : public TODOEntry {
-      BufferFrame* bf;
-      u64 latch_version_should_be;
-      TODOPage() { type = TODOEntry::TYPE::PAGE; }
-   };
    struct TODOPoint : public TODOEntry {
       u16 key_length;
-      ChainSN sn;
+      COMMANDID sn;
       DanglingPointer dangling_pointer;
       u8 key[];
       TODOPoint() { type = TODOEntry::TYPE::POINT; }
@@ -368,11 +357,11 @@ class BTreeVI : public BTreeLL
    bool precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard);
    // -------------------------------------------------------------------------------------
    template <typename T>
-   inline ChainSN getSN(T key)
+   inline COMMANDID getSN(T key)
    {
-      return swap(*reinterpret_cast<const ChainSN*>(key.data() + key.length() - sizeof(ChainSN)));
+      return swap(*reinterpret_cast<const COMMANDID*>(key.data() + key.length() - sizeof(COMMANDID)));
    }
-   inline void setSN(MutableSlice key, ChainSN sn) { *reinterpret_cast<ChainSN*>(key.data() + key.length() - sizeof(ChainSN)) = swap(sn); }
+   inline void setSN(MutableSlice key, COMMANDID sn) { *reinterpret_cast<COMMANDID*>(key.data() + key.length() - sizeof(COMMANDID)) = swap(sn); }
    inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, std::function<void(Slice value)> callback)
    {
       while (true) {

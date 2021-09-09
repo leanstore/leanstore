@@ -232,8 +232,6 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       wal_entry->before_tx_id = fat_tuple->tx_id;
       fat_tuple->worker_id = cr::Worker::my().workerID();
       fat_tuple->tx_id = cr::activeTX().TTS();
-      wal_entry->after_worker_id = fat_tuple->worker_id;
-      wal_entry->after_tx_id = fat_tuple->tx_id;
       std::memcpy(wal_entry->payload, o_key, o_key_length);
       std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
       // Update the value in-place
@@ -296,7 +294,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    // -------------------------------------------------------------------------------------
    WORKERID next_worker_id;
    TXID next_tx_id;
-   ChainSN next_command_id;
+   COMMANDID next_command_id;
    // -------------------------------------------------------------------------------------
    // Process the chain head
    MutableSlice head = iterator.mutableValue();

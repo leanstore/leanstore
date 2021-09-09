@@ -204,21 +204,19 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       const u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
       const u16 secondary_payload_length = delta_and_descriptor_size + sizeof(ChainedTupleVersion);
-      const ChainSN command_id = cr::Worker::my().command_id++;
+      const COMMANDID command_id = cr::Worker::my().command_id++;
       // -------------------------------------------------------------------------------------
       // Write the ChainedTupleDelta
       if (!update_without_versioning) {
          cr::Worker::my().versions_space.insertVersion(
              cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, secondary_payload_length, [&](u8* version_payload) {
                 auto& secondary_version =
-                    *new (version_payload) ChainedTupleVersion(tuple_head.worker_id, tuple_head.tx_id, false, true, cr::activeTX().TTS());
-                secondary_version.command_id = tuple_head.command_id;
+                    *new (version_payload) ChainedTupleVersion(tuple_head.worker_id, tuple_head.tx_id, tuple_head.command_id, false, true);
                 if (secondary_version.worker_id == cr::Worker::my().workerID() && secondary_version.tx_id == cr::activeTX().TTS()) {
                    secondary_version.committed_before_txid = std::numeric_limits<u64>::max();
                 } else {
                    secondary_version.committed_before_txid = cr::activeTX().TTS();
                 }
-                secondary_version.dt_id = dt_id;
                 std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
                 BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
              });
@@ -233,9 +231,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       wal_entry->before_worker_id = tuple_head.worker_id;
       wal_entry->before_tx_id = tuple_head.tx_id;
       wal_entry->before_command_id = tuple_head.command_id;
-      wal_entry->after_worker_id = cr::Worker::my().workerID();
-      wal_entry->after_tx_id = cr::activeTX().TTS();
-      wal_entry->after_command_id = command_id;
       std::memcpy(wal_entry->payload, o_key, o_key_length);
       std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
       BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), tuple_head.payload);
@@ -379,11 +374,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       cr::Worker::my().versions_space.insertVersion(
           cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, secondary_payload_length, [&](u8* secondary_payload) {
              auto& secondary_version =
-                 *new (secondary_payload) ChainedTupleVersion(chain_head.worker_id, chain_head.tx_id, false, false, cr::activeTX().TTS());
-             secondary_version.worker_id = chain_head.worker_id;
-             secondary_version.tx_id = chain_head.tx_id;
-             secondary_version.command_id = chain_head.command_id;
-             secondary_version.dt_id = dt_id;
+                 *new (secondary_payload) ChainedTupleVersion(chain_head.worker_id, chain_head.tx_id, chain_head.command_id, false, false);
              std::memcpy(secondary_version.payload, chain_head.payload, value_length);
           });
       DanglingPointer dangling_pointer;
@@ -480,8 +471,6 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data())->undoLastUpdate();
             } else {
                auto& chain_head = *reinterpret_cast<ChainedTuple*>(iterator.mutableValue().data());
-               ensure(chain_head.tx_id == update_entry.after_tx_id);
-               ensure(chain_head.command_id == update_entry.after_command_id);
                // -------------------------------------------------------------------------------------
                chain_head.worker_id = update_entry.before_worker_id;
                chain_head.tx_id = update_entry.before_tx_id;
@@ -535,11 +524,12 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 // -------------------------------------------------------------------------------------
 bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_guard)
 {
+   return false;
    bool all_tuples_heads_are_invisible = true;  // WRT scanners
    u32 garbage_seen_in_bytes = 0;
    u32 freed_bytes = 0;
    for (u16 s_i = 0; s_i < c_guard->count;) {
-      auto& sn = *reinterpret_cast<ChainSN*>(c_guard->getKey(s_i) + c_guard->getKeyLen(s_i) - sizeof(ChainSN));
+      auto& sn = *reinterpret_cast<COMMANDID*>(c_guard->getKey(s_i) + c_guard->getKeyLen(s_i) - sizeof(COMMANDID));
       if (sn == 0) {
          auto& tuple = *reinterpret_cast<Tuple*>(c_guard->getPayload(s_i));
          if (tuple.tuple_format == TupleFormat::CHAINED) {
@@ -561,16 +551,6 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
          } else if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
             // TODO: Fix FatTuple size
             all_tuples_heads_are_invisible &= !(isVisibleForMe(tuple.worker_id, tuple.tx_id, false));
-            s_i++;
-         }
-      } else {
-         auto& chained_tuple_version = *reinterpret_cast<ChainedTupleVersion*>(c_guard->getPayload(s_i));
-         const u32 size = c_guard->getKVConsumedSpace(s_i);
-         if (chained_tuple_version.gc_trigger <= cr::Worker::my().global_snapshot_lwm) {
-            c_guard->removeSlot(s_i);
-            freed_bytes += size;
-         } else {
-            garbage_seen_in_bytes += size;
             s_i++;
          }
       }
@@ -753,14 +733,13 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
    std::memcpy(materialized_value.get(), chain_head.payload, materialized_value_length);
    WORKERID next_worker_id = chain_head.worker_id;
    TXID next_tx_id = chain_head.tx_id;
-   ChainSN next_command_id = chain_head.command_id;
+   COMMANDID next_command_id = chain_head.command_id;
    // -------------------------------------------------------------------------------------
    while (true) {
       bool is_removed;
       bool found = cr::Worker::my().versions_space.retrieveVersion(
           cr::Worker::my().worker_id, next_tx_id, next_command_id, [&](const u8* version, u64 version_length) {
              const auto& secondary_version = *reinterpret_cast<const ChainedTupleVersion*>(version);
-             ensure(secondary_version.dt_id == dt_id);
              if (secondary_version.is_delta) {
                 // Apply delta
                 const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(secondary_version.payload);
