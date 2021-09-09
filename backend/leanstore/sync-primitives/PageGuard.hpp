@@ -205,10 +205,7 @@ class ExclusivePageGuard
   public:
    // -------------------------------------------------------------------------------------
    // I: Upgrade
-   ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard)
-   {
-      ref_guard.guard.toExclusive();
-   }
+   ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard) { ref_guard.guard.toExclusive(); }
    // -------------------------------------------------------------------------------------
    template <typename WT>
    cr::Worker::WALEntryHandler<WT> reserveWALEntry(u64 extra_size)
@@ -225,6 +222,7 @@ class ExclusivePageGuard
    }
    // -------------------------------------------------------------------------------------
    void keepAlive() { ref_guard.keep_alive = true; }
+   void incrementGSN() { ref_guard.incrementGSN(); }
    // -------------------------------------------------------------------------------------
    ~ExclusivePageGuard()
    {

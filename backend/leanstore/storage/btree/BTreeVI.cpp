@@ -225,8 +225,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
       }
       // -------------------------------------------------------------------------------------
-      iterator.markAsDirty();
-      // -------------------------------------------------------------------------------------
       // WAL
       auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
       wal_entry->type = WAL_LOG_TYPE::WALUpdate;
@@ -259,6 +257,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       }
       // -------------------------------------------------------------------------------------
       tuple_head.unlock();
+      iterator.markAsDirty();
       iterator.contentionSplit();
       // -------------------------------------------------------------------------------------
       if (cr::activeTX().isSingleStatement()) {
@@ -316,6 +315,7 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
             cr::Worker::my().commitTX();
          }
          // -------------------------------------------------------------------------------------
+         iterator.markAsDirty();
          jumpmu_return OP_RESULT::OK;
       }
       jumpmuCatch() { UNREACHABLE(); }
@@ -386,7 +386,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
              secondary_version.dt_id = dt_id;
              std::memcpy(secondary_version.payload, chain_head.payload, value_length);
           });
-      iterator.markAsDirty();
       DanglingPointer dangling_pointer;
       dangling_pointer.bf = iterator.leaf.bf;
       dangling_pointer.latch_version_should_be = iterator.leaf.guard.version;
@@ -429,6 +428,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       }
       // -------------------------------------------------------------------------------------
       chain_head.unlock();
+      iterator.markAsDirty();
       // -------------------------------------------------------------------------------------
       if (cr::activeTX().isSingleStatement()) {
          cr::Worker::my().commitTX();
@@ -492,6 +492,7 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
                                      update_entry.payload + update_entry.key_length + update_descriptor.size());
             }
             // -------------------------------------------------------------------------------------
+            iterator.markAsDirty();
             jumpmu_return;
          }
          jumpmuCatch() { UNREACHABLE(); }
@@ -586,6 +587,9 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
 SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
+   return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
+   // -------------------------------------------------------------------------------------
+   // TODO: WIP
    Guard bf_guard(bf.header.latch);
    bf_guard.toOptimisticOrJump();
    HybridPageGuard<BTreeNode> c_guard(std::move(bf_guard), &bf);

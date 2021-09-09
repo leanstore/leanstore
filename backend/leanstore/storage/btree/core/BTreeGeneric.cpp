@@ -32,6 +32,10 @@ void BTreeGeneric::create(DTID dtid, bool enable_wal)
    ExclusivePageGuard meta_page(std::move(meta_guard));
    meta_page->is_leaf = false;
    meta_page->upper = root_write_guard.bf();  // HACK: use upper of meta node as a swip to the storage root
+   // -------------------------------------------------------------------------------------
+   // TODO: write WALs
+   root_write_guard.incrementGSN();
+   meta_page.incrementGSN();
 }
 // -------------------------------------------------------------------------------------
 void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
@@ -67,6 +71,12 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
       auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
       auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
       // -------------------------------------------------------------------------------------
+      // Increment GSNs before writing WAL to make sure that these pages marked as dirty
+      // regardless of the FLAGS_wal
+      new_root.incrementGSN();
+      new_left_node.incrementGSN();
+      c_x_guard.incrementGSN();
+      // -------------------------------------------------------------------------------------
       auto exec = [&]() {
          new_root.keepAlive();
          new_root.init(false);
@@ -75,7 +85,6 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          // -------------------------------------------------------------------------------------
          new_left_node.init(c_x_guard->is_leaf);
          c_x_guard->getSep(sep_key, sep_info);
-         // -------------------------------------------------------------------------------------
          c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
       };
       if (is_wal_enabled) {
@@ -127,6 +136,11 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          // -------------------------------------------------------------------------------------
          auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
          auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
+         // -------------------------------------------------------------------------------------
+         // Increment GSNs before writing WAL to make sure that these pages marked as dirty
+         // regardless of the FLAGS_wal
+         new_left_node.incrementGSN();
+         c_x_guard.incrementGSN();
          // -------------------------------------------------------------------------------------
          auto exec = [&]() {
             new_left_node.init(c_x_guard->is_leaf);
@@ -193,6 +207,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    p_guard.recheck();
    c_guard.recheck();
    // -------------------------------------------------------------------------------------
+   // TODO: write WALs
    auto merge_left = [&]() {
       Swip<BTreeNode>& l_swip = p_guard->getChild(pos - 1);
       if (!swizzle_sibling && !l_swip.isHOT()) {
@@ -436,6 +451,8 @@ BTreeGeneric::XMergeReturnCode BTreeGeneric::XMerge(HybridPageGuard<BTreeNode>& 
       {
          ExclusivePageGuard<BTreeNode> right_x_guard(std::move(guards[right_hand - pos]));
          ExclusivePageGuard<BTreeNode> left_x_guard(std::move(guards[left_hand - pos]));
+         right_x_guard.incrementGSN();
+         left_x_guard.incrementGSN();
          max_right = left_hand;
          ret = mergeLeftIntoRight(p_x_guard, left_hand, left_x_guard, right_x_guard, left_hand == pos);
          // we unlock only the left page, the right one should not be touched again
