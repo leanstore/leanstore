@@ -21,14 +21,14 @@ using namespace leanstore::storage::btree;
 // -------------------------------------------------------------------------------------
 void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, COMMANDID command_id, u64 payload_length, std::function<void(u8*)> cb)
 {
-   const u64 key_length = sizeof(session_id) + sizeof(tx_id) + sizeof(command_id);
+   const u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];
    u64 offset = 0;
-   offset += utils::fold(key_buffer + offset, session_id);
    offset += utils::fold(key_buffer + offset, tx_id);
    offset += utils::fold(key_buffer + offset, command_id);
    Slice key(key_buffer, key_length);
    // -------------------------------------------------------------------------------------
+   BTreeLL* btree = btrees[session_id];
    auto& session = sessions[session_id];
    if (session.init) {
       jumpmuTry()
@@ -82,10 +82,10 @@ void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, COMMANDID com
 // -------------------------------------------------------------------------------------
 bool VersionsSpace::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, std::function<void(const u8*, u64)> cb)
 {
-   const u64 key_length = sizeof(worker_id) + sizeof(tx_id) + sizeof(command_id);
+   BTreeLL* btree = btrees[worker_id];
+   const u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];
    u64 offset = 0;
-   offset += utils::fold(key_buffer + offset, worker_id);
    offset += utils::fold(key_buffer + offset, tx_id);
    offset += utils::fold(key_buffer + offset, command_id);
    // -------------------------------------------------------------------------------------
@@ -111,10 +111,10 @@ void VersionsSpace::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
 {
    // [from, to]
    WORKERID worker_id = cr::Worker::my().worker_id;
-   const u64 key_length = sizeof(worker_id) + sizeof(to_tx_id);
+   BTreeLL* btree = btrees[worker_id];
+   const u64 key_length = sizeof(to_tx_id);
    u8 key_buffer[key_length];
    u64 offset = 0;
-   offset += utils::fold(key_buffer + offset, worker_id);
    offset += utils::fold(key_buffer + offset, from_tx_id);
    Slice key(key_buffer, key_length);
    // -------------------------------------------------------------------------------------
@@ -125,11 +125,7 @@ void VersionsSpace::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
       OP_RESULT ret = iterator.seek(key);
       while (ret == OP_RESULT::OK) {
          iterator.assembleKey();
-         auto& current_worker_id = *reinterpret_cast<const WORKERID*>(iterator.key().data());
-         if (current_worker_id != worker_id) {
-            break;
-         }
-         auto& current_tx_id = *reinterpret_cast<const TXID*>(iterator.key().data() + sizeof(WORKERID));
+         auto& current_tx_id = *reinterpret_cast<const TXID*>(iterator.key().data());
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
             ret = iterator.removeCurrent();
             ensure(ret == OP_RESULT::OK);
