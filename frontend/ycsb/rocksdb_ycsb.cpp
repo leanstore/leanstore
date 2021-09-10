@@ -28,8 +28,10 @@ DEFINE_bool(ycsb_single_statement_tx, true, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
 // -------------------------------------------------------------------------------------
 using YCSBKey = u64;
-using YCSBPayload = BytesPayload<120>;
+using YCSBPayload = BytesPayload<64>;
 using YCSBTable = Relation<YCSBKey, YCSBPayload>;
+// -------------------------------------------------------------------------------------
+thread_local rocksdb::Transaction* RocksDB::txn = nullptr;
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
 {
@@ -83,7 +85,6 @@ int main(int argc, char** argv)
          while (keep_running) {
             jumpmuTry()
             {
-               rocks_db.session->begin_transaction(rocks_db.session, NULL);
                YCSBKey key;
                if (FLAGS_zipf_factor == 0) {
                   key = leanstore::utils::RandomGenerator::getRandU64(0, ycsb_tuple_count);
@@ -100,7 +101,6 @@ int main(int argc, char** argv)
                   table.update1(
                       {key}, [&](YCSBTable& rec) { rec.my_payload = result; }, tabular_update_descriptor);
                }
-               rocks_db.session->commit_transaction(rocks_db.session, NULL);
                thread_committed[t_i]++;
             }
             jumpmuCatch() { thread_aborted[t_i]++; }

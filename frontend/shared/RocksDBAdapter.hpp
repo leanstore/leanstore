@@ -76,6 +76,7 @@ struct RocksDB {
          txn = nullptr;
       }
    }
+   void prepareThread() {}
 };
 // -------------------------------------------------------------------------------------
 template <class Record>
