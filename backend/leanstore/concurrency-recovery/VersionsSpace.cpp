@@ -107,10 +107,9 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID co
 }
 // -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer
-void VersionsSpace::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
+void VersionsSpace::purgeTXIDRange(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id)
 {
    // [from, to]
-   WORKERID worker_id = cr::Worker::my().worker_id;
    BTreeLL* btree = btrees[worker_id];
    const u64 key_length = sizeof(to_tx_id);
    u8 key_buffer[key_length];

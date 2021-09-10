@@ -278,7 +278,7 @@ void Worker::checkup()
                WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
                leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.worker_id, todo.tx_id);
             } else {
-               versions_space.purgeTXIDRange(todo.tx_id, todo.tx_id);
+               versions_space.purgeTXIDRange(worker_id, todo.tx_id, todo.tx_id);
             }
             todo_rb->popFront();
          } else {
@@ -351,7 +351,7 @@ void Worker::abortTX()
       if (activeTX().isSerializable()) {
          executeUnlockTasks();
       }
-      versions_space.purgeTXIDRange(active_tx.TTS(), active_tx.TTS());
+      versions_space.purgeTXIDRange(worker_id, active_tx.TTS(), active_tx.TTS());
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.type = WALEntry::TYPE::TX_ABORT;

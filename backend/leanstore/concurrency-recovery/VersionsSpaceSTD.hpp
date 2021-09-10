@@ -33,9 +33,9 @@ class VersionsSpaceSTD : public VersionsSpaceInterface
   public:
    VersionsSpaceSTD() = default;
    ~VersionsSpaceSTD() = default;
-   virtual void insertVersion(WORKERID session_id, TXID tx_id, COMMANDID command_id, u64 payload_length, std::function<void(u8*)> cb);
-   virtual bool retrieveVersion(WORKERID session_id, TXID tx_id, COMMANDID command_id, std::function<void(const u8*, u64 payload_length)> cb);
-   virtual void purgeTXIDRange(TXID from_tx_id, TXID to_tx_id);  // [from, to]
+   virtual void insertVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, u64 payload_length, std::function<void(u8*)> cb);
+   virtual bool retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, std::function<void(const u8*, u64 payload_length)> cb);
+   virtual void purgeTXIDRange(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id);  // [from, to]
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr

@@ -99,7 +99,7 @@ LeanStore::LeanStore()
    cr_manager = make_unique<cr::CRManager>(*versions_space.get(), ssd_fd, end_of_block_device);
    cr::CRManager::global = cr_manager.get();
    cr_manager->scheduleJobSync(0, [&]() {
-      versions_space->btrees = new storage::btree::BTreeLL*[FLAGS_worker_threads];
+      versions_space->btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
       for (u64 w_i = 0; w_i < FLAGS_worker_threads; w_i++) {
          std::string name = "versions_space_" + std::to_string(w_i);
          versions_space->btrees[w_i] = &registerBTreeLL(name, false);

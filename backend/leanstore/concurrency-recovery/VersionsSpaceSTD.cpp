@@ -52,7 +52,7 @@ bool VersionsSpaceSTD::retrieveVersion(WORKERID, TXID tx_id, COMMANDID command_i
    }
 }
 // -------------------------------------------------------------------------------------
-void VersionsSpaceSTD::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
+void VersionsSpaceSTD::purgeTXIDRange(WORKERID, TXID from_tx_id, TXID to_tx_id)
 {  // [from, to]
    std::basic_string<u8> begin;
    begin.resize(sizeof(from_tx_id));
