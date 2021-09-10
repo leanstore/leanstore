@@ -125,15 +125,22 @@ void VersionsSpace::purgeTXIDRange(TXID from_tx_id, TXID to_tx_id)
       OP_RESULT ret = iterator.seek(key);
       while (ret == OP_RESULT::OK) {
          iterator.assembleKey();
+         auto& current_worker_id = *reinterpret_cast<const WORKERID*>(iterator.key().data());
+         if (current_worker_id != worker_id) {
+            break;
+         }
          auto& current_tx_id = *reinterpret_cast<const TXID*>(iterator.key().data() + sizeof(WORKERID));
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
-            iterator.removeCurrent();
+            ret = iterator.removeCurrent();
+            ensure(ret == OP_RESULT::OK);
             COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
             iterator.markAsDirty();
             if (iterator.mergeIfNeeded()) {
                goto retry;
             }
-            ret = iterator.next();
+            if (iterator.cur == iterator.leaf->count) {
+               ret = iterator.next();
+            }
          } else {
             break;
          }

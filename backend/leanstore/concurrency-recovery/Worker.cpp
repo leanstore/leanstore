@@ -270,6 +270,7 @@ void Worker::checkup()
          return;
       }
       // -------------------------------------------------------------------------------------
+      // versions_space.purgeTXIDRange(0, global_snapshot_lwm);
       while (!todo_rb->empty()) {
          auto& todo = *reinterpret_cast<TODOEntry*>(todo_rb->front());
          if (local_oldest_txid > todo.commit_tts) {
