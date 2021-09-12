@@ -139,6 +139,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          // -------------------------------------------------------------------------------------
          // Increment GSNs before writing WAL to make sure that these pages marked as dirty
          // regardless of the FLAGS_wal
+         p_x_guard.incrementGSN();
          new_left_node.incrementGSN();
          c_x_guard.incrementGSN();
          // -------------------------------------------------------------------------------------
