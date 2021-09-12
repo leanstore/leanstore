@@ -455,6 +455,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
       if (ret != OP_RESULT::OK) {
          return ret;
       }
+      assert(keyInCurrentBoundaries(key));
       ret = enoughSpaceInCurrentNode(key, value.length());
       if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
          splitForKey(key);

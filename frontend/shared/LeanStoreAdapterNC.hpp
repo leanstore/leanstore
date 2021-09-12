@@ -15,16 +15,16 @@ using TID = u64;
 std::atomic<TID> global_tid[1024] = {0};
 // -------------------------------------------------------------------------------------
 template <class Record>
-struct LeanStoreAdapterNC : Adapter<Record> {
+struct LeanStoreAdapter : Adapter<Record> {
    leanstore::storage::btree::BTreeLL* key_tid;
    leanstore::storage::btree::BTreeLL* tid_value;
    string name;
    // -------------------------------------------------------------------------------------
-   LeanStoreAdapterNC()
+   LeanStoreAdapter()
    {
       // hack
    }
-   LeanStoreAdapterNC(LeanStore& db, string name) : name(name)
+   LeanStoreAdapter(LeanStore& db, string name) : name(name)
    {
       key_tid = &db.registerBTreeLL(name + "_key_tid", false);
       tid_value = &db.registerBTreeLL(name + "_tid_value", false);
@@ -47,32 +47,44 @@ struct LeanStoreAdapterNC : Adapter<Record> {
    // -------------------------------------------------------------------------------------
    void moveIt(TID tid, u8* folded_key, u16 folded_key_len)
    {
-      const bool move_it = FLAGS_tmp2 && leanstore::utils::RandomGenerator::getRandU64(0, FLAGS_tmp3) == 0;
-      OP_RESULT ret;
+      if (tid & (1ull << 63)) {
+         return;
+      }
+      const bool move_it = FLAGS_nc_reallocation && leanstore::utils::RandomGenerator::getRandU64(0, FLAGS_tmp3) == 0;
       if (move_it) {
-         u8 copy[16 * 1024];
-         u64 copy_length;
-         ret = tid_value->lookup((u8*)&tid, sizeof(TID), [&](const u8* payload, u16 payload_length) {
-            ensure(payload_length == sizeof(Record));
-            copy_length = payload_length;
-            std::memcpy(copy, payload, copy_length);
-         });
-         ensure(ret == OP_RESULT::OK);
-         TID new_tid = global_tid[Record::id * 8].fetch_add(1) | (1ull << 63);
-         ret = tid_value->insert((u8*)&new_tid, sizeof(TID), copy, copy_length);
-         ensure(ret == OP_RESULT::OK);
          UpdateSameSizeInPlaceDescriptor tmp;
          tmp.count = 0;
-         ret = key_tid->updateSameSizeInPlace(
+         OP_RESULT ret = key_tid->updateSameSizeInPlace(
              folded_key, folded_key_len,
              [&](u8* payload, u16 payload_length) {
                 ensure(payload_length == sizeof(TID));
+                TID old_tid = *reinterpret_cast<TID*>(payload);
+                TID new_tid = global_tid[Record::id * 8].fetch_add(1) | (1ull << 63);
+                // -------------------------------------------------------------------------------------
+                u8 copy[16 * 1024];
+                u64 copy_length;
+                OP_RESULT ret2 = tid_value->lookup((u8*)&old_tid, sizeof(TID), [&](const u8* payload, u16 payload_length) {
+                   ensure(payload_length == sizeof(Record));
+                   copy_length = payload_length;
+                   std::memcpy(copy, payload, copy_length);
+                });
+                if (ret2 != OP_RESULT::OK) {
+                   return;
+                }
+                // -------------------------------------------------------------------------------------
+                OP_RESULT ret3 = tid_value->insert((u8*)&new_tid, sizeof(TID), copy, copy_length);
+                ensure(ret3 == OP_RESULT::OK);
+                // -------------------------------------------------------------------------------------
+                OP_RESULT ret4 = tid_value->remove((u8*)&old_tid, sizeof(TID));
+                ensure(ret4 == OP_RESULT::OK);
+                // -------------------------------------------------------------------------------------
                 *reinterpret_cast<TID*>(payload) = new_tid;
              },
              tmp);
-         ensure(ret == OP_RESULT::OK);
-         ret = tid_value->remove((u8*)&tid, sizeof(TID));
-         ensure(ret == OP_RESULT::OK);
+         ensure(ret == OP_RESULT::OK);  // As long as no one deletes the key
+         if (FLAGS_tmp5) {
+            cout << "moved " << tid << endl;
+         }
       }
    }
    // -------------------------------------------------------------------------------------
@@ -86,15 +98,15 @@ struct LeanStoreAdapterNC : Adapter<Record> {
       ret = key_tid->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          ensure(payload_length == sizeof(TID));
          tid = *reinterpret_cast<const TID*>(payload);
+         // -------------------------------------------------------------------------------------
+         tid_value->lookup((u8*)&tid, sizeof(TID), [&](const u8* payload, u16 payload_length) {
+            ensure(payload_length == sizeof(Record));
+            const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
+            cb(typed_payload);
+         });
       });
       ensure(ret == OP_RESULT::OK);
       // -------------------------------------------------------------------------------------
-      ret = tid_value->lookup((u8*)&tid, sizeof(TID), [&](const u8* payload, u16 payload_length) {
-         ensure(payload_length == sizeof(Record));
-         const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
-         cb(typed_payload);
-      });
-      ensure(ret == OP_RESULT::OK);
       moveIt(tid, folded_key, folded_key_len);
    }
    // -------------------------------------------------------------------------------------

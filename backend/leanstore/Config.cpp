@@ -57,6 +57,7 @@ DEFINE_double(tmp6, 0.0, "");
 DEFINE_double(tmp7, 0.0, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(btree_print_height, false, "Print BTree height in destructor");
+DEFINE_bool(nc_reallocation, false, "Reallocate hot pages in non-clustered btree index");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(bulk_insert, false, "");
 // -------------------------------------------------------------------------------------
@@ -92,8 +93,8 @@ DEFINE_bool(vi_update_version_elision, false, "");
 DEFINE_bool(vi_fupdate_chained, false, "");
 DEFINE_bool(vi_fupdate_fat_tuple, false, "");
 DEFINE_uint64(vi_pgc_batch_size, 2, "");
-DEFINE_bool(vi_skip_stale_leaves, true, "");
-DEFINE_bool(vi_skip_stale_swips, true, "");
+DEFINE_bool(vi_skip_stale_leaves, false, "");
+DEFINE_bool(vi_skip_stale_swips, false, "");
 DEFINE_bool(vi_twoq_todo, true, "");
 DEFINE_bool(vi_fat_tuple, true, "");
 DEFINE_uint64(vi_fat_tuple_threshold, 4, "Minimum length of chain length before converting the tuple format to FatTuple");
