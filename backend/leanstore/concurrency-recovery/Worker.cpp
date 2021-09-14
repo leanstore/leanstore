@@ -267,11 +267,14 @@ void Worker::checkup()
       if (!FLAGS_todo) {
          return;
       }
-      versions_space.purgeTXIDRange(worker_id, 0, global_snapshot_lwm.load() - 1,
-                                    [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length) {
-                                       leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id);
-                                       WorkerCounters::myCounters().cc_rtodo_shrt_executed[dt_id]++;
-                                    });
+      if (global_snapshot_lwm.load() > 0) {
+         versions_space.purgeTXIDRange(
+             worker_id, 0, global_snapshot_lwm.load() - 1,
+             [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length) {
+                leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id);
+                WorkerCounters::myCounters().cc_rtodo_shrt_executed[dt_id]++;
+             });
+      }
    }
 }
 // -------------------------------------------------------------------------------------
