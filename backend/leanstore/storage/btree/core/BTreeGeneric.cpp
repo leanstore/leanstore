@@ -254,7 +254,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          return true;
       };
       auto merge_right = [&]() {
-         Swip<BTreeNode>& r_swip = (c_guard->is_leaf && pos == (p_guard->count - 2)) ? p_guard->upper : p_guard->getChild(pos + 1);
+         Swip<BTreeNode>& r_swip = ((pos + 1) == p_guard->count) ? p_guard->upper : p_guard->getChild(pos + 1);
          if (!swizzle_sibling) {
             return false;
          }
@@ -289,13 +289,11 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       };
       // ATTENTION: don't use c_guard without making sure it was not reclaimed
       // -------------------------------------------------------------------------------------
-      if (p_guard->count >= 2) {
-         if (pos > 0) {
-            merged_successfully |= merge_left();
-         }
-         if (!merged_successfully && (pos + 1) < p_guard->count) {
-            merged_successfully |= merge_right();
-         }
+      if (pos > 0) {
+         merged_successfully |= merge_left();
+      }
+      if (!merged_successfully && pos < p_guard->count) {
+         merged_successfully |= merge_right();
       }
    }
    // -------------------------------------------------------------------------------------
