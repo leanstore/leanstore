@@ -344,11 +344,11 @@ OP_RESULT BTreeVW::remove(u8* key, u16 key_length)
                   std::memcpy(wal_entry->payload + key_length, payload, payload_length);
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
-                  cr::Worker::my().stageTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
-                     auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
-                     todo_entry.key_length = key_length;
-                     std::memcpy(todo_entry.key, key, key_length);
-                  });
+                  // cr::Worker::my().stageTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
+                  //    auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
+                  //    todo_entry.key_length = key_length;
+                  //    std::memcpy(todo_entry.key, key, key_length);
+                  // });
                   // -------------------------------------------------------------------------------------
                   version.in_memory_offset = wal_entry.in_memory_offset;
                   version.worker_id = myWorkerID();

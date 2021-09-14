@@ -19,7 +19,13 @@ namespace cr
 {
 using namespace leanstore::storage::btree;
 // -------------------------------------------------------------------------------------
-void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, COMMANDID command_id, u64 payload_length, std::function<void(u8*)> cb)
+void VersionsSpace::insertVersion(WORKERID session_id,
+                                  TXID tx_id,
+                                  COMMANDID command_id,
+                                  u64 payload_length,
+                                  bool should_callback,
+                                  DTID dt_id,
+                                  std::function<void(u8*)> cb)
 {
    const u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];
@@ -27,6 +33,7 @@ void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, COMMANDID com
    offset += utils::fold(key_buffer + offset, tx_id);
    offset += utils::fold(key_buffer + offset, command_id);
    Slice key(key_buffer, key_length);
+   payload_length += sizeof(VersionMeta);
    // -------------------------------------------------------------------------------------
    BTreeLL* btree = btrees[session_id];
    auto& session = sessions[session_id];
@@ -42,7 +49,10 @@ void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, COMMANDID com
             } else {
                iterator.insertInCurrentNode(key, payload_length);
             }
-            cb(iterator.mutableValue().data());
+            auto& version_meta = *new (iterator.mutableValue().data()) VersionMeta();
+            version_meta.should_callback = should_callback;
+            version_meta.dt_id = dt_id;
+            cb(version_meta.payload);
             iterator.markAsDirty();
             COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_inserted_opt++; }
             iterator.leaf.unlock();
@@ -64,7 +74,10 @@ void VersionsSpace::insertVersion(WORKERID session_id, TXID tx_id, COMMANDID com
             jumpmu_continue;
          }
          iterator.insertInCurrentNode(key, payload_length);
-         cb(iterator.mutableValue().data());
+         auto& version_meta = *new (iterator.mutableValue().data()) VersionMeta();
+         version_meta.should_callback = should_callback;
+         version_meta.dt_id = dt_id;
+         cb(version_meta.payload);
          iterator.markAsDirty();
          // -------------------------------------------------------------------------------------
          session.bf = iterator.leaf.bf;
@@ -98,7 +111,8 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID co
          jumpmu_return false;
       }
       Slice payload = iterator.value();
-      cb(payload.data(), payload.length());
+      const auto& version_container = *reinterpret_cast<const VersionMeta*>(payload.data());
+      cb(version_container.payload, payload.length() - sizeof(VersionMeta));
       jumpmu_return true;
    }
    jumpmuCatch() {}
@@ -107,7 +121,10 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID co
 }
 // -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer
-void VersionsSpace::purgeTXIDRange(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id)
+void VersionsSpace::purgeTXIDRange(WORKERID worker_id,
+                                   TXID from_tx_id,
+                                   TXID to_tx_id,
+                                   std::function<void(const TXID, const DTID, const u8*, u64 payload_length)> cb)
 {
    // [from, to]
    BTreeLL* btree = btrees[worker_id];
@@ -127,6 +144,11 @@ void VersionsSpace::purgeTXIDRange(WORKERID worker_id, TXID from_tx_id, TXID to_
          TXID current_tx_id;
          utils::unfold(iterator.key().data(), current_tx_id);
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
+            const auto& version_container = *reinterpret_cast<const VersionMeta*>(iterator.value().data());
+            if (version_container.should_callback) {
+               cb(current_tx_id, version_container.dt_id, version_container.payload, iterator.value().length() - sizeof(VersionMeta));
+            }
+            // -------------------------------------------------------------------------------------
             ret = iterator.removeCurrent();
             ensure(ret == OP_RESULT::OK);
             COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }

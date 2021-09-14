@@ -209,7 +209,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // Write the ChainedTupleDelta
       if (!update_without_versioning) {
          cr::Worker::my().versions_space.insertVersion(
-             cr::Worker::my().workerID(), cr::activeTX().TTS(), command_id, version_payload_length, [&](u8* version_payload) {
+             cr::Worker::my().workerID(), cr::activeTX().TTS(), command_id, version_payload_length, false, dt_id, [&](u8* version_payload) {
                 auto& secondary_version = *new (version_payload) UpdateVersion(tuple_head.worker_id, tuple_head.tx_id, tuple_head.command_id, true);
                 std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
                 BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
@@ -370,7 +370,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       const u16 value_length = iterator.value().length() - sizeof(ChainedTuple);
       const u16 version_payload_length = sizeof(RemoveVersion) + value_length + o_key_length;
       cr::Worker::my().versions_space.insertVersion(
-          cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, version_payload_length, [&](u8* secondary_payload) {
+          cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, version_payload_length, true, dt_id, [&](u8* secondary_payload) {
              auto& secondary_version =
                  *new (secondary_payload) RemoveVersion(chain_head.worker_id, chain_head.tx_id, chain_head.command_id, o_key_length, value_length);
              secondary_version.dangling_pointer = dangling_pointer;
@@ -403,15 +403,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          } else {
             chain_head.read_ts = cr::activeTX().TTS();
          }
-      }
-      // -------------------------------------------------------------------------------------
-      if (FLAGS_vi_rtodo) {
-         cr::Worker::my().stageTODO(cr::Worker::my().workerID(), cr::activeTX().TTS(), dt_id, o_key_length + sizeof(TODOPoint), [&](u8* entry) {
-            auto& todo_entry = *new (entry) TODOPoint();
-            todo_entry.key_length = o_key_length;
-            todo_entry.dangling_pointer = dangling_pointer;
-            std::memcpy(todo_entry.key, o_key, o_key_length);
-         });
       }
       // -------------------------------------------------------------------------------------
       chain_head.unlock();
@@ -597,20 +588,20 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    // Only point-gc and for removed tuples
-   const TODOPoint& point_todo = *reinterpret_cast<const TODOPoint*>(entry_ptr);
+   const auto& version = *reinterpret_cast<const RemoveVersion*>(entry_ptr);
    if (FLAGS_vi_dangling_pointer) {
-      assert(point_todo.dangling_pointer.bf != nullptr);
+      assert(version.dangling_pointer.bf != nullptr);
       // Optimistic fast path
       jumpmuTry()
       {
-         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree), point_todo.dangling_pointer.bf,
-                                         point_todo.dangling_pointer.latch_version_should_be);
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree), version.dangling_pointer.bf,
+                                         version.dangling_pointer.latch_version_should_be);
          auto& node = iterator.leaf;
-         auto& head = *reinterpret_cast<ChainedTuple*>(node->getPayload(point_todo.dangling_pointer.head_slot));
+         auto& head = *reinterpret_cast<ChainedTuple*>(node->getPayload(version.dangling_pointer.head_slot));
          // Being chained is implicit because we check for version, so the state can not be changed after staging the todo
          ensure(head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked() && head.worker_id == version_worker_id &&
                 head.tx_id == version_tts && head.is_removed);
-         node->removeSlot(point_todo.dangling_pointer.head_slot);
+         node->removeSlot(version.dangling_pointer.head_slot);
          iterator.markAsDirty();
          iterator.mergeIfNeeded();
          jumpmu_return;
@@ -618,7 +609,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       jumpmuCatch() {}
    }
    // -------------------------------------------------------------------------------------
-   Slice key(point_todo.key, point_todo.key_length);
+   Slice key(version.payload, version.key_length);
    OP_RESULT ret;
    // -------------------------------------------------------------------------------------
    // TODO: The undo could belong to an aborted transaction, will be fixed once we move to versionsspace only design

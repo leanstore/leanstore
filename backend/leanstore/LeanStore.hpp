@@ -1,7 +1,6 @@
 #pragma once
 #include "Config.hpp"
 #include "leanstore/concurrency-recovery/VersionsSpace.hpp"
-#include "leanstore/concurrency-recovery/VersionsSpaceSTD.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
 #include "leanstore/storage/btree/BTreeLL.hpp"
 #include "leanstore/storage/btree/BTreeVI.hpp"
@@ -40,7 +39,6 @@ class LeanStore
    GlobalStats global_stats;
    // -------------------------------------------------------------------------------------
    std::unique_ptr<cr::VersionsSpace> versions_space;
-   std::unique_ptr<cr::VersionsSpaceSTD> versions_space_std;
    // -------------------------------------------------------------------------------------
   private:
    static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;

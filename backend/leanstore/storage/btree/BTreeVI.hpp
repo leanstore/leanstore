@@ -184,7 +184,7 @@ class BTreeVI : public BTreeLL
       u16 key_length;
       u16 value_length;
       DanglingPointer dangling_pointer;
-      u8 payload[];
+      u8 payload[];  // Key + Value
       RemoveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, u16 key_length, u16 value_length)
           : Version(Version::TYPE::REMOVE, worker_id, tx_id, command_id), key_length(key_length), value_length(value_length)
       {
