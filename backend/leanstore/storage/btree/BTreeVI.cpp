@@ -625,11 +625,14 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    Slice key(point_todo.key, point_todo.key_length);
    OP_RESULT ret;
    // -------------------------------------------------------------------------------------
+   // TODO: The undo could belong to an aborted transaction, will be fixed once we move to versionsspace only design
    jumpmuTry()
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree));
       ret = iterator.seekExact(key);
-      ensure(ret == OP_RESULT::OK);
+      if (ret != OP_RESULT::OK) {
+         jumpmu_return;
+      }
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_chains[btree.dt_id]++; }
       // -------------------------------------------------------------------------------------
       MutableSlice primary_payload = iterator.mutableValue();
@@ -641,11 +644,11 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          }
       }
       // -------------------------------------------------------------------------------------
-      // The undo could belong to an aborted transaction, will be fixed once we move to versionsspace only design
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_id == version_tts && primary_version.is_removed) {
             ret = iterator.removeCurrent();
+            iterator.markAsDirty();
             ensure(ret == OP_RESULT::OK);
             iterator.mergeIfNeeded();
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_remove[btree.dt_id]++; }

@@ -201,6 +201,7 @@ struct ParentSwipHandler BTreeGeneric::findParentEager(BTreeGeneric& btree, Buff
 // -------------------------------------------------------------------------------------
 bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
 {
+   // pos == p_guard->count means that the current node is the upper swip in parent
    auto parent_handler = findParentEager(*this, to_merge);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
@@ -236,9 +237,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
          // -------------------------------------------------------------------------------------
-         p_guard.incrementGSN();
-         c_guard.incrementGSN();
-         l_guard.incrementGSN();
+         ensure(c_x_guard->is_leaf == l_x_guard->is_leaf);
          // -------------------------------------------------------------------------------------
          if (!l_x_guard->merge(pos - 1, p_x_guard, c_x_guard)) {
             p_guard = std::move(p_x_guard);
@@ -246,6 +245,10 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
             l_guard = std::move(l_x_guard);
             return false;
          }
+         // -------------------------------------------------------------------------------------
+         p_guard.incrementGSN();
+         c_guard.incrementGSN();
+         l_guard.incrementGSN();
          // -------------------------------------------------------------------------------------
          l_x_guard.reclaim();
          // -------------------------------------------------------------------------------------
@@ -268,9 +271,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
          // -------------------------------------------------------------------------------------
-         p_guard.incrementGSN();
-         c_guard.incrementGSN();
-         r_guard.incrementGSN();
+         ensure(c_x_guard->is_leaf == r_x_guard->is_leaf);
          // -------------------------------------------------------------------------------------
          assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf());
          if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
@@ -279,6 +280,10 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
             r_guard = std::move(r_x_guard);
             return false;
          }
+         // -------------------------------------------------------------------------------------
+         p_guard.incrementGSN();
+         c_guard.incrementGSN();
+         r_guard.incrementGSN();
          // -------------------------------------------------------------------------------------
          c_x_guard.reclaim();
          // -------------------------------------------------------------------------------------

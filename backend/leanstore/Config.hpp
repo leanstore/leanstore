@@ -91,7 +91,6 @@ DECLARE_uint64(vi_fat_tuple_threshold);
 DECLARE_uint64(vi_pgc_batch_size);
 DECLARE_bool(vi_skip_stale_leaves);
 DECLARE_bool(vi_skip_stale_swips);
-DECLARE_bool(vi_twoq_todo);
 DECLARE_bool(vi_fat_tuple);
 DECLARE_bool(vi_dangling_pointer);
 // -------------------------------------------------------------------------------------
