@@ -118,23 +118,6 @@ class BTreeVI : public BTreeLL
    };
    // static_assert(sizeof(ChainedTuple) <= 42, "");
    // -------------------------------------------------------------------------------------
-   struct __attribute__((packed)) ChainedTupleVersion {
-      WORKERID worker_id;
-      TXID tx_id;
-      TXID committed_before_txid;  // Helpful for garbage collection
-      COMMANDID command_id;
-      u8 is_removed : 1;
-      u8 is_delta : 1;
-      u8 payload[];  // UpdateDescriptor + Diff
-      // -------------------------------------------------------------------------------------
-      ChainedTupleVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, bool is_removed, bool is_delta)
-          : worker_id(worker_id), tx_id(tx_id), command_id(command_id), is_removed(is_removed), is_delta(is_delta)
-      {
-      }
-      bool isFinal() const { return command_id == 0; }
-   };
-   // static_assert(sizeof(ChainedTupleVersion) <= 32, "");
-   // -------------------------------------------------------------------------------------
    // We always append the descriptor, one format to keep simple
    struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
       struct __attribute__((packed)) Delta {
@@ -175,6 +158,37 @@ class BTreeVI : public BTreeLL
       BufferFrame* bf = nullptr;
       u64 latch_version_should_be = -1;
       s32 head_slot = -1;
+   };
+   struct __attribute__((packed)) Version {
+      enum class TYPE : u8 { UPDATE, REMOVE };
+      TYPE type;
+      WORKERID worker_id;
+      TXID tx_id;
+      COMMANDID command_id;
+      Version(TYPE type, WORKERID worker_id, TXID tx_id, COMMANDID command_id)
+          : type(type), worker_id(worker_id), tx_id(tx_id), command_id(command_id)
+      {
+      }
+   };
+   struct __attribute__((packed)) UpdateVersion : Version {
+      u8 is_delta : 1;
+      u8 payload[];  // UpdateDescriptor + Diff
+      // -------------------------------------------------------------------------------------
+      UpdateVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, bool is_delta)
+          : Version(Version::TYPE::UPDATE, worker_id, tx_id, command_id), is_delta(is_delta)
+      {
+      }
+      bool isFinal() const { return command_id == 0; }
+   };
+   struct __attribute__((packed)) RemoveVersion : Version {
+      u16 key_length;
+      u16 value_length;
+      DanglingPointer dangling_pointer;
+      u8 payload[];
+      RemoveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, u16 key_length, u16 value_length)
+          : Version(Version::TYPE::REMOVE, worker_id, tx_id, command_id), key_length(key_length), value_length(value_length)
+      {
+      }
    };
    // -------------------------------------------------------------------------------------
    struct TODOEntry {

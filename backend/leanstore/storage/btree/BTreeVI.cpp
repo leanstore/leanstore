@@ -203,20 +203,14 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       MutableSlice primary_payload = iterator.mutableValue();
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       const u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
-      const u16 secondary_payload_length = delta_and_descriptor_size + sizeof(ChainedTupleVersion);
+      const u16 version_payload_length = delta_and_descriptor_size + sizeof(UpdateVersion);
       const COMMANDID command_id = cr::Worker::my().command_id++;
       // -------------------------------------------------------------------------------------
       // Write the ChainedTupleDelta
       if (!update_without_versioning) {
          cr::Worker::my().versions_space.insertVersion(
-             cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, secondary_payload_length, [&](u8* version_payload) {
-                auto& secondary_version =
-                    *new (version_payload) ChainedTupleVersion(tuple_head.worker_id, tuple_head.tx_id, tuple_head.command_id, false, true);
-                if (secondary_version.worker_id == cr::Worker::my().workerID() && secondary_version.tx_id == cr::activeTX().TTS()) {
-                   secondary_version.committed_before_txid = std::numeric_limits<u64>::max();
-                } else {
-                   secondary_version.committed_before_txid = cr::activeTX().TTS();
-                }
+             cr::Worker::my().workerID(), cr::activeTX().TTS(), command_id, version_payload_length, [&](u8* version_payload) {
+                auto& secondary_version = *new (version_payload) UpdateVersion(tuple_head.worker_id, tuple_head.tx_id, tuple_head.command_id, true);
                 std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
                 BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
              });
@@ -369,18 +363,20 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       // -------------------------------------------------------------------------------------
       chain_head.writeLock();
       // -------------------------------------------------------------------------------------
-      const u16 value_length = iterator.value().length() - sizeof(ChainedTuple);
-      const u16 secondary_payload_length = sizeof(ChainedTupleVersion) + value_length;
-      cr::Worker::my().versions_space.insertVersion(
-          cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, secondary_payload_length, [&](u8* secondary_payload) {
-             auto& secondary_version =
-                 *new (secondary_payload) ChainedTupleVersion(chain_head.worker_id, chain_head.tx_id, chain_head.command_id, false, false);
-             std::memcpy(secondary_version.payload, chain_head.payload, value_length);
-          });
       DanglingPointer dangling_pointer;
       dangling_pointer.bf = iterator.leaf.bf;
       dangling_pointer.latch_version_should_be = iterator.leaf.guard.version;
       dangling_pointer.head_slot = iterator.cur;
+      const u16 value_length = iterator.value().length() - sizeof(ChainedTuple);
+      const u16 version_payload_length = sizeof(RemoveVersion) + value_length + o_key_length;
+      cr::Worker::my().versions_space.insertVersion(
+          cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, version_payload_length, [&](u8* secondary_payload) {
+             auto& secondary_version =
+                 *new (secondary_payload) RemoveVersion(chain_head.worker_id, chain_head.tx_id, chain_head.command_id, o_key_length, value_length);
+             secondary_version.dangling_pointer = dangling_pointer;
+             std::memcpy(secondary_version.payload, o_key, o_key_length);
+             std::memcpy(secondary_version.payload + o_key_length, chain_head.payload, value_length);
+          });
       // -------------------------------------------------------------------------------------
       // WAL
       auto wal_entry = iterator.leaf.reserveWALEntry<WALRemove>(o_key_length + value_length);
@@ -723,9 +719,6 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
    }
    // -------------------------------------------------------------------------------------
    // Head is not visible
-   if (chain_head.isFinal()) {
-      return {OP_RESULT::NOT_FOUND, 1};
-   }
    materialized_value_length = head_payload.length() - sizeof(ChainedTuple);
    materialized_value = std::make_unique<u8[]>(materialized_value_length);
    std::memcpy(materialized_value.get(), chain_head.payload, materialized_value_length);
@@ -734,24 +727,35 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
    COMMANDID next_command_id = chain_head.command_id;
    // -------------------------------------------------------------------------------------
    while (true) {
-      bool is_removed;
-      bool found =
-          cr::Worker::my().versions_space.retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version, u64 version_length) {
-             const auto& secondary_version = *reinterpret_cast<const ChainedTupleVersion*>(version);
-             if (secondary_version.is_delta) {
-                // Apply delta
-                const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(secondary_version.payload);
-                BTreeLL::applyDiff(update_descriptor, materialized_value.get(), secondary_version.payload + update_descriptor.size());
-             } else {
-                materialized_value_length = version_length - sizeof(ChainedTupleVersion);
+      bool is_removed = false;
+      bool found = cr::Worker::my().versions_space.retrieveVersion(
+          next_worker_id, next_tx_id, next_command_id, [&](const u8* version_payload, u64 version_length) {
+             const auto& version = *reinterpret_cast<const Version*>(version_payload);
+             if (version.type == Version::TYPE::UPDATE) {
+                is_removed = false;
+                const auto& update_version = *reinterpret_cast<const UpdateVersion*>(version_payload);
+                if (update_version.is_delta) {
+                   // Apply delta
+                   const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(update_version.payload);
+                   BTreeLL::applyDiff(update_descriptor, materialized_value.get(), update_version.payload + update_descriptor.size());
+                } else {
+                   materialized_value_length = version_length - sizeof(UpdateVersion);
+                   materialized_value = std::make_unique<u8[]>(materialized_value_length);
+                   std::memcpy(materialized_value.get(), update_version.payload, materialized_value_length);
+                }
+             } else if (version.type == Version::TYPE::REMOVE) {
+                const auto& remove_version = *reinterpret_cast<const RemoveVersion*>(version_payload);
+                is_removed = true;
+                materialized_value_length = remove_version.value_length;
                 materialized_value = std::make_unique<u8[]>(materialized_value_length);
-                std::memcpy(materialized_value.get(), secondary_version.payload, materialized_value_length);
+                std::memcpy(materialized_value.get(), remove_version.payload, materialized_value_length);
+             } else {
+                UNREACHABLE();
              }
              // -------------------------------------------------------------------------------------
-             is_removed = secondary_version.is_removed;
-             next_worker_id = secondary_version.worker_id;
-             next_tx_id = secondary_version.tx_id;
-             next_command_id = secondary_version.command_id;
+             next_worker_id = version.worker_id;
+             next_tx_id = version.tx_id;
+             next_command_id = version.command_id;
           });
       if (!found) {
          return {OP_RESULT::NOT_FOUND, chain_length};

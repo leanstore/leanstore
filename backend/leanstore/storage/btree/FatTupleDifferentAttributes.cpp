@@ -314,7 +314,9 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    while (true) {
       const bool found = cr::Worker::my().versions_space.retrieveVersion(
           next_worker_id, next_tx_id, next_command_id, [&](const u8* version, [[maybe_unused]] u64 payload_length) {
-             const auto& chain_delta = *reinterpret_cast<const ChainedTupleVersion*>(version);
+             const auto& chain_delta = *reinterpret_cast<const UpdateVersion*>(version);
+             ensure(chain_delta.type == Version::TYPE::UPDATE);
+             ensure(chain_delta.is_delta);
              const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(chain_delta.payload);
              const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
              const u32 needed_space = sizeof(FatTupleDifferentAttributes::Delta) + descriptor_and_diff_length;
@@ -328,7 +330,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
              fat_tuple.used_space += sizeof(FatTupleDifferentAttributes::Delta);
              new_delta.worker_id = chain_delta.worker_id;
              new_delta.worker_txid = chain_delta.tx_id;
-             new_delta.committed_before_txid = chain_delta.committed_before_txid;
+             new_delta.committed_before_txid = next_tx_id;
              // -------------------------------------------------------------------------------------
              // Copy Descriptor + Diff
              std::memcpy(fat_tuple.payload + fat_tuple.used_space, &update_descriptor, descriptor_and_diff_length);
