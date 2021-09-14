@@ -124,7 +124,8 @@ void VersionsSpace::purgeTXIDRange(WORKERID worker_id, TXID from_tx_id, TXID to_
       OP_RESULT ret = iterator.seek(key);
       while (ret == OP_RESULT::OK) {
          iterator.assembleKey();
-         auto& current_tx_id = *reinterpret_cast<const TXID*>(iterator.key().data());
+         TXID current_tx_id;
+         utils::unfold(iterator.key().data(), current_tx_id);
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
             ret = iterator.removeCurrent();
             ensure(ret == OP_RESULT::OK);
