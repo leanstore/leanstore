@@ -41,7 +41,7 @@ void BTreeGeneric::create(DTID dtid, bool enable_wal)
 void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   auto parent_handler = findParent(*this, to_split);
+   auto parent_handler = findParentEager(*this, to_split);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
    if (c_guard->count <= 1)
@@ -189,9 +189,19 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
    }
 }
 // -------------------------------------------------------------------------------------
+struct ParentSwipHandler BTreeGeneric::findParentJump(BTreeGeneric& btree, BufferFrame& to_find)
+{
+   return findParent<true>(btree, to_find);
+}
+// -------------------------------------------------------------------------------------
+struct ParentSwipHandler BTreeGeneric::findParentEager(BTreeGeneric& btree, BufferFrame& to_find)
+{
+   return findParent<false>(btree, to_find);
+}
+// -------------------------------------------------------------------------------------
 bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
 {
-   auto parent_handler = findParent(*this, to_merge);
+   auto parent_handler = findParentEager(*this, to_merge);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
    int pos = parent_handler.pos;
@@ -201,89 +211,91 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       return false;
    }
    // -------------------------------------------------------------------------------------
-   const bool is_upper = pos == p_guard->count;
-   const bool is_empty = c_guard->count == 0;
-   assert(pos <= p_guard->count);
-   // -------------------------------------------------------------------------------------
-   p_guard.recheck();
-   c_guard.recheck();
-   // -------------------------------------------------------------------------------------
-   // TODO: write WALs
-   auto merge_left = [&]() {
-      Swip<BTreeNode>& l_swip = p_guard->getChild(pos - 1);
-      if (!swizzle_sibling && !l_swip.isHOT()) {
-         return false;
-      }
-      auto l_guard = HybridPageGuard(p_guard, l_swip);
-      const bool is_merge_unlikely = !is_empty && (l_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
-      if (is_merge_unlikely) {
-         l_guard.unlock();
-         return false;
-      }
-      auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
-      auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-      auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
-      // -------------------------------------------------------------------------------------
-      p_guard.incrementGSN();
-      c_guard.incrementGSN();
-      l_guard.incrementGSN();
-      // -------------------------------------------------------------------------------------
-      if (!l_x_guard->merge(pos - 1, p_x_guard, c_x_guard)) {
-         p_guard = std::move(p_x_guard);
-         c_guard = std::move(c_x_guard);
-         l_guard = std::move(l_x_guard);
-         return false;
-      }
-      // -------------------------------------------------------------------------------------
-      l_x_guard.reclaim();
-      // -------------------------------------------------------------------------------------
-      p_guard = std::move(p_x_guard);
-      c_guard = std::move(c_x_guard);
-      return true;
-   };
-   auto merge_right = [&]() {
-      Swip<BTreeNode>& r_swip = p_guard->getChild(pos + 1);
-      if (!swizzle_sibling && !r_swip.isHOT()) {
-         return false;
-      }
-      auto r_guard = HybridPageGuard(p_guard, r_swip);
-      const bool is_merge_unlikely = !is_empty && (r_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
-      if (is_merge_unlikely) {
-         r_guard.unlock();
-         return false;
-      }
-      auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
-      auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-      auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
-      // -------------------------------------------------------------------------------------
-      p_guard.incrementGSN();
-      c_guard.incrementGSN();
-      r_guard.incrementGSN();
-      // -------------------------------------------------------------------------------------
-      assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf());
-      if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
-         p_guard = std::move(p_x_guard);
-         c_guard = std::move(c_x_guard);
-         r_guard = std::move(r_x_guard);
-         return false;
-      }
-      // -------------------------------------------------------------------------------------
-      c_x_guard.reclaim();
-      // -------------------------------------------------------------------------------------
-      p_guard = std::move(p_x_guard);
-      r_guard = std::move(r_x_guard);
-      ensure(!is_upper);
-      return true;
-   };
-   // ATTENTION: don't use c_guard without making sure it was not reclaimed
-   // -------------------------------------------------------------------------------------
    volatile bool merged_successfully = false;
-   if (p_guard->count > 2) {
-      if (pos > 0) {
-         merged_successfully |= merge_left();
-      }
-      if (!merged_successfully && ((pos + 1) < p_guard->count)) {
-         merged_successfully |= merge_right();
+   // explainWhen(c_guard->count == 1 && p_guard->count == 1); TODO:rebalance trees
+   if (p_guard->count > 1) {
+      const bool is_empty = c_guard->count == 0;
+      assert(pos <= p_guard->count);
+      // -------------------------------------------------------------------------------------
+      p_guard.recheck();
+      c_guard.recheck();
+      // -------------------------------------------------------------------------------------
+      // TODO: write WALs
+      auto merge_left = [&]() {
+         Swip<BTreeNode>& l_swip = p_guard->getChild(pos - 1);
+         if (!swizzle_sibling) {
+            return false;
+         }
+         auto l_guard = HybridPageGuard(p_guard, l_swip);
+         const bool is_merge_unlikely = !is_empty && (l_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
+         if (is_merge_unlikely) {
+            l_guard.unlock();
+            return false;
+         }
+         auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
+         auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+         auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
+         // -------------------------------------------------------------------------------------
+         p_guard.incrementGSN();
+         c_guard.incrementGSN();
+         l_guard.incrementGSN();
+         // -------------------------------------------------------------------------------------
+         if (!l_x_guard->merge(pos - 1, p_x_guard, c_x_guard)) {
+            p_guard = std::move(p_x_guard);
+            c_guard = std::move(c_x_guard);
+            l_guard = std::move(l_x_guard);
+            return false;
+         }
+         // -------------------------------------------------------------------------------------
+         l_x_guard.reclaim();
+         // -------------------------------------------------------------------------------------
+         p_guard = std::move(p_x_guard);
+         c_guard = std::move(c_x_guard);
+         return true;
+      };
+      auto merge_right = [&]() {
+         Swip<BTreeNode>& r_swip = (c_guard->is_leaf && pos == (p_guard->count - 2)) ? p_guard->upper : p_guard->getChild(pos + 1);
+         if (!swizzle_sibling) {
+            return false;
+         }
+         auto r_guard = HybridPageGuard(p_guard, r_swip);
+         const bool is_merge_unlikely = !is_empty && (r_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
+         if (is_merge_unlikely) {
+            r_guard.unlock();
+            return false;
+         }
+         auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
+         auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+         auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
+         // -------------------------------------------------------------------------------------
+         p_guard.incrementGSN();
+         c_guard.incrementGSN();
+         r_guard.incrementGSN();
+         // -------------------------------------------------------------------------------------
+         assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf());
+         if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
+            p_guard = std::move(p_x_guard);
+            c_guard = std::move(c_x_guard);
+            r_guard = std::move(r_x_guard);
+            return false;
+         }
+         // -------------------------------------------------------------------------------------
+         c_x_guard.reclaim();
+         // -------------------------------------------------------------------------------------
+         p_guard = std::move(p_x_guard);
+         r_guard = std::move(r_x_guard);
+         // ensure(!is_upper);
+         return true;
+      };
+      // ATTENTION: don't use c_guard without making sure it was not reclaimed
+      // -------------------------------------------------------------------------------------
+      if (p_guard->count >= 2) {
+         if (pos > 0) {
+            merged_successfully |= merge_left();
+         }
+         if (!merged_successfully && (pos + 1) < p_guard->count) {
+            merged_successfully |= merge_right();
+         }
       }
    }
    // -------------------------------------------------------------------------------------
@@ -492,7 +504,7 @@ SpaceCheckResult BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferF
 {
    if (FLAGS_xmerge) {
       auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
-      ParentSwipHandler parent_handler = btree.findParent(btree, bf);
+      ParentSwipHandler parent_handler = btree.findParentJump(btree, bf);
       HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
       HybridPageGuard<BTreeNode> c_guard(p_guard, parent_handler.swip.cast<BTreeNode>(), LATCH_FALLBACK_MODE::JUMP);
       XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
@@ -561,71 +573,6 @@ void BTreeGeneric::deserialize(BTreeGeneric& btree, std::unordered_map<std::stri
    }
    btree.meta_node_bf.asBufferFrame().header.keep_in_memory = true;
    assert(btree.meta_node_bf.asBufferFrame().page.dt_id == btree.dt_id);
-}
-// -------------------------------------------------------------------------------------
-// Note on Synchronization: findParent is called by the page provide thread which are not allowed to block
-// Therefore, we jump whenever we encounter a latched node on our way
-// Moreover, we jump if any page on the path is already evicted or of the bf could not be found
-// Pre: to_find is not exclusively latched
-struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFrame& to_find)
-{
-   auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
-   // -------------------------------------------------------------------------------------
-   HybridPageGuard<BTreeNode> p_guard(btree.meta_node_bf);
-   u16 level = 0;
-   // -------------------------------------------------------------------------------------
-   Swip<BTreeNode>* c_swip = &p_guard->upper;
-   if (btree.dt_id != to_find.page.dt_id || p_guard->upper.isEVICTED()) {
-      // Wrong Tree or Root is evicted
-      jumpmu::jump();
-   }
-   // -------------------------------------------------------------------------------------
-   const bool infinity = c_node.upper_fence.offset == 0;
-   const u16 key_length = c_node.upper_fence.length;
-   u8* key = c_node.getUpperFenceKey();
-   // -------------------------------------------------------------------------------------
-   // check if bf is the root node
-   if (&c_swip->asBufferFrameMasked() == &to_find) {
-      p_guard.recheck();
-      return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = &btree.meta_node_bf.asBufferFrame()};
-   }
-   // -------------------------------------------------------------------------------------
-   if (p_guard->upper.isCOOL()) {
-      // Root is cool => every node below is evicted
-      jumpmu::jump();
-   }
-   // -------------------------------------------------------------------------------------
-   HybridPageGuard c_guard(p_guard, p_guard->upper, LATCH_FALLBACK_MODE::JUMP);  // The parent of the bf we are looking for (to_find)
-   s16 pos = -1;
-   auto search_condition = [&]() {
-      if (infinity) {
-         c_swip = &(c_guard->upper);
-         pos = c_guard->count;
-      } else {
-         pos = c_guard->lowerBound<false>(key, key_length);
-         if (pos == c_guard->count) {
-            c_swip = &(c_guard->upper);
-         } else {
-            c_swip = &(c_guard->getChild(pos));
-         }
-      }
-      return (&c_swip->asBufferFrameMasked() != &to_find);
-   };
-   while (!c_guard->is_leaf && search_condition()) {
-      p_guard = std::move(c_guard);
-      if (c_swip->isEVICTED()) {
-         jumpmu::jump();
-      }
-      c_guard = HybridPageGuard(p_guard, c_swip->cast<BTreeNode>(), LATCH_FALLBACK_MODE::JUMP);
-      level++;
-   }
-   p_guard.unlock();
-   const bool found = &c_swip->asBufferFrameMasked() == &to_find;
-   c_guard.recheck();
-   if (!found) {
-      jumpmu::jump();
-   }
-   return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.guard), .parent_bf = c_guard.bf, .pos = pos};
 }
 // -------------------------------------------------------------------------------------
 void BTreeGeneric::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)

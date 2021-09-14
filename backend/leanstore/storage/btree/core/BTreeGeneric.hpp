@@ -119,6 +119,80 @@ class BTreeGeneric
       }
    }
    // -------------------------------------------------------------------------------------
+   static struct ParentSwipHandler findParentJump(BTreeGeneric& btree, BufferFrame& to_find);
+   static struct ParentSwipHandler findParentEager(BTreeGeneric& btree, BufferFrame& to_find);
+   // -------------------------------------------------------------------------------------
+   // Note on Synchronization: findParent is called by the page provide thread which are not allowed to block
+   // Therefore, we jump whenever we encounter a latched node on our way
+   // Moreover, we jump if any page on the path is already evicted or of the bf could not be found
+   // Pre: to_find is not exclusively latched
+   template <bool jumpIfEvicted = true>
+   static struct ParentSwipHandler findParent(BTreeGeneric& btree, BufferFrame& to_find)
+   {
+      auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
+      // LATCH_FALLBACK_MODE latch_mode = (jumpIfEvicted) ? LATCH_FALLBACK_MODE::JUMP : LATCH_FALLBACK_MODE::EXCLUSIVE;
+      LATCH_FALLBACK_MODE latch_mode = LATCH_FALLBACK_MODE::JUMP;  // : LATCH_FALLBACK_MODE::EXCLUSIVE;
+      // -------------------------------------------------------------------------------------
+      HybridPageGuard<BTreeNode> p_guard(btree.meta_node_bf);
+      u16 level = 0;
+      // -------------------------------------------------------------------------------------
+      Swip<BTreeNode>* c_swip = &p_guard->upper;
+      if (btree.dt_id != to_find.page.dt_id || p_guard->upper.isEVICTED()) {
+         // Wrong Tree or Root is evicted
+         jumpmu::jump();
+      }
+      // -------------------------------------------------------------------------------------
+      const bool infinity = c_node.upper_fence.offset == 0;
+      const u16 key_length = c_node.upper_fence.length;
+      u8* key = c_node.getUpperFenceKey();
+      // -------------------------------------------------------------------------------------
+      // check if bf is the root node
+      if (&c_swip->asBufferFrameMasked() == &to_find) {
+         p_guard.recheck();
+         return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = &btree.meta_node_bf.asBufferFrame()};
+      }
+      // -------------------------------------------------------------------------------------
+      if (p_guard->upper.isCOOL()) {
+         // Root is cool => every node below is evicted
+         jumpmu::jump();
+      }
+      // -------------------------------------------------------------------------------------
+      HybridPageGuard c_guard(p_guard, p_guard->upper,
+                              latch_mode);  // The parent of the bf we are looking for (to_find)
+      s16 pos = -1;
+      auto search_condition = [&](HybridPageGuard<BTreeNode>& guard) {
+         if (infinity) {
+            c_swip = &(guard->upper);
+            pos = guard->count;
+         } else {
+            pos = guard->lowerBound<false>(key, key_length);
+            if (pos == guard->count) {
+               c_swip = &(guard->upper);
+            } else {
+               c_swip = &(guard->getChild(pos));
+            }
+         }
+         return (&c_swip->asBufferFrameMasked() != &to_find);
+      };
+      while (!c_guard->is_leaf && search_condition(c_guard)) {
+         p_guard = std::move(c_guard);
+         if constexpr (jumpIfEvicted) {
+            if (c_swip->isEVICTED()) {
+               jumpmu::jump();
+            }
+         }
+         c_guard = HybridPageGuard(p_guard, c_swip->cast<BTreeNode>(), latch_mode);
+         level++;
+      }
+      p_guard.unlock();
+      const bool found = &c_swip->asBufferFrameMasked() == &to_find;
+      c_guard.recheck();
+      if (!found) {
+         jumpmu::jump();
+      }
+      return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.guard), .parent_bf = c_guard.bf, .pos = pos};
+   }
+   // -------------------------------------------------------------------------------------
    // Helpers
    // -------------------------------------------------------------------------------------
    inline bool isMetaNode(HybridPageGuard<BTreeNode>& guard) { return meta_node_bf == guard.bf; }

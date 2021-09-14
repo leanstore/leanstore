@@ -273,7 +273,7 @@ class BTreeVI : public BTreeLL
                         // -------------------------------------------------------------------------------------
                         leaf.unlock();
                         if (FLAGS_vi_skip_stale_swips && should_freeze_leaf) {
-                           ParentSwipHandler parent_handler = BTreeGeneric::findParent(*btree_generic, *to_find);
+                           ParentSwipHandler parent_handler = BTreeGeneric::findParentEager(*btree_generic, *to_find);
                            HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
                            HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
                            auto p_x_guard = ExclusivePageGuard(std::move(p_guard));

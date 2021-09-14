@@ -271,7 +271,7 @@ SpaceCheckResult BTreeLL::checkSpaceUtilization(void* btree_object, BufferFrame&
 // -------------------------------------------------------------------------------------
 struct ParentSwipHandler BTreeLL::findParent(void* btree_object, BufferFrame& to_find)
 {
-   return BTreeGeneric::findParent(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
+   return BTreeGeneric::findParentJump(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
 }
 // -------------------------------------------------------------------------------------
 void BTreeLL::checkpoint(void* btree_object, BufferFrame& bf, u8* dest)

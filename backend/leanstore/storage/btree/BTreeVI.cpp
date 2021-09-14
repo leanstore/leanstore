@@ -600,7 +600,7 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
 void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 version_tts)
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
-   // Only point-gc
+   // Only point-gc and for removed tuples
    const TODOPoint& point_todo = *reinterpret_cast<const TODOPoint*>(entry_ptr);
    if (FLAGS_vi_dangling_pointer) {
       assert(point_todo.dangling_pointer.bf != nullptr);
@@ -612,12 +612,9 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          auto& node = iterator.leaf;
          auto& head = *reinterpret_cast<ChainedTuple*>(node->getPayload(point_todo.dangling_pointer.head_slot));
          // Being chained is implicit because we check for version, so the state can not be changed after staging the todo
-         ensure(head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked());
-         ensure(head.worker_id == version_worker_id && head.tx_id == version_tts);
-         if (head.is_removed) {
-            iterator.leaf->gc_space_used -= iterator.leaf->getKVConsumedSpace(point_todo.dangling_pointer.head_slot);
-            node->removeSlot(point_todo.dangling_pointer.head_slot);
-         }
+         ensure(head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked() && head.worker_id == version_worker_id &&
+                head.tx_id == version_tts && head.is_removed);
+         node->removeSlot(point_todo.dangling_pointer.head_slot);
          iterator.markAsDirty();
          iterator.mergeIfNeeded();
          jumpmu_return;
@@ -632,9 +629,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree));
       ret = iterator.seekExact(key);
-      if (ret != OP_RESULT::OK) {  // Legit case
-         jumpmu_return;
-      }
+      ensure(ret == OP_RESULT::OK);
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_chains[btree.dt_id]++; }
       // -------------------------------------------------------------------------------------
       MutableSlice primary_payload = iterator.mutableValue();
@@ -646,10 +641,10 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          }
       }
       // -------------------------------------------------------------------------------------
+      // The undo could belong to an aborted transaction, will be fixed once we move to versionsspace only design
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_id == version_tts && primary_version.is_removed) {
-            iterator.leaf->gc_space_used -= iterator.leaf->getKVConsumedSpace(iterator.cur);
             ret = iterator.removeCurrent();
             ensure(ret == OP_RESULT::OK);
             iterator.mergeIfNeeded();

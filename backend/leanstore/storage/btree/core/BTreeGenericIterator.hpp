@@ -171,6 +171,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       if (cur < leaf->count) {
          return OP_RESULT::OK;
       } else {
+         // explainWhen(btree.dt_id == 6); //
          return next();
       }
    }
@@ -252,6 +253,10 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             gotoPage(Slice(upper_fence, upper_fence_length_plus));
             // -------------------------------------------------------------------------------------
             if (leaf->count == 0) {
+               cleanUpCallback([&, to_find = leaf.bf]() {
+                  jumpmuTry() { btree.tryMerge(*to_find, true); }
+                  jumpmuCatch() {}
+               });
                COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++; }
                continue;
             }
