@@ -134,10 +134,12 @@ int main(int argc, char** argv)
          running_threads_counter++;
          tpcc.prepare();
          volatile u64 tx_acc = 0;
+         cr::Worker::my().startTX(leanstore::TX_MODE::OLAP, isolation_level);
+         cr::Worker::my().commitTX();
          while (keep_running) {
             jumpmuTry()
             {
-               cr::Worker::my().startTX(leanstore::TX_MODE::LONG_READONLY, isolation_level);
+               cr::Worker::my().startTX(leanstore::TX_MODE::OLAP, isolation_level);
                if (FLAGS_tmp5) {
                   for (u64 i = 0; i <= 10; i++)
                      if (i != 5)
@@ -166,7 +168,7 @@ int main(int argc, char** argv)
          while (keep_running) {
             jumpmuTry()
             {
-               cr::Worker::my().startTX(leanstore::TX_MODE::LONG_READWRITE, isolation_level);
+               cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, isolation_level);
                u32 w_id;
                if (FLAGS_tpcc_warehouse_affinity) {
                   w_id = t_i + 1;

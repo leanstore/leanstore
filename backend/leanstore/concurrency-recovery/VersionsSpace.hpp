@@ -45,10 +45,11 @@ class VersionsSpace : public VersionsSpaceInterface
                               DTID dt_id,
                               std::function<void(u8*)> cb);
    virtual bool retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, std::function<void(const u8*, u64 payload_length)> cb);
-   virtual void purgeTXIDRange(WORKERID worker_id,
+   virtual void iterateOverTXIDRange(WORKERID worker_id,
                                TXID from_tx_id,
                                TXID to_tx_id,
-                               std::function<void(const TXID, const DTID, const u8*, u64 payload_length)> cb);  // [from, to]
+                               bool purge_without_callback,
+                               std::function<bool(const TXID, const DTID, const u8*, u64 payload_length)> cb);  // [from, to]
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr

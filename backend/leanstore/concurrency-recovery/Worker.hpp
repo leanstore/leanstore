@@ -52,26 +52,47 @@ struct Worker {
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_workers_in_progress_txid;
-   static unique_ptr<atomic<u64>[]> global_workers_snapshot_lwm;
-   static atomic<u64> global_snapshot_lwm;
+   static unique_ptr<atomic<u64>[]> global_workers_oltp_lwm;
+   static unique_ptr<atomic<u64>[]> global_workers_olap_lwm;
+   static atomic<u64> global_oltp_lwm;  // TODO:
+   static atomic<u64> global_olap_lwm;  // TODO:
+                                        // -------------------------------------------------------------------------------------
+
    // -------------------------------------------------------------------------------------
+   // All the local tracking data
+   u64 local_oltp_lwm;
+   u64 local_olap_lwm;
+   u64 cleaned_untill_oltp_lwm = 0;
+   u64 cleaned_untill_olap_lwm = 0;
    u64 command_id = 0;
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;
    WALDTEntry* active_dt_entry;
-   // -------------------------------------------------------------------------------------
    // Snapshot Acquisition Time (SAT) = TXID = CommitMark - 1
    bool force_si_refresh = false;
    bool workers_sorted = false;
    bool transactions_order_refreshed = false;
-   u64 local_oldest_txid, local_oldest_txid_worker_id;
+   u64 local_oldest_olap_tx_id;
+   u64 local_oldest_olap_tx_worker_id;
+   u64 local_oldest_oltp_tx_id;  // OLAP <= OLTP
    unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;
    // local_workers_sta can lag and it only tells us whether "it" definitely sees a version, but not if it does not
    unique_ptr<u64[]> local_workers_sorted_txids;
    // -------------------------------------------------------------------------------------
+   const u64 worker_id;
+   Worker** all_workers;
+   const u64 workers_count;
+   VersionsSpaceInterface& versions_space;
+   const s32 ssd_fd;
+   // -------------------------------------------------------------------------------------
+   // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
    static constexpr u64 WORKERS_MASK = (1ull << WORKERS_BITS) - 1;
+   static constexpr u64 OLTP_OLAP_SAME_BIT = (1ull << 63);
+   static constexpr u64 RC_BIT = (1ull << 63);
+   static constexpr u64 OLAP_BIT = (1ull << 62);
+   static constexpr u64 CLEAN_BITS_MASK = ~(OLAP_BIT | RC_BIT);
    // -------------------------------------------------------------------------------------
    // Temporary helpers
    static std::tuple<u8, u64> decomposeWIDCM(u64 widcm)
@@ -87,11 +108,6 @@ struct Worker {
       return widcm;
    }
    // -------------------------------------------------------------------------------------
-   const u64 worker_id;
-   Worker** all_workers;
-   const u64 workers_count;
-   VersionsSpaceInterface& versions_space;
-   const s32 ssd_fd;
    Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface& versions_space, s32 fd);
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
@@ -277,7 +293,9 @@ struct Worker {
   public:
    // -------------------------------------------------------------------------------------
    // TX Control
-   void startTX(TX_MODE next_tx_type = TX_MODE::LONG_READWRITE, TX_ISOLATION_LEVEL next_tx_isolation_level = TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION);
+   void startTX(TX_MODE next_tx_type = TX_MODE::OLTP,
+                TX_ISOLATION_LEVEL next_tx_isolation_level = TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION,
+                bool read_only = false);
    void commitTX();
    void abortTX();
    void checkup();

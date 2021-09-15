@@ -64,7 +64,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                      if (mode == LATCH_FALLBACK_MODE::SHARED) {
                         const u64 cond = *reinterpret_cast<u64*>(target_guard->getPayload(leaf_pos_in_parent) + 8);
                         // Revisit if we can GC
-                        if (cond < cr::Worker::my().snapshotAcquistionTime() && cr::Worker::my().local_oldest_txid < cond) {
+                        if (cond < cr::Worker::my().snapshotAcquistionTime() && cr::Worker::my().local_oldest_olap_tx_id < cond) {
                            COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_skipped_leaf[btree.dt_id]++; }
                            if (shift_to_right_on_frozen_swips) {
                               leaf_pos_in_parent++;

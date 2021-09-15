@@ -121,10 +121,11 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID co
 }
 // -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer
-void VersionsSpace::purgeTXIDRange(WORKERID worker_id,
-                                   TXID from_tx_id,
-                                   TXID to_tx_id,
-                                   std::function<void(const TXID, const DTID, const u8*, u64 payload_length)> cb)
+void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
+                                         TXID from_tx_id,
+                                         TXID to_tx_id,
+                                         bool purge_without_callback,
+                                         std::function<bool(const TXID, const DTID, const u8*, u64 payload_length)> cb)
 {
    // [from, to]
    BTreeLL* btree = btrees[worker_id];
@@ -145,18 +146,24 @@ void VersionsSpace::purgeTXIDRange(WORKERID worker_id,
          utils::unfold(iterator.key().data(), current_tx_id);
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
             const auto& version_container = *reinterpret_cast<const VersionMeta*>(iterator.value().data());
+            bool should_delete = purge_without_callback;
             if (version_container.should_callback) {
-               cb(current_tx_id, version_container.dt_id, version_container.payload, iterator.value().length() - sizeof(VersionMeta));
+               should_delete &=
+                   cb(current_tx_id, version_container.dt_id, version_container.payload, iterator.value().length() - sizeof(VersionMeta));
             }
             // -------------------------------------------------------------------------------------
-            ret = iterator.removeCurrent();
-            ensure(ret == OP_RESULT::OK);
-            COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
-            iterator.markAsDirty();
-            if (iterator.mergeIfNeeded()) {
-               goto retry;
-            }
-            if (iterator.cur == iterator.leaf->count) {
+            if (should_delete) {
+               ret = iterator.removeCurrent();
+               ensure(ret == OP_RESULT::OK);
+               COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
+               iterator.markAsDirty();
+               if (iterator.mergeIfNeeded()) {
+                  goto retry;
+               }
+               if (iterator.cur == iterator.leaf->count) {
+                  ret = iterator.next();
+               }
+            } else {
                ret = iterator.next();
             }
          } else {

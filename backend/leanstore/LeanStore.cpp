@@ -246,7 +246,8 @@ storage::btree::BTreeVI& LeanStore::registerBTreeVI(string name, bool enable_wal
    assert(btrees_vi.find(name) == btrees_vi.end());
    auto& btree = btrees_vi[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(2, reinterpret_cast<void*>(&btree), name);
-   btree.create(dtid, enable_wal);
+   auto& graveyard_btree = registerBTreeLL(name + "_graveyard", false);
+   btree.create(dtid, enable_wal, &graveyard_btree);
    return btree;
 }
 // -------------------------------------------------------------------------------------

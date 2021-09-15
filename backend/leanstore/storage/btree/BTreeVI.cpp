@@ -175,7 +175,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       if (convert_to_fat_tuple) {
          // const u64 random_number = utils::RandomGenerator::getRandU64();
          // convert_to_fat_tuple &= ((random_number & ((1ull << FLAGS_vi_fat_tuple_threshold) - 1)) == 0);
-         convert_to_fat_tuple &= cr::Worker::my().global_snapshot_lwm.load() < tuple_head.tx_id;
+         convert_to_fat_tuple &= cr::Worker::my().local_oltp_lwm < tuple_head.tx_id;
       }
       if (convert_to_fat_tuple) {
          ensure(tuple.isWriteLocked());
@@ -525,7 +525,7 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
                all_tuples_heads_are_invisible &= (isVisibleForMe(tuple.worker_id, tuple.tx_id, false));
                const u32 size = c_guard->getKVConsumedSpace(s_i);
                garbage_seen_in_bytes += size;
-               if (chained_tuple.tx_id <= cr::Worker::my().global_snapshot_lwm) {
+               if (chained_tuple.tx_id <= cr::Worker::my().local_oltp_lwm) {
                   c_guard->removeSlot(s_i);
                   freed_bytes += size;
                } else {
@@ -612,14 +612,15 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    Slice key(version.payload, version.key_length);
    OP_RESULT ret;
    // -------------------------------------------------------------------------------------
-   // TODO: The undo could belong to an aborted transaction, will be fixed once we move to versionsspace only design
+   // TODO: Corner cases if the tuple got inserted after a remove
    jumpmuTry()
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree));
       ret = iterator.seekExact(key);
       if (ret != OP_RESULT::OK) {
-         jumpmu_return;
+         jumpmu_return;  // TODO:
       }
+      // ensure(ret == OP_RESULT::OK);
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_chains[btree.dt_id]++; }
       // -------------------------------------------------------------------------------------
       MutableSlice primary_payload = iterator.mutableValue();
@@ -631,14 +632,25 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          }
       }
       // -------------------------------------------------------------------------------------
+      // TODO: delete from graveyard
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_id == version_tts && primary_version.is_removed) {
-            ret = iterator.removeCurrent();
-            iterator.markAsDirty();
-            ensure(ret == OP_RESULT::OK);
-            iterator.mergeIfNeeded();
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_remove[btree.dt_id]++; }
+            if (primary_version.tx_id < cr::Worker::my().local_olap_lwm) {
+               ret = iterator.removeCurrent();
+               iterator.markAsDirty();
+               ensure(ret == OP_RESULT::OK);
+               iterator.mergeIfNeeded();
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_remove[btree.dt_id]++; }
+            } else if (primary_version.tx_id < cr::Worker::my().local_oltp_lwm) {
+               // Move to graveyard
+               BTreeExclusiveIterator g_iterator(*static_cast<BTreeGeneric*>(btree.graveyard));
+               OP_RESULT g_ret = g_iterator.insertKV(key, iterator.value());
+               ensure(g_ret == OP_RESULT::OK);
+               ret = iterator.removeCurrent();
+               ensure(ret == OP_RESULT::OK);
+               // TODO: counters_block
+            }
          }
       }
    }

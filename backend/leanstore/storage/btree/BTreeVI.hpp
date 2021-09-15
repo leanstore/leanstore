@@ -184,6 +184,7 @@ class BTreeVI : public BTreeLL
       u16 key_length;
       u16 value_length;
       DanglingPointer dangling_pointer;
+      bool moved_to_graveway = false;
       u8 payload[];  // Key + Value
       RemoveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, u16 key_length, u16 value_length)
           : Version(Version::TYPE::REMOVE, worker_id, tx_id, command_id), key_length(key_length), value_length(value_length)
@@ -203,8 +204,8 @@ class BTreeVI : public BTreeLL
       TODOPoint() { type = TODOEntry::TYPE::POINT; }
    };
    // -------------------------------------------------------------------------------------
-   bool convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator);
    // -------------------------------------------------------------------------------------
+   // KVInterface
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
    OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor&) override;
@@ -217,6 +218,12 @@ class BTreeVI : public BTreeLL
                       u16 key_length,
                       function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                       function<void()>) override;
+   // -------------------------------------------------------------------------------------
+   void create(DTID dtid, bool enable_wal, BTreeLL* graveyard_btree)
+   {
+      this->graveyard = graveyard_btree;
+      BTreeLL::create(dtid, enable_wal);
+   }
    // -------------------------------------------------------------------------------------
    static SpaceCheckResult checkSpaceUtilization(void* btree_object, BufferFrame&);
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
@@ -233,6 +240,10 @@ class BTreeVI : public BTreeLL
    static void unlock(void* btree_object, const u8* entry_ptr);
 
   private:
+   BTreeLL* graveyard;
+   // -------------------------------------------------------------------------------------
+   bool convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator);
+   // -------------------------------------------------------------------------------------
    OP_RESULT lookupPessimistic(u8* key, const u16 key_length, function<void(const u8*, u16)> payload_callback);
    OP_RESULT lookupOptimistic(const u8* key, const u16 key_length, function<void(const u8*, u16)> payload_callback);
    // -------------------------------------------------------------------------------------
