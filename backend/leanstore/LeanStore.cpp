@@ -398,6 +398,15 @@ void LeanStore::deserializeFlags()
 // -------------------------------------------------------------------------------------
 LeanStore::~LeanStore()
 {
+   if (FLAGS_btree_print_height) {
+      for (auto& iter : btrees_ll) {
+         cout << "BTreeLL: " << iter.first << ", dt_id = " << iter.second.dt_id << ", " << iter.second.height << endl;
+      }
+      for (auto& iter : btrees_vi) {
+         cout << "BTreeVI: " << iter.first << ", dt_id = " << iter.second.dt_id << ", " << iter.second.height << endl;
+      }
+   }
+   // -------------------------------------------------------------------------------------
    bg_threads_keep_running = false;
    while (bg_threads_counter) {
       MYPAUSE();
