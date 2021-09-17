@@ -274,10 +274,8 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTupl
          delta = reinterpret_cast<const Delta*>(payload + offset);
       }
       // -------------------------------------------------------------------------------------
-      raise(SIGTRAP);
       return {OP_RESULT::NOT_FOUND, delta_i + 2};
    } else {
-      raise(SIGTRAP);
       return {OP_RESULT::NOT_FOUND, 1};
    }
 }

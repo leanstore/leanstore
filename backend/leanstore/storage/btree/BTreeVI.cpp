@@ -668,11 +668,14 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_removed[btree.dt_id]++; }
             } else if (primary_version.tx_id < cr::Worker::my().local_oltp_lwm) {
                // Move to graveyard
-               BTreeExclusiveIterator g_iterator(*static_cast<BTreeGeneric*>(btree.graveyard));
-               OP_RESULT g_ret = g_iterator.insertKV(key, iterator.value());
-               ensure(g_ret == OP_RESULT::OK);
+               {
+                  BTreeExclusiveIterator g_iterator(*static_cast<BTreeGeneric*>(btree.graveyard));
+                  OP_RESULT g_ret = g_iterator.insertKV(key, iterator.value());
+                  ensure(g_ret == OP_RESULT::OK);
+               }
                ret = iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);
+               iterator.markAsDirty();
                iterator.mergeIfNeeded();
                // TODO: counters_block
             }

@@ -418,7 +418,7 @@ class BTreeVI : public BTreeLL
             }
             o_ret = iterator.next();
             if (is_last_one) {
-               g_lower_bound = Slice(iterator.buffer, iterator.fence_length);
+               g_lower_bound = Slice(iterator.buffer, iterator.fence_length + 1);
                g_upper_bound = Slice(iterator.leaf->getUpperFenceKey(), iterator.leaf->upper_fence.length);
                g_range();
             }

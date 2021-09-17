@@ -124,7 +124,7 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID co
 void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
                                          TXID from_tx_id,
                                          TXID to_tx_id,
-                                         bool purge_without_callback,
+                                         bool remove_entries,
                                          std::function<bool(const TXID, const DTID, const u8*, u64 payload_length)> cb)
 {
    // [from, to]
@@ -140,7 +140,7 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
    jumpmuTry()
    {
    restart : {
-      if (!purge_without_callback) {
+      if (!remove_entries) {
          leanstore::storage::btree::BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(btree));
          OP_RESULT ret = iterator.seek(key);
          while (ret == OP_RESULT::OK) {
@@ -184,6 +184,8 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
                key = Slice(key_buffer, key_length + 1);
                iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);
+               iterator.markAsDirty();
+               iterator.reset();
                cb(current_tx_id, dt_id, payload, payload_length);
                goto restart;
             }
