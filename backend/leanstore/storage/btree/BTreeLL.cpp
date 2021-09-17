@@ -239,7 +239,7 @@ void BTreeLL::undo(void*, const u8*, const u64)
    TODOException();
 }
 // -------------------------------------------------------------------------------------
-void BTreeLL::todo(void*, const u8*, const u64, const u64)
+void BTreeLL::todo(void*, const u8*, const u64, const u64, const bool)
 {
    UNREACHABLE();
 }

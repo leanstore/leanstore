@@ -66,10 +66,10 @@ void DTRegistry::undo(DTID dt_id, const u8* wal_entry, u64 tts)
 }
 
 // -------------------------------------------------------------------------------------
-void DTRegistry::todo(DTID dt_id, const u8* entry, const u64 version_worker_id, u64 version_tts)
+void DTRegistry::todo(DTID dt_id, const u8* entry, const u64 version_worker_id, u64 version_tx_id, const bool called_before)
 {
    auto dt_meta = dt_instances_ht[dt_id];
-   return dt_types_ht[std::get<0>(dt_meta)].todo(std::get<1>(dt_meta), entry, version_worker_id, version_tts);
+   return dt_types_ht[std::get<0>(dt_meta)].todo(std::get<1>(dt_meta), entry, version_worker_id, version_tx_id, called_before);
 }
 // -------------------------------------------------------------------------------------
 void DTRegistry::unlock(DTID dt_id, const u8* entry)

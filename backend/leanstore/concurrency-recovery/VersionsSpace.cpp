@@ -125,7 +125,7 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
                                          TXID from_tx_id,
                                          TXID to_tx_id,
                                          bool remove_entries,
-                                         std::function<bool(const TXID, const DTID, const u8*, u64 payload_length)> cb)
+                                         std::function<void(const TXID, const DTID, const u8*, u64, const bool)> cb)
 {
    // [from, to]
    BTreeLL* btree = btrees[worker_id];
@@ -141,22 +141,23 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
    {
    restart : {
       if (!remove_entries) {
-         leanstore::storage::btree::BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(btree));
+         leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
          OP_RESULT ret = iterator.seek(key);
          while (ret == OP_RESULT::OK) {
             iterator.assembleKey();
             TXID current_tx_id;
             utils::unfold(iterator.key().data(), current_tx_id);
             if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
-               const auto& version_container = *reinterpret_cast<const VersionMeta*>(iterator.value().data());
+               auto& version_container = *reinterpret_cast<VersionMeta*>(iterator.mutableValue().data());
                if (version_container.should_callback) {
+                  version_container.called_before = true;
                   key_length = iterator.key().length();
                   std::memcpy(key_buffer, iterator.key().data(), key_length);
                   payload_length = iterator.value().length() - sizeof(VersionMeta);
                   std::memcpy(payload, version_container.payload, payload_length);
                   key = Slice(key_buffer, key_length + 1);
                   iterator.reset();
-                  cb(current_tx_id, version_container.dt_id, payload, payload_length);
+                  cb(current_tx_id, version_container.dt_id, payload, payload_length, false);
                   goto restart;
                }
                ret = iterator.next();
@@ -176,6 +177,7 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
             const auto& version_container = *reinterpret_cast<const VersionMeta*>(iterator.value().data());
             const DTID dt_id = version_container.dt_id;
+            const bool called_before = version_container.called_before;
             if (version_container.should_callback) {
                key_length = iterator.key().length();
                std::memcpy(key_buffer, iterator.key().data(), key_length);
@@ -186,7 +188,7 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
                ensure(ret == OP_RESULT::OK);
                iterator.markAsDirty();
                iterator.reset();
-               cb(current_tx_id, dt_id, payload, payload_length);
+               cb(current_tx_id, dt_id, payload, payload_length, called_before);
                goto restart;
             }
             // -------------------------------------------------------------------------------------

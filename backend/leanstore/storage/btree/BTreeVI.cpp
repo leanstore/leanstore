@@ -609,7 +609,7 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
    }
 }
 // -------------------------------------------------------------------------------------
-void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 version_tts)
+void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 version_tx_id, const bool called_before)
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    // Only point-gc and for removed tuples
@@ -625,7 +625,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          auto& head = *reinterpret_cast<ChainedTuple*>(node->getPayload(version.dangling_pointer.head_slot));
          // Being chained is implicit because we check for version, so the state can not be changed after staging the todo
          ensure(head.tuple_format == TupleFormat::CHAINED && !head.isWriteLocked() && head.worker_id == version_worker_id &&
-                head.tx_id == version_tts && head.is_removed);
+                head.tx_id == version_tx_id && head.is_removed);
          node->removeSlot(version.dangling_pointer.head_slot);
          iterator.markAsDirty();
          iterator.mergeIfNeeded();
@@ -636,6 +636,21 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    // -------------------------------------------------------------------------------------
    Slice key(version.payload, version.key_length);
    OP_RESULT ret;
+   // -------------------------------------------------------------------------------------
+   if (called_before) {
+      // Delete from graveyard
+      ensure(version_tx_id < cr::Worker::my().local_olap_lwm);
+      jumpmuTry()
+      {
+         BTreeExclusiveIterator g_iterator(*static_cast<BTreeGeneric*>(btree.graveyard));
+         ret = g_iterator.seekExact(key);
+         ensure(ret == OP_RESULT::OK);
+         ret = g_iterator.removeCurrent();
+         ensure(ret == OP_RESULT::OK);
+      }
+      jumpmuCatch() {}
+      return;
+   }
    // -------------------------------------------------------------------------------------
    // TODO: Corner cases if the tuple got inserted after a remove
    jumpmuTry()
@@ -659,7 +674,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       // TODO: delete from graveyard
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
-         if (primary_version.worker_id == version_worker_id && primary_version.tx_id == version_tts && primary_version.is_removed) {
+         if (primary_version.worker_id == version_worker_id && primary_version.tx_id == version_tx_id && primary_version.is_removed) {
             if (primary_version.tx_id < cr::Worker::my().local_olap_lwm) {
                ret = iterator.removeCurrent();
                iterator.markAsDirty();
@@ -677,7 +692,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                ensure(ret == OP_RESULT::OK);
                iterator.markAsDirty();
                iterator.mergeIfNeeded();
-               // TODO: counters_block
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_moved_gy[btree.dt_id]++; }
             }
          }
       }

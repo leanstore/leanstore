@@ -38,8 +38,8 @@ struct DTRegistry {
       std::function<void(void* dt_object, BufferFrame& bf, u8* dest)> checkpoint;
       // -------------------------------------------------------------------------------------
       // MVCC / SI
-      std::function<void(void* dt_object, const u8* entry, u64 tts)> undo;
-      std::function<void(void* dt_object, const u8* entry, const u64 version_worker_id, u64 version_tts)> todo;
+      std::function<void(void* dt_object, const u8* entry, u64 tx_id)> undo;
+      std::function<void(void* dt_object, const u8* entry, const u64 version_worker_id, u64 version_tx_id, const bool called_before)> todo;
       std::function<void(void* dt_object, const u8* entry)> unlock;
       // -------------------------------------------------------------------------------------
       // Serialization
@@ -65,7 +65,7 @@ struct DTRegistry {
    void checkpoint(DTID dt_id, BufferFrame& bf, u8*);
    // Recovery / SI
    void undo(DTID dt_id, const u8* wal_entry, u64 tts);
-   void todo(DTID dt_id, const u8* entry, const u64 version_worker_id, u64 version_tts);
+   void todo(DTID dt_id, const u8* entry, const u64 version_worker_id, u64 version_tts, const bool called_before);
    void unlock(DTID dt_id, const u8* entry);
    // Serialization
    std::unordered_map<std::string, std::string> serialize(DTID dt_id);

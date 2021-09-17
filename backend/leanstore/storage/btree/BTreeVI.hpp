@@ -192,19 +192,6 @@ class BTreeVI : public BTreeLL
       }
    };
    // -------------------------------------------------------------------------------------
-   struct TODOEntry {
-      enum class TYPE : u8 { POINT, PAGE };
-      TYPE type;
-   };
-   struct TODOPoint : public TODOEntry {
-      u16 key_length;
-      COMMANDID sn;
-      DanglingPointer dangling_pointer;
-      u8 key[];
-      TODOPoint() { type = TODOEntry::TYPE::POINT; }
-   };
-   // -------------------------------------------------------------------------------------
-   // -------------------------------------------------------------------------------------
    // KVInterface
    OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
@@ -226,8 +213,8 @@ class BTreeVI : public BTreeLL
    }
    // -------------------------------------------------------------------------------------
    static SpaceCheckResult checkSpaceUtilization(void* btree_object, BufferFrame&);
-   static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
-   static void todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 tts);
+   static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tx_id);
+   static void todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 version_tx_id, const bool called_before);
    static void deserialize(void*, std::unordered_map<std::string, std::string>) {}      // TODO:
    static std::unordered_map<std::string, std::string> serialize(void*) { return {}; }  // TODO:
    static DTRegistry::DTMeta getMeta();

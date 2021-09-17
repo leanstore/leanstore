@@ -600,7 +600,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 }
 // -------------------------------------------------------------------------------------
 // For Transaction abort and not for recovery
-void BTreeVW::todo(void* btree_object, const u8* entry_ptr, const u64, const u64 tts)
+void BTreeVW::todo(void* btree_object, const u8* entry_ptr, const u64, const u64 tts, const bool)
 {
    auto& btree = *reinterpret_cast<BTreeVW*>(btree_object);
    const auto& entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
