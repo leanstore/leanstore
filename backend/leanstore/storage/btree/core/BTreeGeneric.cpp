@@ -213,7 +213,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    }
    // -------------------------------------------------------------------------------------
    volatile bool merged_successfully = false;
-   // explainWhen(c_guard->count == 1 && p_guard->count == 1); // TODO:rebalance trees
+   // explainWhen(dt_id == 20 && c_guard->count == 1 && p_guard->count == 1);  // TODO:rebalance trees
    if (p_guard->count > 1) {
       const bool is_empty = c_guard->count == 0;
       assert(pos <= p_guard->count);
@@ -224,15 +224,10 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       // TODO: write WALs
       auto merge_left = [&]() {
          Swip<BTreeNode>& l_swip = p_guard->getChild(pos - 1);
-         if (!swizzle_sibling) {
+         if (!swizzle_sibling && l_swip.isEVICTED()) {
             return false;
          }
          auto l_guard = HybridPageGuard(p_guard, l_swip);
-         const bool is_merge_unlikely = !is_empty && (l_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
-         if (is_merge_unlikely) {
-            l_guard.unlock();
-            return false;
-         }
          auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
@@ -258,15 +253,10 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       };
       auto merge_right = [&]() {
          Swip<BTreeNode>& r_swip = ((pos + 1) == p_guard->count) ? p_guard->upper : p_guard->getChild(pos + 1);
-         if (!swizzle_sibling) {
+         if (!swizzle_sibling && r_swip.isEVICTED()) {
             return false;
          }
          auto r_guard = HybridPageGuard(p_guard, r_swip);
-         const bool is_merge_unlikely = !is_empty && (r_guard->freeSpaceAfterCompaction() < BTreeNode::underFullSize);
-         if (is_merge_unlikely) {
-            r_guard.unlock();
-            return false;
-         }
          auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
          auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
