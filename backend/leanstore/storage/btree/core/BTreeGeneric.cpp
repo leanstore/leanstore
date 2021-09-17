@@ -213,7 +213,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    }
    // -------------------------------------------------------------------------------------
    volatile bool merged_successfully = false;
-   // explainWhen(c_guard->count == 1 && p_guard->count == 1); TODO:rebalance trees
+   explainWhen(c_guard->count == 1 && p_guard->count == 1); // TODO:rebalance trees
    if (p_guard->count > 1) {
       const bool is_empty = c_guard->count == 0;
       assert(pos <= p_guard->count);
