@@ -49,13 +49,24 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, funct
          jumpmu_return OP_RESULT::NOT_FOUND;
       }
       [[maybe_unused]] const auto primary_version = *reinterpret_cast<const ChainedTuple*>(iterator.value().data());
-      auto reconstruct = reconstructTuple(iterator, [&](Slice value) { payload_callback(value.data(), value.length()); });
+      iterator.assembleKey();
+      auto reconstruct = reconstructTuple(iterator.key(), iterator.value(), [&](Slice value) { payload_callback(value.data(), value.length()); });
       COUNTERS_BLOCK()
       {
          WorkerCounters::myCounters().cc_read_chains[dt_id]++;
          WorkerCounters::myCounters().cc_read_versions_visited[dt_id] += std::get<1>(reconstruct);
       }
       ret = std::get<0>(reconstruct);
+      // -------------------------------------------------------------------------------------
+      if (cr::activeTX().isOLAP() && ret == OP_RESULT::NOT_FOUND) {
+         BTreeSharedIterator g_iterator(*static_cast<BTreeGeneric*>(graveyard));
+         OP_RESULT ret = g_iterator.seekExact(key);
+         if (ret == OP_RESULT::OK) {
+            iterator.assembleKey();
+            reconstruct = reconstructTuple(iterator.key(), iterator.value(), [&](Slice value) { payload_callback(value.data(), value.length()); });
+         }
+      }
+      // -------------------------------------------------------------------------------------
       if (ret != OP_RESULT::ABORT_TX && ret != OP_RESULT::OK) {  // For debugging
          cout << endl;
          cout << u64(std::get<1>(reconstruct)) << endl;
@@ -127,6 +138,13 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
       ret = iterator.seekExact(key);
       if (ret != OP_RESULT::OK) {
+         if (cr::activeTX().isOLAP() && ret == OP_RESULT::NOT_FOUND) {
+            const bool removed_tuple_found = graveyard->lookup(o_key, o_key_length, [&](const u8*, u16) {}) == OP_RESULT::OK;
+            if (removed_tuple_found) {
+               jumpmu_return OP_RESULT::ABORT_TX;
+            }
+         }
+         // -------------------------------------------------------------------------------------
          raise(SIGTRAP);
          jumpmu_return ret;
       }
@@ -325,6 +343,13 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
       OP_RESULT ret = iterator.seekExact(key);
       if (ret != OP_RESULT::OK) {
+         if (cr::activeTX().isOLAP() && ret == OP_RESULT::NOT_FOUND) {
+            const bool removed_tuple_found = graveyard->lookup(o_key, o_key_length, [&](const u8*, u16) {}) == OP_RESULT::OK;
+            if (removed_tuple_found) {
+               jumpmu_return OP_RESULT::ABORT_TX;
+            }
+         }
+         // -------------------------------------------------------------------------------------
          explainWhen(cr::activeTX().atLeastSI());
          jumpmu_return OP_RESULT::NOT_FOUND;
       }
@@ -621,7 +646,6 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          jumpmu_return;  // TODO:
       }
       // ensure(ret == OP_RESULT::OK);
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_chains[btree.dt_id]++; }
       // -------------------------------------------------------------------------------------
       MutableSlice primary_payload = iterator.mutableValue();
       {
@@ -641,7 +665,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                iterator.markAsDirty();
                ensure(ret == OP_RESULT::OK);
                iterator.mergeIfNeeded();
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_remove[btree.dt_id]++; }
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_removed[btree.dt_id]++; }
             } else if (primary_version.tx_id < cr::Worker::my().local_oltp_lwm) {
                // Move to graveyard
                BTreeExclusiveIterator g_iterator(*static_cast<BTreeGeneric*>(btree.graveyard));
@@ -649,6 +673,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                ensure(g_ret == OP_RESULT::OK);
                ret = iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);
+               iterator.mergeIfNeeded();
                // TODO: counters_block
             }
          }
@@ -694,7 +719,12 @@ struct DTRegistry::DTMeta BTreeVI::getMeta()
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::scanDesc(u8* o_key, u16 o_key_length, function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
-   return scan<false>(o_key, o_key_length, callback);
+   if (cr::activeTX().isOLAP()) {
+      TODOException();
+      return OP_RESULT::ABORT_TX;
+   } else {
+      return scan<false>(o_key, o_key_length, callback);
+   }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::scanAsc(u8* o_key,
@@ -702,27 +732,31 @@ OP_RESULT BTreeVI::scanAsc(u8* o_key,
                            function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback,
                            function<void()>)
 {
-   return scan<true>(o_key, o_key_length, callback);
+   if (cr::activeTX().isOLAP()) {
+      return scanLight(o_key, o_key_length, callback);
+   } else {
+      return scan<true>(o_key, o_key_length, callback);
+   }
 }
 // -------------------------------------------------------------------------------------
-std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator& iterator, std::function<void(Slice value)> callback)
+// TODO: Implement inserts after remove cases
+std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple([[maybe_unused]] Slice key, Slice payload, std::function<void(Slice value)> callback)
 {
    u16 chain_length = 1;
    u16 materialized_value_length;
    std::unique_ptr<u8[]> materialized_value;
-   Slice head_payload = iterator.value();
-   const ChainedTuple& chain_head = *reinterpret_cast<const ChainedTuple*>(head_payload.data());
+   const ChainedTuple& chain_head = *reinterpret_cast<const ChainedTuple*>(payload.data());
    if (isVisibleForMe(chain_head.worker_id, chain_head.tx_id, false)) {
       if (chain_head.is_removed) {
          return {OP_RESULT::NOT_FOUND, 1};
       } else {
-         callback(Slice(chain_head.payload, head_payload.length() - sizeof(ChainedTuple)));
+         callback(Slice(chain_head.payload, payload.length() - sizeof(ChainedTuple)));
          return {OP_RESULT::OK, 1};
       }
    }
    // -------------------------------------------------------------------------------------
    // Head is not visible
-   materialized_value_length = head_payload.length() - sizeof(ChainedTuple);
+   materialized_value_length = payload.length() - sizeof(ChainedTuple);
    materialized_value = std::make_unique<u8[]>(materialized_value_length);
    std::memcpy(materialized_value.get(), chain_head.payload, materialized_value_length);
    WORKERID next_worker_id = chain_head.worker_id;
@@ -730,12 +764,10 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
    COMMANDID next_command_id = chain_head.command_id;
    // -------------------------------------------------------------------------------------
    while (true) {
-      bool is_removed = false;
       bool found = cr::Worker::my().versions_space.retrieveVersion(
           next_worker_id, next_tx_id, next_command_id, [&](const u8* version_payload, u64 version_length) {
              const auto& version = *reinterpret_cast<const Version*>(version_payload);
              if (version.type == Version::TYPE::UPDATE) {
-                is_removed = false;
                 const auto& update_version = *reinterpret_cast<const UpdateVersion*>(version_payload);
                 if (update_version.is_delta) {
                    // Apply delta
@@ -748,7 +780,6 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
                 }
              } else if (version.type == Version::TYPE::REMOVE) {
                 const auto& remove_version = *reinterpret_cast<const RemoveVersion*>(version_payload);
-                is_removed = true;
                 materialized_value_length = remove_version.value_length;
                 materialized_value = std::make_unique<u8[]>(materialized_value_length);
                 std::memcpy(materialized_value.get(), remove_version.payload, materialized_value_length);
@@ -764,9 +795,6 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple(BTreeSharedIterator&
          return {OP_RESULT::NOT_FOUND, chain_length};
       }
       if (isVisibleForMe(next_worker_id, next_tx_id, false)) {
-         if (is_removed) {
-            return {OP_RESULT::NOT_FOUND, chain_length};
-         }
          callback(Slice(materialized_value.get(), materialized_value_length));
          return {OP_RESULT::OK, chain_length};
       }

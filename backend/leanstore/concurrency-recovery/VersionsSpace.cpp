@@ -129,15 +129,44 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
 {
    // [from, to]
    BTreeLL* btree = btrees[worker_id];
-   const u64 key_length = sizeof(to_tx_id);
-   u8 key_buffer[key_length];
+   u16 key_length = sizeof(to_tx_id);
+   u8 key_buffer[PAGE_SIZE];
    u64 offset = 0;
    offset += utils::fold(key_buffer + offset, from_tx_id);
    Slice key(key_buffer, key_length);
+   u8 payload[PAGE_SIZE];
+   u16 payload_length;
    // -------------------------------------------------------------------------------------
    jumpmuTry()
    {
-   retry : {
+   restart : {
+      if (!purge_without_callback) {
+         leanstore::storage::btree::BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(btree));
+         OP_RESULT ret = iterator.seek(key);
+         while (ret == OP_RESULT::OK) {
+            iterator.assembleKey();
+            TXID current_tx_id;
+            utils::unfold(iterator.key().data(), current_tx_id);
+            if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
+               const auto& version_container = *reinterpret_cast<const VersionMeta*>(iterator.value().data());
+               if (version_container.should_callback) {
+                  key_length = iterator.key().length();
+                  std::memcpy(key_buffer, iterator.key().data(), key_length);
+                  payload_length = iterator.value().length() - sizeof(VersionMeta);
+                  std::memcpy(payload, version_container.payload, payload_length);
+                  key = Slice(key_buffer, key_length + 1);
+                  iterator.reset();
+                  cb(current_tx_id, version_container.dt_id, payload, payload_length);
+                  goto restart;
+               }
+               ret = iterator.next();
+            } else {
+               break;
+            }
+         }
+         jumpmu_return;
+      }
+      // -------------------------------------------------------------------------------------
       leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
       OP_RESULT ret = iterator.seek(key);
       while (ret == OP_RESULT::OK) {
@@ -146,31 +175,33 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
          utils::unfold(iterator.key().data(), current_tx_id);
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
             const auto& version_container = *reinterpret_cast<const VersionMeta*>(iterator.value().data());
-            bool should_delete = purge_without_callback;
+            const DTID dt_id = version_container.dt_id;
             if (version_container.should_callback) {
-               should_delete &=
-                   cb(current_tx_id, version_container.dt_id, version_container.payload, iterator.value().length() - sizeof(VersionMeta));
+               key_length = iterator.key().length();
+               std::memcpy(key_buffer, iterator.key().data(), key_length);
+               payload_length = iterator.value().length() - sizeof(VersionMeta);
+               std::memcpy(payload, version_container.payload, payload_length);
+               key = Slice(key_buffer, key_length + 1);
+               iterator.removeCurrent();
+               ensure(ret == OP_RESULT::OK);
+               cb(current_tx_id, dt_id, payload, payload_length);
+               goto restart;
             }
             // -------------------------------------------------------------------------------------
-            if (should_delete) {
-               ret = iterator.removeCurrent();
-               ensure(ret == OP_RESULT::OK);
-               COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
-               iterator.markAsDirty();
-               if (iterator.mergeIfNeeded()) {
-                  goto retry;
-               }
-               if (iterator.cur == iterator.leaf->count) {
-                  ret = iterator.next();
-               }
-            } else {
+            ret = iterator.removeCurrent();
+            ensure(ret == OP_RESULT::OK);
+            COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
+            iterator.markAsDirty();
+            if (iterator.mergeIfNeeded()) {
+               goto restart;
+            }
+            if (iterator.cur == iterator.leaf->count) {
                ret = iterator.next();
             }
          } else {
             break;
          }
       }
-      jumpmu_return;
    }
    }
    jumpmuCatch() {}

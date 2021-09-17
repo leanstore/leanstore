@@ -314,7 +314,7 @@ void Worker::checkup()
              worker_id, 0, local_olap_lwm - 1, true,
              [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length) {
                 leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id);
-                WorkerCounters::myCounters().cc_rtodo_shrt_executed[dt_id]++;
+                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
                 return true;
              });
          cleaned_untill_olap_lwm = local_olap_lwm;
@@ -325,6 +325,7 @@ void Worker::checkup()
              worker_id, from_tx_id, local_oltp_lwm - 1, false,
              [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length) {
                 leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id);
+                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
                 return false;
              });
          cleaned_untill_oltp_lwm = local_oltp_lwm;

@@ -400,10 +400,10 @@ LeanStore::~LeanStore()
 {
    if (FLAGS_btree_print_height) {
       for (auto& iter : btrees_ll) {
-         cout << "BTreeLL: " << iter.first << ", dt_id = " << iter.second.dt_id << ", " << iter.second.height << endl;
+         cout << "BTreeLL: " << iter.first << ", dt_id = " << iter.second.dt_id << ", height= " << iter.second.height << endl;
       }
       for (auto& iter : btrees_vi) {
-         cout << "BTreeVI: " << iter.first << ", dt_id = " << iter.second.dt_id << ", " << iter.second.height << endl;
+         cout << "BTreeVI: " << iter.first << ", dt_id = " << iter.second.dt_id << ", height= " << iter.second.height << endl;
       }
    }
    // -------------------------------------------------------------------------------------

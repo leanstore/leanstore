@@ -134,12 +134,13 @@ int main(int argc, char** argv)
          running_threads_counter++;
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         cr::Worker::my().startTX(leanstore::TX_MODE::OLAP, isolation_level);
+         const leanstore::TX_MODE tx_mode = FLAGS_olap_mode ? leanstore::TX_MODE::OLAP : leanstore::TX_MODE::OLTP;
+         cr::Worker::my().startTX(tx_mode, isolation_level);
          cr::Worker::my().commitTX();
          while (keep_running) {
             jumpmuTry()
             {
-               cr::Worker::my().startTX(leanstore::TX_MODE::OLAP, isolation_level);
+               cr::Worker::my().startTX(tx_mode, isolation_level);
                if (FLAGS_tmp5) {
                   for (u64 i = 0; i <= 10; i++)
                      if (i != 5)

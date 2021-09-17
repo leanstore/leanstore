@@ -246,6 +246,7 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    OP_RESULT lookupPessimistic(u8* key, const u16 key_length, function<void(const u8*, u16)> payload_callback);
    OP_RESULT lookupOptimistic(const u8* key, const u16 key_length, function<void(const u8*, u16)> payload_callback);
+
    // -------------------------------------------------------------------------------------
    template <bool asc = true>
    OP_RESULT scan(u8* o_key, u16 o_key_length, function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback)
@@ -323,9 +324,9 @@ class BTreeVI : public BTreeLL
          // -------------------------------------------------------------------------------------
          while (ret == OP_RESULT::OK) {
             if (!skip_current_leaf) {
-               auto reconstruct = reconstructTuple(iterator, [&](Slice value) {
-                  iterator.assembleKey();
-                  Slice s_key = iterator.key();
+               iterator.assembleKey();
+               Slice s_key = iterator.key();
+               auto reconstruct = reconstructTuple(s_key, iterator.value(), [&](Slice value) {
                   keep_scanning = callback(s_key.data(), s_key.length(), value.data(), value.length());
                   counter++;
                });
@@ -370,6 +371,101 @@ class BTreeVI : public BTreeLL
       jumpmu_return OP_RESULT::OTHER;
    }
    // -------------------------------------------------------------------------------------
+   // TODO: atm, only ascending
+   template <bool asc = true>
+   OP_RESULT scanLight(u8* o_key, u16 o_key_length, function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback)
+   {
+      volatile bool keep_scanning = true;
+      // -------------------------------------------------------------------------------------
+      jumpmuTry()
+      {
+         BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this));
+         Slice key(o_key, o_key_length);
+         OP_RESULT o_ret;
+         BTreeSharedIterator g_iterator(*static_cast<BTreeGeneric*>(graveyard));
+         OP_RESULT g_ret;
+         Slice g_lower_bound, g_upper_bound;
+         g_lower_bound = key;
+         // -------------------------------------------------------------------------------------
+         o_ret = iterator.seek(key);
+         if (o_ret != OP_RESULT::OK) {
+            jumpmu_return OP_RESULT::OK;
+         }
+         iterator.assembleKey();
+         // -------------------------------------------------------------------------------------
+         // Now it begins
+         g_upper_bound = Slice(iterator.leaf->getUpperFenceKey(), iterator.leaf->upper_fence.length);
+         auto g_range = [&]() {
+            g_ret = g_iterator.seek(g_lower_bound);
+            if (g_ret == OP_RESULT::OK) {
+               g_iterator.assembleKey();
+               if (g_iterator.key() > g_upper_bound) {
+                  g_ret = OP_RESULT::OTHER;
+               }
+            }
+         };
+         g_range();
+         auto take_from_oltp = [&]() {
+            reconstructTuple(iterator.key(), iterator.value(), [&](Slice value) {
+               keep_scanning = callback(iterator.key().data(), iterator.key().length(), value.data(), value.length());
+            });
+            if (!keep_scanning) {
+               return false;
+            }
+            const bool is_last_one = iterator.isLastOne();
+            if (is_last_one) {
+               g_iterator.reset();
+            }
+            o_ret = iterator.next();
+            if (is_last_one) {
+               g_lower_bound = Slice(iterator.buffer, iterator.fence_length);
+               g_upper_bound = Slice(iterator.leaf->getUpperFenceKey(), iterator.leaf->upper_fence.length);
+               g_range();
+            }
+            return true;
+         };
+         while (true) {
+            if (g_ret != OP_RESULT::OK && o_ret == OP_RESULT::OK) {
+               iterator.assembleKey();
+               if (!take_from_oltp()) {
+                  jumpmu_return OP_RESULT::OK;
+               }
+            } else if (g_ret == OP_RESULT::OK && o_ret != OP_RESULT::OK) {
+               g_iterator.assembleKey();
+               Slice g_key = g_iterator.key();
+               reconstructTuple(g_key, g_iterator.value(),
+                                [&](Slice value) { keep_scanning = callback(g_key.data(), g_key.length(), value.data(), value.length()); });
+               if (!keep_scanning) {
+                  jumpmu_return OP_RESULT::OK;
+               }
+               g_ret = g_iterator.next();
+            } else if (g_ret == OP_RESULT::OK && o_ret == OP_RESULT::OK) {
+               iterator.assembleKey();
+               g_iterator.assembleKey();
+               Slice g_key = g_iterator.key();
+               Slice oltp_key = iterator.key();
+               if (oltp_key <= g_key) {
+                  if (!take_from_oltp()) {
+                     jumpmu_return OP_RESULT::OK;
+                  }
+               } else {
+                  reconstructTuple(g_key, g_iterator.value(),
+                                   [&](Slice value) { keep_scanning = callback(g_key.data(), g_key.length(), value.data(), value.length()); });
+                  if (!keep_scanning) {
+                     jumpmu_return OP_RESULT::OK;
+                  }
+                  g_ret = g_iterator.next();
+               }
+            } else {
+               jumpmu_return OP_RESULT::OK;
+            }
+         }
+      }
+      jumpmuCatch() { ensure(false); }
+      UNREACHABLE();
+      jumpmu_return OP_RESULT::OTHER;
+   }
+   // -------------------------------------------------------------------------------------
    inline bool isVisibleForMe(u8 worker_id, u64 worker_commit_mark, bool to_write = true)
    {
       return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
@@ -387,12 +483,11 @@ class BTreeVI : public BTreeLL
       return swap(*reinterpret_cast<const COMMANDID*>(key.data() + key.length() - sizeof(COMMANDID)));
    }
    inline void setSN(MutableSlice key, COMMANDID sn) { *reinterpret_cast<COMMANDID*>(key.data() + key.length() - sizeof(COMMANDID)) = swap(sn); }
-   inline std::tuple<OP_RESULT, u16> reconstructTuple(BTreeSharedIterator& iterator, std::function<void(Slice value)> callback)
+   inline std::tuple<OP_RESULT, u16> reconstructTuple(Slice key, Slice payload, std::function<void(Slice value)> callback)
    {
       while (true) {
          jumpmuTry()
          {
-            Slice payload = iterator.value();
             if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
                const ChainedTuple& primary_version = *reinterpret_cast<const ChainedTuple*>(payload.data());
                if (isVisibleForMe(primary_version.worker_id, primary_version.tx_id, false)) {
@@ -404,8 +499,6 @@ class BTreeVI : public BTreeLL
                      if (!cr::activeTX().isSafeSnapshot()) {
                         if (FLAGS_2pl) {
                            const_cast<ChainedTuple&>(primary_version).read_lock_counter |= 1ull << cr::Worker::my().worker_id;
-                           iterator.assembleKey();
-                           const Slice key = iterator.key();
                            cr::Worker::my().addUnlockTask(dt_id, sizeof(UnlockEntry) + key.length(), [&](u8* entry) {
                               auto& unlock_entry = *new (entry) UnlockEntry();
                               unlock_entry.key_length = key.length();
@@ -424,7 +517,7 @@ class BTreeVI : public BTreeLL
                   if (primary_version.isFinal()) {
                      jumpmu_return{OP_RESULT::NOT_FOUND, 1};
                   } else {
-                     auto ret = reconstructChainedTuple(iterator, callback);
+                     auto ret = reconstructChainedTuple(key, payload, callback);
                      jumpmu_return ret;
                   }
                }
@@ -436,8 +529,8 @@ class BTreeVI : public BTreeLL
          jumpmuCatch() {}
       }
    }
-   std::tuple<OP_RESULT, u16> reconstructChainedTuple(BTreeSharedIterator& iterator, std::function<void(Slice value)> callback);
-};
+   std::tuple<OP_RESULT, u16> reconstructChainedTuple(Slice key, Slice payload, std::function<void(Slice value)> callback);
+};  // namespace btree
 // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage

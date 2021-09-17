@@ -1032,6 +1032,22 @@ class TPCCWorkload
       } else if (query_no == 2) {
          orderline.scan(
              {0, 0, 0, 0}, [&](const orderline_t::Key&, const orderline_t&) { return true; }, [&]() {});
+      } else if (query_no == 3) {
+         u64 counter = 0;
+         neworder_t::Key last_key;
+         last_key.no_o_id = -1;
+         const u64 N = 10000;
+         neworder.scan(
+             {0, 0, 0},
+             [&](const neworder_t::Key& key, const neworder_t&) {
+                if (last_key.no_o_id != -1) {
+                   ensure(last_key.no_d_id != key.no_d_id || last_key.no_o_id + 1 == key.no_o_id);
+                }
+                last_key = key;
+                return (++counter) < N;
+             },
+             [&]() { cout << "undo neworder scan" << endl; });
+         ensure(counter == N);
       } else if (query_no == 99) {
          sleep(5);
       } else {

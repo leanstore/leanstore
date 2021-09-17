@@ -34,7 +34,9 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    s32 leaf_pos_in_parent = -1;         // Reset after every leaf change
    bool shift_to_right_on_frozen_swips = true;
    // -------------------------------------------------------------------------------------
-   u8 buffer[PAGE_SIZE];
+   u8 buffer[PAGE_SIZE];  // Used to copy key at cur and for upper_fence/lower_fence
+   u16 fence_length = 0;
+   bool is_using_upper_fence;
    // -------------------------------------------------------------------------------------
   protected:
    // We need a custom findLeafAndLatch to track the position in parent node
@@ -205,10 +207,10 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          } else if (leaf->upper_fence.length == 0) {
             return OP_RESULT::NOT_FOUND;
          } else {
-            const u16 upper_fence_length_plus = leaf->upper_fence.length + 1;
-            u8 upper_fence[upper_fence_length_plus];
-            std::memcpy(upper_fence, leaf->getUpperFenceKey(), leaf->upper_fence.length);
-            upper_fence[upper_fence_length_plus - 1] = 0;
+            fence_length = leaf->upper_fence.length + 1;
+            is_using_upper_fence = true;
+            std::memcpy(buffer, leaf->getUpperFenceKey(), leaf->upper_fence.length);
+            buffer[fence_length - 1] = 0;
             // -------------------------------------------------------------------------------------
             p_guard.unlock();
             leaf.unlock();
@@ -250,7 +252,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                jumpmuCatch() {}
             }
             // Construct the next key (lower bound)
-            gotoPage(Slice(upper_fence, upper_fence_length_plus));
+            gotoPage(Slice(buffer, fence_length));
             // -------------------------------------------------------------------------------------
             if (leaf->count == 0) {
                cleanUpCallback([&, to_find = leaf.bf]() {
@@ -260,7 +262,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++; }
                continue;
             }
-            cur = leaf->lowerBound<false>(upper_fence, upper_fence_length_plus);
+            cur = leaf->lowerBound<false>(buffer, fence_length);
             if (cur == leaf->count) {
                continue;
             }
@@ -281,9 +283,9 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          } else if (leaf->lower_fence.length == 0) {
             return OP_RESULT::NOT_FOUND;
          } else {
-            const u16 lower_fence_length = leaf->lower_fence.length;
-            u8 lower_fence[lower_fence_length];
-            std::memcpy(lower_fence, leaf->getLowerFenceKey(), lower_fence_length);
+            fence_length = leaf->lower_fence.length;
+            is_using_upper_fence = false;
+            std::memcpy(buffer, leaf->getLowerFenceKey(), fence_length);
             // -------------------------------------------------------------------------------------
             p_guard.unlock();
             leaf.unlock();
@@ -324,14 +326,14 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                jumpmuCatch() {}
             }
             // Construct the next key (lower bound)
-            gotoPage(Slice(lower_fence, lower_fence_length));
+            gotoPage(Slice(buffer, fence_length));
             // -------------------------------------------------------------------------------------
             if (leaf->count == 0) {
                COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_empty_leaf[btree.dt_id]++; }
                continue;
             }
             bool is_equal = false;
-            cur = leaf->lowerBound<false>(lower_fence, lower_fence_length, &is_equal);
+            cur = leaf->lowerBound<false>(buffer, fence_length, &is_equal);
             if (is_equal) {
                return OP_RESULT::OK;
             } else if (cur > 0) {
@@ -370,6 +372,21 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    virtual Slice value() override { return Slice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }
    // -------------------------------------------------------------------------------------
    virtual bool keyInCurrentBoundaries(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
+   // -------------------------------------------------------------------------------------
+   bool isValid() { return cur != -1; }
+   bool isLastOne()
+   {
+      assert(isValid());
+      assert(cur != leaf->count);
+      return (cur + 1) == leaf->count;
+   }
+   void reset()
+   {
+      leaf.unlock();
+      cur = -1;
+      leaf_pos_in_parent = -1;
+      prefix_copied = false;
+   }
 };
 // -------------------------------------------------------------------------------------
 class BTreeSharedIterator : public BTreePessimisticIterator
@@ -570,8 +587,6 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
          return false;
       }
    }
-   // -------------------------------------------------------------------------------------
-   bool isValid() { return cur != -1; }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace btree

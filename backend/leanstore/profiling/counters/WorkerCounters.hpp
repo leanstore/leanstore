@@ -73,20 +73,10 @@ struct WorkerCounters {
    atomic<u64> cc_update_chains_pgc_skipped[max_dt_id] = {0};
    atomic<u64> cc_update_chains_pgc_workers_visited[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
-   atomic<u64> cc_todo_chains[max_dt_id] = {0};
-   atomic<u64> cc_todo_remove[max_dt_id] = {0};
-   atomic<u64> cc_todo_updates[max_dt_id] = {0};
-   atomic<u64> cc_todo_versions_removed[max_dt_id] = {0};
-   atomic<u64> cc_todo_1_break[max_dt_id] = {0};
-   atomic<u64> cc_todo_2_break[max_dt_id] = {0};
-   atomic<u64> cc_todo_wasted[max_dt_id] = {0};
-   // -------------------------------------------------------------------------------------
-   atomic<u64> cc_rtodo_opt_staged[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_opt_considered[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_opt_executed[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_shrt_executed[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_lng_executed[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_to_lng[max_dt_id] = {0};
+   atomic<u64> cc_todo_removed[max_dt_id] = {0};
+   atomic<u64> cc_todo_moved_gy[max_dt_id] = {0};
+   atomic<u64> cc_todo_oltp_executed[max_dt_id] = {0};
+   atomic<u64> cc_todo_olap_executed[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    atomic<u64> cc_fat_tuple_convert[max_dt_id] = {0};
    atomic<u64> cc_fat_tuple_fallback[max_dt_id] = {0};

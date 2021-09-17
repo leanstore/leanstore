@@ -11,6 +11,10 @@ add_executable(tpcc tpc-c/tpcc.cpp)
 target_link_libraries(tpcc leanstore Threads::Threads)
 target_include_directories(tpcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
+add_executable(graveyard micro-benchmarks/graveyard.cpp)
+target_link_libraries(graveyard leanstore Threads::Threads)
+target_include_directories(graveyard PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
 add_executable(min minimalExample/main.cpp)
 target_link_libraries(min leanstore Threads::Threads)
 target_include_directories(min PRIVATE ${SHARED_INCLUDE_DIRECTORY})
