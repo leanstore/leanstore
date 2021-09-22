@@ -63,6 +63,8 @@ class BTreeLL : public KVInterface, public BTreeGeneric
                               function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                               function<void()>) override;
    // -------------------------------------------------------------------------------------
+   bool isRangeSurelyEmpty(Slice start_key, Slice end_key);
+   // -------------------------------------------------------------------------------------
    virtual u64 countPages() override;
    virtual u64 countEntries() override;
    virtual u64 getHeight() override;

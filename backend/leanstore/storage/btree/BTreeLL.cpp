@@ -52,6 +52,37 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
    return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
+bool BTreeLL::isRangeSurelyEmpty(Slice start_key, Slice end_key)
+{
+   while (true) {
+      jumpmuTry()
+      {
+         HybridPageGuard<BTreeNode> leaf;
+         findLeafCanJump(leaf, start_key.data(), start_key.length());
+         // -------------------------------------------------------------------------------------
+         Slice upper_fence(leaf->getUpperFenceKey(), leaf->upper_fence.length);
+         Slice lower_fence(leaf->getLowerFenceKey(), leaf->lower_fence.length);
+         assert(start_key >= lower_fence);
+         if ((leaf->upper_fence.offset == 0 || end_key <= upper_fence) && leaf->count == 0) {
+            s32 pos = leaf->lowerBound<false>(start_key.data(), start_key.length());
+            if (pos == leaf->count) {
+               leaf.recheck();
+               jumpmu_return true;
+            } else {
+               leaf.recheck();
+               jumpmu_return false;
+            }
+         } else {
+            leaf.recheck();
+            jumpmu_return false;
+         }
+      }
+      jumpmuCatch() {}
+   }
+   UNREACHABLE();
+   return false;
+}
+// -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanAsc(u8* start_key,
                            u16 key_length,
                            std::function<bool(const u8* key, u16 key_length, const u8* payload, u16 payload_length)> callback,
