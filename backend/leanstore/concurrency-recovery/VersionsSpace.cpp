@@ -22,9 +22,9 @@ using namespace leanstore::storage::btree;
 void VersionsSpace::insertVersion(WORKERID session_id,
                                   TXID tx_id,
                                   COMMANDID command_id,
-                                  u64 payload_length,
-                                  bool should_callback,
                                   DTID dt_id,
+                                  bool is_remove,
+                                  u64 payload_length,
                                   std::function<void(u8*)> cb)
 {
    const u64 key_length = sizeof(tx_id) + sizeof(command_id);
@@ -35,8 +35,8 @@ void VersionsSpace::insertVersion(WORKERID session_id,
    Slice key(key_buffer, key_length);
    payload_length += sizeof(VersionMeta);
    // -------------------------------------------------------------------------------------
-   BTreeLL* btree = btrees[session_id];
-   auto& session = sessions[session_id];
+   BTreeLL* btree = (is_remove) ? remove_btrees[session_id] : update_btrees[session_id];
+   Session& session = (is_remove) ? remove_sessions[session_id] : update_sessions[session_id];
    if (session.init) {
       jumpmuTry()
       {
@@ -50,7 +50,6 @@ void VersionsSpace::insertVersion(WORKERID session_id,
                iterator.insertInCurrentNode(key, payload_length);
             }
             auto& version_meta = *new (iterator.mutableValue().data()) VersionMeta();
-            version_meta.should_callback = should_callback;
             version_meta.dt_id = dt_id;
             cb(version_meta.payload);
             iterator.markAsDirty();
@@ -75,7 +74,6 @@ void VersionsSpace::insertVersion(WORKERID session_id,
          }
          iterator.insertInCurrentNode(key, payload_length);
          auto& version_meta = *new (iterator.mutableValue().data()) VersionMeta();
-         version_meta.should_callback = should_callback;
          version_meta.dt_id = dt_id;
          cb(version_meta.payload);
          iterator.markAsDirty();
@@ -93,9 +91,14 @@ void VersionsSpace::insertVersion(WORKERID session_id,
    }
 }
 // -------------------------------------------------------------------------------------
-bool VersionsSpace::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, std::function<void(const u8*, u64)> cb)
+bool VersionsSpace::retrieveVersion(WORKERID worker_id,
+                                    TXID tx_id,
+                                    COMMANDID command_id,
+                                    const bool is_remove,
+                                    std::function<void(const u8*, u64)> cb)
 {
-   BTreeLL* btree = btrees[worker_id];
+   BTreeLL* btree = (is_remove) ? remove_btrees[worker_id] : update_btrees[worker_id];
+   // -------------------------------------------------------------------------------------
    const u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];
    u64 offset = 0;
@@ -120,15 +123,90 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID co
    return false;
 }
 // -------------------------------------------------------------------------------------
+void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb)
+{
+   BTreeLL* btree = update_btrees[worker_id];
+   u16 key_length = sizeof(to_tx_id);
+   u8 key_buffer[PAGE_SIZE];
+   utils::fold(key_buffer, from_tx_id);
+   Slice key(key_buffer, key_length);
+   // -------------------------------------------------------------------------------------
+   {
+      jumpmuTry()
+      {
+      restart : {
+         leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
+         OP_RESULT ret = iterator.seek(key);
+         while (ret == OP_RESULT::OK) {
+            iterator.assembleKey();
+            TXID current_tx_id;
+            utils::unfold(iterator.key().data(), current_tx_id);
+            if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
+               ret = iterator.removeCurrent();
+               ensure(ret == OP_RESULT::OK);
+               COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
+               iterator.markAsDirty();
+               if (iterator.mergeIfNeeded()) {
+                  goto restart;
+               }
+               if (iterator.cur == iterator.leaf->count) {
+                  ret = iterator.next();
+               }
+            } else {
+               break;
+            }
+         }
+      }
+      }
+      jumpmuCatch() { UNREACHABLE(); }
+   }
+   // -------------------------------------------------------------------------------------
+   btree = remove_btrees[worker_id];
+   utils::fold(key_buffer, from_tx_id);
+   u8 payload[PAGE_SIZE];
+   u16 payload_length;
+   // -------------------------------------------------------------------------------------
+   jumpmuTry()
+   {
+   restartrem : {
+      leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
+      OP_RESULT ret = iterator.seek(key);
+      while (ret == OP_RESULT::OK) {
+         iterator.assembleKey();
+         TXID current_tx_id;
+         utils::unfold(iterator.key().data(), current_tx_id);
+         if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
+            auto& version_container = *reinterpret_cast<VersionMeta*>(iterator.mutableValue().data());
+            const DTID dt_id = version_container.dt_id;
+            const bool called_before = version_container.called_before;
+            version_container.called_before = true;
+            key_length = iterator.key().length();
+            std::memcpy(key_buffer, iterator.key().data(), key_length);
+            payload_length = iterator.value().length() - sizeof(VersionMeta);
+            std::memcpy(payload, version_container.payload, payload_length);
+            key = Slice(key_buffer, key_length + 1);
+            iterator.removeCurrent();
+            iterator.markAsDirty();
+            iterator.reset();
+            cb(current_tx_id, dt_id, payload, payload_length, called_before);
+            goto restartrem;
+         } else {
+            break;
+         }
+      }
+   }
+   }
+   jumpmuCatch() { UNREACHABLE(); }
+}
+// -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer
-void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
-                                         TXID from_tx_id,
-                                         TXID to_tx_id,
-                                         bool remove_entries,
-                                         std::function<void(const TXID, const DTID, const u8*, u64, const bool)> cb)
+void VersionsSpace::visitRemoveVersions(WORKERID worker_id,
+                                        TXID from_tx_id,
+                                        TXID to_tx_id,
+                                        std::function<void(const TXID, const DTID, const u8*, u64, const bool visited_before)> cb)
 {
    // [from, to]
-   BTreeLL* btree = btrees[worker_id];
+   BTreeLL* btree = remove_btrees[worker_id];
    u16 key_length = sizeof(to_tx_id);
    u8 key_buffer[PAGE_SIZE];
    u64 offset = 0;
@@ -140,34 +218,6 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
    jumpmuTry()
    {
    restart : {
-      if (!remove_entries) {
-         leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
-         OP_RESULT ret = iterator.seek(key);
-         while (ret == OP_RESULT::OK) {
-            iterator.assembleKey();
-            TXID current_tx_id;
-            utils::unfold(iterator.key().data(), current_tx_id);
-            if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
-               auto& version_container = *reinterpret_cast<VersionMeta*>(iterator.mutableValue().data());
-               if (version_container.should_callback) {
-                  version_container.called_before = true;
-                  key_length = iterator.key().length();
-                  std::memcpy(key_buffer, iterator.key().data(), key_length);
-                  payload_length = iterator.value().length() - sizeof(VersionMeta);
-                  std::memcpy(payload, version_container.payload, payload_length);
-                  key = Slice(key_buffer, key_length + 1);
-                  iterator.reset();
-                  cb(current_tx_id, version_container.dt_id, payload, payload_length, false);
-                  goto restart;
-               }
-               ret = iterator.next();
-            } else {
-               break;
-            }
-         }
-         jumpmu_return;
-      }
-      // -------------------------------------------------------------------------------------
       leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
       OP_RESULT ret = iterator.seek(key);
       while (ret == OP_RESULT::OK) {
@@ -175,33 +225,21 @@ void VersionsSpace::iterateOverTXIDRange(WORKERID worker_id,
          TXID current_tx_id;
          utils::unfold(iterator.key().data(), current_tx_id);
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
-            const auto& version_container = *reinterpret_cast<const VersionMeta*>(iterator.value().data());
+            auto& version_container = *reinterpret_cast<VersionMeta*>(iterator.mutableValue().data());
             const DTID dt_id = version_container.dt_id;
             const bool called_before = version_container.called_before;
-            if (version_container.should_callback) {
-               key_length = iterator.key().length();
-               std::memcpy(key_buffer, iterator.key().data(), key_length);
-               payload_length = iterator.value().length() - sizeof(VersionMeta);
-               std::memcpy(payload, version_container.payload, payload_length);
-               key = Slice(key_buffer, key_length + 1);
-               iterator.removeCurrent();
-               ensure(ret == OP_RESULT::OK);
+            version_container.called_before = true;
+            key_length = iterator.key().length();
+            std::memcpy(key_buffer, iterator.key().data(), key_length);
+            payload_length = iterator.value().length() - sizeof(VersionMeta);
+            std::memcpy(payload, version_container.payload, payload_length);
+            key = Slice(key_buffer, key_length + 1);
+            if (!called_before) {
                iterator.markAsDirty();
-               iterator.reset();
-               cb(current_tx_id, dt_id, payload, payload_length, called_before);
-               goto restart;
             }
-            // -------------------------------------------------------------------------------------
-            ret = iterator.removeCurrent();
-            ensure(ret == OP_RESULT::OK);
-            COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
-            iterator.markAsDirty();
-            if (iterator.mergeIfNeeded()) {
-               goto restart;
-            }
-            if (iterator.cur == iterator.leaf->count) {
-               ret = iterator.next();
-            }
+            iterator.reset();
+            cb(current_tx_id, dt_id, payload, payload_length, called_before);
+            goto restart;
          } else {
             break;
          }

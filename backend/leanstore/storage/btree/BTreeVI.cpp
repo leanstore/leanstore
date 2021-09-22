@@ -222,16 +222,15 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       const u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
       const u16 version_payload_length = delta_and_descriptor_size + sizeof(UpdateVersion);
-      const COMMANDID command_id = cr::Worker::my().command_id++;
+      COMMANDID command_id = cr::Worker::my().command_id++;
       // -------------------------------------------------------------------------------------
       // Write the ChainedTupleDelta
       if (!update_without_versioning) {
-         cr::Worker::my().versions_space.insertVersion(
-             cr::Worker::my().workerID(), cr::activeTX().TTS(), command_id, version_payload_length, false, dt_id, [&](u8* version_payload) {
-                auto& secondary_version = *new (version_payload) UpdateVersion(tuple_head.worker_id, tuple_head.tx_id, tuple_head.command_id, true);
-                std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
-                BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
-             });
+         command_id = cr::Worker::my().insertVersion(dt_id, false, version_payload_length, [&](u8* version_payload) {
+            auto& secondary_version = *new (version_payload) UpdateVersion(tuple_head.worker_id, tuple_head.tx_id, tuple_head.command_id, true);
+            std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
+            BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
+         });
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
       }
       // -------------------------------------------------------------------------------------
@@ -361,8 +360,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
          jumpmu_return OP_RESULT::OK;
       }
       // -------------------------------------------------------------------------------------
-      const u64 command_id = cr::Worker::my().command_id++;
-      // -------------------------------------------------------------------------------------
       auto payload = iterator.mutableValue();
       ChainedTuple& chain_head = *reinterpret_cast<ChainedTuple*>(payload.data());
       // -------------------------------------------------------------------------------------
@@ -394,14 +391,13 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       dangling_pointer.head_slot = iterator.cur;
       const u16 value_length = iterator.value().length() - sizeof(ChainedTuple);
       const u16 version_payload_length = sizeof(RemoveVersion) + value_length + o_key_length;
-      cr::Worker::my().versions_space.insertVersion(
-          cr::Worker::my().worker_id, cr::activeTX().TTS(), command_id, version_payload_length, true, dt_id, [&](u8* secondary_payload) {
-             auto& secondary_version =
-                 *new (secondary_payload) RemoveVersion(chain_head.worker_id, chain_head.tx_id, chain_head.command_id, o_key_length, value_length);
-             secondary_version.dangling_pointer = dangling_pointer;
-             std::memcpy(secondary_version.payload, o_key, o_key_length);
-             std::memcpy(secondary_version.payload + o_key_length, chain_head.payload, value_length);
-          });
+      const COMMANDID command_id = cr::Worker::my().insertVersion(dt_id, true, version_payload_length, [&](u8* secondary_payload) {
+         auto& secondary_version =
+             *new (secondary_payload) RemoveVersion(chain_head.worker_id, chain_head.tx_id, chain_head.command_id, o_key_length, value_length);
+         secondary_version.dangling_pointer = dangling_pointer;
+         std::memcpy(secondary_version.payload, o_key, o_key_length);
+         std::memcpy(secondary_version.payload + o_key_length, chain_head.payload, value_length);
+      });
       // -------------------------------------------------------------------------------------
       // WAL
       auto wal_entry = iterator.leaf.reserveWALEntry<WALRemove>(o_key_length + value_length);
@@ -782,7 +778,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple([[maybe_unused]] Sli
    COMMANDID next_command_id = chain_head.command_id;
    // -------------------------------------------------------------------------------------
    while (true) {
-      bool found = cr::Worker::my().versions_space.retrieveVersion(
+      bool found = cr::Worker::my().retrieveVersion(
           next_worker_id, next_tx_id, next_command_id, [&](const u8* version_payload, u64 version_length) {
              const auto& version = *reinterpret_cast<const Version*>(version_payload);
              if (version.type == Version::TYPE::UPDATE) {

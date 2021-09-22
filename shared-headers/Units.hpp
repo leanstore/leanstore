@@ -39,6 +39,7 @@ using DTID = s64;  // Datastructure ID
 using WORKERID = u8;
 using TXID = u64;
 using COMMANDID = u32;
+#define TYPE_MSB(TYPE) (1ull << ((sizeof(TYPE) * 8) - 1))
 // -------------------------------------------------------------------------------------
 using TINYINT = s8;
 using SMALLINT = s16;

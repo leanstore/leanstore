@@ -136,6 +136,18 @@ struct Worker {
    void addUnlockTask(DTID dt_id, u64 payload_length, std::function<void(u8* dst)> callback);
    void executeUnlockTasks();
    // -------------------------------------------------------------------------------------
+   u64 insertVersion(DTID dt_id, bool is_remove, u64 payload_length, std::function<void(u8*)> cb)
+   {
+      const u64 new_command_id = (command_id++) | ((is_remove) ? TYPE_MSB(COMMANDID) : 0);
+      versions_space.insertVersion(worker_id, active_tx.TTS(), new_command_id, dt_id, is_remove, payload_length, cb);
+      return new_command_id;
+   }
+   bool retrieveVersion(WORKERID its_worker_id, TXID its_tx_id, COMMANDID its_command_id, std::function<void(const u8*, u64 payload_length)> cb)
+   {
+      const bool is_remove = its_command_id & TYPE_MSB(COMMANDID);
+      return versions_space.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
+   }
+   // -------------------------------------------------------------------------------------
    // Optimization: remove relations from snapshot as soon as we are finished with them (esp. in long read-only tx)
    static constexpr u64 MAX_RELATIONS_COUNT = 128;
    struct RelationsList {

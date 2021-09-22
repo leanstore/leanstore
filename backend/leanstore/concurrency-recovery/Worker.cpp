@@ -308,26 +308,28 @@ void Worker::checkup()
       if (!FLAGS_todo) {
          return;
       }
-      if (local_olap_lwm > 0 && local_olap_lwm != cleaned_untill_olap_lwm) {
+      if (local_olap_lwm > 0 && local_olap_lwm > cleaned_untill_olap_lwm) {
          // PURGE!
-         versions_space.iterateOverTXIDRange(worker_id, 0, local_olap_lwm - 1, true,
-                                             [&](const TXID tx_id, const DTID dt_id, const u8* version_payload,
-                                                 [[maybe_unused]] u64 version_payload_length, const bool called_before) {
-                                                leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
-                                                                                                        called_before);
-                                                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
-                                             });
+         versions_space.purgeVersions(worker_id, 0, local_olap_lwm - 1,
+                                      [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length,
+                                          const bool called_before) {
+                                         leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
+                                                                                                 called_before);
+                                         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
+                                      });
+         // TODO: optimize
          cleaned_untill_olap_lwm = local_olap_lwm;
-      } else if (local_oltp_lwm > 0 && local_oltp_lwm != cleaned_untill_oltp_lwm) {
+      } else if (local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
          // MOVE deletes to the graveyard
-         const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm - 1 : 0;
-         versions_space.iterateOverTXIDRange(worker_id, from_tx_id, local_oltp_lwm - 1, false,
-                                             [&](const TXID tx_id, const DTID dt_id, const u8* version_payload,
-                                                 [[maybe_unused]] u64 version_payload_length, const bool called_before) {
-                                                leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
-                                                                                                        called_before);
-                                                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
-                                             });
+         const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
+         versions_space.visitRemoveVersions(worker_id, from_tx_id, local_oltp_lwm - 1,
+                                            [&](const TXID tx_id, const DTID dt_id, const u8* version_payload,
+                                                [[maybe_unused]] u64 version_payload_length, const bool called_before) {
+                                               ensure(called_before == false);
+                                               leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
+                                                                                                       called_before);
+                                               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
+                                            });
          cleaned_untill_oltp_lwm = local_oltp_lwm;
       }
    }
@@ -392,8 +394,8 @@ void Worker::abortTX()
       if (activeTX().isSerializable()) {
          executeUnlockTasks();
       }
-      versions_space.iterateOverTXIDRange(worker_id, active_tx.TTS(), active_tx.TTS(), true,
-                                          [&](const TXID, const DTID, const u8*, u64, const bool) {});
+      versions_space.purgeVersions(worker_id, active_tx.TTS(), active_tx.TTS(),
+                                   [&](const TXID, const DTID, const u8*, u64, const bool) {});
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.type = WALEntry::TYPE::TX_ABORT;

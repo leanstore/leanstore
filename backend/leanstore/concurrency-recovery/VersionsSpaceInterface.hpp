@@ -20,29 +20,25 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-struct __attribute__((packed)) VersionMeta {
-   bool should_callback = false;
-   bool called_before = false;
-   DTID dt_id;
-   u8 payload[];
-};
+using RemoveVersionCallback = std::function<void(const TXID, const DTID, const u8*, u64, const bool visited_before)>;
 class VersionsSpaceInterface
 {
   public:
    virtual void insertVersion(WORKERID worker_id,
                               TXID tx_id,
                               COMMANDID command_id,
-                              u64 payload_length,
-                              bool should_callback,
                               DTID dt_id,
+                              bool is_remove,
+                              u64 payload_length,
                               std::function<void(u8*)> cb) = 0;
-   virtual bool retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, std::function<void(const u8*, u64 payload_length)> cb) = 0;
-   virtual void iterateOverTXIDRange(
-       WORKERID worker_id,
-       TXID from_tx_id,
-       TXID to_tx_id,
-       bool purge_without_callback,
-       std::function<void(const TXID, const DTID, const u8*, u64 payload_length, const bool called_before)> cb) = 0;  // [from, to]
+   virtual bool retrieveVersion(WORKERID worker_id,
+                                TXID tx_id,
+                                COMMANDID command_id,
+                                const bool is_remove,
+                                std::function<void(const u8*, u64 payload_length)> cb) = 0;
+   virtual void purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb) = 0;
+   virtual void visitRemoveVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id,
+                                    RemoveVersionCallback cb) = 0;  // [from, to]
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr

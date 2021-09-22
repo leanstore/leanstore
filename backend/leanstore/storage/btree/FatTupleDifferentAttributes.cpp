@@ -310,7 +310,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    next_command_id = chain_head.command_id;
    // TODO: check for used_space overflow
    while (true) {
-      const bool found = cr::Worker::my().versions_space.retrieveVersion(
+      const bool found = cr::Worker::my().retrieveVersion(
           next_worker_id, next_tx_id, next_command_id, [&](const u8* version, [[maybe_unused]] u64 payload_length) {
              const auto& chain_delta = *reinterpret_cast<const UpdateVersion*>(version);
              ensure(chain_delta.type == Version::TYPE::UPDATE);
