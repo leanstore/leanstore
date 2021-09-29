@@ -141,18 +141,14 @@ int main(int argc, char** argv)
             jumpmuTry()
             {
                cr::Worker::my().startTX(tx_mode, isolation_level);
-               if (FLAGS_tmp5) {
-                  for (u64 i = 0; i <= 10; i++)
-                     if (i != 5)
-                        leanstore::cr::Worker::my().relations_cut_from_snapshot.add(i);
-               }
                for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
                   tpcc.analyticalQuery(FLAGS_ch_a_query);
                }
                cr::Worker::my().commitTX();
+               WorkerCounters::myCounters().olap_tx++;
                tx_acc++;
             }
-            jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
+            jumpmuCatch() { WorkerCounters::myCounters().olap_tx_abort++; }
          }
          cr::Worker::my().shutdown();
          // -------------------------------------------------------------------------------------

@@ -30,6 +30,8 @@ void CRTable::open()
    columns.emplace("gct_rounds", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::gct_rounds); });
    columns.emplace("tx", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx); });
    columns.emplace("tx_abort", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx_abort); });
+   columns.emplace("olap_tx", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::olap_tx); });
+   columns.emplace("olap_tx_abort", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::olap_tx_abort); });
    columns.emplace("rfa_committed_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::rfa_committed_tx); });
    // -------------------------------------------------------------------------------------
    columns.emplace("cc_snapshot_restart", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_snapshot_restart); });

@@ -383,7 +383,6 @@ class BTreeVI : public BTreeLL
          // Now it begins
          g_upper_bound = Slice(iterator.leaf->getUpperFenceKey(), iterator.leaf->upper_fence.length);
          auto g_range = [&]() {
-            // TODO: optimistic
             g_iterator.reset();
             if (graveyard->isRangeSurelyEmpty(g_lower_bound, g_upper_bound)) {
                g_ret = OP_RESULT::OTHER;

@@ -3,6 +3,7 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/Config.hpp"
+#include "leanstore/concurrency-recovery/Worker.hpp"
 #include "leanstore/KVInterface.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
@@ -1033,10 +1034,9 @@ class TPCCWorkload
          orderline.scan(
              {0, 0, 0, 0}, [&](const orderline_t::Key&, const orderline_t&) { return true; }, [&]() {});
       } else if (query_no == 3) {
-         u64 counter = 0;
+         u64 olap_counter = 0;
          neworder_t::Key last_key;
          last_key.no_o_id = -1;
-         const u64 N = 10000;
          neworder.scan(
              {0, 0, 0},
              [&](const neworder_t::Key& key, const neworder_t&) {
@@ -1044,10 +1044,26 @@ class TPCCWorkload
                    ensure(last_key.no_d_id != key.no_d_id || last_key.no_o_id + 1 == key.no_o_id);
                 }
                 last_key = key;
-                return (++counter) < N;
+                olap_counter++;
+                return true;
              },
              [&]() { cout << "undo neworder scan" << endl; });
-         ensure(counter == N);
+         // -------------------------------------------------------------------------------------
+         leanstore::cr::Worker::my().active_tx.current_tx_mode = leanstore::TX_MODE::OLTP;
+         u64 oltp_counter = 0;
+         last_key.no_o_id = -1;
+         neworder.scan(
+             {0, 0, 0},
+             [&](const neworder_t::Key& key, const neworder_t&) {
+                if (last_key.no_o_id != -1) {
+                   ensure(last_key.no_d_id != key.no_d_id || last_key.no_o_id + 1 == key.no_o_id);
+                }
+                last_key = key;
+                oltp_counter++;
+                return true;
+             },
+             [&]() { cout << "undo neworder scan" << endl; });
+         ensure(olap_counter >= oltp_counter);
       } else if (query_no == 99) {
          sleep(5);
       } else {

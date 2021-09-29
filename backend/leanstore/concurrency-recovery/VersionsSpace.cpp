@@ -35,12 +35,12 @@ void VersionsSpace::insertVersion(WORKERID session_id,
    Slice key(key_buffer, key_length);
    payload_length += sizeof(VersionMeta);
    // -------------------------------------------------------------------------------------
-   BTreeLL* btree = (is_remove) ? remove_btrees[session_id] : update_btrees[session_id];
-   Session& session = (is_remove) ? remove_sessions[session_id] : update_sessions[session_id];
+   BTreeLL* volatile btree = (is_remove) ? remove_btrees[session_id] : update_btrees[session_id];
+   volatile Session& session = (is_remove) ? remove_sessions[session_id] : update_sessions[session_id];
    if (session.init) {
       jumpmuTry()
       {
-         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree), session.bf, session.version);
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)), session.bf, session.version);
          OP_RESULT ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::OK && iterator.keyInCurrentBoundaries(key)) {
             if (session.last_tx_id == tx_id) {
@@ -64,7 +64,7 @@ void VersionsSpace::insertVersion(WORKERID session_id,
    while (true) {
       jumpmuTry()
       {
-         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
          OP_RESULT ret = iterator.seekToInsert(key);
          ensure(ret == OP_RESULT::OK);
          ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
@@ -97,7 +97,7 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id,
                                     const bool is_remove,
                                     std::function<void(const u8*, u64)> cb)
 {
-   BTreeLL* btree = (is_remove) ? remove_btrees[worker_id] : update_btrees[worker_id];
+   volatile BTreeLL* btree = (is_remove) ? remove_btrees[worker_id] : update_btrees[worker_id];
    // -------------------------------------------------------------------------------------
    const u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];
@@ -108,7 +108,7 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id,
    Slice key(key_buffer, key_length);
    jumpmuTry()
    {
-      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(btree), LATCH_FALLBACK_MODE::SHARED);
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)), LATCH_FALLBACK_MODE::SHARED);
       OP_RESULT ret = iterator.seekExact(key);
       if (ret != OP_RESULT::OK) {
          jumpmu_return false;
@@ -125,7 +125,7 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id,
 // -------------------------------------------------------------------------------------
 void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb)
 {
-   BTreeLL* btree = update_btrees[worker_id];
+   BTreeLL* volatile btree = update_btrees[worker_id];
    u16 key_length = sizeof(to_tx_id);
    u8 key_buffer[PAGE_SIZE];
    utils::fold(key_buffer, from_tx_id);
@@ -135,7 +135,7 @@ void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_t
       jumpmuTry()
       {
       restart : {
-         leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
+         leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
          OP_RESULT ret = iterator.seek(key);
          while (ret == OP_RESULT::OK) {
             iterator.assembleKey();
@@ -169,7 +169,7 @@ void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_t
    jumpmuTry()
    {
    restartrem : {
-      leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(btree));
+      leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
       OP_RESULT ret = iterator.seek(key);
       while (ret == OP_RESULT::OK) {
          iterator.assembleKey();
