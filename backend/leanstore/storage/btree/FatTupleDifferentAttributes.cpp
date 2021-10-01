@@ -310,8 +310,9 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    next_command_id = chain_head.command_id;
    // TODO: check for used_space overflow
    while (true) {
-      const bool found = cr::Worker::my().retrieveVersion(
-          next_worker_id, next_tx_id, next_command_id, [&](const u8* version, [[maybe_unused]] u64 payload_length) {
+      const bool found =
+          cr::Worker::my().retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version, [[maybe_unused]] u64 payload_length) {
+             number_of_deltas_to_replace++;
              const auto& chain_delta = *reinterpret_cast<const UpdateVersion*>(version);
              ensure(chain_delta.type == Version::TYPE::UPDATE);
              ensure(chain_delta.is_delta);
@@ -348,7 +349,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
       return false;
    }
    fat_tuple.total_space = fat_tuple.used_space;
-   if (1 || number_of_deltas_to_replace >= FLAGS_vi_fat_tuple_threshold) {
+   if (number_of_deltas_to_replace >= cr::Worker::my().workers_count) {
       // Finalize the new FatTuple
       // TODO: corner cases, more careful about space usage
       // -------------------------------------------------------------------------------------

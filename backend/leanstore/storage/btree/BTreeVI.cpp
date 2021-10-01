@@ -131,6 +131,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    Slice key(o_key, o_key_length);
    OP_RESULT ret;
+   volatile bool tried_converting_to_fat_tuple = false;
    // -------------------------------------------------------------------------------------
    // 20K instructions more
    jumpmuTry()
@@ -149,7 +150,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          jumpmu_return ret;
       }
       // -------------------------------------------------------------------------------------
-      bool tried_converting_to_fat_tuple = false;
    restart : {
       MutableSlice primary_payload = iterator.mutableValue();
       auto& tuple = *reinterpret_cast<Tuple*>(primary_payload.data());
@@ -186,14 +186,15 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          jumpmu_return OP_RESULT::OK;
       }
       // -------------------------------------------------------------------------------------
-      // TODO:
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && !tried_converting_to_fat_tuple && tuple_head.can_convert_to_fat_tuple &&
+                                  tuple_head.command_id != Tuple::INVALID_COMMANDID &&
                                   !(tuple_head.worker_id == cr::Worker::my().workerID() && tuple_head.tx_id == cr::activeTX().TTS());
       if (convert_to_fat_tuple) {
-         // const u64 random_number = utils::RandomGenerator::getRandU64();
-         // convert_to_fat_tuple &= ((random_number & ((1ull << FLAGS_vi_fat_tuple_threshold) - 1)) == 0);
          convert_to_fat_tuple &= cr::Worker::my().local_oltp_lwm < tuple_head.tx_id;
+      }
+      if (convert_to_fat_tuple) {
+         convert_to_fat_tuple &= utils::RandomGenerator::getRandU64(0, cr::Worker::my().workers_count) == 0;
       }
       if (convert_to_fat_tuple) {
          ensure(tuple.isWriteLocked());
@@ -778,33 +779,32 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple([[maybe_unused]] Sli
    COMMANDID next_command_id = chain_head.command_id;
    // -------------------------------------------------------------------------------------
    while (true) {
-      bool found = cr::Worker::my().retrieveVersion(
-          next_worker_id, next_tx_id, next_command_id, [&](const u8* version_payload, u64 version_length) {
-             const auto& version = *reinterpret_cast<const Version*>(version_payload);
-             if (version.type == Version::TYPE::UPDATE) {
-                const auto& update_version = *reinterpret_cast<const UpdateVersion*>(version_payload);
-                if (update_version.is_delta) {
-                   // Apply delta
-                   const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(update_version.payload);
-                   BTreeLL::applyDiff(update_descriptor, materialized_value.get(), update_version.payload + update_descriptor.size());
-                } else {
-                   materialized_value_length = version_length - sizeof(UpdateVersion);
-                   materialized_value = std::make_unique<u8[]>(materialized_value_length);
-                   std::memcpy(materialized_value.get(), update_version.payload, materialized_value_length);
-                }
-             } else if (version.type == Version::TYPE::REMOVE) {
-                const auto& remove_version = *reinterpret_cast<const RemoveVersion*>(version_payload);
-                materialized_value_length = remove_version.value_length;
-                materialized_value = std::make_unique<u8[]>(materialized_value_length);
-                std::memcpy(materialized_value.get(), remove_version.payload, materialized_value_length);
-             } else {
-                UNREACHABLE();
-             }
-             // -------------------------------------------------------------------------------------
-             next_worker_id = version.worker_id;
-             next_tx_id = version.tx_id;
-             next_command_id = version.command_id;
-          });
+      bool found = cr::Worker::my().retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version_payload, u64 version_length) {
+         const auto& version = *reinterpret_cast<const Version*>(version_payload);
+         if (version.type == Version::TYPE::UPDATE) {
+            const auto& update_version = *reinterpret_cast<const UpdateVersion*>(version_payload);
+            if (update_version.is_delta) {
+               // Apply delta
+               const auto& update_descriptor = *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(update_version.payload);
+               BTreeLL::applyDiff(update_descriptor, materialized_value.get(), update_version.payload + update_descriptor.size());
+            } else {
+               materialized_value_length = version_length - sizeof(UpdateVersion);
+               materialized_value = std::make_unique<u8[]>(materialized_value_length);
+               std::memcpy(materialized_value.get(), update_version.payload, materialized_value_length);
+            }
+         } else if (version.type == Version::TYPE::REMOVE) {
+            const auto& remove_version = *reinterpret_cast<const RemoveVersion*>(version_payload);
+            materialized_value_length = remove_version.value_length;
+            materialized_value = std::make_unique<u8[]>(materialized_value_length);
+            std::memcpy(materialized_value.get(), remove_version.payload, materialized_value_length);
+         } else {
+            UNREACHABLE();
+         }
+         // -------------------------------------------------------------------------------------
+         next_worker_id = version.worker_id;
+         next_tx_id = version.tx_id;
+         next_command_id = version.command_id;
+      });
       if (!found) {
          return {OP_RESULT::NOT_FOUND, chain_length};
       }

@@ -84,6 +84,7 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    // NEVER SHADOW A MEMBER!!!
    struct __attribute__((packed)) Tuple {
+      static constexpr COMMANDID INVALID_COMMANDID = std::numeric_limits<COMMANDID>::max();
       union {
          u128 read_ts = 0;
          u128 read_lock_counter;
@@ -95,7 +96,7 @@ class BTreeVI : public BTreeLL
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
       Tuple(TupleFormat tuple_format, u8 worker_id, u64 worker_commit_mark)
-          : tuple_format(tuple_format), worker_id(worker_id), tx_id(worker_commit_mark), command_id(9999)
+          : tuple_format(tuple_format), worker_id(worker_id), tx_id(worker_commit_mark), command_id(INVALID_COMMANDID)
       {
          write_locked = false;
       }
