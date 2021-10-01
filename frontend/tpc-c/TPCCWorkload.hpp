@@ -3,8 +3,8 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/Config.hpp"
-#include "leanstore/concurrency-recovery/Worker.hpp"
 #include "leanstore/KVInterface.hpp"
+#include "leanstore/concurrency-recovery/Worker.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
@@ -1041,29 +1041,18 @@ class TPCCWorkload
              {0, 0, 0},
              [&](const neworder_t::Key& key, const neworder_t&) {
                 if (last_key.no_o_id != -1) {
-                   ensure(last_key.no_d_id != key.no_d_id || last_key.no_o_id + 1 == key.no_o_id);
+                   if (!(last_key.no_w_id != key.no_w_id || last_key.no_d_id != key.no_d_id || last_key.no_o_id + 1 == key.no_o_id)) {
+                      cout << last_key.no_w_id << "," << key.no_w_id << endl;
+                      cout << last_key.no_d_id << "," << key.no_d_id << endl;
+                      cout << last_key.no_o_id << "," << key.no_o_id << endl;
+                      ensure(false);
+                   }
                 }
                 last_key = key;
                 olap_counter++;
                 return true;
              },
              [&]() { cout << "undo neworder scan" << endl; });
-         // -------------------------------------------------------------------------------------
-         leanstore::cr::Worker::my().active_tx.current_tx_mode = leanstore::TX_MODE::OLTP;
-         u64 oltp_counter = 0;
-         last_key.no_o_id = -1;
-         neworder.scan(
-             {0, 0, 0},
-             [&](const neworder_t::Key& key, const neworder_t&) {
-                if (last_key.no_o_id != -1) {
-                   ensure(last_key.no_d_id != key.no_d_id || last_key.no_o_id + 1 == key.no_o_id);
-                }
-                last_key = key;
-                oltp_counter++;
-                return true;
-             },
-             [&]() { cout << "undo neworder scan" << endl; });
-         ensure(olap_counter >= oltp_counter);
       } else if (query_no == 99) {
          sleep(5);
       } else {
