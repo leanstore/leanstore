@@ -95,8 +95,8 @@ class BTreeVI : public BTreeLL
       COMMANDID command_id;
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
-      Tuple(TupleFormat tuple_format, u8 worker_id, u64 worker_commit_mark)
-          : tuple_format(tuple_format), worker_id(worker_id), tx_id(worker_commit_mark), command_id(INVALID_COMMANDID)
+      Tuple(TupleFormat tuple_format, u8 worker_id, TXID tx_id)
+          : tuple_format(tuple_format), worker_id(worker_id), tx_id(tx_id), command_id(INVALID_COMMANDID)
       {
          write_locked = false;
       }
@@ -113,7 +113,7 @@ class BTreeVI : public BTreeLL
       // -------------------------------------------------------------------------------------
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
-      ChainedTuple(u8 worker_id, u64 worker_commit_mark) : Tuple(TupleFormat::CHAINED, worker_id, worker_commit_mark), is_removed(false) { reset(); }
+      ChainedTuple(u8 worker_id, TXID tx_id) : Tuple(TupleFormat::CHAINED, worker_id, tx_id), is_removed(false) { reset(); }
       bool isFinal() const { return false; }
       void reset() { can_convert_to_fat_tuple = 1; }
    };
@@ -123,8 +123,8 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
       struct __attribute__((packed)) Delta {
          u8 worker_id : 8;
-         u64 worker_txid : 56;
-         u64 committed_before_txid;
+         u64 worker_tx_id : 56;
+         COMMANDID command_id = INVALID_COMMANDID;
          u8 payload[];  // Descriptor + Diff
          UpdateSameSizeInPlaceDescriptor& getDescriptor() { return *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(payload); }
          const UpdateSameSizeInPlaceDescriptor& getConstantDescriptor() const
@@ -135,7 +135,7 @@ class BTreeVI : public BTreeLL
       // -------------------------------------------------------------------------------------
       u16 value_length;
       u16 total_space;       // From the payload bytes array
-      u32 used_space;        // u32 instead of u16 to make it easier to detect overflow while converting
+      u16 used_space;        // u32 instead of u16 to make it easier to detect overflow while converting
       u16 deltas_count = 0;  // Attention: coupled with used_space
       s64 debug = 0;
       u8 payload[];  // value, Delta+Descriptor+Diff[] N2O
@@ -154,6 +154,7 @@ class BTreeVI : public BTreeLL
       inline const u8* getValueConstant() const { return payload; }
       std::tuple<OP_RESULT, u16> reconstructTuple(std::function<void(Slice value)> callback) const;
    };
+   static_assert(sizeof(ChainedTuple) <= sizeof(FatTupleDifferentAttributes), "");
    // -------------------------------------------------------------------------------------
    struct DanglingPointer {
       BufferFrame* bf = nullptr;
@@ -465,10 +466,7 @@ class BTreeVI : public BTreeLL
       return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
    }
    inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
-   static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard)
-   {
-      return (guard->gc_space_used >= (FLAGS_garbage_in_page_pct * PAGE_SIZE * 1.0 / 100));
-   }
+   static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard) { return guard->has_garbage > 0; }
    bool precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard);
    // -------------------------------------------------------------------------------------
    template <typename T>

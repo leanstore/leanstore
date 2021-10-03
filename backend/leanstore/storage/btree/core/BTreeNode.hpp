@@ -73,7 +73,7 @@ struct BTreeNodeHeader {
    u32 hint[hint_count];
    // -------------------------------------------------------------------------------------
    // Needed for GC
-   u16 gc_space_used = 0;
+   bool has_garbage = false;
    // -------------------------------------------------------------------------------------
    BTreeNodeHeader(bool is_leaf) : is_leaf(is_leaf) {}
    ~BTreeNodeHeader() {}

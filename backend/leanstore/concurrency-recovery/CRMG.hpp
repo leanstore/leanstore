@@ -31,8 +31,6 @@ class CRManager
    std::atomic<u64> running_threads = 0;
    std::atomic<bool> keep_running = true;
    // -------------------------------------------------------------------------------------
-   std::atomic<VersionsSpaceInterface*> versions_space;
-   // -------------------------------------------------------------------------------------
    struct WorkerThread {
       std::mutex mutex;
       std::condition_variable cv;
@@ -47,11 +45,12 @@ class CRManager
    // -------------------------------------------------------------------------------------
    const s32 ssd_fd;
    const u64 end_of_block_device;
+   VersionsSpaceInterface& versions_space;
    // -------------------------------------------------------------------------------------
    CRManager(VersionsSpaceInterface&, s32 ssd_fd, u64 end_of_block_device);
    ~CRManager();
    // -------------------------------------------------------------------------------------
-   void groupCommiter();
+   void registerMeAsSpecialWorker();
    // -------------------------------------------------------------------------------------
    /**
     * @brief Schedule same job on specific amount of workers.
@@ -88,6 +87,8 @@ class CRManager
    void joinAll();
 
   private:
+   void groupCommiter();
+   // -------------------------------------------------------------------------------------
    /**
     * @brief Set the Job to specific worker.
     *

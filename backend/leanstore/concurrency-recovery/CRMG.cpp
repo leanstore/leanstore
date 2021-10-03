@@ -15,7 +15,7 @@ namespace cr
 CRManager* CRManager::global = nullptr;
 // -------------------------------------------------------------------------------------
 CRManager::CRManager(VersionsSpaceInterface& versions_space, s32 ssd_fd, u64 end_of_block_device)
-    : ssd_fd(ssd_fd), end_of_block_device(end_of_block_device)
+    : ssd_fd(ssd_fd), end_of_block_device(end_of_block_device), versions_space(versions_space)
 {
    workers_count = FLAGS_worker_threads;
    ensure(workers_count < MAX_WORKER_THREADS);
@@ -76,6 +76,11 @@ CRManager::CRManager(VersionsSpaceInterface& versions_space, s32 ssd_fd, u64 end
       });
       group_commiter.detach();
    }
+}
+// -------------------------------------------------------------------------------------
+void CRManager::registerMeAsSpecialWorker()
+{
+   cr::Worker::tls_ptr = new Worker(std::numeric_limits<WORKERID>::max(), workers, workers_count, versions_space, ssd_fd);
 }
 // -------------------------------------------------------------------------------------
 void CRManager::scheduleJobSync(u64 t_i, std::function<void()> job)

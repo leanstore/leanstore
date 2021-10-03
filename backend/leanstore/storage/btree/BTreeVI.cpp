@@ -200,6 +200,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          ensure(tuple.isWriteLocked());
          const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator);
          if (convert_ret) {
+            iterator.leaf->has_garbage = true;
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
          } else {
             tried_converting_to_fat_tuple = true;
@@ -564,7 +565,7 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
          }
       }
    }
-   c_guard->gc_space_used = garbage_seen_in_bytes;
+   c_guard->has_garbage = garbage_seen_in_bytes;
    // -------------------------------------------------------------------------------------
    const bool have_we_modified_the_page = (freed_bytes > 0) || (all_tuples_heads_are_invisible);
    if (have_we_modified_the_page) {
@@ -576,9 +577,6 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
 SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
-   return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
-   // -------------------------------------------------------------------------------------
-   // TODO: WIP
    Guard bf_guard(bf.header.latch);
    bf_guard.toOptimisticOrJump();
    HybridPageGuard<BTreeNode> c_guard(std::move(bf_guard), &bf);
@@ -586,23 +584,57 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
       return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
    }
    // -------------------------------------------------------------------------------------
-   bool has_removed_anything = false;
-   for (u16 s_i = 0; s_i < c_guard->count;) {
+   c_guard.toExclusive();
+   for (u16 s_i = 0; s_i < c_guard->count; s_i++) {
       auto& tuple = *reinterpret_cast<Tuple*>(c_guard->getPayload(s_i));
       if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
-         // TODO: Fix FatTuple size
-         s_i++;
+         // raise(SIGTRAP);
+         auto& fat_tuple = *reinterpret_cast<FatTupleDifferentAttributes*>(&tuple);
+         u64 offset = fat_tuple.value_length;
+         auto delta = reinterpret_cast<FatTupleDifferentAttributes::Delta*>(fat_tuple.payload + offset);
+         auto update_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(delta->payload);
+         // TODO: Convert FatTuple to chained format
+         WORKERID prev_worker_id = fat_tuple.worker_id;
+         TXID prev_tx_id = fat_tuple.tx_id;
+         COMMANDID prev_command_id = fat_tuple.command_id;
+         for (u64 v_i = 0; v_i < fat_tuple.deltas_count; v_i++) {
+            const u16 delta_and_descriptor_size = update_descriptor->size() + update_descriptor->diffLength();
+            const u16 version_payload_length = delta_and_descriptor_size + sizeof(UpdateVersion);
+            cr::Worker::my().versions_space.insertVersion(
+                prev_worker_id, prev_tx_id, prev_command_id, btree.dt_id, false, version_payload_length,
+                [&](u8* version_payload) {
+                   auto& secondary_version = *new (version_payload) UpdateVersion(delta->worker_id, delta->worker_tx_id, delta->command_id, true);
+                   std::memcpy(secondary_version.payload, update_descriptor, delta_and_descriptor_size);
+                },
+                false);
+            // -------------------------------------------------------------------------------------
+            prev_worker_id = delta->worker_id;
+            prev_tx_id = delta->worker_tx_id;
+            prev_command_id = delta->command_id;
+            // -------------------------------------------------------------------------------------
+            offset += sizeof(FatTupleDifferentAttributes::Delta) + delta_and_descriptor_size;
+            delta = reinterpret_cast<FatTupleDifferentAttributes::Delta*>(fat_tuple.payload + offset);
+            update_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(delta->payload);
+         }
+         // -------------------------------------------------------------------------------------
+         const FatTupleDifferentAttributes old_fat_tuple = fat_tuple;
+         u8* value = fat_tuple.payload;
+         auto& chained_tuple = *new (&tuple) ChainedTuple(old_fat_tuple.worker_id, old_fat_tuple.tx_id);
+         chained_tuple.command_id = old_fat_tuple.command_id;
+         std::memmove(chained_tuple.payload, value, old_fat_tuple.value_length);
+         c_guard->shortenPayload(s_i, old_fat_tuple.value_length + sizeof(ChainedTuple));
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_decompose[btree.dt_id]++; }
       }
    }
-   if (has_removed_anything) {
-      const SpaceCheckResult xmerge_ret = BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
-      if (xmerge_ret == SpaceCheckResult::PICK_ANOTHER_BF) {
-         return SpaceCheckResult::PICK_ANOTHER_BF;
-      } else {
-         return SpaceCheckResult::RETRY_SAME_BF;
-      }
+   c_guard->has_garbage = false;
+   c_guard.incrementGSN();
+   c_guard.unlock();
+   // -------------------------------------------------------------------------------------
+   const SpaceCheckResult xmerge_ret = BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
+   if (xmerge_ret == SpaceCheckResult::PICK_ANOTHER_BF) {
+      return SpaceCheckResult::PICK_ANOTHER_BF;
    } else {
-      return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
+      return SpaceCheckResult::RESTART_SAME_BF;
    }
 }
 // -------------------------------------------------------------------------------------

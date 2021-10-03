@@ -81,7 +81,7 @@ struct WorkerCounters {
    atomic<u64> cc_todo_olap_executed[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    atomic<u64> cc_fat_tuple_convert[max_dt_id] = {0};
-   atomic<u64> cc_fat_tuple_fallback[max_dt_id] = {0};
+   atomic<u64> cc_fat_tuple_decompose[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    constexpr static u64 VW_MAX_STEPS = 10;
    atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {{0}};

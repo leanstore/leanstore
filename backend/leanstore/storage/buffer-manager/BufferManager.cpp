@@ -64,9 +64,11 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
             p_i = (p_i + 1) % partitions_count;
          }
       });
-      // -------------------------------------------------------------------------------------
    }
-   // -------------------------------------------------------------------------------------
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::startBackgroundThreads()
+{
    // Page Provider threads
    if (FLAGS_pp_threads) {  // make it optional for pure in-memory experiments
       std::vector<std::thread> pp_threads;

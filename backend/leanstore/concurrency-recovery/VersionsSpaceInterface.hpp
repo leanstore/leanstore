@@ -30,7 +30,8 @@ class VersionsSpaceInterface
                               DTID dt_id,
                               bool is_remove,
                               u64 payload_length,
-                              std::function<void(u8*)> cb) = 0;
+                              std::function<void(u8*)> cb,
+                              bool same_thread = true) = 0;
    virtual bool retrieveVersion(WORKERID worker_id,
                                 TXID tx_id,
                                 COMMANDID command_id,

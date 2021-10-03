@@ -101,6 +101,7 @@ class BufferManager
    void readPageAsync(PID pid, u8* destination, std::function<void()> callback);
    void fDataSync();
    // -------------------------------------------------------------------------------------
+   void startBackgroundThreads();
    void stopBackgroundThreads();
    void writeAllBufferFrames();
    std::unordered_map<std::string, std::string> serialize();

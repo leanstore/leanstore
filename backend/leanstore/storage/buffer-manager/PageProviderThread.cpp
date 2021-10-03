@@ -3,7 +3,7 @@
 #include "BufferManager.hpp"
 #include "Exceptions.hpp"
 #include "leanstore/Config.hpp"
-#include "leanstore/concurrency-recovery/Worker.hpp"
+#include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/PPCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -29,8 +29,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    pthread_setname_np(pthread_self(), "page_provider");
    using Time = decltype(std::chrono::high_resolution_clock::now());
    // -------------------------------------------------------------------------------------
-   // TODO: register as special worker
-   cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0, *reinterpret_cast<cr::VersionsSpaceInterface*>(0xa), ssd_fd);
+   leanstore::cr::CRManager::global->registerMeAsSpecialWorker();
    // -------------------------------------------------------------------------------------
    // Init AIO Context
    AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size);
@@ -112,7 +111,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                // -------------------------------------------------------------------------------------
                r_guard.recheck();
                const SpaceCheckResult space_check_res = getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);
-               if (space_check_res == SpaceCheckResult::RETRY_SAME_BF) {
+               if (space_check_res == SpaceCheckResult::RESTART_SAME_BF) {
                   continue;
                } else if (space_check_res == SpaceCheckResult::PICK_ANOTHER_BF) {
                   r_buffer = &randomBufferFrame();
@@ -272,6 +271,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                                  BMExclusiveGuard ex_guard(o_guard);
                                  assert(!bf.header.is_being_written_back);
                                  bf.header.is_being_written_back = true;
+                                 // TODO: preEviction callback according to DTID
                               }
                               {
                                  BMSharedGuard s_guard(o_guard);

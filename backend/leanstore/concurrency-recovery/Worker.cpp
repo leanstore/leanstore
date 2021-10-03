@@ -255,7 +255,6 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
       // -------------------------------------------------------------------------------------
       const TXID tx_id = global_logical_clock.fetch_add(1);
       global_workers_in_progress_txid[worker_id].store(tx_id | ((next_tx_type == TX_MODE::OLAP) ? OLAP_BIT : 0), std::memory_order_release);
-      command_id = 0;
       active_tx.state = Transaction::STATE::STARTED;
       active_tx.tx_id = tx_id;
       active_tx.min_observed_gsn_when_started = clock_gsn;
@@ -338,6 +337,8 @@ void Worker::checkup()
 void Worker::commitTX()
 {
    if (activeTX().isDurable()) {
+      command_id = 0;
+      // -------------------------------------------------------------------------------------
       if (activeTX().isSingleStatement() && active_tx.state != Transaction::STATE::STARTED) {
          return;  // Skip double commit in case of single statement upsert [hack]
       }
@@ -394,8 +395,7 @@ void Worker::abortTX()
       if (activeTX().isSerializable()) {
          executeUnlockTasks();
       }
-      versions_space.purgeVersions(worker_id, active_tx.TTS(), active_tx.TTS(),
-                                   [&](const TXID, const DTID, const u8*, u64, const bool) {});
+      versions_space.purgeVersions(worker_id, active_tx.TTS(), active_tx.TTS(), [&](const TXID, const DTID, const u8*, u64, const bool) {});
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.type = WALEntry::TYPE::TX_ABORT;

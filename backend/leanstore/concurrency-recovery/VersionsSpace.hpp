@@ -45,8 +45,14 @@ class VersionsSpace : public VersionsSpaceInterface
   public:
    std::unique_ptr<BTreeLL*[]> update_btrees;
    std::unique_ptr<BTreeLL*[]> remove_btrees;
-   virtual void
-   insertVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, DTID dt_id, bool is_remove, u64 payload_length, std::function<void(u8*)> cb);
+   virtual void insertVersion(WORKERID worker_id,
+                              TXID tx_id,
+                              COMMANDID command_id,
+                              DTID dt_id,
+                              bool is_remove,
+                              u64 payload_length,
+                              std::function<void(u8*)> cb,
+                              bool same_thread);
    virtual bool retrieveVersion(WORKERID worker_id,
                                 TXID tx_id,
                                 COMMANDID command_id,

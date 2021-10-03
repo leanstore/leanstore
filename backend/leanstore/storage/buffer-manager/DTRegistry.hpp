@@ -28,7 +28,7 @@ struct ParentSwipHandler {
    }
 };
 // -------------------------------------------------------------------------------------
-enum class SpaceCheckResult : u8 { NOTHING, PICK_ANOTHER_BF, RETRY_SAME_BF };
+enum class SpaceCheckResult : u8 { NOTHING, PICK_ANOTHER_BF, RESTART_SAME_BF };
 // -------------------------------------------------------------------------------------
 struct DTRegistry {
    struct DTMeta {

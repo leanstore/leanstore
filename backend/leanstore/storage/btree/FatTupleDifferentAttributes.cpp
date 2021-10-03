@@ -35,7 +35,7 @@ void BTreeVI::FatTupleDifferentAttributes::undoLastUpdate()
    ensure(deltas_count >= 1);
    auto& delta = *reinterpret_cast<Delta*>(payload + value_length);
    worker_id = delta.worker_id;
-   tx_id = delta.worker_txid;
+   tx_id = delta.worker_tx_id;
    deltas_count -= 1;
    const u32 total_freed_space = sizeof(Delta) + delta.getDescriptor().size() + delta.getDescriptor().diffLength();
    BTreeLL::applyDiff(delta.getDescriptor(), getValue(), delta.payload + delta.getDescriptor().size());
@@ -54,8 +54,9 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
    auto delta = reinterpret_cast<Delta*>(payload + offset);
    const bool pgc =
        FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size && !(worker_id == cr::Worker::my().workerID() && tx_id == cr::activeTX().TTS());
+   TXID prev_delta_tx_id = tx_id;
    // -------------------------------------------------------------------------------------
-   if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(delta->committed_before_txid)) {
+   if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(prev_delta_tx_id)) {
       const u16 removed_deltas = deltas_count - 1;
       used_space = value_length + sizeof(Delta) + delta->getDescriptor().size() +
                    delta->getDescriptor().diffLength();  // Delete everything after the first delta
@@ -82,8 +83,8 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
       // other_worker_index does not see the main version and current_version_offset points to the first delta
       while (needs_the_loop) {
          const u64 other_worker_id = cr::Worker::my().local_workers_sorted_txids[other_worker_index] & cr::Worker::WORKERS_MASK;
-         if (is_visible_to_it_optimized(other_worker_index, delta->committed_before_txid) ||
-             cr::Worker::my().isVisibleForIt(other_worker_id, delta->worker_id, delta->worker_txid)) {
+         if (is_visible_to_it_optimized(other_worker_index, prev_delta_tx_id) ||
+             cr::Worker::my().isVisibleForIt(other_worker_id, delta->worker_id, delta->worker_tx_id)) {
             if (deltas_to_merge.size()) {
                // Merge all deltas in deltas_to_merge in delta*
                using Slot = UpdateSameSizeInPlaceDescriptor::Slot;
@@ -137,6 +138,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
             delta_i++;
             offset += sizeof(Delta) + delta->getDescriptor().size() + delta->getDescriptor().diffLength();
             delta = reinterpret_cast<Delta*>(payload + offset);
+            prev_delta_tx_id = delta->worker_tx_id;
             if (delta_i < deltas_count) {
                continue;
             } else {
@@ -207,13 +209,8 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       // Insert the new delta
       auto& new_delta = *new (fat_tuple->payload + fat_tuple->value_length) Delta();
       new_delta.worker_id = fat_tuple->worker_id;
-      new_delta.worker_txid = fat_tuple->tx_id;
-      // Attention: we should not timestamp a delta that we created as committed!
-      if (fat_tuple->worker_id == cr::Worker::my().workerID() && fat_tuple->tx_id == cr::activeTX().TTS()) {
-         new_delta.committed_before_txid = std::numeric_limits<u64>::max();
-      } else {
-         new_delta.committed_before_txid = cr::Worker::my().snapshotAcquistionTime();
-      }
+      new_delta.worker_tx_id = fat_tuple->tx_id;
+      new_delta.command_id = fat_tuple->command_id;
       std::memcpy(new_delta.payload, &update_descriptor, update_descriptor.size());
       BTreeLL::generateDiff(update_descriptor, new_delta.payload + update_descriptor.size(), fat_tuple->getValue());
       fat_tuple->used_space += needed_space;
@@ -230,8 +227,11 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       wal_entry->delta_length = delta_and_descriptor_size;
       wal_entry->before_worker_id = fat_tuple->worker_id;
       wal_entry->before_tx_id = fat_tuple->tx_id;
+      // -------------------------------------------------------------------------------------
       fat_tuple->worker_id = cr::Worker::my().workerID();
       fat_tuple->tx_id = cr::activeTX().TTS();
+      fat_tuple->command_id = cr::Worker::my().command_id++;  // A version is not inserted in versions space however. Needed for decompose
+      // -------------------------------------------------------------------------------------
       std::memcpy(wal_entry->payload, o_key, o_key_length);
       std::memcpy(wal_entry->payload + o_key_length, &update_descriptor, update_descriptor.size());
       // Update the value in-place
@@ -262,7 +262,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTupl
       u32 offset = value_length;
       auto delta = reinterpret_cast<const Delta*>(payload + offset);
       while (delta_i < deltas_count) {
-         if (cr::Worker::my().isVisibleForMe(delta->worker_id, delta->worker_txid)) {
+         if (cr::Worker::my().isVisibleForMe(delta->worker_id, delta->worker_tx_id)) {
             BTreeLL::applyDiff(delta->getConstantDescriptor(), materialized_value,
                                delta->payload + delta->getConstantDescriptor().size());  // Apply diff
             cb(Slice(materialized_value, value_length));
@@ -328,8 +328,8 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
              auto& new_delta = *new (fat_tuple.payload + fat_tuple.used_space) FatTupleDifferentAttributes::Delta();
              fat_tuple.used_space += sizeof(FatTupleDifferentAttributes::Delta);
              new_delta.worker_id = chain_delta.worker_id;
-             new_delta.worker_txid = chain_delta.tx_id;
-             new_delta.committed_before_txid = next_tx_id;
+             new_delta.worker_tx_id = chain_delta.tx_id;
+             new_delta.command_id = chain_delta.command_id;
              // -------------------------------------------------------------------------------------
              // Copy Descriptor + Diff
              std::memcpy(fat_tuple.payload + fat_tuple.used_space, &update_descriptor, descriptor_and_diff_length);

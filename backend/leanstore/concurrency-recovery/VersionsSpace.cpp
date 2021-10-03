@@ -25,7 +25,8 @@ void VersionsSpace::insertVersion(WORKERID session_id,
                                   DTID dt_id,
                                   bool is_remove,
                                   u64 payload_length,
-                                  std::function<void(u8*)> cb)
+                                  std::function<void(u8*)> cb,
+                                  bool same_thread)
 {
    const u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];
@@ -36,16 +37,19 @@ void VersionsSpace::insertVersion(WORKERID session_id,
    payload_length += sizeof(VersionMeta);
    // -------------------------------------------------------------------------------------
    BTreeLL* volatile btree = (is_remove) ? remove_btrees[session_id] : update_btrees[session_id];
-   volatile Session& session = (is_remove) ? remove_sessions[session_id] : update_sessions[session_id];
-   if (session.init) {
+   Session* volatile session = nullptr;
+   if (same_thread) {
+      session = (is_remove) ? &remove_sessions[session_id] : &update_sessions[session_id];
+   }
+   if (session != nullptr && session->init) {
       jumpmuTry()
       {
-         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)), session.bf, session.version);
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)), session->bf, session->version);
          OP_RESULT ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::OK && iterator.keyInCurrentBoundaries(key)) {
-            if (session.last_tx_id == tx_id) {
-               iterator.leaf->insertDoNotCopyPayload(key.data(), key.length(), payload_length, session.pos);
-               iterator.cur = session.pos;
+            if (session->last_tx_id == tx_id) {
+               iterator.leaf->insertDoNotCopyPayload(key.data(), key.length(), payload_length, session->pos);
+               iterator.cur = session->pos;
             } else {
                iterator.insertInCurrentNode(key, payload_length);
             }
@@ -66,7 +70,10 @@ void VersionsSpace::insertVersion(WORKERID session_id,
       {
          BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
          OP_RESULT ret = iterator.seekToInsert(key);
-         ensure(ret == OP_RESULT::OK);
+         if (ret == OP_RESULT::DUPLICATE) {
+            iterator.removeCurrent();
+            jumpmu_continue;
+         }
          ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
             iterator.splitForKey(key);
@@ -78,11 +85,13 @@ void VersionsSpace::insertVersion(WORKERID session_id,
          cb(version_meta.payload);
          iterator.markAsDirty();
          // -------------------------------------------------------------------------------------
-         session.bf = iterator.leaf.bf;
-         session.version = iterator.leaf.guard.version + 1;
-         session.pos = iterator.cur + 1;
-         session.last_tx_id = tx_id;
-         session.init = true;
+         if (session != nullptr) {
+            session->bf = iterator.leaf.bf;
+            session->version = iterator.leaf.guard.version + 1;
+            session->pos = iterator.cur + 1;
+            session->last_tx_id = tx_id;
+            session->init = true;
+         }
          // -------------------------------------------------------------------------------------
          COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_inserted++; }
          jumpmu_return;

@@ -106,6 +106,8 @@ LeanStore::LeanStore()
          versions_space->remove_btrees[w_i] = &registerBTreeLL(name + "_removes", false);
       }
    });
+   // -------------------------------------------------------------------------------------
+   buffer_manager->startBackgroundThreads();
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::startProfilingThread()
