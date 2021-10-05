@@ -248,12 +248,6 @@ class BTreeVI : public BTreeLL
          BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this),
                                       cr::activeTX().isSerializable() ? LATCH_FALLBACK_MODE::EXCLUSIVE : LATCH_FALLBACK_MODE::SHARED);
          // -------------------------------------------------------------------------------------
-         if (FLAGS_vi_skip_stale_swips) {
-            if constexpr (!asc) {
-               iterator.shift_to_right_on_frozen_swips = false;
-            }
-         }
-         // -------------------------------------------------------------------------------------
          Slice key(o_key, o_key_length);
          OP_RESULT ret;
          if (asc) {
@@ -262,93 +256,35 @@ class BTreeVI : public BTreeLL
             ret = iterator.seekForPrev(key);
          }
          // -------------------------------------------------------------------------------------
-         bool skip_current_leaf = false;
-         if (FLAGS_vi_skip_stale_leaves) {  // TODO: clean this mess
-            iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
-               if (!cr::activeTX().atLeastSI()) {
-                  return;
-               }
-               if (triggerPageWiseGarbageCollection(leaf) && leaf->upper_fence.offset > 0) {
-                  std::basic_string<u8> key(leaf->getUpperFenceKey(), leaf->upper_fence.length);
-                  BufferFrame* to_find = leaf.bf;
-                  BTreeGeneric* btree_generic = static_cast<BTreeGeneric*>(reinterpret_cast<BTreeVI*>(this));
-                  iterator.cleanUpCallback([&, key, btree_generic, to_find]() {
-                     jumpmuTry()
-                     {
-                        HybridPageGuard<BTreeNode> leaf;
-                        this->findLeafAndLatch<LATCH_FALLBACK_MODE::EXCLUSIVE>(leaf, key.c_str(), key.length());
-                        const bool should_freeze_leaf = precisePageWiseGarbageCollection(leaf);
-                        // -------------------------------------------------------------------------------------
-                        if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-                           leaf.unlock();
-                           tryMerge(*to_find);
-                           jumpmu_return;
-                        }
-                        // -------------------------------------------------------------------------------------
-                        leaf.unlock();
-                        if (FLAGS_vi_skip_stale_swips && should_freeze_leaf) {
-                           ParentSwipHandler parent_handler = BTreeGeneric::findParentEager(*btree_generic, *to_find);
-                           HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-                           HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
-                           auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
-                           auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
-                           if (p_x_guard->getPayloadLength(parent_handler.pos) == 8 && parent_handler.pos < p_x_guard->count) {
-                              if (p_x_guard->canExtendPayload(parent_handler.pos, 16)) {
-                                 auto swip_backup = *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos));
-                                 p_x_guard->extendPayload(parent_handler.pos, 16);
-                                 *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos)) = swip_backup;
-                                 *reinterpret_cast<u64*>(p_x_guard->getPayload(parent_handler.pos) + 8) = cr::Worker::my().snapshotAcquistionTime();
-                              } else {
-                                 // TODO: trySplit parent
-                              }
-                           }
-                        }
-                     }
-                     jumpmuCatch() {}
-                  });
-               }
-            });
-         }
-         // -------------------------------------------------------------------------------------
          while (ret == OP_RESULT::OK) {
-            if (!skip_current_leaf) {
-               iterator.assembleKey();
-               Slice s_key = iterator.key();
-               auto reconstruct = reconstructTuple(s_key, iterator.value(), [&](Slice value) {
-                  keep_scanning = callback(s_key.data(), s_key.length(), value.data(), value.length());
-                  counter++;
-               });
-               if (cr::activeTX().isSerializable()) {
-                  if (std::get<0>(reconstruct) == OP_RESULT::ABORT_TX) {
-                     jumpmu_return OP_RESULT::ABORT_TX;
-                  }
+            iterator.assembleKey();
+            Slice s_key = iterator.key();
+            auto reconstruct = reconstructTuple(s_key, iterator.value(), [&](Slice value) {
+               keep_scanning = callback(s_key.data(), s_key.length(), value.data(), value.length());
+               counter++;
+            });
+            if (cr::activeTX().isSerializable()) {
+               if (std::get<0>(reconstruct) == OP_RESULT::ABORT_TX) {
+                  jumpmu_return OP_RESULT::ABORT_TX;
                }
-               const u16 chain_length = std::get<1>(reconstruct);
-               COUNTERS_BLOCK()
-               {
-                  WorkerCounters::myCounters().cc_read_chains[dt_id]++;
-                  WorkerCounters::myCounters().cc_read_versions_visited[dt_id] += chain_length;
-                  if (std::get<0>(reconstruct) != OP_RESULT::OK) {
-                     WorkerCounters::myCounters().cc_read_chains_not_found[dt_id]++;
-                     WorkerCounters::myCounters().cc_read_versions_visited_not_found[dt_id] += chain_length;
-                  }
+            }
+            const u16 chain_length = std::get<1>(reconstruct);
+            COUNTERS_BLOCK()
+            {
+               WorkerCounters::myCounters().cc_read_chains[dt_id]++;
+               WorkerCounters::myCounters().cc_read_versions_visited[dt_id] += chain_length;
+               if (std::get<0>(reconstruct) != OP_RESULT::OK) {
+                  WorkerCounters::myCounters().cc_read_chains_not_found[dt_id]++;
+                  WorkerCounters::myCounters().cc_read_versions_visited_not_found[dt_id] += chain_length;
                }
-               if (!keep_scanning) {
-                  jumpmu_return OP_RESULT::OK;
-               }
+            }
+            if (!keep_scanning) {
+               jumpmu_return OP_RESULT::OK;
             }
             // -------------------------------------------------------------------------------------
             if constexpr (asc) {
-               if (skip_current_leaf) {
-                  iterator.cur = iterator.leaf->count;
-                  skip_current_leaf = false;
-               }
                ret = iterator.next();
             } else {
-               if (skip_current_leaf) {
-                  iterator.cur = 0;
-                  skip_current_leaf = false;
-               }
                ret = iterator.prev();
             }
          }
@@ -361,7 +297,7 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    // TODO: atm, only ascending
    template <bool asc = true>
-   OP_RESULT scanLight(u8* o_key, u16 o_key_length, function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback)
+   OP_RESULT scanOLAP(u8* o_key, u16 o_key_length, function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback)
    {
       volatile bool keep_scanning = true;
       // -------------------------------------------------------------------------------------

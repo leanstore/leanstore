@@ -789,7 +789,7 @@ OP_RESULT BTreeVI::scanAsc(u8* o_key,
                            function<void()>)
 {
    if (cr::activeTX().isOLAP()) {
-      return scanLight(o_key, o_key_length, callback);
+      return scanOLAP(o_key, o_key_length, callback);
    } else {
       return scan<true>(o_key, o_key_length, callback);
    }
