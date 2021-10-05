@@ -69,7 +69,7 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, funct
       // -------------------------------------------------------------------------------------
       if (ret != OP_RESULT::ABORT_TX && ret != OP_RESULT::OK) {  // For debugging
          cout << endl;
-         cout << u64(std::get<1>(reconstruct)) << endl;
+         cout << u64(std::get<1>(reconstruct)) << " , " << dt_id << endl;
          raise(SIGTRAP);
       }
       jumpmu_return ret;
@@ -181,6 +181,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             cr::Worker::my().commitTX();
          }
          // -------------------------------------------------------------------------------------
+         iterator.markAsDirty();
          iterator.contentionSplit();
          // -------------------------------------------------------------------------------------
          jumpmu_return OP_RESULT::OK;
@@ -198,12 +199,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       }
       if (convert_to_fat_tuple) {
          ensure(tuple.isWriteLocked());
+         tried_converting_to_fat_tuple = true;
          const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator);
          if (convert_ret) {
             iterator.leaf->has_garbage = true;
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
-         } else {
-            tried_converting_to_fat_tuple = true;
          }
          goto restart;
          UNREACHABLE();
@@ -576,24 +576,30 @@ bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_gua
 // -------------------------------------------------------------------------------------
 SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
+   if (!FLAGS_xmerge) {
+      return SpaceCheckResult::NOTHING;
+   }
+   // -------------------------------------------------------------------------------------
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    Guard bf_guard(bf.header.latch);
    bf_guard.toOptimisticOrJump();
+   if (bf.page.dt_id != btree.dt_id) {
+      jumpmu::jump();
+   }
    HybridPageGuard<BTreeNode> c_guard(std::move(bf_guard), &bf);
    if (!c_guard->is_leaf || !triggerPageWiseGarbageCollection(c_guard)) {
       return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
    }
    // -------------------------------------------------------------------------------------
    c_guard.toExclusive();
+   c_guard.incrementGSN();
    for (u16 s_i = 0; s_i < c_guard->count; s_i++) {
       auto& tuple = *reinterpret_cast<Tuple*>(c_guard->getPayload(s_i));
       if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
-         // raise(SIGTRAP);
-         auto& fat_tuple = *reinterpret_cast<FatTupleDifferentAttributes*>(&tuple);
+         auto& fat_tuple = *reinterpret_cast<FatTupleDifferentAttributes*>(c_guard->getPayload(s_i));
          u64 offset = fat_tuple.value_length;
          auto delta = reinterpret_cast<FatTupleDifferentAttributes::Delta*>(fat_tuple.payload + offset);
          auto update_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(delta->payload);
-         // TODO: Convert FatTuple to chained format
          WORKERID prev_worker_id = fat_tuple.worker_id;
          TXID prev_tx_id = fat_tuple.tx_id;
          COMMANDID prev_command_id = fat_tuple.command_id;
@@ -619,15 +625,17 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
          // -------------------------------------------------------------------------------------
          const FatTupleDifferentAttributes old_fat_tuple = fat_tuple;
          u8* value = fat_tuple.payload;
-         auto& chained_tuple = *new (&tuple) ChainedTuple(old_fat_tuple.worker_id, old_fat_tuple.tx_id);
+         auto& chained_tuple = *new (c_guard->getPayload(s_i)) ChainedTuple(old_fat_tuple.worker_id, old_fat_tuple.tx_id);
          chained_tuple.command_id = old_fat_tuple.command_id;
          std::memmove(chained_tuple.payload, value, old_fat_tuple.value_length);
-         c_guard->shortenPayload(s_i, old_fat_tuple.value_length + sizeof(ChainedTuple));
+         const u16 new_length = old_fat_tuple.value_length + sizeof(ChainedTuple);
+         ensure(new_length < c_guard->getPayloadLength(s_i));
+         c_guard->shortenPayload(s_i, new_length);
+         ensure(tuple.tuple_format == TupleFormat::CHAINED);
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_decompose[btree.dt_id]++; }
       }
    }
    c_guard->has_garbage = false;
-   c_guard.incrementGSN();
    c_guard.unlock();
    // -------------------------------------------------------------------------------------
    const SpaceCheckResult xmerge_ret = BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
@@ -676,6 +684,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          ensure(ret == OP_RESULT::OK);
          ret = g_iterator.removeCurrent();
          ensure(ret == OP_RESULT::OK);
+         g_iterator.markAsDirty();
       }
       jumpmuCatch() {}
       return;
@@ -700,7 +709,6 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
          }
       }
       // -------------------------------------------------------------------------------------
-      // TODO: delete from graveyard
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_id == version_tx_id && primary_version.is_removed) {
@@ -716,6 +724,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                   BTreeExclusiveIterator g_iterator(*static_cast<BTreeGeneric*>(btree.graveyard));
                   OP_RESULT g_ret = g_iterator.insertKV(key, iterator.value());
                   ensure(g_ret == OP_RESULT::OK);
+                  g_iterator.markAsDirty();
                }
                ret = iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);

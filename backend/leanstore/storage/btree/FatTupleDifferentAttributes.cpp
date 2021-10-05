@@ -50,19 +50,19 @@ void BTreeVI::FatTupleDifferentAttributes::undoLastUpdate()
 // -------------------------------------------------------------------------------------
 void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
 {
+   if (deltas_count == 0) {
+      return;
+   }
+   // -------------------------------------------------------------------------------------
    u32 offset = value_length, delta_i = 0;
    auto delta = reinterpret_cast<Delta*>(payload + offset);
    const bool pgc =
        FLAGS_pgc && deltas_count >= FLAGS_vi_pgc_batch_size && !(worker_id == cr::Worker::my().workerID() && tx_id == cr::activeTX().TTS());
-   TXID prev_delta_tx_id = tx_id;
    // -------------------------------------------------------------------------------------
-   if (deltas_count > 1 && cr::Worker::my().isVisibleForAll(prev_delta_tx_id)) {
-      const u16 removed_deltas = deltas_count - 1;
-      used_space = value_length + sizeof(Delta) + delta->getDescriptor().size() +
-                   delta->getDescriptor().diffLength();  // Delete everything after the first delta
-      deltas_count = 1;
-      debug = 500;
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += removed_deltas; }
+   if (cr::Worker::my().isVisibleForAll(tx_id)) {
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_count; }
+      used_space = value_length;
+      deltas_count = 0;
    } else if (pgc) {
       // -------------------------------------------------------------------------------------
       // Precise garbage collection
@@ -71,6 +71,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
       // Gonna get complicated here
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
       cr::Worker::my().sortWorkers();
+      TXID prev_delta_tx_id = tx_id;
       u64 other_worker_index = 0;  // In the sorted array
       bool needs_the_loop = true;
       auto is_visible_to_it_optimized = [&](const u64 w_id, const u64 so) {
@@ -101,7 +102,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
                auto& merge_delta = *reinterpret_cast<Delta*>(merge_result);
                merge_delta = *delta;
                UpdateSameSizeInPlaceDescriptor& merge_descriptor = merge_delta.getDescriptor();
-               merge_delta.getDescriptor().count = slots_map.size();
+               merge_descriptor.count = slots_map.size();
                u8* merge_diff_ptr = merge_delta.payload + merge_descriptor.size();
                u32 s_i = 0;
                for (auto& slot_itr : slots_map) {
@@ -137,9 +138,9 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
             // Next version
             delta_i++;
             offset += sizeof(Delta) + delta->getDescriptor().size() + delta->getDescriptor().diffLength();
-            delta = reinterpret_cast<Delta*>(payload + offset);
-            prev_delta_tx_id = delta->worker_tx_id;
             if (delta_i < deltas_count) {
+               delta = reinterpret_cast<Delta*>(payload + offset);
+               prev_delta_tx_id = delta->worker_tx_id;
                continue;
             } else {
                break;
@@ -156,8 +157,10 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
          assert(end_offset <= used_space);
          used_space = end_offset;
       } else if (deltas_to_merge.size()) {
-         assert(delta_i == deltas_count);
          // Prune everything starting from the first entry in the vector
+         assert(delta_i == deltas_count);
+         assert(used_space >= reinterpret_cast<u8*>(deltas_to_merge.front()) - payload);
+         assert(deltas_count >= deltas_to_merge.size());
          used_space = reinterpret_cast<u8*>(deltas_to_merge.front()) - payload;
          deltas_count -= deltas_to_merge.size();
       }
@@ -187,10 +190,9 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       // Garbage collection first
       fat_tuple->garbageCollection(btree);
    }
-   ensure((needed_space + fat_tuple->used_space) <= 3 * 1024);  // TODO:
    if (fat_tuple->total_space < (needed_space + fat_tuple->used_space)) {
       const u32 fat_tuple_length = needed_space + fat_tuple->used_space + sizeof(FatTupleDifferentAttributes);
-      assert(fat_tuple_length < PAGE_SIZE);
+      ensure(fat_tuple_length < PAGE_SIZE);
       u8 buffer[PAGE_SIZE];
       std::memcpy(buffer, iterator.value().data(), iterator.value().length());
       iterator.extendPayload(fat_tuple_length);
@@ -237,7 +239,6 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
       // Update the value in-place
       BTreeLL::generateDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), fat_tuple->getValue());
       cb(fat_tuple->getValue(), fat_tuple->value_length);
-      fat_tuple->debug = 1;
       BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), fat_tuple->getValue());
       wal_entry.submit();
       // -------------------------------------------------------------------------------------
@@ -245,6 +246,7 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
          fat_tuple->read_ts = cr::activeTX().TTS();
       }
    }
+   assert(fat_tuple->deltas_count > 0);
    return true;
 }
 // -------------------------------------------------------------------------------------
@@ -274,8 +276,10 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTupl
          delta = reinterpret_cast<const Delta*>(payload + offset);
       }
       // -------------------------------------------------------------------------------------
-      return {OP_RESULT::NOT_FOUND, delta_i + 2};
+      explainWhen(cr::activeTX().isOLTP());
+      return {OP_RESULT::NOT_FOUND, delta_i + 1};
    } else {
+      explainWhen(cr::activeTX().isOLTP());
       return {OP_RESULT::NOT_FOUND, 1};
    }
 }
@@ -356,11 +360,13 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
       ensure(fat_tuple.total_space >= fat_tuple.used_space);
       const u16 fat_tuple_length = sizeof(FatTupleDifferentAttributes) + fat_tuple.total_space;
       if (iterator.value().length() < fat_tuple_length) {
+         ensure(reinterpret_cast<const Tuple*>(iterator.value().data())->tuple_format == TupleFormat::CHAINED);
          iterator.extendPayload(fat_tuple_length);
       } else {
          iterator.shorten(fat_tuple_length);
       }
       std::memcpy(iterator.mutableValue().data(), fat_tuple_payload, fat_tuple_length);
+      iterator.markAsDirty();
       return true;
    } else {
       chain_head.unlock();

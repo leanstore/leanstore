@@ -72,6 +72,7 @@ void VersionsSpace::insertVersion(WORKERID session_id,
          OP_RESULT ret = iterator.seekToInsert(key);
          if (ret == OP_RESULT::DUPLICATE) {
             iterator.removeCurrent();
+            iterator.markAsDirty();
             jumpmu_continue;
          }
          ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
@@ -106,7 +107,7 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id,
                                     const bool is_remove,
                                     std::function<void(const u8*, u64)> cb)
 {
-   volatile BTreeLL* btree = (is_remove) ? remove_btrees[worker_id] : update_btrees[worker_id];
+   BTreeLL* volatile btree = (is_remove) ? remove_btrees[worker_id] : update_btrees[worker_id];
    // -------------------------------------------------------------------------------------
    const u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];

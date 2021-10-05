@@ -137,8 +137,7 @@ class BTreeVI : public BTreeLL
       u16 total_space;       // From the payload bytes array
       u16 used_space;        // u32 instead of u16 to make it easier to detect overflow while converting
       u16 deltas_count = 0;  // Attention: coupled with used_space
-      s64 debug = 0;
-      u8 payload[];  // value, Delta+Descriptor+Diff[] N2O
+      u8 payload[];          // value, Delta+Descriptor+Diff[] N2O
       // -------------------------------------------------------------------------------------
       FatTupleDifferentAttributes() : Tuple(TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES, 0, 0) {}
       // returns false to fallback to chained mode
@@ -264,7 +263,7 @@ class BTreeVI : public BTreeLL
          }
          // -------------------------------------------------------------------------------------
          bool skip_current_leaf = false;
-         if (FLAGS_vi_skip_stale_leaves) {
+         if (FLAGS_vi_skip_stale_leaves) {  // TODO: clean this mess
             iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
                if (!cr::activeTX().atLeastSI()) {
                   return;
@@ -466,7 +465,7 @@ class BTreeVI : public BTreeLL
       return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
    }
    inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
-   static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard) { return guard->has_garbage > 0; }
+   static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard) { return guard->has_garbage; }
    bool precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard);
    // -------------------------------------------------------------------------------------
    template <typename T>

@@ -213,9 +213,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    }
    // -------------------------------------------------------------------------------------
    volatile bool merged_successfully = false;
-   // explainWhen(dt_id == 20 && c_guard->count == 1 && p_guard->count == 1);  // TODO:rebalance trees
    if (p_guard->count > 1) {
-      const bool is_empty = c_guard->count == 0;
       assert(pos <= p_guard->count);
       // -------------------------------------------------------------------------------------
       p_guard.recheck();
@@ -438,6 +436,7 @@ BTreeGeneric::XMergeReturnCode BTreeGeneric::XMerge(HybridPageGuard<BTreeNode>& 
    }
    // -------------------------------------------------------------------------------------
    ExclusivePageGuard<BTreeNode> p_x_guard = std::move(p_guard);
+   p_x_guard.incrementGSN();
    // -------------------------------------------------------------------------------------
    XMergeReturnCode ret_code = XMergeReturnCode::PARTIAL_MERGE;
    s16 left_hand, right_hand, ret;
@@ -490,21 +489,22 @@ BTreeGeneric::~BTreeGeneric() {}
 // Attention: the guards here down the stack are not synchronized with the ones in the buffer frame manager stack frame
 SpaceCheckResult BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
-   if (FLAGS_xmerge) {
-      auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
-      ParentSwipHandler parent_handler = btree.findParentJump(btree, bf);
-      HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-      HybridPageGuard<BTreeNode> c_guard(p_guard, parent_handler.swip.cast<BTreeNode>(), LATCH_FALLBACK_MODE::JUMP);
-      XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
-      p_guard.unlock();
-      c_guard.unlock();
-      if (return_code == XMergeReturnCode::NOTHING) {
-         return SpaceCheckResult::NOTHING;
-      } else {
-         return SpaceCheckResult::PICK_ANOTHER_BF;
-      }
+   if (!FLAGS_xmerge) {
+      return SpaceCheckResult::NOTHING;
    }
-   return SpaceCheckResult::NOTHING;
+   // -------------------------------------------------------------------------------------
+   auto& btree = *reinterpret_cast<BTreeGeneric*>(btree_object);
+   ParentSwipHandler parent_handler = btree.findParentJump(btree, bf);
+   HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
+   HybridPageGuard<BTreeNode> c_guard(p_guard, parent_handler.swip.cast<BTreeNode>(), LATCH_FALLBACK_MODE::JUMP);
+   XMergeReturnCode return_code = btree.XMerge(p_guard, c_guard, parent_handler);
+   p_guard.unlock();
+   c_guard.unlock();
+   if (return_code == XMergeReturnCode::NOTHING) {
+      return SpaceCheckResult::NOTHING;
+   } else {
+      return SpaceCheckResult::PICK_ANOTHER_BF;
+   }
 }
 // -------------------------------------------------------------------------------------
 // pre: source buffer frame is shared latched
