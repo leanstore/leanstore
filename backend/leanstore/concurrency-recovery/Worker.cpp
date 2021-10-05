@@ -30,15 +30,22 @@ std::unique_ptr<atomic<u64>[]> Worker::global_workers_olap_lwm;
 atomic<u64> Worker::global_oltp_lwm = 0;  // No worker should start with TTS == 0
 atomic<u64> Worker::global_olap_lwm = 0;  // No worker should start with TTS == 0
                                           // -------------------------------------------------------------------------------------
-Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface& versions_space, s32 fd)
-    : worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), versions_space(versions_space), ssd_fd(fd)
+Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface& versions_space, s32 fd, const bool is_page_provider)
+    : worker_id(worker_id),
+      all_workers(all_workers),
+      workers_count(workers_count),
+      versions_space(versions_space),
+      ssd_fd(fd),
+      is_page_provider(is_page_provider)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
-   local_workers_in_progress_txids = make_unique<atomic<u64>[]>(workers_count);
-   local_workers_sorted_txids = make_unique<u64[]>(workers_count);
-   global_workers_in_progress_txid[worker_id] = 0;
+   if (!is_page_provider) {
+      local_workers_in_progress_txids = make_unique<atomic<u64>[]>(workers_count);
+      local_workers_sorted_txids = make_unique<u64[]>(workers_count);
+      global_workers_in_progress_txid[worker_id] = 0;
+   }
 }
 Worker::~Worker() = default;
 // -------------------------------------------------------------------------------------
@@ -307,7 +314,7 @@ void Worker::checkup()
       if (!FLAGS_todo) {
          return;
       }
-      if (local_olap_lwm > 0 && local_olap_lwm > cleaned_untill_olap_lwm) {
+      if (local_olap_lwm > 0) {
          // PURGE!
          versions_space.purgeVersions(worker_id, 0, local_olap_lwm - 1,
                                       [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length,
@@ -316,8 +323,6 @@ void Worker::checkup()
                                                                                                  called_before);
                                          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
                                       });
-         // TODO: optimize
-         cleaned_untill_olap_lwm = local_olap_lwm;
       } else if (local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
          // MOVE deletes to the graveyard
          const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
@@ -447,9 +452,9 @@ bool Worker::isVisibleForMe(u64 wtts)
    return isVisibleForMe(other_worker_id, tts);
 }
 // -------------------------------------------------------------------------------------
-bool Worker::isVisibleForAll(u64 commited_before_so)
+bool Worker::isVisibleForAll(u64 tx_id)
 {
-   return commited_before_so < local_oldest_olap_tx_id;
+   return tx_id < local_olap_lwm;
 }
 // -------------------------------------------------------------------------------------
 // Called by worker, so concurrent writes on the buffer

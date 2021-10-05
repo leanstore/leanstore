@@ -63,7 +63,6 @@ struct Worker {
    u64 local_oltp_lwm;
    u64 local_olap_lwm;
    u64 cleaned_untill_oltp_lwm = 0;
-   u64 cleaned_untill_olap_lwm = 0;
    u64 command_id = 0;
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;
@@ -84,6 +83,7 @@ struct Worker {
    const u64 workers_count;
    VersionsSpaceInterface& versions_space;
    const s32 ssd_fd;
+   const bool is_page_provider = false;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
@@ -108,7 +108,12 @@ struct Worker {
       return widcm;
    }
    // -------------------------------------------------------------------------------------
-   Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface& versions_space, s32 fd);
+   Worker(u64 worker_id,
+          Worker** all_workers,
+          u64 workers_count,
+          VersionsSpaceInterface& versions_space,
+          s32 fd,
+          const bool is_page_provider = false);
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
    // -------------------------------------------------------------------------------------
