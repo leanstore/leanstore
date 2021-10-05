@@ -400,16 +400,8 @@ class BTreeVI : public BTreeLL
    {
       return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
    }
-   inline SwipType sizeToVT(u64 size) { return SwipType(reinterpret_cast<BufferFrame*>(size)); }
    static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard) { return guard->has_garbage; }
-   bool precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard);
    // -------------------------------------------------------------------------------------
-   template <typename T>
-   inline COMMANDID getSN(T key)
-   {
-      return swap(*reinterpret_cast<const COMMANDID*>(key.data() + key.length() - sizeof(COMMANDID)));
-   }
-   inline void setSN(MutableSlice key, COMMANDID sn) { *reinterpret_cast<COMMANDID*>(key.data() + key.length() - sizeof(COMMANDID)) = swap(sn); }
    inline std::tuple<OP_RESULT, u16> reconstructTuple(Slice key, Slice payload, std::function<void(Slice value)> callback)
    {
       while (true) {

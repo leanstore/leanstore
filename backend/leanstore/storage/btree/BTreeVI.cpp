@@ -532,48 +532,6 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
    }
 }
 // -------------------------------------------------------------------------------------
-bool BTreeVI::precisePageWiseGarbageCollection(HybridPageGuard<BTreeNode>& c_guard)
-{
-   return false;
-   bool all_tuples_heads_are_invisible = true;  // WRT scanners
-   u32 garbage_seen_in_bytes = 0;
-   u32 freed_bytes = 0;
-   for (u16 s_i = 0; s_i < c_guard->count;) {
-      auto& sn = *reinterpret_cast<COMMANDID*>(c_guard->getKey(s_i) + c_guard->getKeyLen(s_i) - sizeof(COMMANDID));
-      if (sn == 0) {
-         auto& tuple = *reinterpret_cast<Tuple*>(c_guard->getPayload(s_i));
-         if (tuple.tuple_format == TupleFormat::CHAINED) {
-            auto& chained_tuple = *reinterpret_cast<ChainedTuple*>(c_guard->getPayload(s_i));
-            if (chained_tuple.is_removed) {
-               all_tuples_heads_are_invisible &= (isVisibleForMe(tuple.worker_id, tuple.tx_id, false));
-               const u32 size = c_guard->getKVConsumedSpace(s_i);
-               garbage_seen_in_bytes += size;
-               if (chained_tuple.tx_id <= cr::Worker::my().local_oltp_lwm) {
-                  c_guard->removeSlot(s_i);
-                  freed_bytes += size;
-               } else {
-                  s_i++;
-               }
-            } else {
-               all_tuples_heads_are_invisible &= !(isVisibleForMe(tuple.worker_id, tuple.tx_id, false));
-               s_i++;
-            }
-         } else if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
-            // TODO: Fix FatTuple size
-            all_tuples_heads_are_invisible &= !(isVisibleForMe(tuple.worker_id, tuple.tx_id, false));
-            s_i++;
-         }
-      }
-   }
-   c_guard->has_garbage = garbage_seen_in_bytes;
-   // -------------------------------------------------------------------------------------
-   const bool have_we_modified_the_page = (freed_bytes > 0) || (all_tuples_heads_are_invisible);
-   if (have_we_modified_the_page) {
-      c_guard.incrementGSN();
-   }
-   return all_tuples_heads_are_invisible;
-}
-// -------------------------------------------------------------------------------------
 SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
    if (!FLAGS_xmerge) {
