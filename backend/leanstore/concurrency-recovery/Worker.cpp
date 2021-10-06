@@ -323,7 +323,8 @@ void Worker::checkup()
                                                                                                  called_before);
                                          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
                                       });
-      } else if (local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
+      }
+      if (local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
          // MOVE deletes to the graveyard
          const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
          versions_space.visitRemoveVersions(worker_id, from_tx_id, local_oltp_lwm - 1,
