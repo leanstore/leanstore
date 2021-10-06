@@ -1054,7 +1054,7 @@ class TPCCWorkload
              },
              [&]() { cout << "undo neworder scan" << endl; });
       } else if (query_no == 99) {
-         sleep(5);
+         sleep(1);
       } else {
          UNREACHABLE();
       }
