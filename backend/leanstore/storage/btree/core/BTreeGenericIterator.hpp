@@ -153,7 +153,6 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       if (cur < leaf->count) {
          return OP_RESULT::OK;
       } else {
-         // explainWhen(btree.dt_id == 6); //
          return next();
       }
    }

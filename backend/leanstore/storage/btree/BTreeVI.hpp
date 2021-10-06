@@ -240,6 +240,14 @@ class BTreeVI : public BTreeLL
    OP_RESULT scan(u8* o_key, u16 o_key_length, function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)> callback)
    {
       // TODO: index range lock for serializability
+      COUNTERS_BLOCK()
+      {
+         if (asc) {
+            WorkerCounters::myCounters().dt_scan_asc[dt_id]++;
+         } else {
+            WorkerCounters::myCounters().dt_scan_desc[dt_id]++;
+         }
+      }
       u64 counter = 0;
       volatile bool keep_scanning = true;
       // -------------------------------------------------------------------------------------

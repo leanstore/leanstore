@@ -205,7 +205,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    auto parent_handler = findParentEager(*this, to_merge);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
-   int pos = parent_handler.pos;
+   int pos_in_parent = parent_handler.pos;
    if (isMetaNode(p_guard) || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
       p_guard.unlock();
       c_guard.unlock();
@@ -214,14 +214,14 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    // -------------------------------------------------------------------------------------
    volatile bool merged_successfully = false;
    if (p_guard->count > 1) {
-      assert(pos <= p_guard->count);
+      assert(pos_in_parent <= p_guard->count);
       // -------------------------------------------------------------------------------------
       p_guard.recheck();
       c_guard.recheck();
       // -------------------------------------------------------------------------------------
       // TODO: write WALs
       auto merge_left = [&]() {
-         Swip<BTreeNode>& l_swip = p_guard->getChild(pos - 1);
+         Swip<BTreeNode>& l_swip = p_guard->getChild(pos_in_parent - 1);
          if (!swizzle_sibling && l_swip.isEVICTED()) {
             return false;
          }
@@ -232,7 +232,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          // -------------------------------------------------------------------------------------
          ensure(c_x_guard->is_leaf == l_x_guard->is_leaf);
          // -------------------------------------------------------------------------------------
-         if (!l_x_guard->merge(pos - 1, p_x_guard, c_x_guard)) {
+         if (!l_x_guard->merge(pos_in_parent - 1, p_x_guard, c_x_guard)) {
             p_guard = std::move(p_x_guard);
             c_guard = std::move(c_x_guard);
             l_guard = std::move(l_x_guard);
@@ -250,7 +250,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          return true;
       };
       auto merge_right = [&]() {
-         Swip<BTreeNode>& r_swip = ((pos + 1) == p_guard->count) ? p_guard->upper : p_guard->getChild(pos + 1);
+         Swip<BTreeNode>& r_swip = ((pos_in_parent + 1) == p_guard->count) ? p_guard->upper : p_guard->getChild(pos_in_parent + 1);
          if (!swizzle_sibling && r_swip.isEVICTED()) {
             return false;
          }
@@ -261,8 +261,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          // -------------------------------------------------------------------------------------
          ensure(c_x_guard->is_leaf == r_x_guard->is_leaf);
          // -------------------------------------------------------------------------------------
-         assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf());
-         if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
+         if (!c_x_guard->merge(pos_in_parent, p_x_guard, r_x_guard)) {
             p_guard = std::move(p_x_guard);
             c_guard = std::move(c_x_guard);
             r_guard = std::move(r_x_guard);
@@ -277,15 +276,14 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          // -------------------------------------------------------------------------------------
          p_guard = std::move(p_x_guard);
          r_guard = std::move(r_x_guard);
-         // ensure(!is_upper);
          return true;
       };
       // ATTENTION: don't use c_guard without making sure it was not reclaimed
       // -------------------------------------------------------------------------------------
-      if (pos > 0) {
+      if (pos_in_parent > 0) {
          merged_successfully |= merge_left();
       }
-      if (!merged_successfully && pos < p_guard->count) {
+      if (!merged_successfully && pos_in_parent < p_guard->count) {
          merged_successfully |= merge_right();
       }
    }

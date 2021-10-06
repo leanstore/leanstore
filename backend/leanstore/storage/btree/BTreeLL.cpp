@@ -88,6 +88,7 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
                            std::function<bool(const u8* key, u16 key_length, const u8* payload, u16 payload_length)> callback,
                            function<void()>)
 {
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_asc[dt_id]++; }
    Slice key(start_key, key_length);
    jumpmuTry()
    {
@@ -111,6 +112,7 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_desc[dt_id]++; }
    const Slice key(start_key, key_length);
    jumpmuTry()
    {

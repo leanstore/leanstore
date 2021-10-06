@@ -534,11 +534,16 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 // -------------------------------------------------------------------------------------
 SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
 {
+   auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
+   // -------------------------------------------------------------------------------------
    if (!FLAGS_xmerge) {
       return SpaceCheckResult::NOTHING;
    }
    // -------------------------------------------------------------------------------------
-   auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
+   if (!FLAGS_vi_fat_tuple_decompose) {
+      return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
+   }
+   // -------------------------------------------------------------------------------------
    Guard bf_guard(bf.header.latch);
    bf_guard.toOptimisticOrJump();
    if (bf.page.dt_id != btree.dt_id) {

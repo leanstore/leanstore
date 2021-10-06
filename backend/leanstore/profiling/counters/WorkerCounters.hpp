@@ -46,13 +46,14 @@ struct WorkerCounters {
    atomic<u64> dt_restarts_read[max_dt_id] = {0};
    atomic<u64> dt_researchy[max_dt_id][max_researchy_counter] = {};  // temporary counter used to track some value for an idea in my mind
    // -------------------------------------------------------------------------------------
-   atomic<u64> dt_skipped_leaf[max_dt_id] = {0};
    atomic<u64> dt_empty_leaf[max_dt_id] = {0};
    atomic<u64> dt_goto_page_exec[max_dt_id] = {0};
    atomic<u64> dt_goto_page_shared[max_dt_id] = {0};
    atomic<u64> dt_next_tuple[max_dt_id] = {0};
    atomic<u64> dt_prev_tuple[max_dt_id] = {0};
    atomic<u64> dt_inner_page[max_dt_id] = {0};
+   atomic<u64> dt_scan_asc[max_dt_id] = {0};
+   atomic<u64> dt_scan_desc[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    // Concurrency control counters
    atomic<u64> cc_snapshot_restart = 0;

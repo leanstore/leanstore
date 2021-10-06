@@ -82,7 +82,6 @@ DEFINE_bool(commit_hwm, true, "");
 DEFINE_uint64(si_refresh_rate, 0, "");
 DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(todo, true, "");
-DEFINE_double(todo_mib, 10, "size of todos ring buffer");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(vi, true, "BTree with SI using in-place version");
 DEFINE_bool(vi_utodo, true, "");
@@ -94,6 +93,7 @@ DEFINE_bool(vi_fupdate_chained, false, "");
 DEFINE_bool(vi_fupdate_fat_tuple, false, "");
 DEFINE_uint64(vi_pgc_batch_size, 2, "");
 DEFINE_bool(vi_fat_tuple, true, "");
+DEFINE_bool(vi_fat_tuple_decompose, true, "");
 DEFINE_uint64(vi_fat_tuple_threshold, 4, "Minimum length of chain length before converting the tuple format to FatTuple");
 DEFINE_bool(vi_dangling_pointer, true, "");
 // -------------------------------------------------------------------------------------

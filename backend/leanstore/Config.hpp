@@ -77,7 +77,6 @@ DECLARE_bool(commit_hwm);
 DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
 DECLARE_bool(todo);
-DECLARE_double(todo_mib);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(vi);
 DECLARE_bool(vi_utodo);
@@ -91,6 +90,7 @@ DECLARE_uint64(vi_fat_tuple_threshold);
 DECLARE_uint64(vi_pgc_batch_size);
 DECLARE_bool(vi_fat_tuple);
 DECLARE_bool(vi_dangling_pointer);
+DECLARE_bool(vi_fat_tuple_decompose);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(olap_mode);
 // -------------------------------------------------------------------------------------
