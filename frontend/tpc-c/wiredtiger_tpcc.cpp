@@ -155,7 +155,10 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    threads.emplace_back([&]() {
       running_threads_counter++;
+      u64 time = 0;
+      cout << "t,tag,olap_committed,olap_aborted,oltp_committed,oltp_aborted" << endl;
       while (keep_running) {
+         cout << time++ << "," << FLAGS_tag << ",";
          u64 total_committed = 0, total_aborted = 0;
          for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
             total_committed += thread_committed[t_i].exchange(0);

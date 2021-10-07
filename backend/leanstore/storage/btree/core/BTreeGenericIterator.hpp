@@ -114,6 +114,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    BTreePessimisticIterator(BTreeGeneric& btree, const LATCH_FALLBACK_MODE mode = LATCH_FALLBACK_MODE::SHARED) : btree(btree), mode(mode) {}
    // -------------------------------------------------------------------------------------
    void enterLeafCallback(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { enter_leaf_cb = cb; }
+   void exitLeafCallback(std::function<void(HybridPageGuard<BTreeNode>& leaf)> cb) { exit_leaf_cb = cb; }
    void cleanUpCallback(std::function<void()> cb) { cleanup_cb = cb; }
    // -------------------------------------------------------------------------------------
    OP_RESULT seekExactWithHint(Slice key, bool higher = true)  // EXP
@@ -191,8 +192,14 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             std::memcpy(buffer, leaf->getUpperFenceKey(), leaf->upper_fence.length);
             buffer[fence_length - 1] = 0;
             // -------------------------------------------------------------------------------------
+            if (exit_leaf_cb) {
+               exit_leaf_cb(leaf);
+               exit_leaf_cb = nullptr;
+            }
+            // -------------------------------------------------------------------------------------
             p_guard.unlock();
             leaf.unlock();
+            // -------------------------------------------------------------------------------------
             if (cleanup_cb) {
                cleanup_cb();
                cleanup_cb = nullptr;
@@ -266,8 +273,14 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             is_using_upper_fence = false;
             std::memcpy(buffer, leaf->getLowerFenceKey(), fence_length);
             // -------------------------------------------------------------------------------------
+            if (exit_leaf_cb) {
+               exit_leaf_cb(leaf);
+               exit_leaf_cb = nullptr;
+            }
+            // -------------------------------------------------------------------------------------
             p_guard.unlock();
             leaf.unlock();
+            // -------------------------------------------------------------------------------------
             if (cleanup_cb) {
                cleanup_cb();
                cleanup_cb = nullptr;

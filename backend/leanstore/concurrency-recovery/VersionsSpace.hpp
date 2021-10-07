@@ -58,7 +58,7 @@ class VersionsSpace : public VersionsSpaceInterface
                                 COMMANDID command_id,
                                 const bool is_remove,
                                 std::function<void(const u8*, u64 payload_length)> cb);
-   virtual void purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb);
+   virtual void purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb, const u64 limit);
    virtual void visitRemoveVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id,
                                     RemoveVersionCallback cb);  // [from, to]
 };

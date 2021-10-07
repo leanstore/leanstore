@@ -45,6 +45,15 @@ void VersionsSpace::insertVersion(WORKERID session_id,
       jumpmuTry()
       {
          BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)), session->bf, session->version);
+         iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+            if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+               iterator.cleanUpCallback([&, to_find = leaf.bf] {
+                  jumpmuTry() { btree->tryMerge(*to_find); }
+                  jumpmuCatch() {}
+               });
+            }
+         });
+         // -------------------------------------------------------------------------------------
          OP_RESULT ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::OK && iterator.keyInCurrentBoundaries(key)) {
             if (session->last_tx_id == tx_id) {
@@ -69,9 +78,17 @@ void VersionsSpace::insertVersion(WORKERID session_id,
       jumpmuTry()
       {
          BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
+         iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+            if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+               iterator.cleanUpCallback([&, to_find = leaf.bf] {
+                  jumpmuTry() { btree->tryMerge(*to_find); }
+                  jumpmuCatch() {}
+               });
+            }
+         });
+         // -------------------------------------------------------------------------------------
          OP_RESULT ret = iterator.seekToInsert(key);
          if (ret == OP_RESULT::DUPLICATE) {
-            iterator.removeCurrent();
             iterator.markAsDirty();
             jumpmu_continue;
          }
@@ -133,35 +150,52 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id,
    return false;
 }
 // -------------------------------------------------------------------------------------
-void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb)
+void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb, const u64 limit)
 {
-   BTreeLL* volatile btree = update_btrees[worker_id];
    u16 key_length = sizeof(to_tx_id);
    u8 key_buffer[PAGE_SIZE];
    utils::fold(key_buffer, from_tx_id);
    Slice key(key_buffer, key_length);
+   u8 payload[PAGE_SIZE];
+   u16 payload_length;
+   volatile u64 removed_versions = 0;
+   BTreeLL* volatile btree = remove_btrees[worker_id];
    // -------------------------------------------------------------------------------------
    {
       jumpmuTry()
       {
-      restart : {
+      restartrem : {
          leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
+         iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+            if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+               iterator.cleanUpCallback([&, to_find = leaf.bf] {
+                  jumpmuTry() { btree->tryMerge(*to_find); }
+                  jumpmuCatch() {}
+               });
+            }
+         });
+         // -------------------------------------------------------------------------------------
          OP_RESULT ret = iterator.seek(key);
-         while (ret == OP_RESULT::OK) {
+         while (ret == OP_RESULT::OK && (limit == 0 || removed_versions < limit)) {
             iterator.assembleKey();
             TXID current_tx_id;
             utils::unfold(iterator.key().data(), current_tx_id);
             if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
-               ret = iterator.removeCurrent();
-               ensure(ret == OP_RESULT::OK);
-               COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
+               auto& version_container = *reinterpret_cast<VersionMeta*>(iterator.mutableValue().data());
+               const DTID dt_id = version_container.dt_id;
+               const bool called_before = version_container.called_before;
+               version_container.called_before = true;
+               key_length = iterator.key().length();
+               std::memcpy(key_buffer, iterator.key().data(), key_length);
+               payload_length = iterator.value().length() - sizeof(VersionMeta);
+               std::memcpy(payload, version_container.payload, payload_length);
+               key = Slice(key_buffer, key_length + 1);
+               iterator.removeCurrent();
+               removed_versions++;
                iterator.markAsDirty();
-               if (iterator.mergeIfNeeded()) {
-                  goto restart;
-               }
-               if (iterator.cur == iterator.leaf->count) {
-                  ret = iterator.next();
-               }
+               iterator.reset();
+               cb(current_tx_id, dt_id, payload, payload_length, called_before);
+               goto restartrem;
             } else {
                break;
             }
@@ -171,40 +205,39 @@ void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_t
       jumpmuCatch() { UNREACHABLE(); }
    }
    // -------------------------------------------------------------------------------------
-   btree = remove_btrees[worker_id];
+   btree = update_btrees[worker_id];
    utils::fold(key_buffer, from_tx_id);
-   u8 payload[PAGE_SIZE];
-   u16 payload_length;
    // -------------------------------------------------------------------------------------
    jumpmuTry()
    {
-   restartrem : {
       leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
+      iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+         if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+            iterator.cleanUpCallback([&, to_find = leaf.bf] {
+               jumpmuTry() { btree->tryMerge(*to_find); }
+               jumpmuCatch() {}
+            });
+         }
+      });
+      // -------------------------------------------------------------------------------------
       OP_RESULT ret = iterator.seek(key);
-      while (ret == OP_RESULT::OK) {
+      while (ret == OP_RESULT::OK && (limit == 0 || removed_versions < limit)) {
          iterator.assembleKey();
          TXID current_tx_id;
          utils::unfold(iterator.key().data(), current_tx_id);
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
-            auto& version_container = *reinterpret_cast<VersionMeta*>(iterator.mutableValue().data());
-            const DTID dt_id = version_container.dt_id;
-            const bool called_before = version_container.called_before;
-            version_container.called_before = true;
-            key_length = iterator.key().length();
-            std::memcpy(key_buffer, iterator.key().data(), key_length);
-            payload_length = iterator.value().length() - sizeof(VersionMeta);
-            std::memcpy(payload, version_container.payload, payload_length);
-            key = Slice(key_buffer, key_length + 1);
-            iterator.removeCurrent();
+            ret = iterator.removeCurrent();
+            removed_versions++;
+            ensure(ret == OP_RESULT::OK);
+            COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
             iterator.markAsDirty();
-            iterator.reset();
-            cb(current_tx_id, dt_id, payload, payload_length, called_before);
-            goto restartrem;
+            if (iterator.cur == iterator.leaf->count) {
+               ret = iterator.next();
+            }
          } else {
             break;
          }
       }
-   }
    }
    jumpmuCatch() { UNREACHABLE(); }
 }
@@ -238,6 +271,7 @@ void VersionsSpace::visitRemoveVersions(WORKERID worker_id,
             auto& version_container = *reinterpret_cast<VersionMeta*>(iterator.mutableValue().data());
             const DTID dt_id = version_container.dt_id;
             const bool called_before = version_container.called_before;
+            ensure(called_before == false);
             version_container.called_before = true;
             key_length = iterator.key().length();
             std::memcpy(key_buffer, iterator.key().data(), key_length);

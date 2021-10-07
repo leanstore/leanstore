@@ -79,6 +79,8 @@ int main(int argc, char** argv)
    db.registerConfigEntry("tpcc_warehouse_count", FLAGS_tpcc_warehouse_count);
    db.registerConfigEntry("tpcc_warehouse_affinity", FLAGS_tpcc_warehouse_affinity);
    db.registerConfigEntry("ch_a_threads", FLAGS_ch_a_threads);
+   db.registerConfigEntry("ch_a_rounds", FLAGS_ch_a_rounds);
+   db.registerConfigEntry("ch_a_query", FLAGS_ch_a_query);
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
    // -------------------------------------------------------------------------------------
    leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);

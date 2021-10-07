@@ -60,6 +60,7 @@ void ConfigsTable::open()
    columns.emplace("c_vi", [&](Column& col) { col << FLAGS_vi; });
    columns.emplace("c_pgc", [&](Column& col) { col << FLAGS_pgc; });
    columns.emplace("c_isolation_level", [&](Column& col) { col << FLAGS_isolation_level; });
+   columns.emplace("c_olap_mode", [&](Column& col) { col << FLAGS_olap_mode; });
    // -------------------------------------------------------------------------------------
    for (auto& c : columns) {
       c.second.generator(c.second);

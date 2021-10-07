@@ -333,7 +333,6 @@ void Worker::checkup()
          versions_space.visitRemoveVersions(worker_id, from_tx_id, local_oltp_lwm - 1,
                                             [&](const TXID tx_id, const DTID dt_id, const u8* version_payload,
                                                 [[maybe_unused]] u64 version_payload_length, const bool called_before) {
-                                               ensure(called_before == false);
                                                leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
                                                                                                        called_before);
                                                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
