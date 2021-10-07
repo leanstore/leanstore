@@ -62,7 +62,6 @@ struct Worker {
    // All the local tracking data
    u64 local_oltp_lwm;
    u64 local_olap_lwm;
-   u64 cleaned_untill_oltp_lwm = 0;
    u64 command_id = 0;
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;
@@ -77,6 +76,9 @@ struct Worker {
    unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;
    // local_workers_sta can lag and it only tells us whether "it" definitely sees a version, but not if it does not
    unique_ptr<u64[]> local_workers_sorted_txids;
+   // -------------------------------------------------------------------------------------
+   // Clean up state
+   u64 cleaned_untill_oltp_lwm = 0;
    // -------------------------------------------------------------------------------------
    const u64 worker_id;
    Worker** all_workers;
