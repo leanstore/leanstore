@@ -220,12 +220,25 @@ void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_t
          }
       });
       // -------------------------------------------------------------------------------------
+      iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+         if (leaf->upper_fence.length > sizeof(to_tx_id)) {
+            TXID leaf_upper_fence_tx_id;
+            utils::unfold(iterator.leaf->getUpperFenceKey(), leaf_upper_fence_tx_id);
+            if (to_tx_id >= leaf_upper_fence_tx_id) {
+               for (s32 s_i = iterator.leaf->count - 1; s_i > iterator.cur; s_i--) {
+                  leaf->removeSlot(s_i);
+               }
+            }
+         }
+      });
+      // -------------------------------------------------------------------------------------
       OP_RESULT ret = iterator.seek(key);
       while (ret == OP_RESULT::OK && (limit == 0 || removed_versions < limit)) {
          iterator.assembleKey();
          TXID current_tx_id;
          utils::unfold(iterator.key().data(), current_tx_id);
          if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
+            // -------------------------------------------------------------------------------------
             ret = iterator.removeCurrent();
             removed_versions++;
             ensure(ret == OP_RESULT::OK);
