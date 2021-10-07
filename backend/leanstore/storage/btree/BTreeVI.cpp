@@ -198,7 +198,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          convert_to_fat_tuple &= utils::RandomGenerator::getRandU64(0, cr::Worker::my().workers_count) == 0;
       }
       if (convert_to_fat_tuple) {
-         ensure(tuple.isWriteLocked());
          tried_converting_to_fat_tuple = true;
          const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator);
          if (convert_ret) {

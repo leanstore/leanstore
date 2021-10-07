@@ -314,8 +314,11 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    next_command_id = chain_head.command_id;
    // TODO: check for used_space overflow
    while (true) {
-      const bool found =
-          cr::Worker::my().retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version, [[maybe_unused]] u64 payload_length) {
+      if (next_tx_id < cr::Worker::my().local_olap_lwm) {  // Pruning versions space might get delayed
+         break;
+      }
+      // -------------------------------------------------------------------------------------
+      if (!cr::Worker::my().retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version, [[maybe_unused]] u64 payload_length) {
              number_of_deltas_to_replace++;
              const auto& chain_delta = *reinterpret_cast<const UpdateVersion*>(version);
              ensure(chain_delta.type == Version::TYPE::UPDATE);
@@ -344,9 +347,9 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
              next_tx_id = chain_delta.tx_id;
              next_command_id = chain_delta.command_id;
              fat_tuple.garbageCollection(*this);  // TODO: temporary hack to hide overflow bugs
-          });
-      if (!found)
+          })) {
          break;
+      }
    }
    if (fat_tuple.used_space > fat_tuple.total_space) {
       chain_head.unlock();
