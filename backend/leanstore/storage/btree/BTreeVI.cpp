@@ -188,14 +188,15 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       }
       // -------------------------------------------------------------------------------------
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
-      bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && !tried_converting_to_fat_tuple && tuple_head.can_convert_to_fat_tuple &&
+      bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && !tried_converting_to_fat_tuple &&
+                                  tuple_head.can_convert_to_fat_tuple &&  // dt_id == FLAGS_tmp4 &&
                                   tuple_head.command_id != Tuple::INVALID_COMMANDID &&
                                   !(tuple_head.worker_id == cr::Worker::my().workerID() && tuple_head.tx_id == cr::activeTX().TTS());
       if (convert_to_fat_tuple) {
          convert_to_fat_tuple &= cr::Worker::my().local_oltp_lwm < tuple_head.tx_id;
       }
       if (convert_to_fat_tuple) {
-         convert_to_fat_tuple &= utils::RandomGenerator::getRandU64(0, cr::Worker::my().workers_count) == 0;
+         convert_to_fat_tuple &= utils::RandomGenerator::getRandU64(0, convertToFatTupleThreshold()) == 0;
       }
       if (convert_to_fat_tuple) {
          tried_converting_to_fat_tuple = true;
