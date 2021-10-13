@@ -153,10 +153,12 @@ void Worker::refreshSnapshotHWMs()
    local_oldest_oltp_tx_id = std::numeric_limits<u64>::max();
    local_oldest_olap_tx_id = std::numeric_limits<u64>::max();
    bool is_oltp_same_as_olap = true;
+   olap_in_progress_tx_count = 0;
    for (u64 w_i = 0; w_i < workers_count; w_i++) {
       u64 its_in_flight_tx_id = global_workers_in_progress_txid[w_i];
       const bool is_rc = its_in_flight_tx_id & RC_BIT;
       const bool is_olap = its_in_flight_tx_id & OLAP_BIT;
+      olap_in_progress_tx_count += is_olap;
       its_in_flight_tx_id &= CLEAN_BITS_MASK;
       is_oltp_same_as_olap &= !is_olap;
       if (!is_rc) {
@@ -178,6 +180,10 @@ void Worker::refreshSnapshotHWMs()
       global_workers_oltp_lwm[worker_id].store(local_oldest_oltp_tx_id, std::memory_order_release);
    }
    // -------------------------------------------------------------------------------------
+   const TXID tx_id = global_logical_clock.fetch_add(1);
+   global_workers_in_progress_txid[worker_id].store(tx_id | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
+   active_tx.tx_id = tx_id;
+   // -------------------------------------------------------------------------------------
    // Special handling for OLAP tx
    if (active_tx.isOLAP()) {
       global_workers_olap_lwm[worker_id].store(local_oldest_olap_tx_id, std::memory_order_release);
@@ -198,19 +204,12 @@ void Worker::refreshSnapshotHWMs()
          local_oltp_lwm = std::min<u64>(local_oltp_lwm, global_workers_oltp_lwm[w_i].load());
       }
    }
-   //  REMOVEME: cout << local_olap_lwm << "," << local_oltp_lwm << endl;
    // -------------------------------------------------------------------------------------
-   // TODO: Publish the global minimum
-   // u64 current_snapshot_lwm = global_oltp_lwm.load();
-   // while (global_workers_oltp_lwm[worker_id].load() > current_snapshot_lwm) {
-   //    u64 snapshot_lwm = std::numeric_limits<u64>::max();
-   //    for (u64 w_i = 0; w_i < workers_count; w_i++) {
-   //       snapshot_lwm = std::min<u64>(snapshot_lwm, global_workers_oltp_lwm[w_i].load());
-   //    }
-   //    if (current_snapshot_lwm >= snapshot_lwm || global_oltp_lwm.compare_exchange_strong(current_snapshot_lwm, snapshot_lwm)) {
-   //       break;
-   //    }
-   // }
+   u64 current_global_olap_lwm = global_olap_lwm.load();
+   while (local_olap_lwm > current_global_olap_lwm) {
+      if (global_olap_lwm.compare_exchange_strong(current_global_olap_lwm, local_olap_lwm))
+         break;
+   }
    // -------------------------------------------------------------------------------------
    relations_cut_from_snapshot.reset();
 }
@@ -260,27 +259,22 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          needs_remote_flush = true;
       }
       // -------------------------------------------------------------------------------------
-      const TXID tx_id = global_logical_clock.fetch_add(1);
-      global_workers_in_progress_txid[worker_id].store(tx_id | ((next_tx_type == TX_MODE::OLAP) ? OLAP_BIT : 0), std::memory_order_release);
       active_tx.state = Transaction::STATE::STARTED;
-      active_tx.tx_id = tx_id;
       active_tx.min_observed_gsn_when_started = clock_gsn;
       // -------------------------------------------------------------------------------------
-      if (FLAGS_commit_hwm) {
-         transactions_order_refreshed = false;
-         if (next_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION) {
-            if (force_si_refresh || FLAGS_si_refresh_rate == 0) {
-               refreshSnapshotHWMs();
-            }
-            force_si_refresh = false;
-         } else {
-            if (activeTX().atLeastSI()) {
-               switchToAlwaysUpToDateMode();
-            }
+      transactions_order_refreshed = false;
+      if (next_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION) {
+         if (force_si_refresh || FLAGS_si_refresh_rate == 0) {
+            refreshSnapshotHWMs();
          }
-         // -------------------------------------------------------------------------------------
-         checkup();
+         force_si_refresh = false;
+      } else {
+         if (activeTX().atLeastSI()) {
+            switchToAlwaysUpToDateMode();
+         }
       }
+      // -------------------------------------------------------------------------------------
+      checkup();
    }
    active_tx.current_tx_mode = next_tx_type;
    active_tx.current_tx_isolation_level = next_tx_isolation_level;
@@ -375,6 +369,7 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       if (FLAGS_commit_hwm) {
          if (!activeTX().isReadOnly()) {
+            // ATTENTION: make sure that only TX with tx_id larger than ours can see our commit
             global_workers_in_progress_txid[worker_id].store(active_tx.TTS() + 1, std::memory_order_release);
          }
       }
@@ -416,6 +411,7 @@ void Worker::abortTX()
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
 {
+   COUNTERS_BLOCK() { CRCounters::myCounters().cc_cross_workers_visibility_check++; }
    return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->local_workers_in_progress_txids[what_worker_id] > tts);
 }
 // -------------------------------------------------------------------------------------
@@ -457,7 +453,7 @@ bool Worker::isVisibleForMe(u64 wtts)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForAll(u64 tx_id)
 {
-   return tx_id < local_olap_lwm;
+   return tx_id < global_olap_lwm.load();
 }
 // -------------------------------------------------------------------------------------
 // Called by worker, so concurrent writes on the buffer

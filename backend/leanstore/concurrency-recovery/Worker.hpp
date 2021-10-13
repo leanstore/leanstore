@@ -76,6 +76,7 @@ struct Worker {
    unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;
    // local_workers_sta can lag and it only tells us whether "it" definitely sees a version, but not if it does not
    unique_ptr<u64[]> local_workers_sorted_txids;
+   u64 olap_in_progress_tx_count = 0;
    // -------------------------------------------------------------------------------------
    // Clean up state
    u64 cleaned_untill_oltp_lwm = 0;
