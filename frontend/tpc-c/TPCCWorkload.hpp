@@ -1016,6 +1016,20 @@ class TPCCWorkload
             ensure(false);
          }
       } else if (query_no == 1) {
+         warehouse.scan(
+             {0},
+             [&](const warehouse_t::Key& key, const warehouse_t&) {
+                sum++;
+                last_w = key.w_id;
+                return true;
+             },
+             [&]() {});
+         if (sum != warehouseCount) {
+            cout << "#warehouse = " << sum << endl;
+            cout << last_w << endl;
+            ensure(false);
+         }
+      } else if (query_no == 2) {
          district.scan(
              {1, 0},
              [&](const district_t::Key& key, const district_t&) {
@@ -1030,9 +1044,6 @@ class TPCCWorkload
             cout << last_w << "," << last_i << endl;
             ensure(false);
          }
-      } else if (query_no == 2) {
-         orderline.scan(
-             {0, 0, 0, 0}, [&](const orderline_t::Key&, const orderline_t&) { return true; }, [&]() {});
       } else if (query_no == 3) {
          u64 olap_counter = 0;
          neworder_t::Key last_key;
@@ -1053,6 +1064,9 @@ class TPCCWorkload
                 return true;
              },
              [&]() { cout << "undo neworder scan" << endl; });
+      } else if (query_no == 4) {
+         orderline.scan(
+             {0, 0, 0, 0}, [&](const orderline_t::Key&, const orderline_t&) { return true; }, [&]() {});
       } else if (query_no == 99) {
          sleep(1);
       } else {
