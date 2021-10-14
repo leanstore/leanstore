@@ -160,8 +160,6 @@ void Worker::refreshSnapshotHWMs()
    olap_in_progress_tx_count = 0;
    global_workers_rv_start[worker_id].store(global_logical_clock.fetch_add(1), std::memory_order_release);
    for (u64 w_i = 0; w_i < workers_count; w_i++) {
-      local_workers_rv_start[w_i] = global_workers_rv_start[w_i].load();
-      // -------------------------------------------------------------------------------------
       u64 its_in_flight_tx_id = global_workers_in_progress_txid[w_i];
       const bool is_rc = its_in_flight_tx_id & RC_BIT;
       const bool is_olap = its_in_flight_tx_id & OLAP_BIT;
@@ -222,12 +220,12 @@ void Worker::refreshSnapshotHWMs()
    relations_cut_from_snapshot.reset();
 }
 // -------------------------------------------------------------------------------------
-void Worker::sortWorkers()
+void Worker::prepareForIntervalGC()
 {
    if (!workers_sorted) {
       local_workers_sorted_txids[0] = 0;
-      local_workers_rv_start[0] = 0;
       for (u64 w_i = 0; w_i < workers_count; w_i++) {
+         local_workers_rv_start[w_i] = global_workers_rv_start[w_i].load();
          local_workers_sorted_txids[w_i + 1] = (local_workers_in_progress_txids[w_i] << WORKERS_BITS) | w_i;
       }
       // Avoid extra work if the last round also was full of single statement workers

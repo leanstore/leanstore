@@ -68,7 +68,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
       // Gonna get complicated here
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_visited[btree.dt_id] += deltas_count; }
-      cr::Worker::my().sortWorkers();
+      cr::Worker::my().prepareForIntervalGC();
       auto delta = reinterpret_cast<Delta*>(payload + value_length);
       TXID prev_prev_delta_tx_id = tx_id;
       TXID prev_delta_worker_id = delta->worker_id;

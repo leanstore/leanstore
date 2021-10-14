@@ -409,7 +409,7 @@ class BTreeVI : public BTreeLL
       return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
    }
    static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard) { return guard->has_garbage; }
-   u64 convertToFatTupleThreshold() { return FLAGS_tmp5; }  // cr::Worker::my().olap_in_progress_tx_count + 1
+   u64 convertToFatTupleThreshold() { return cr::Worker::my().olap_in_progress_tx_count + 2; }
    // -------------------------------------------------------------------------------------
    inline std::tuple<OP_RESULT, u16> reconstructTuple(Slice key, Slice payload, std::function<void(Slice value)> callback)
    {

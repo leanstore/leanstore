@@ -327,7 +327,7 @@ struct Worker {
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
-   void sortWorkers();
+   void prepareForIntervalGC();
    void refreshSnapshotHWMs();
    void switchToAlwaysUpToDateMode();
    bool isVisibleForAll(u64 commited_before_so);
