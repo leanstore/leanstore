@@ -494,6 +494,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
    // -------------------------------------------------------------------------------------
    void extendPayload(const u16 new_length)
    {
+      ensure(new_length < EFFECTIVE_PAGE_SIZE - 500);
       ensure(cur != -1 && new_length > leaf->getPayloadLength(cur));
       OP_RESULT ret;
       while (!leaf->canExtendPayload(cur, new_length)) {

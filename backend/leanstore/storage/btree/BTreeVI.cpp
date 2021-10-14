@@ -189,7 +189,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // -------------------------------------------------------------------------------------
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && !tried_converting_to_fat_tuple &&
-                                  tuple_head.can_convert_to_fat_tuple &&  // dt_id == FLAGS_tmp4 &&
+        tuple_head.can_convert_to_fat_tuple &&  //dt_id == FLAGS_tmp4 &&
                                   tuple_head.command_id != Tuple::INVALID_COMMANDID &&
                                   !(tuple_head.worker_id == cr::Worker::my().workerID() && tuple_head.tx_id == cr::activeTX().TTS());
       if (convert_to_fat_tuple) {
@@ -572,13 +572,13 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
             cr::Worker::my().versions_space.insertVersion(
                 prev_worker_id, prev_tx_id, prev_command_id, btree.dt_id, false, version_payload_length,
                 [&](u8* version_payload) {
-                   auto& secondary_version = *new (version_payload) UpdateVersion(delta->worker_id, delta->worker_tx_id, delta->command_id, true);
+                   auto& secondary_version = *new (version_payload) UpdateVersion(delta->worker_id, delta->tx_id, delta->command_id, true);
                    std::memcpy(secondary_version.payload, update_descriptor, delta_and_descriptor_size);
                 },
                 false);
             // -------------------------------------------------------------------------------------
             prev_worker_id = delta->worker_id;
-            prev_tx_id = delta->worker_tx_id;
+            prev_tx_id = delta->tx_id;
             prev_command_id = delta->command_id;
             // -------------------------------------------------------------------------------------
             offset += sizeof(FatTupleDifferentAttributes::Delta) + delta_and_descriptor_size;

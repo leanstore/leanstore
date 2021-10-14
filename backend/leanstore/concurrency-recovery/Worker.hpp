@@ -52,6 +52,7 @@ struct Worker {
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_workers_in_progress_txid;
+   static unique_ptr<atomic<u64>[]> global_workers_rv_start;
    static unique_ptr<atomic<u64>[]> global_workers_oltp_lwm;
    static unique_ptr<atomic<u64>[]> global_workers_olap_lwm;
    static atomic<u64> global_oltp_lwm;  // TODO:
@@ -74,8 +75,10 @@ struct Worker {
    u64 local_oldest_olap_tx_worker_id;
    u64 local_oldest_oltp_tx_id;  // OLAP <= OLTP
    unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;
-   // local_workers_sta can lag and it only tells us whether "it" definitely sees a version, but not if it does not
+   u64 local_workers_cut_timestamp = 0;
    unique_ptr<u64[]> local_workers_sorted_txids;
+   unique_ptr<u64[]> local_workers_rv_start;
+   unique_ptr<u64[]> local_workers_olap_lwm;
    u64 olap_in_progress_tx_count = 0;
    // -------------------------------------------------------------------------------------
    // Clean up state

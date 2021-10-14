@@ -24,6 +24,7 @@ atomic<u64> Worker::global_gsn_flushed = 0;
 atomic<u64> Worker::global_sync_to_this_gsn = 0;
 std::mutex Worker::global_mutex;                                         // Unused
 std::unique_ptr<atomic<u64>[]> Worker::global_workers_in_progress_txid;  // All transactions < are committed
+std::unique_ptr<atomic<u64>[]> Worker::global_workers_rv_start;          //
 // -------------------------------------------------------------------------------------
 std::unique_ptr<atomic<u64>[]> Worker::global_workers_oltp_lwm;
 std::unique_ptr<atomic<u64>[]> Worker::global_workers_olap_lwm;
@@ -43,7 +44,9 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsS
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
    if (!is_page_provider) {
       local_workers_in_progress_txids = make_unique<atomic<u64>[]>(workers_count);
-      local_workers_sorted_txids = make_unique<u64[]>(workers_count);
+      local_workers_sorted_txids = make_unique<u64[]>(workers_count + 1);
+      local_workers_rv_start = make_unique<u64[]>(workers_count + 1);
+      local_workers_olap_lwm = make_unique<u64[]>(workers_count);
       global_workers_in_progress_txid[worker_id] = 0;
    }
 }
@@ -153,8 +156,12 @@ void Worker::refreshSnapshotHWMs()
    local_oldest_oltp_tx_id = std::numeric_limits<u64>::max();
    local_oldest_olap_tx_id = std::numeric_limits<u64>::max();
    bool is_oltp_same_as_olap = true;
+   local_workers_cut_timestamp = global_logical_clock.load();
    olap_in_progress_tx_count = 0;
+   global_workers_rv_start[worker_id].store(global_logical_clock.fetch_add(1), std::memory_order_release);
    for (u64 w_i = 0; w_i < workers_count; w_i++) {
+      local_workers_rv_start[w_i] = global_workers_rv_start[w_i].load();
+      // -------------------------------------------------------------------------------------
       u64 its_in_flight_tx_id = global_workers_in_progress_txid[w_i];
       const bool is_rc = its_in_flight_tx_id & RC_BIT;
       const bool is_olap = its_in_flight_tx_id & OLAP_BIT;
@@ -197,6 +204,7 @@ void Worker::refreshSnapshotHWMs()
       u64 its_olap_lwm = global_workers_olap_lwm[w_i].load();
       bool is_olap_same_as_oltp_lwm = its_olap_lwm & OLTP_OLAP_SAME_BIT;
       its_olap_lwm &= CLEAN_BITS_MASK;
+      local_workers_olap_lwm[w_i] = its_olap_lwm;
       local_olap_lwm = std::min<u64>(local_olap_lwm, its_olap_lwm);
       if (is_olap_same_as_oltp_lwm) {
          local_oltp_lwm = std::min<u64>(local_oltp_lwm, its_olap_lwm);
@@ -217,12 +225,15 @@ void Worker::refreshSnapshotHWMs()
 void Worker::sortWorkers()
 {
    if (!workers_sorted) {
+      local_workers_sorted_txids[0] = 0;
+      local_workers_rv_start[0] = 0;
       for (u64 w_i = 0; w_i < workers_count; w_i++) {
-         local_workers_sorted_txids[w_i] = (local_workers_in_progress_txids[w_i] << WORKERS_BITS) | w_i;
+         local_workers_sorted_txids[w_i + 1] = (local_workers_in_progress_txids[w_i] << WORKERS_BITS) | w_i;
       }
       // Avoid extra work if the last round also was full of single statement workers
-      if (local_oldest_olap_tx_id < std::numeric_limits<u64>::max()) {
-         std::sort(local_workers_sorted_txids.get(), local_workers_sorted_txids.get() + workers_count, std::greater<u64>());
+      if (1 || local_oldest_olap_tx_id < std::numeric_limits<u64>::max()) {  // TODO: Disable
+         std::sort(local_workers_sorted_txids.get(), local_workers_sorted_txids.get() + workers_count + 1, std::less<u64>());
+         assert(local_workers_sorted_txids[0] <= local_workers_sorted_txids[1]);
       }
    }
    workers_sorted = true;
