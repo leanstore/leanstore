@@ -30,8 +30,9 @@ DEFINE_bool(tpcc_remove, true, "");
 DEFINE_bool(order_wdc_index, true, "");
 DEFINE_bool(tpcc_cross_warehouses, true, "");
 DEFINE_uint64(tpcc_analytical_weight, 0, "");
-DEFINE_uint64(tpcc_ch, 0, "");
-DEFINE_uint64(tpcc_ch_rounds, 1, "");
+DEFINE_uint64(ch_a_threads, 0, "CH analytical threads");
+DEFINE_uint64(ch_a_rounds, 1, "");
+DEFINE_uint64(ch_a_query, 2, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -41,12 +42,11 @@ int main(int argc, char** argv)
    gflags::SetUsageMessage("Leanstore TPC-C");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    assert(FLAGS_tpcc_warehouse_count > 0);
-   LeanStore::addS64Flag("TPC_SCALE", &FLAGS_tpcc_warehouse_count);  
+   LeanStore::addS64Flag("TPC_SCALE", &FLAGS_tpcc_warehouse_count);
    // -------------------------------------------------------------------------------------
    // Check arguments
-   if (FLAGS_tpcc_ch >= FLAGS_worker_threads) {
-      return 0;
-   }
+   ensure(FLAGS_ch_a_threads < FLAGS_worker_threads);
+   ensure(!FLAGS_tpcc_warehouse_affinity || FLAGS_tpcc_warehouse_count >= FLAGS_worker_threads);
    // -------------------------------------------------------------------------------------
    LeanStore db;
    LeanStoreAdapter<warehouse_t> warehouse;
@@ -78,14 +78,21 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    db.registerConfigEntry("tpcc_warehouse_count", FLAGS_tpcc_warehouse_count);
    db.registerConfigEntry("tpcc_warehouse_affinity", FLAGS_tpcc_warehouse_affinity);
-   db.registerConfigEntry("tpcc_ch", FLAGS_tpcc_ch);
+   db.registerConfigEntry("ch_a_threads", FLAGS_ch_a_threads);
+   db.registerConfigEntry("ch_a_rounds", FLAGS_ch_a_rounds);
+   db.registerConfigEntry("ch_a_query", FLAGS_ch_a_query);
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
    // -------------------------------------------------------------------------------------
+   leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
+   // -------------------------------------------------------------------------------------
+   const bool should_tpcc_driver_handle_isolation_anomalies = isolation_level < leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION;
    TPCCWorkload<LeanStoreAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
-                                       FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove, FLAGS_tpcc_cross_warehouses);
+                                       FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove,
+                                       should_tpcc_driver_handle_isolation_anomalies, FLAGS_tpcc_cross_warehouses);
+   // -------------------------------------------------------------------------------------
    if (!FLAGS_recover) {
+      cout << "Loading TPC-C" << endl;
       crm.scheduleJobSync(0, [&]() {
-         cr::Worker::my().refreshSnapshot();
          cr::Worker::my().startTX();
          tpcc.loadItem();
          tpcc.loadWarehouse();
@@ -94,7 +101,6 @@ int main(int argc, char** argv)
       std::atomic<u32> g_w_id = 1;
       for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
          crm.scheduleJobAsync(t_i, [&]() {
-            cr::Worker::my().refreshSnapshot();
             while (true) {
                u32 w_id = g_w_id++;
                if (w_id > FLAGS_tpcc_warehouse_count) {
@@ -115,7 +121,7 @@ int main(int argc, char** argv)
    }
    // -------------------------------------------------------------------------------------
    double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
-   cout << "data loaded - consumed space in GiB = " << gib << endl;
+   cout << "TPC-C loaded - consumed space in GiB = " << gib << endl;
    crm.scheduleJobSync(0, [&]() { cout << "Warehouse pages = " << warehouse.btree->countPages() << endl; });
    // -------------------------------------------------------------------------------------
    atomic<u64> keep_running = true;
@@ -124,16 +130,44 @@ int main(int argc, char** argv)
    auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
    db.startProfilingThread();
    u64 tx_per_thread[FLAGS_worker_threads];
-   for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_tpcc_ch; t_i++) {
+   // -------------------------------------------------------------------------------------
+   for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
-         cr::Worker::my().refreshSnapshot();
+         tpcc.prepare();
+         volatile u64 tx_acc = 0;
+         const leanstore::TX_MODE tx_mode = FLAGS_olap_mode ? leanstore::TX_MODE::OLAP : leanstore::TX_MODE::OLTP;
+         cr::Worker::my().startTX(tx_mode, isolation_level);
+         cr::Worker::my().commitTX();
+         while (keep_running) {
+            jumpmuTry()
+            {
+               cr::Worker::my().startTX(tx_mode, isolation_level);
+               for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
+                  tpcc.analyticalQuery(FLAGS_ch_a_query);
+               }
+               cr::Worker::my().commitTX();
+               WorkerCounters::myCounters().olap_tx++;
+               tx_acc++;
+            }
+            jumpmuCatch() { WorkerCounters::myCounters().olap_tx_abort++; }
+         }
+         cr::Worker::my().shutdown();
+         // -------------------------------------------------------------------------------------
+         tx_per_thread[t_i] = tx_acc;
+         running_threads_counter--;
+      });
+   }
+   // -------------------------------------------------------------------------------------
+   for (u64 t_i = FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
+      crm.scheduleJobAsync(t_i, [&, t_i]() {
+         running_threads_counter++;
          tpcc.prepare();
          volatile u64 tx_acc = 0;
          while (keep_running) {
             jumpmuTry()
             {
-               cr::Worker::my().startTX();
+               cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, isolation_level);
                u32 w_id;
                if (FLAGS_tpcc_warehouse_affinity) {
                   w_id = t_i + 1;
@@ -157,30 +191,7 @@ int main(int argc, char** argv)
          running_threads_counter--;
       });
    }
-   for (u64 t_i = FLAGS_worker_threads - FLAGS_tpcc_ch; t_i < FLAGS_worker_threads; t_i++) {
-      crm.scheduleJobAsync(t_i, [&, t_i]() {
-         running_threads_counter++;
-         cr::Worker::my().refreshSnapshot();
-         tpcc.prepare();
-         volatile u64 tx_acc = 0;
-         while (keep_running) {
-            jumpmuTry()
-            {
-               cr::Worker::my().startTX();
-               for (u64 i = 0; i < FLAGS_tpcc_ch_rounds; i++) {
-                  tpcc.analyticalQuery();
-               }
-               cr::Worker::my().commitTX();
-               tx_acc++;
-            }
-            jumpmuCatch() { ensure(false); }
-         }
-         cr::Worker::my().shutdown();
-         // -------------------------------------------------------------------------------------
-         tx_per_thread[t_i] = tx_acc;
-         running_threads_counter--;
-      });
-   }
+   // -------------------------------------------------------------------------------------
    {
       if (FLAGS_run_until_tx) {
          while (true) {
@@ -203,14 +214,14 @@ int main(int argc, char** argv)
    cout << endl;
    {
       u64 total = 0;
-      for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_tpcc_ch; t_i++) {
+      for (u64 t_i = FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
          total += tx_per_thread[t_i];
          cout << tx_per_thread[t_i] << ",";
       }
       cout << endl;
       cout << "TPC-C = " << total << endl;
       total = 0;
-      for (u64 t_i = FLAGS_worker_threads - FLAGS_tpcc_ch; t_i < FLAGS_worker_threads; t_i++) {
+      for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
          total += tx_per_thread[t_i];
          cout << tx_per_thread[t_i] << ",";
       }

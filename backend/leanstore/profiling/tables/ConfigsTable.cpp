@@ -35,6 +35,7 @@ void ConfigsTable::open()
    columns.emplace("c_target_gib", [&](Column& col) { col << FLAGS_target_gib; });
    columns.emplace("c_run_for_seconds", [&](Column& col) { col << FLAGS_run_for_seconds; });
    columns.emplace("c_bulk_insert", [&](Column& col) { col << FLAGS_bulk_insert; });
+   columns.emplace("c_nc_reallocation", [&](Column& col) { col << FLAGS_nc_reallocation; });
    columns.emplace("c_backoff_strategy", [&](Column& col) { col << FLAGS_backoff_strategy; });
    // -------------------------------------------------------------------------------------
    columns.emplace("c_contention_split", [&](Column& col) { col << FLAGS_contention_split; });
@@ -52,11 +53,14 @@ void ConfigsTable::open()
    columns.emplace("c_wal", [&](Column& col) { col << FLAGS_wal; });
    columns.emplace("c_wal_io_hack", [&](Column& col) { col << FLAGS_wal_io_hack; });
    columns.emplace("c_wal_fsync", [&](Column& col) { col << FLAGS_wal_fsync; });
-   columns.emplace("c_si", [&](Column& col) { col << FLAGS_si; });
+   columns.emplace("c_commit_hwm", [&](Column& col) { col << FLAGS_commit_hwm; });
    columns.emplace("c_todo", [&](Column& col) { col << FLAGS_todo; });
    columns.emplace("c_vw", [&](Column& col) { col << FLAGS_vw; });
+   columns.emplace("c_mv", [&](Column& col) { col << FLAGS_mv; });
    columns.emplace("c_vi", [&](Column& col) { col << FLAGS_vi; });
    columns.emplace("c_pgc", [&](Column& col) { col << FLAGS_pgc; });
+   columns.emplace("c_isolation_level", [&](Column& col) { col << FLAGS_isolation_level; });
+   columns.emplace("c_olap_mode", [&](Column& col) { col << FLAGS_olap_mode; });
    // -------------------------------------------------------------------------------------
    for (auto& c : columns) {
       c.second.generator(c.second);

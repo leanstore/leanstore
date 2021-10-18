@@ -45,6 +45,8 @@ class BTreeLL : public KVInterface, public BTreeGeneric
       u8 payload[];
    };
    // -------------------------------------------------------------------------------------
+   BTreeLL() = default;
+   // -------------------------------------------------------------------------------------
    virtual OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
    virtual OP_RESULT updateSameSizeInPlace(u8* key,
@@ -61,13 +63,17 @@ class BTreeLL : public KVInterface, public BTreeGeneric
                               function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                               function<void()>) override;
    // -------------------------------------------------------------------------------------
+   bool isRangeSurelyEmpty(Slice start_key, Slice end_key);
+   // -------------------------------------------------------------------------------------
    virtual u64 countPages() override;
    virtual u64 countEntries() override;
    virtual u64 getHeight() override;
    // -------------------------------------------------------------------------------------
+   static SpaceCheckResult checkSpaceUtilization(void* btree_object, BufferFrame& bf);
    static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
-   static void todo(void* btree_object, const u8* wal_entry_ptr, const u64 version_worker_id, const u64 tts);
+   static void todo(void* btree_object, const u8* entry_ptr, const u64 version_worker_id, const u64 tx_id, const bool called_before);
+   static void unlock(void* btree_object, const u8* entry_ptr);
    static void checkpoint(void*, BufferFrame& bf, u8* dest);
    static std::unordered_map<std::string, std::string> serialize(void* btree_object);
    static void deserialize(void* btree_object, std::unordered_map<std::string, std::string> serialized);

@@ -19,7 +19,6 @@ namespace btree
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback)
 {
-   volatile u32 mask = 1;
    while (true) {
       jumpmuTry()
       {
@@ -43,18 +42,45 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
             jumpmu_return OP_RESULT::OK;
          } else {
             leaf.recheck();
-            raise(SIGTRAP);
+            // raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }
-      jumpmuCatch()
-      {
-         BACKOFF_STRATEGIES()
-         WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
-      }
+      jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
    }
    UNREACHABLE();
    return OP_RESULT::OTHER;
+}
+// -------------------------------------------------------------------------------------
+bool BTreeLL::isRangeSurelyEmpty(Slice start_key, Slice end_key)
+{
+   while (true) {
+      jumpmuTry()
+      {
+         HybridPageGuard<BTreeNode> leaf;
+         findLeafCanJump(leaf, start_key.data(), start_key.length());
+         // -------------------------------------------------------------------------------------
+         Slice upper_fence(leaf->getUpperFenceKey(), leaf->upper_fence.length);
+         Slice lower_fence(leaf->getLowerFenceKey(), leaf->lower_fence.length);
+         assert(start_key >= lower_fence);
+         if ((leaf->upper_fence.offset == 0 || end_key <= upper_fence) && leaf->count == 0) {
+            s32 pos = leaf->lowerBound<false>(start_key.data(), start_key.length());
+            if (pos == leaf->count) {
+               leaf.recheck();
+               jumpmu_return true;
+            } else {
+               leaf.recheck();
+               jumpmu_return false;
+            }
+         } else {
+            leaf.recheck();
+            jumpmu_return false;
+         }
+      }
+      jumpmuCatch() {}
+   }
+   UNREACHABLE();
+   return false;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanAsc(u8* start_key,
@@ -62,6 +88,7 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
                            std::function<bool(const u8* key, u16 key_length, const u8* payload, u16 payload_length)> callback,
                            function<void()>)
 {
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_asc[dt_id]++; }
    Slice key(start_key, key_length);
    jumpmuTry()
    {
@@ -85,6 +112,7 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_desc[dt_id]++; }
    const Slice key(start_key, key_length);
    jumpmuTry()
    {
@@ -113,7 +141,7 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_length)
 {
-   if (FLAGS_wal) {
+   if (is_wal_enabled) {
       cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
    const Slice key(o_key, o_key_length);
@@ -123,7 +151,7 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
       OP_RESULT ret = iterator.insertKV(key, value);
       ensure(ret == OP_RESULT::OK);
-      if (FLAGS_wal) {
+      if (is_wal_enabled) {
          auto wal_entry = iterator.leaf.reserveWALEntry<WALInsert>(key.length() + value.length());
          wal_entry->type = WAL_LOG_TYPE::WALInsert;
          wal_entry->key_length = key.length();
@@ -146,7 +174,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
                                          function<void(u8* payload, u16 payload_size)> callback,
                                          UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
-   if (FLAGS_wal) {
+   if (is_wal_enabled) {
       cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
    Slice key(o_key, o_key_length);
@@ -158,7 +186,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
          jumpmu_return ret;
       }
       auto current_value = iterator.mutableValue();
-      if (FLAGS_wal) {
+      if (is_wal_enabled) {
          assert(update_descriptor.count > 0);  // if it is a secondary index, then we can not use updateSameSize
          // -------------------------------------------------------------------------------------
          const u16 delta_length = update_descriptor.size() + update_descriptor.diffLength();
@@ -190,7 +218,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
 {
-   if (FLAGS_wal) {
+   if (is_wal_enabled) {
       cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
    const Slice key(o_key, o_key_length);
@@ -202,7 +230,7 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
          jumpmu_return ret;
       }
       Slice value = iterator.value();
-      if (FLAGS_wal) {
+      if (is_wal_enabled) {
          auto wal_entry = iterator.leaf.reserveWALEntry<WALRemove>(o_key_length + value.length());
          wal_entry->type = WAL_LOG_TYPE::WALRemove;
          wal_entry->key_length = o_key_length;
@@ -241,9 +269,18 @@ u64 BTreeLL::getHeight()
 void BTreeLL::undo(void*, const u8*, const u64)
 {
    // TODO: undo for storage
+   TODOException();
 }
 // -------------------------------------------------------------------------------------
-void BTreeLL::todo(void*, const u8*, const u64, const u64) {}
+void BTreeLL::todo(void*, const u8*, const u64, const u64, const bool)
+{
+   UNREACHABLE();
+}
+// -------------------------------------------------------------------------------------
+void BTreeLL::unlock(void*, const u8*)
+{
+   UNREACHABLE();
+}
 // -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTreeLL::getMeta()
 {
@@ -253,14 +290,21 @@ struct DTRegistry::DTMeta BTreeLL::getMeta()
                                     .checkpoint = checkpoint,
                                     .undo = undo,
                                     .todo = todo,
+                                    .unlock = unlock,
                                     .serialize = serialize,
                                     .deserialize = deserialize};
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------
+SpaceCheckResult BTreeLL::checkSpaceUtilization(void* btree_object, BufferFrame& bf)
+{
+   auto& btree = *reinterpret_cast<BTreeLL*>(btree_object);
+   return BTreeGeneric::checkSpaceUtilization(static_cast<BTreeGeneric*>(&btree), bf);
+}
+// -------------------------------------------------------------------------------------
 struct ParentSwipHandler BTreeLL::findParent(void* btree_object, BufferFrame& to_find)
 {
-   return BTreeGeneric::findParent(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
+   return BTreeGeneric::findParentJump(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
 }
 // -------------------------------------------------------------------------------------
 void BTreeLL::checkpoint(void* btree_object, BufferFrame& bf, u8* dest)

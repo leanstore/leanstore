@@ -4,6 +4,7 @@
 // -------------------------------------------------------------------------------------
 #include "leanstore/Config.hpp"
 #include "leanstore/KVInterface.hpp"
+#include "leanstore/concurrency-recovery/Worker.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
@@ -37,6 +38,7 @@ class TPCCWorkload
    const bool order_wdc_index = true;
    const Integer warehouseCount;
    const Integer tpcc_remove;
+   const bool manually_handle_isolation_anomalies;
    const bool cross_warehouses;
    // -------------------------------------------------------------------------------------
    Integer urandexcept(Integer low, Integer high, Integer v)
@@ -153,8 +155,8 @@ class TPCCWorkload
       Numeric d_tax;
       Integer o_id;
 
-      // UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_next_o_id);
-      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_next_o_id);
+      // UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
       district.update1(
           {w_id, d_id},
           [&](district_t& rec) {
@@ -289,20 +291,14 @@ class TPCCWorkload
             cout << "WARNING: delivery tx skipped for warehouse = " << w_id << ", district = " << d_id << endl;
             continue;
          }
-         // ensure(o_id != minInteger);
          // -------------------------------------------------------------------------------------
          if (tpcc_remove) {
             const auto ret = neworder.erase({w_id, d_id, o_id});
-            ensure(ret || !FLAGS_si);
+            ensure(ret || manually_handle_isolation_anomalies);
          }
          // -------------------------------------------------------------------------------------
          Integer ol_cnt = minInteger, c_id;
-         if (FLAGS_si) {
-            order.lookup1({w_id, d_id, o_id}, [&](const order_t& rec) {
-               ol_cnt = rec.o_ol_cnt;
-               c_id = rec.o_c_id;
-            });
-         } else {
+         if (manually_handle_isolation_anomalies) {
             order.scan(
                 {w_id, d_id, o_id},
                 [&](const order_t::Key&, const order_t& rec) {
@@ -313,9 +309,14 @@ class TPCCWorkload
                 [&]() {});
             if (ol_cnt == minInteger)
                continue;
+         } else {
+            order.lookup1({w_id, d_id, o_id}, [&](const order_t& rec) {
+               ol_cnt = rec.o_ol_cnt;
+               c_id = rec.o_c_id;
+            });
          }
          // -------------------------------------------------------------------------------------
-         if (!FLAGS_si) {
+         if (manually_handle_isolation_anomalies) {
             bool is_safe_to_continue = false;
             order.scan(
                 {w_id, d_id, o_id},
@@ -338,7 +339,7 @@ class TPCCWorkload
          order.update1(
              {w_id, d_id, o_id}, [&](order_t& rec) { rec.o_carrier_id = carrier_id; }, order_update_descriptor);
          // -------------------------------------------------------------------------------------
-         if (!FLAGS_si) {
+         if (manually_handle_isolation_anomalies) {
             // First check if all orderlines have been inserted, a hack because of the missing transaction and concurrency control
             bool is_safe_to_continue = false;
             orderline.scan(
@@ -368,8 +369,8 @@ class TPCCWorkload
                 },
                 orderline_update_descriptor);
          }
-         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
-         // UpdateDescriptorGenerator2(customer_update_descriptor, customer_t, c_balance, c_delivery_cnt);
+         // UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         UpdateDescriptorGenerator2(customer_update_descriptor, customer_t, c_balance, c_delivery_cnt);
          customer.update1(
              {w_id, d_id, c_id},
              [&](customer_t& rec) {
@@ -584,8 +585,6 @@ class TPCCWorkload
       Varchar<9> w_zip;
       Numeric w_ytd;
       warehouse.lookup1({w_id}, [&](const warehouse_t& rec) {
-         if (rec.w_name.length > 10)
-            raise(SIGTRAP);
          w_name = rec.w_name;
          w_street_1 = rec.w_street_1;
          w_street_2 = rec.w_street_2;
@@ -614,8 +613,8 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
-      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
-      //      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
+      // UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
       district.update1(
           {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
@@ -654,8 +653,8 @@ class TPCCWorkload
              },
              customer_update_descriptor);
       } else {
-         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
-         // UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
+         // UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
@@ -718,8 +717,8 @@ class TPCCWorkload
          d_zip = rec.d_zip;
          d_ytd = rec.d_ytd;
       });
-      // UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
-      UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
+      UpdateDescriptorGenerator1(district_update_descriptor, district_t, d_ytd);
+      // UpdateDescriptorGenerator2(district_update_descriptor, district_t, d_next_o_id, d_ytd);
       district.update1(
           {w_id, d_id}, [&](district_t& rec) { rec.d_ytd += h_amount; }, district_update_descriptor);
 
@@ -778,9 +777,9 @@ class TPCCWorkload
              },
              customer_update_descriptor);
       } else {
-         UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
+         // UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
          // TODO: when variable-diffs are fully-implemented
-         // UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
+         UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},
              [&](customer_t& rec) {
@@ -831,6 +830,7 @@ class TPCCWorkload
                 bool order_wdc_index,
                 Integer warehouse_count,
                 bool tpcc_remove,
+                bool manually_handle_isolation_anomalies = true,
                 bool cross_warehouses = true)
        : warehouse(w),
          district(d),
@@ -846,6 +846,7 @@ class TPCCWorkload
          order_wdc_index(order_wdc_index),
          warehouseCount(warehouse_count),
          tpcc_remove(tpcc_remove),
+         manually_handle_isolation_anomalies(manually_handle_isolation_anomalies),
          cross_warehouses(cross_warehouses)
    {
    }
@@ -994,11 +995,11 @@ class TPCCWorkload
       return 4;
    }
    // -------------------------------------------------------------------------------------
-   void analyticalQuery()
+   void analyticalQuery(s32 query_no = 0)
    {
-      // TODO: implement TPC-CH queries
-      if (0) {
-         Integer sum = 0, last_w = 0, last_i = 0;
+      // TODO: implement CH analytical queries
+      Integer sum = 0, last_w = 0, last_i = 0;
+      if (query_no == 0) {
          stock.scan(
              {1, 0},
              [&](const stock_t::Key& key, const stock_t&) {
@@ -1014,9 +1015,62 @@ class TPCCWorkload
             cout << last_w << "," << last_i << endl;
             ensure(false);
          }
-      } else {
+      } else if (query_no == 1) {
+         warehouse.scan(
+             {0},
+             [&](const warehouse_t::Key& key, const warehouse_t&) {
+                sum++;
+                last_w = key.w_id;
+                return true;
+             },
+             [&]() {});
+         if (sum != warehouseCount) {
+            cout << "#warehouse = " << sum << endl;
+            cout << last_w << endl;
+            ensure(false);
+         }
+      } else if (query_no == 2) {
          district.scan(
-             {1, 0}, [&](const district_t::Key&, const district_t&) { return true; }, [&]() {});
+             {1, 0},
+             [&](const district_t::Key& key, const district_t&) {
+                sum++;
+                last_w = key.d_w_id;
+                last_i = key.d_id;
+                return true;
+             },
+             [&]() {});
+         if (sum != warehouseCount * 10) {
+            cout << "#district = " << sum << endl;
+            cout << last_w << "," << last_i << endl;
+            ensure(false);
+         }
+      } else if (query_no == 3) {
+         u64 olap_counter = 0;
+         neworder_t::Key last_key;
+         last_key.no_o_id = -1;
+         neworder.scan(
+             {0, 0, 0},
+             [&](const neworder_t::Key& key, const neworder_t&) {
+                if (last_key.no_o_id != -1) {
+                   if (!(last_key.no_w_id != key.no_w_id || last_key.no_d_id != key.no_d_id || last_key.no_o_id + 1 == key.no_o_id)) {
+                      cout << last_key.no_w_id << "," << key.no_w_id << endl;
+                      cout << last_key.no_d_id << "," << key.no_d_id << endl;
+                      cout << last_key.no_o_id << "," << key.no_o_id << endl;
+                      ensure(false);
+                   }
+                }
+                last_key = key;
+                olap_counter++;
+                return true;
+             },
+             [&]() { cout << "undo neworder scan" << endl; });
+      } else if (query_no == 4) {
+         orderline.scan(
+             {0, 0, 0, 0}, [&](const orderline_t::Key&, const orderline_t&) { return true; }, [&]() {});
+      } else if (query_no == 99) {
+         sleep(1);
+      } else {
+         UNREACHABLE();
       }
    }
 };

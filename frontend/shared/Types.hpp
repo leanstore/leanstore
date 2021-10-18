@@ -7,10 +7,12 @@
 #include <limits>
 #include <string>
 // -------------------------------------------------------------------------------------
+using UInteger = u32;
 using Integer = s32;
 using Timestamp = u64;
 using Numeric = double;
-static constexpr Integer minInteger = std::numeric_limits<int>::min();
+static constexpr Integer minUInteger = std::numeric_limits<UInteger>::min();
+static constexpr Integer minInteger = std::numeric_limits<Integer>::min();
 // -------------------------------------------------------------------------------------
 template <int maxLength>
 struct Varchar {

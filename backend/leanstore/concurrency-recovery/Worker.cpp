@@ -19,29 +19,38 @@ namespace cr
 {
 // -------------------------------------------------------------------------------------
 thread_local Worker* Worker::tls_ptr = nullptr;
-atomic<u64> Worker::global_snapshot_clock = 0;
-std::mutex Worker::global_mutex;
-std::unique_ptr<atomic<u64>[]> Worker::global_so_starts;
-std::unique_ptr<atomic<u64>[]> Worker::global_tts;
+atomic<u64> Worker::global_logical_clock = WORKERS_INCREMENT;
+atomic<u64> Worker::global_gsn_flushed = 0;
+atomic<u64> Worker::global_sync_to_this_gsn = 0;
+std::mutex Worker::global_mutex;                                         // Unused
+std::unique_ptr<atomic<u64>[]> Worker::global_workers_in_progress_txid;  // All transactions < are committed
+std::unique_ptr<atomic<u64>[]> Worker::global_workers_rv_start;          //
 // -------------------------------------------------------------------------------------
-Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd)
+std::unique_ptr<atomic<u64>[]> Worker::global_workers_oltp_lwm;
+std::unique_ptr<atomic<u64>[]> Worker::global_workers_olap_lwm;
+atomic<u64> Worker::global_oltp_lwm = 0;  // No worker should start with TTS == 0
+atomic<u64> Worker::global_olap_lwm = 0;  // No worker should start with TTS == 0
+                                          // -------------------------------------------------------------------------------------
+Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface& versions_space, s32 fd, const bool is_page_provider)
     : worker_id(worker_id),
       all_workers(all_workers),
       workers_count(workers_count),
+      versions_space(versions_space),
       ssd_fd(fd),
-      todo_hwm_rb(1024ull * 1024 * 100),
-      todo_lwm_rb(1024ull * 1024 * 100),
-      todo_lwm_hwm_rb(1024ull * 1024 * 10)
+      is_page_provider(is_page_provider)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
-   snapshot = make_unique<atomic<u64>[]>(workers_count);
-   all_so_starts = make_unique<u64[]>(workers_count);
-   all_sorted_so_starts = make_unique<u64[]>(workers_count);
-   global_so_starts[worker_id] = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
+   if (!is_page_provider) {
+      local_workers_in_progress_txids = make_unique<atomic<u64>[]>(workers_count);
+      local_workers_sorted_txids = make_unique<u64[]>(workers_count + 1);
+      local_workers_rv_start = make_unique<u64[]>(workers_count + 1);
+      local_workers_olap_lwm = make_unique<u64[]>(workers_count);
+      global_workers_in_progress_txid[worker_id] = 0;
+   }
 }
-Worker::~Worker() {}
+Worker::~Worker() = default;
 // -------------------------------------------------------------------------------------
 u32 Worker::walFreeSpace()
 {
@@ -65,21 +74,28 @@ u32 Worker::walContiguousFreeSpace()
 void Worker::walEnsureEnoughSpace(u32 requested_size)
 {
    if (FLAGS_wal) {
-      // Spin until we have enough space
-      while (walFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {
+      u32 wait_untill_free_bytes = requested_size + CR_ENTRY_SIZE;
+      if ((WORKER_WAL_SIZE - wal_wt_cursor) < static_cast<u32>(requested_size + CR_ENTRY_SIZE)) {
+         wait_untill_free_bytes += WORKER_WAL_SIZE - wal_wt_cursor;  // we have to skip this round
       }
-      if (walContiguousFreeSpace() < (requested_size + CR_ENTRY_SIZE)) {  // always keep place for CR entry
-         WALMetaEntry& entry = reserveWALMetaEntry();
+      // Spin until we have enough space
+      while (walFreeSpace() < wait_untill_free_bytes) {
+      }
+      if (walContiguousFreeSpace() < requested_size + CR_ENTRY_SIZE) {  // always keep place for CR entry
+         WALMetaEntry& entry = *reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
+         invalidateEntriesUntil(WORKER_WAL_SIZE);
+         entry.size = sizeof(WALMetaEntry);
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
          DEBUG_BLOCK() { entry.computeCRC(); }
          // -------------------------------------------------------------------------------------
-         invalidateEntriesUntil(WORKER_WAL_SIZE);
          wal_wt_cursor = 0;
          publishOffset();
          wal_next_to_clean = 0;
          wal_buffer_round++;  // Carriage Return
       }
+      ensure(walContiguousFreeSpace() >= requested_size);
+      ensure(wal_wt_cursor + requested_size + CR_ENTRY_SIZE <= WORKER_WAL_SIZE);
    }
 }
 // -------------------------------------------------------------------------------------
@@ -131,161 +147,243 @@ void Worker::submitDTEntry(u64 total_size)
 {
    DEBUG_BLOCK() { active_dt_entry->computeCRC(); }
    wal_wt_cursor += total_size;
-   wal_max_gsn = clock_gsn;
    publishMaxGSNOffset();
 }
 // -------------------------------------------------------------------------------------
-void Worker::refreshSnapshot()
+void Worker::refreshSnapshotHWMs()
 {
-   so_start = global_snapshot_clock.fetch_add(WORKERS_INCREMENT) | worker_id;
-   global_so_starts[worker_id].store(so_start, std::memory_order_release);
-   for (u64 w = 0; w < workers_count; w++) {
-      snapshot[w].store(global_tts[w], std::memory_order_release);
-   }
-   // -------------------------------------------------------------------------------------
-   oldest_so_start = std::numeric_limits<u64>::max();
-   oldest_so_start_worker_id = worker_id;
-   for (u64 w = 0; w < workers_count; w++) {
-      u64 its_so_start = global_so_starts[w];
-      if (its_so_start < oldest_so_start) {
-         oldest_so_start = its_so_start;
-         oldest_so_start_worker_id = w;
+   local_oldest_olap_tx_worker_id = std::numeric_limits<u64>::max();
+   local_oldest_oltp_tx_id = std::numeric_limits<u64>::max();
+   local_oldest_olap_tx_id = std::numeric_limits<u64>::max();
+   bool is_oltp_same_as_olap = true;
+   local_workers_cut_timestamp = global_logical_clock.load();
+   olap_in_progress_tx_count = 0;
+   global_workers_rv_start[worker_id].store(global_logical_clock.fetch_add(1), std::memory_order_release);
+   for (u64 w_i = 0; w_i < workers_count; w_i++) {
+      u64 its_in_flight_tx_id = global_workers_in_progress_txid[w_i];
+      const bool is_rc = its_in_flight_tx_id & RC_BIT;
+      const bool is_olap = its_in_flight_tx_id & OLAP_BIT;
+      olap_in_progress_tx_count += is_olap;
+      its_in_flight_tx_id &= CLEAN_BITS_MASK;
+      is_oltp_same_as_olap &= !is_olap;
+      if (!is_rc) {
+         local_oldest_olap_tx_id = std::min<u64>(its_in_flight_tx_id, local_oldest_olap_tx_id);
+         local_oldest_olap_tx_worker_id = w_i;
+         if (!is_olap) {
+            local_oldest_oltp_tx_id = std::min<u64>(its_in_flight_tx_id, local_oldest_oltp_tx_id);
+         }
       }
-      all_so_starts[w] = its_so_start;
+      its_in_flight_tx_id &= ~(1ull << 63);
+      local_workers_in_progress_txids[w_i].store(its_in_flight_tx_id, std::memory_order_release);
    }
    workers_sorted = false;
+   if (is_oltp_same_as_olap) {
+      local_oldest_oltp_tx_id = local_oldest_olap_tx_id;
+   }
+   global_workers_olap_lwm[worker_id].store(local_oldest_olap_tx_id | ((is_oltp_same_as_olap) ? OLTP_OLAP_SAME_BIT : 0), std::memory_order_release);
+   if (!is_oltp_same_as_olap) {
+      global_workers_oltp_lwm[worker_id].store(local_oldest_oltp_tx_id, std::memory_order_release);
+   }
+   // -------------------------------------------------------------------------------------
+   const TXID tx_id = global_logical_clock.fetch_add(1);
+   global_workers_in_progress_txid[worker_id].store(tx_id | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
+   active_tx.tx_id = tx_id;
+   // -------------------------------------------------------------------------------------
+   // Special handling for OLAP tx
+   if (active_tx.isOLAP()) {
+      global_workers_olap_lwm[worker_id].store(local_oldest_olap_tx_id, std::memory_order_release);
+      global_workers_oltp_lwm[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+   }
+   // -------------------------------------------------------------------------------------
+   // Receiving
+   local_olap_lwm = std::numeric_limits<u64>::max();
+   local_oltp_lwm = std::numeric_limits<u64>::max();
+   for (u64 w_i = 0; w_i < workers_count; w_i++) {
+      u64 its_olap_lwm = global_workers_olap_lwm[w_i].load();
+      bool is_olap_same_as_oltp_lwm = its_olap_lwm & OLTP_OLAP_SAME_BIT;
+      its_olap_lwm &= CLEAN_BITS_MASK;
+      local_workers_olap_lwm[w_i] = its_olap_lwm;
+      local_olap_lwm = std::min<u64>(local_olap_lwm, its_olap_lwm);
+      if (is_olap_same_as_oltp_lwm) {
+         local_oltp_lwm = std::min<u64>(local_oltp_lwm, its_olap_lwm);
+      } else {
+         local_oltp_lwm = std::min<u64>(local_oltp_lwm, global_workers_oltp_lwm[w_i].load());
+      }
+   }
+   // -------------------------------------------------------------------------------------
+   u64 current_global_olap_lwm = global_olap_lwm.load();
+   while (local_olap_lwm > current_global_olap_lwm) {
+      if (global_olap_lwm.compare_exchange_strong(current_global_olap_lwm, local_olap_lwm))
+         break;
+   }
+   // -------------------------------------------------------------------------------------
+   relations_cut_from_snapshot.reset();
 }
 // -------------------------------------------------------------------------------------
-void Worker::sortWorkers()
+void Worker::prepareForIntervalGC()
 {
    if (!workers_sorted) {
-      std::memcpy(all_sorted_so_starts.get(), all_so_starts.get(), workers_count * sizeof(u64));
-      std::sort(all_sorted_so_starts.get(), all_sorted_so_starts.get() + workers_count, std::greater<u64>());
-      workers_sorted = true;
+      local_workers_sorted_txids[0] = 0;
+      for (u64 w_i = 0; w_i < workers_count; w_i++) {
+         local_workers_rv_start[w_i] = global_workers_rv_start[w_i].load();
+         local_workers_sorted_txids[w_i + 1] = (local_workers_in_progress_txids[w_i] << WORKERS_BITS) | w_i;
+      }
+      // Avoid extra work if the last round also was full of single statement workers
+      if (1 || local_oldest_olap_tx_id < std::numeric_limits<u64>::max()) {  // TODO: Disable
+         std::sort(local_workers_sorted_txids.get(), local_workers_sorted_txids.get() + workers_count + 1, std::less<u64>());
+         assert(local_workers_sorted_txids[0] <= local_workers_sorted_txids[1]);
+      }
    }
+   workers_sorted = true;
 }
 // -------------------------------------------------------------------------------------
-void Worker::startTX()
+void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
 {
+   // For single-statement transactions, snapshot isolation and serialization are the same as read committed
+   if (next_tx_type == TX_MODE::SINGLE_STATEMENT) {
+      if (next_tx_isolation_level > TX_ISOLATION_LEVEL::READ_COMMITTED) {
+         next_tx_isolation_level = TX_ISOLATION_LEVEL::READ_COMMITTED;
+      }
+   }
+   // -------------------------------------------------------------------------------------
    if (FLAGS_wal) {
       current_tx_wal_start = wal_wt_cursor;
-      WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.type = WALEntry::TYPE::TX_START;
-      submitWALMetaEntry();
+      if (!read_only) {
+         WALMetaEntry& entry = reserveWALMetaEntry();
+         entry.type = WALEntry::TYPE::TX_START;
+         submitWALMetaEntry();
+      }
       assert(active_tx.state != Transaction::STATE::STARTED);
+      // -------------------------------------------------------------------------------------
+      // Initialize RFA
+      if (FLAGS_wal_rfa) {
+         const LID sync_point = Worker::global_sync_to_this_gsn.load();
+         if (sync_point > getCurrentGSN()) {
+            setCurrentGSN(sync_point);
+            publishMaxGSNOffset();
+         }
+         rfa_gsn_flushed = Worker::global_gsn_flushed.load();
+         needs_remote_flush = false;
+      } else {
+         needs_remote_flush = true;
+      }
+      // -------------------------------------------------------------------------------------
       active_tx.state = Transaction::STATE::STARTED;
-      active_tx.tts = global_tts[worker_id];
-      active_tx.min_gsn = clock_gsn;
+      active_tx.min_observed_gsn_when_started = clock_gsn;
+      // -------------------------------------------------------------------------------------
+      transactions_order_refreshed = false;
+      if (next_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION) {
+         if (force_si_refresh || FLAGS_si_refresh_rate == 0) {
+            refreshSnapshotHWMs();
+         }
+         force_si_refresh = false;
+      } else {
+         if (activeTX().atLeastSI()) {
+            switchToAlwaysUpToDateMode();
+         }
+      }
       // -------------------------------------------------------------------------------------
       checkup();
+   }
+   active_tx.current_tx_mode = next_tx_type;
+   active_tx.current_tx_isolation_level = next_tx_isolation_level;
+   active_tx.is_read_only = read_only;
+   active_tx.is_durable = FLAGS_wal;  // TODO:
+}
+// -------------------------------------------------------------------------------------
+void Worker::switchToAlwaysUpToDateMode()
+{
+   {
+      const u64 last_commit_mark_flagged = global_workers_in_progress_txid[worker_id].load() | (1ull << 63);
+      global_workers_in_progress_txid[worker_id].store(last_commit_mark_flagged, std::memory_order_release);
+   }
+   global_workers_olap_lwm[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+   global_workers_oltp_lwm[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
+   for (u64 w_i = 0; w_i < workers_count; w_i++) {
+      local_workers_in_progress_txids[w_i].store(1ull << 63, std::memory_order_release);
    }
 }
 // -------------------------------------------------------------------------------------
 void Worker::shutdown()
 {
    checkup();
-   // -------------------------------------------------------------------------------------
-   global_so_starts[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
-   for (u64 w = 0; w < workers_count; w++) {
-      snapshot[w].store(std::numeric_limits<u64>::max(), std::memory_order_release);
-   }
-   global_so_starts[worker_id].store((std::numeric_limits<u64>::max() - WORKERS_INCREMENT + worker_id) & ~(1ull << 63), std::memory_order_release);
+   switchToAlwaysUpToDateMode();
 }
 // -------------------------------------------------------------------------------------
+// Pre: Refresh Snapshot Ordering
 void Worker::checkup()
 {
-   if (FLAGS_si) {
-      if (force_si_refresh || FLAGS_si_refresh_rate == 0 || active_tx.tts % FLAGS_si_refresh_rate == 0) {
-         refreshSnapshot();
+   if (FLAGS_commit_hwm) {
+      if (!FLAGS_todo) {
+         return;
       }
-      force_si_refresh = false;
-
-      {
-         auto& rb = todo_hwm_rb;
-         while (FLAGS_todo && !rb.empty()) {
-            auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
-            if (oldest_so_start > todo.after_so) {
-               WorkerCounters::myCounters().cc_rtodo_lng_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
-               rb.popFront();
-            } else {
-               WorkerCounters::myCounters().cc_todo_1_break[todo.dt_id]++;
-               break;
-            }
-         }
+      // TODO: smooth purge, we should not let the system hang on this, as a quick fix, it should be enough if we purge in small batches
+      if (local_olap_lwm > 0) {
+         // PURGE!
+         versions_space.purgeVersions(
+             worker_id, 0, local_olap_lwm - 1,
+             [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length,
+                 const bool called_before) {
+                leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id, called_before);
+                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
+             },
+             FLAGS_todo_batch_size);
+         cleaned_untill_oltp_lwm = std::max(local_olap_lwm, cleaned_untill_oltp_lwm);
       }
-      {
-         auto& rb = todo_lwm_hwm_rb;
-         while (FLAGS_todo && !rb.empty()) {
-            auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
-            if (oldest_so_start > todo.after_so) {
-               WorkerCounters::myCounters().cc_rtodo_lng_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
-               rb.popFront();
-            } else {
-               WorkerCounters::myCounters().cc_todo_1_break[todo.dt_id]++;
-               break;
-            }
-         }
-      }
-      {
-         auto& rb = todo_lwm_rb;
-         while (FLAGS_todo && !rb.empty()) {
-            auto& todo = *reinterpret_cast<TODOEntry*>(rb.front());
-            if (oldest_so_start > todo.after_so) {
-               WorkerCounters::myCounters().cc_rtodo_shrt_executed[todo.dt_id]++;
-               leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
-               rb.popFront();
-            } else if (oldest_so_start < todo.or_before_so) {
-               bool safe_to_gc = true;
-               WorkerCounters::myCounters().cc_rtodo_opt_considered[todo.dt_id]++;
-               for (u64 w_i = 0; w_i < workers_count && safe_to_gc; w_i++) {
-                  if (((all_so_starts[w_i] < todo.or_before_so) || (all_so_starts[w_i] > todo.after_so)) ||
-                      ((0 && global_so_starts[w_i] < todo.or_before_so) || (global_so_starts[w_i] > todo.after_so))) {
-                     safe_to_gc &= true;
-                  } else {
-                     safe_to_gc &= false;
-                  }
-               }
-               if (safe_to_gc) {
-                  WorkerCounters::myCounters().cc_rtodo_opt_executed[todo.dt_id]++;
-                  leanstore::storage::DTRegistry::global_dt_registry.todo(todo.dt_id, todo.payload, todo.version_worker_id, todo.version_tts);
-                  rb.popFront();
-               } else {
-                  break;
-               }
-            } else {
-               WorkerCounters::myCounters().cc_rtodo_to_lng[todo.dt_id]++;
-               const u64 total_todo_length = todo.payload_length + sizeof(TODOEntry);
-               u8* new_hwm_todo = todo_lwm_hwm_rb.pushBack(total_todo_length);
-               std::memcpy(new_hwm_todo, rb.front(), total_todo_length);
-               rb.popFront();
-            }
-         }
+      if (FLAGS_olap_mode && local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
+         // MOVE deletes to the graveyard
+         const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
+         versions_space.visitRemoveVersions(worker_id, from_tx_id, local_oltp_lwm - 1,
+                                            [&](const TXID tx_id, const DTID dt_id, const u8* version_payload,
+                                                [[maybe_unused]] u64 version_payload_length, const bool called_before) {
+                                               leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
+                                                                                                       called_before);
+                                               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
+                                            });
+         cleaned_untill_oltp_lwm = local_oltp_lwm;
       }
    }
 }
 // -------------------------------------------------------------------------------------
 void Worker::commitTX()
 {
-   if (FLAGS_wal) {
+   if (activeTX().isDurable()) {
+      command_id = 0;
+      // -------------------------------------------------------------------------------------
+      if (activeTX().isSingleStatement() && active_tx.state != Transaction::STATE::STARTED) {
+         return;  // Skip double commit in case of single statement upsert [hack]
+      }
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
-      WALMetaEntry& entry = reserveWALMetaEntry();
-      entry.type = WALEntry::TYPE::TX_COMMIT;
-      submitWALMetaEntry();
+      if (!activeTX().isReadOnly()) {
+         WALMetaEntry& entry = reserveWALMetaEntry();
+         entry.type = WALEntry::TYPE::TX_COMMIT;
+         submitWALMetaEntry();
+      }
       // -------------------------------------------------------------------------------------
-      active_tx.max_gsn = clock_gsn;
+      active_tx.max_observed_gsn = clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
-      {
+      // We don't have pmem, so we can only avoid remote flushes for real if the tx is a single lookup
+      if (!FLAGS_wal_rfa_pmem_simulate) {
+         needs_remote_flush |= !activeTX().isReadOnly();
+      }
+      if (needs_remote_flush) {  // RFA
          std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
          ready_to_commit_queue.push_back(active_tx);
          ready_to_commit_queue_size += 1;
+      } else {
+         active_tx.state = Transaction::STATE::COMMITTED;
+         CRCounters::myCounters().rfa_committed_tx += 1;
       }
       // -------------------------------------------------------------------------------------
-      if (FLAGS_si) {
-         global_tts[worker_id].store(active_tx.tts + 1, std::memory_order_release);
-         commitTODOs(global_snapshot_clock.fetch_add(WORKERS_INCREMENT));
+      if (FLAGS_commit_hwm) {
+         if (!activeTX().isReadOnly()) {
+            // ATTENTION: make sure that only TX with tx_id larger than ours can see our commit
+            global_workers_in_progress_txid[worker_id].store(active_tx.TTS() + 1, std::memory_order_release);
+         }
+      }
+      if (activeTX().isSerializable()) {
+         executeUnlockTasks();
       }
    }
 }
@@ -294,13 +392,22 @@ void Worker::abortTX()
 {
    if (FLAGS_wal) {
       ensure(active_tx.state == Transaction::STATE::STARTED);
+      const u64 tx_id = active_tx.TTS();
+      std::vector<const WALEntry*> entries;
       iterateOverCurrentTXEntries([&](const WALEntry& entry) {
-         const u64 tts = active_tx.tts;
          if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
-            const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
-            leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tts);
+            entries.push_back(&entry);
          }
       });
+      std::for_each(entries.rbegin(), entries.rend(), [&](const WALEntry* entry) {
+         const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(entry);
+         leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tx_id);
+      });
+      // -------------------------------------------------------------------------------------
+      if (activeTX().isSerializable()) {
+         executeUnlockTasks();
+      }
+      versions_space.purgeVersions(worker_id, active_tx.TTS(), active_tx.TTS(), [&](const TXID, const DTID, const u8*, u64, const bool) {});
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.type = WALEntry::TYPE::TX_ABORT;
@@ -313,12 +420,37 @@ void Worker::abortTX()
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
 {
-   return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->snapshot[what_worker_id] > tts);
+   COUNTERS_BLOCK() { CRCounters::myCounters().cc_cross_workers_visibility_check++; }
+   return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->local_workers_in_progress_txids[what_worker_id] > tts);
 }
 // -------------------------------------------------------------------------------------
-bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts)
+// It is also used to check whether the tuple is write-locked, hence we need the to_write intention flag
+// There are/will be two types of write locks: ones that are released with commit hwm and ones that are manually released after commit.
+bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts, bool to_write)
 {
-   return worker_id == other_worker_id || snapshot[other_worker_id] > tts;
+   if (!to_write && activeTX().isReadUncommitted()) {
+      return true;
+   }
+   if (worker_id == other_worker_id) {
+      return true;
+   } else {
+      if (activeTX().isReadCommitted() || activeTX().isReadUncommitted()) {
+         const u64 masked_commit_mark = local_workers_in_progress_txids[other_worker_id].load() & ~(1ull << 63);
+         if (masked_commit_mark > tts) {
+            return true;
+         } else {
+            // Refresh
+            const u64 its_commit_mark = global_workers_in_progress_txid[other_worker_id].load() & ~(1ull << 63);
+            const u64 flagged_commit_mark = its_commit_mark | (1ull << 63);
+            local_workers_in_progress_txids[other_worker_id].store(flagged_commit_mark, std::memory_order_release);
+            return (its_commit_mark > tts);
+         }
+      } else if (activeTX().atLeastSI()) {
+         return local_workers_in_progress_txids[other_worker_id].load() > tts;
+      } else {
+         UNREACHABLE();
+      }
+   }
 }
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForMe(u64 wtts)
@@ -328,9 +460,9 @@ bool Worker::isVisibleForMe(u64 wtts)
    return isVisibleForMe(other_worker_id, tts);
 }
 // -------------------------------------------------------------------------------------
-bool Worker::isVisibleForAll(u64 commited_before_so)
+bool Worker::isVisibleForAll(u64 tx_id)
 {
-   return commited_before_so < oldest_so_start;
+   return tx_id < global_olap_lwm.load();
 }
 // -------------------------------------------------------------------------------------
 // Called by worker, so concurrent writes on the buffer
@@ -370,6 +502,7 @@ WALChunk::Slot Worker::WALFinder::getJumpPoint(LID lsn)
    }
 }
 // -------------------------------------------------------------------------------------
+// TODO:
 void Worker::WALFinder::insertJumpPoint(LID LSN, WALChunk::Slot slot)
 {
    std::unique_lock guard(m);
@@ -449,57 +582,19 @@ outofmemory : {
 }
 }
 // -------------------------------------------------------------------------------------
-void Worker::stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb, u64 or_before_so)
+void Worker::addUnlockTask(DTID dt_id, u64 payload_length, std::function<void(u8*)> callback)
 {
-   u8* todo_ptr;
-   const u64 total_todo_length = payload_length + sizeof(TODOEntry);
-   if (FLAGS_vi_twoq_todo && or_before_so && oldest_so_start < or_before_so) {
-      todo_ptr = todo_lwm_rb.pushBack(total_todo_length);
-      if (todo_lwm_tx_start == nullptr) {
-         todo_lwm_tx_start = todo_ptr;
-      }
-      WorkerCounters::myCounters().cc_rtodo_opt_staged[dt_id]++;
-   } else {
-      or_before_so = 0;
-      todo_ptr = todo_hwm_rb.pushBack(total_todo_length);
-      if (todo_hwm_tx_start == nullptr) {
-         todo_hwm_tx_start = todo_ptr;
-      }
-   }
-   auto& todo_entry = *new (todo_ptr) TODOEntry();
-   todo_entry.version_worker_id = worker_id;
-   todo_entry.version_tts = tts;
-   todo_entry.dt_id = dt_id;
-   todo_entry.payload_length = payload_length;
-   todo_entry.or_before_so = or_before_so;
-   // -------------------------------------------------------------------------------------
-   cb(todo_entry.payload);
+   unlock_tasks_after_commit.push_back(std::make_unique<u8[]>(payload_length + sizeof(UnlockTask)));
+   callback((new (unlock_tasks_after_commit.back().get()) UnlockTask(dt_id, payload_length))->payload);
 }
 // -------------------------------------------------------------------------------------
-void Worker::commitTODOs(u64 so)
+void Worker::executeUnlockTasks()
 {
-   if (todo_hwm_tx_start) {
-      todo_hwm_rb.iterateUntilTail(todo_hwm_tx_start, [&](u8* rb_payload) { reinterpret_cast<TODOEntry*>(rb_payload)->after_so = so; });
-      todo_hwm_tx_start = nullptr;
+   for (auto& unlock_ptr : unlock_tasks_after_commit) {
+      auto& unlock_task = *reinterpret_cast<UnlockTask*>(unlock_ptr.get());
+      leanstore::storage::DTRegistry::global_dt_registry.unlock(unlock_task.dt_id, unlock_task.payload);
    }
-   if (todo_lwm_tx_start) {
-      todo_lwm_rb.iterateUntilTail(todo_lwm_tx_start, [&](u8* rb_payload) { reinterpret_cast<TODOEntry*>(rb_payload)->after_so = so; });
-      todo_lwm_tx_start = nullptr;
-   }
-}
-// -------------------------------------------------------------------------------------
-void Worker::commitTODO(u8 worker_id, u64 tts, u64 after_so, DTID dt_id, u64 payload_length, std::function<void(u8*)> cb)
-{
-   const u64 total_todo_length = sizeof(TODOEntry) + payload_length;
-   u8* todo_ptr = todo_hwm_rb.pushBack(total_todo_length);
-   auto& todo_entry = *new (todo_ptr) TODOEntry();
-   todo_entry.version_worker_id = worker_id;
-   todo_entry.version_tts = tts;
-   todo_entry.dt_id = dt_id;
-   todo_entry.payload_length = payload_length;
-   todo_entry.after_so = after_so;
-   todo_entry.or_before_so = 0;
-   cb(todo_entry.payload);
+   unlock_tasks_after_commit.clear();
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

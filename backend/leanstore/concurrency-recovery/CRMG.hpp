@@ -1,6 +1,7 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "Units.hpp"
+#include "VersionsSpaceInterface.hpp"
 #include "Worker.hpp"
 #include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
@@ -23,7 +24,7 @@ namespace cr
 class CRManager
 {
   public:
-   static constexpr u64 MAX_WORKER_THREADS = 256;
+   static constexpr u64 MAX_WORKER_THREADS = std::numeric_limits<WORKERID>::max();
    static CRManager* global;
    Worker* workers[MAX_WORKER_THREADS];
    // -------------------------------------------------------------------------------------
@@ -44,11 +45,12 @@ class CRManager
    // -------------------------------------------------------------------------------------
    const s32 ssd_fd;
    const u64 end_of_block_device;
+   VersionsSpaceInterface& versions_space;
    // -------------------------------------------------------------------------------------
-   CRManager(s32 ssd_fd, u64 end_of_block_device);
+   CRManager(VersionsSpaceInterface&, s32 ssd_fd, u64 end_of_block_device);
    ~CRManager();
    // -------------------------------------------------------------------------------------
-   void groupCommiter();
+   void registerMeAsSpecialWorker();
    // -------------------------------------------------------------------------------------
    /**
     * @brief Schedule same job on specific amount of workers.
@@ -85,6 +87,8 @@ class CRManager
    void joinAll();
 
   private:
+   void groupCommiter();
+   // -------------------------------------------------------------------------------------
    /**
     * @brief Set the Job to specific worker.
     *

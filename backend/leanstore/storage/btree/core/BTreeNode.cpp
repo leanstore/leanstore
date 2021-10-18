@@ -121,7 +121,7 @@ void BTreeNode::compactify()
    tmp.upper = upper;
    memcpy(reinterpret_cast<char*>(this), &tmp, sizeof(BTreeNode));
    makeHint();
-   assert(freeSpace() == should);  // TODO: why should ??
+   assert(freeSpace() == should);
 }
 // -------------------------------------------------------------------------------------
 u32 BTreeNode::mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right)
@@ -158,6 +158,9 @@ bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, Exclusi
       copyKeyValueRange(&tmp, 0, 0, count);
       right->copyKeyValueRange(&tmp, count, 0, right->count);
       parent->removeSlot(slotId);
+      // -------------------------------------------------------------------------------------
+      right->has_garbage |= has_garbage;
+      // -------------------------------------------------------------------------------------
       memcpy(reinterpret_cast<u8*>(right.ptr()), &tmp, sizeof(BTreeNode));
       right->makeHint();
       return true;
@@ -374,6 +377,9 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
    if (is_leaf) {
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot + 1);
       copyKeyValueRange(nodeRight, 0, nodeLeft->count, count - nodeLeft->count);
+      // -------------------------------------------------------------------------------------
+      nodeRight->has_garbage = has_garbage;
+      nodeLeft->has_garbage = has_garbage;
    } else {
       copyKeyValueRange(nodeLeft.ptr(), 0, 0, sepSlot);
       copyKeyValueRange(nodeRight, 0, nodeLeft->count + 1, count - nodeLeft->count - 1);

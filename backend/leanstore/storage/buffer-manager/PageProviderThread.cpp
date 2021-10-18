@@ -3,7 +3,7 @@
 #include "BufferManager.hpp"
 #include "Exceptions.hpp"
 #include "leanstore/Config.hpp"
-#include "leanstore/concurrency-recovery/Worker.hpp"
+#include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/PPCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -29,21 +29,16 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    pthread_setname_np(pthread_self(), "page_provider");
    using Time = decltype(std::chrono::high_resolution_clock::now());
    // -------------------------------------------------------------------------------------
-   // TODO: register as special worker [hackaround atm]
-   while (cr::Worker::global_so_starts.get() == nullptr || cr::Worker::global_tts.get() == nullptr)
-      ;
-   cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0, ssd_fd);
+   leanstore::cr::CRManager::global->registerMeAsSpecialWorker();
    // -------------------------------------------------------------------------------------
    // Init AIO Context
-   AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_async_batch_size);
+   AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size);
    // -------------------------------------------------------------------------------------
    auto phase_1_condition = [&](Partition& p) { return (p.dram_free_list.counter + p.cooling_bfs_counter) < p.cooling_bfs_limit; };  //
    auto phase_2_3_condition = [&](Partition& p) { return (p.dram_free_list.counter < p.free_bfs_limit); };
    // -------------------------------------------------------------------------------------
    while (bg_threads_keep_running) {
-      /*
-       * Phase 1: unswizzle pages (put in the cooling stage)
-       */
+      // Phase 1: unswizzle pages (put in the cooling stage)
       // -------------------------------------------------------------------------------------
       [[maybe_unused]] Time phase_1_begin, phase_1_end;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
@@ -65,7 +60,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                // -------------------------------------------------------------------------------------
                // Performance crticial: we should cross cool (unswizzle), otherwise write performance will drop
                [[maybe_unused]] const u64 partition_i = getPartitionID(r_buffer->header.pid);
-               const bool is_cooling_candidate = (!r_buffer->header.keep_in_memory && !r_buffer->header.isWB &&
+               const bool is_cooling_candidate = (!r_buffer->header.keep_in_memory && !r_buffer->header.is_being_written_back &&
                                                   !(r_buffer->header.latch.isExclusivelyLatched())
                                                   // && (partition_i) >= p_begin && (partition_i) <= p_end
                                                   && r_buffer->header.state == BufferFrame::STATE::HOT);
@@ -78,7 +73,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
                COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
                getDTRegistry().iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
-                  all_children_evicted &= swip.isEVICTED();  // ignore when it has a child in the cooling stage
+                  all_children_evicted &= swip.isEVICTED();  // Ignore when it has a child in the cooling stage
                   if (swip.isHOT()) {
                      r_buffer = &swip.asBufferFrame();
                      r_guard.recheck();
@@ -95,7 +90,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                       (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
                }
                if (picked_a_child_instead) {
-                  continue;  // restart the inner loop
+                  continue;  // Restart the inner loop
                }
                repickIf(!all_children_evicted);
 
@@ -115,7 +110,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                }
                // -------------------------------------------------------------------------------------
                r_guard.recheck();
-               if (getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer, r_guard, parent_handler)) {
+               const SpaceCheckResult space_check_res = getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);
+               if (space_check_res == SpaceCheckResult::RESTART_SAME_BF) {
+                  continue;
+               } else if (space_check_res == SpaceCheckResult::PICK_ANOTHER_BF) {
                   r_buffer = &randomBufferFrame();
                   continue;
                }
@@ -133,7 +131,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                      // -------------------------------------------------------------------------------------
                      assert(r_buffer->header.pid == pid);
                      assert(r_buffer->header.state == BufferFrame::STATE::HOT);
-                     assert(r_buffer->header.isWB == false);
+                     assert(r_buffer->header.is_being_written_back == false);
                      assert(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
                      assert(parent_handler.swip.bf == r_buffer);
                      // -------------------------------------------------------------------------------------
@@ -212,7 +210,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             partition.cooling_queue.erase(bf_itr);
             partition.cooling_bfs_counter--;
             // -------------------------------------------------------------------------------------
-            assert(!bf.header.isWB);
+            assert(!bf.header.is_being_written_back);
             // Reclaim buffer frame
             assert(bf.header.state == BufferFrame::STATE::COOL);
             parent_handler.swip.evict(bf.header.pid);
@@ -232,11 +230,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          if (phase_2_3_condition(partition)) {
             const s64 pages_to_iterate_partition = partition.free_bfs_limit - partition.dram_free_list.counter;
             // -------------------------------------------------------------------------------------
-            /*
-             * Phase 2:
-             * Iterate over all partitions, in each partition:
-             * iterate over the end of FIFO queue.
-             */
+            // Phase 2:
+            // Iterate over all partitions, in each partition:
+            // iterate over the end of FIFO queue.
+            // -------------------------------------------------------------------------------------
             [[maybe_unused]] Time phase_2_begin, phase_2_end;
             COUNTERS_BLOCK() { phase_2_begin = std::chrono::high_resolution_clock::now(); }
             if (pages_to_iterate_partition > 0) {
@@ -257,7 +254,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                         partition.cooling_bfs_counter--;
                         jumpmu::jump();
                      }
-                     if (!bf.header.isWB) {
+                     if (!bf.header.is_being_written_back) {
                         // Prevent evicting a page that already has an IO Frame with (possibly) threads working on it.
                         {
                            JMUW<std::unique_lock<std::mutex>> io_guard(partition.io_mutex);
@@ -272,8 +269,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                            if (!async_write_buffer.full()) {
                               {
                                  BMExclusiveGuard ex_guard(o_guard);
-                                 assert(!bf.header.isWB);
-                                 bf.header.isWB = true;
+                                 assert(!bf.header.is_being_written_back);
+                                 bf.header.is_being_written_back = true;
+                                 // TODO: preEviction callback according to DTID
                               }
                               {
                                  BMSharedGuard s_guard(o_guard);
@@ -327,15 +325,15 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                          {
                             Guard guard(written_bf.header.latch);
                             guard.toExclusive();
-                            assert(written_bf.header.isWB);
-                            assert(written_bf.header.lastWrittenGSN < written_lsn);
+                            assert(written_bf.header.is_being_written_back);
+                            assert(written_bf.header.last_written_gsn < written_lsn);
                             // -------------------------------------------------------------------------------------
                             if (FLAGS_out_of_place) {
                                partition.freePage(written_bf.header.pid);
                                written_bf.header.pid = out_of_place_pid;
                             }
-                            written_bf.header.lastWrittenGSN = written_lsn;
-                            written_bf.header.isWB = false;
+                            written_bf.header.last_written_gsn = written_lsn;
+                            written_bf.header.is_being_written_back = false;
                             PPCounters::myCounters().flushed_pages_counter++;
                             // -------------------------------------------------------------------------------------
                             guard.unlock();
@@ -363,7 +361,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                         partition.cooling_bfs_counter--;
                         jumpmu::jump();
                      }
-                     if (!bf.header.isWB && !bf.isDirty()) {
+                     if (!bf.header.is_being_written_back && !bf.isDirty()) {
                         evict_bf(bf, o_guard, bf_itr);
                      }
                      // -------------------------------------------------------------------------------------

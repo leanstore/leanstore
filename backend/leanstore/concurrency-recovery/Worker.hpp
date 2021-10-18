@@ -1,5 +1,6 @@
 #pragma once
 #include "Transaction.hpp"
+#include "VersionsSpaceInterface.hpp"
 #include "WALEntry.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/utils/RingBufferST.hpp"
@@ -29,9 +30,8 @@ struct WLSN {
 static_assert(sizeof(WTTS) == sizeof(u64), "");
 static_assert(sizeof(WLSN) == sizeof(u64), "");
 // -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
+static constexpr u16 STATIC_MAX_WORKERS = 256;
 struct alignas(512) WALChunk {
-   static constexpr u16 STATIC_MAX_WORKERS = 256;
    struct Slot {
       u64 offset;
       u64 length;
@@ -39,59 +39,141 @@ struct alignas(512) WALChunk {
    u8 workers_count;
    u32 total_size;
    Slot slot[STATIC_MAX_WORKERS];
-   u8 data[];
 };
 // -------------------------------------------------------------------------------------
 struct Worker {
    // Static
    static thread_local Worker* tls_ptr;
-   static atomic<u64> global_snapshot_clock;
+   // -------------------------------------------------------------------------------------
+   static atomic<u64> global_logical_clock;
+   static atomic<u64> global_gsn_flushed;       // The minimum of all workers maximum flushed GSN
+   static atomic<u64> global_sync_to_this_gsn;  // Artifically increment the workers GSN to this point at the next round to prevent GSN from skewing
+                                                // and undermining RFA
    static std::mutex global_mutex;
    // -------------------------------------------------------------------------------------
-   static unique_ptr<atomic<u64>[]> global_so_starts;
-   static unique_ptr<atomic<u64>[]> global_tts;
+   static unique_ptr<atomic<u64>[]> global_workers_in_progress_txid;
+   static unique_ptr<atomic<u64>[]> global_workers_rv_start;
+   static unique_ptr<atomic<u64>[]> global_workers_oltp_lwm;
+   static unique_ptr<atomic<u64>[]> global_workers_olap_lwm;
+   static atomic<u64> global_oltp_lwm;  // TODO:
+   static atomic<u64> global_olap_lwm;  // TODO:
+                                        // -------------------------------------------------------------------------------------
+
    // -------------------------------------------------------------------------------------
-   const u64 SO_LATCHED = std::numeric_limits<u64>::max();
+   // All the local tracking data
+   u64 local_oltp_lwm;
+   u64 local_olap_lwm;
+   u64 command_id = 0;
+   Transaction active_tx;
+   WALMetaEntry* active_mt_entry;
+   WALDTEntry* active_dt_entry;
+   // Snapshot Acquisition Time (SAT) = TXID = CommitMark - 1
    bool force_si_refresh = false;
    bool workers_sorted = false;
-   u64 so_start;
-   u64 oldest_so_start, oldest_so_start_worker_id;
-   unique_ptr<atomic<u64>[]> snapshot;
-   unique_ptr<u64[]> all_sorted_so_starts;
-   unique_ptr<u64[]> all_so_starts;
+   bool transactions_order_refreshed = false;
+   u64 local_oldest_olap_tx_id;
+   u64 local_oldest_olap_tx_worker_id;
+   u64 local_oldest_oltp_tx_id;  // OLAP <= OLTP
+   unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;
+   u64 local_workers_cut_timestamp = 0;
+   unique_ptr<u64[]> local_workers_sorted_txids;
+   unique_ptr<u64[]> local_workers_rv_start;
+   unique_ptr<u64[]> local_workers_olap_lwm;
+   u64 olap_in_progress_tx_count = 0;
    // -------------------------------------------------------------------------------------
-   static constexpr u64 WORKERS_BITS = 8;
-   static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
-   static constexpr u64 WORKERS_MASK = (1ull << WORKERS_BITS) - 1;
+   // Clean up state
+   u64 cleaned_untill_oltp_lwm = 0;
    // -------------------------------------------------------------------------------------
    const u64 worker_id;
    Worker** all_workers;
    const u64 workers_count;
+   VersionsSpaceInterface& versions_space;
    const s32 ssd_fd;
-   Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd);
+   const bool is_page_provider = false;
+   // -------------------------------------------------------------------------------------
+   // -------------------------------------------------------------------------------------
+   static constexpr u64 WORKERS_BITS = 8;
+   static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
+   static constexpr u64 WORKERS_MASK = (1ull << WORKERS_BITS) - 1;
+   static constexpr u64 OLTP_OLAP_SAME_BIT = (1ull << 63);
+   static constexpr u64 RC_BIT = (1ull << 63);
+   static constexpr u64 OLAP_BIT = (1ull << 62);
+   static constexpr u64 CLEAN_BITS_MASK = ~(OLAP_BIT | RC_BIT);
+   // -------------------------------------------------------------------------------------
+   // Temporary helpers
+   static std::tuple<u8, u64> decomposeWIDCM(u64 widcm)
+   {
+      u8 worker_id = widcm & WORKERS_MASK;
+      u64 worker_commit_mark = widcm >> WORKERS_BITS;
+      return {worker_id, worker_commit_mark};
+   }
+   static u64 composeWIDCM(u8 worker_id, u64 worker_commit_mark)
+   {
+      u64 widcm = worker_commit_mark << WORKERS_BITS;
+      widcm |= worker_id;
+      return widcm;
+   }
+   // -------------------------------------------------------------------------------------
+   Worker(u64 worker_id,
+          Worker** all_workers,
+          u64 workers_count,
+          VersionsSpaceInterface& versions_space,
+          s32 fd,
+          const bool is_page_provider = false);
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
    // -------------------------------------------------------------------------------------
-   u64 next_tts = 0;
    // Shared with all workers
    // -------------------------------------------------------------------------------------
    struct TODOEntry {  // In-memory
-      u8 version_worker_id;
-      u64 version_tts;
-      u64 after_so;
-      u64 or_before_so;
-      DTID dt_id;
+      WORKERID worker_id;
+      TXID tx_id;
+      TXID commit_tts;
+      TXID or_before_tx_id;
+      DTID dt_id;  // max value -> purge the whole tx
       u64 payload_length;
       // -------------------------------------------------------------------------------------
-      u8 payload[];  // TODO: dyanmically allocating buffer is costly
+      u8 payload[];
    };
-   u8* todo_hwm_tx_start = nullptr;
-   u8* todo_lwm_tx_start = nullptr;
-   utils::RingBufferST todo_hwm_rb, todo_lwm_rb, todo_lwm_hwm_rb;
-   std::list<TODOEntry> todo_commited_queue, todo_long_running_tx_queue, todo_staging_queue;  // TODO: optimize (no need for sync)
-   void stageTODO(u8 worker_id, u64 tts, DTID dt_id, u64 size, std::function<void(u8* dst)> callback, u64 or_before_so = 0);
-   void commitTODO(u8 worker_id, u64 tts, u64 commited_before_so, DTID dt_id, u64 size, std::function<void(u8* dst)> callback);
-   void commitTODOs(u64 so);
+   // -------------------------------------------------------------------------------------
+   // 2PL unlock datastructures
+   struct UnlockTask {
+      DTID dt_id;
+      u64 payload_length;
+      u8 payload[];
+      UnlockTask(DTID dt_id, u64 payload_length) : dt_id(dt_id), payload_length(payload_length) {}
+   };
+   std::vector<std::unique_ptr<u8[]>> unlock_tasks_after_commit;
+   void addUnlockTask(DTID dt_id, u64 payload_length, std::function<void(u8* dst)> callback);
+   void executeUnlockTasks();
+   // -------------------------------------------------------------------------------------
+   u64 insertVersion(DTID dt_id, bool is_remove, u64 payload_length, std::function<void(u8*)> cb)
+   {
+      const u64 new_command_id = (command_id++) | ((is_remove) ? TYPE_MSB(COMMANDID) : 0);
+      versions_space.insertVersion(worker_id, active_tx.TTS(), new_command_id, dt_id, is_remove, payload_length, cb);
+      return new_command_id;
+   }
+   bool retrieveVersion(WORKERID its_worker_id, TXID its_tx_id, COMMANDID its_command_id, std::function<void(const u8*, u64 payload_length)> cb)
+   {
+      const bool is_remove = its_command_id & TYPE_MSB(COMMANDID);
+      return versions_space.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
+   }
+   // -------------------------------------------------------------------------------------
+   // Optimization: remove relations from snapshot as soon as we are finished with them (esp. in long read-only tx)
+   static constexpr u64 MAX_RELATIONS_COUNT = 128;
+   struct RelationsList {
+      std::atomic<u64> count = 0;
+      std::atomic<DTID> dt_ids[MAX_RELATIONS_COUNT];
+      void add(DTID dt_id)
+      {
+         const u64 current_index = count.load();
+         assert((current_index + 1) < MAX_RELATIONS_COUNT);
+         dt_ids[current_index].store(dt_id, std::memory_order_release);
+         count.store(current_index + 1, std::memory_order_release);
+      }
+      void reset() { count.store(0, std::memory_order_release); }
+   };
+   RelationsList relations_cut_from_snapshot;
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------
@@ -99,8 +181,8 @@ struct Worker {
    struct GroupCommitData {
       u64 ready_to_commit_cut = 0;  // Exclusive ) == size
       u64 max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
-      LID gsn_to_flush;
-      u64 wt_cursor_to_flush;
+      LID gsn_to_flush;        // Will flush up to this GSN when the current round is over
+      u64 wt_cursor_to_flush;  // Will flush up to this GSN when the current round is over
       LID first_lsn_in_chunk;
       bool skip = false;
    };
@@ -125,6 +207,7 @@ struct Worker {
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    u8 pad3[64];
+   // The following three atomics are used to publish state changes from worker to GCT
    atomic<u64> wal_gct_max_gsn_0 = 0;
    atomic<u64> wal_gct_max_gsn_1 = 0;
    atomic<u64> wal_gct = 0;  // W->GCT
@@ -139,16 +222,28 @@ struct Worker {
       const bool was_second_slot = wal_gct & (u64(1) << 63);
       u64 msb;
       if (was_second_slot) {
-         wal_gct_max_gsn_0.store(wal_max_gsn, std::memory_order_release);
+         wal_gct_max_gsn_0.store(clock_gsn, std::memory_order_release);
          msb = 0;
       } else {
-         wal_gct_max_gsn_1.store(wal_max_gsn, std::memory_order_release);
+         wal_gct_max_gsn_1.store(clock_gsn, std::memory_order_release);
          msb = 1ull << 63;
       }
       wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
    }
+   std::tuple<LID, u64> fetchMaxGSNOffset()
+   {
+      const u64 worker_atomic = wal_gct.load();
+      LID gsn;
+      if (worker_atomic & (1ull << 63)) {
+         gsn = wal_gct_max_gsn_1.load();
+      } else {
+         gsn = wal_gct_max_gsn_0.load();
+      }
+      const u64 max_gsn = worker_atomic & (~(1ull << 63));
+      return {gsn, max_gsn};
+   }
+   // -------------------------------------------------------------------------------------
    u64 wal_wt_cursor = 0;
-   LID wal_max_gsn = 0;
    u64 wal_buffer_round = 0, wal_next_to_clean = 0;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
@@ -156,6 +251,8 @@ struct Worker {
    alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
    LID wal_lsn_counter = 0;
    LID clock_gsn;
+   LID rfa_gsn_flushed;
+   bool needs_remote_flush = false;
    // -------------------------------------------------------------------------------------
    u32 walFreeSpace();
    u32 walContiguousFreeSpace();
@@ -166,10 +263,6 @@ struct Worker {
    // Iterate over current TX entries
    u64 current_tx_wal_start;
    void iterateOverCurrentTXEntries(std::function<void(const WALEntry& entry)> callback);
-   // -------------------------------------------------------------------------------------
-   Transaction active_tx;
-   WALMetaEntry* active_mt_entry;
-   WALDTEntry* active_dt_entry;
    // -------------------------------------------------------------------------------------
   private:
    // Without Payload, by submit no need to update clock (gsn)
@@ -218,14 +311,14 @@ struct Worker {
    void submitDTEntry(u64 total_size);
    // -------------------------------------------------------------------------------------
    inline u8 workerID() { return worker_id; }
-   inline u64 TTS() { return active_tx.tts; }
-   inline u64 WTTS() { return workerID() | (TTS() << 8); }
-   inline u64 SOStart() { return so_start; }
+   inline u64 snapshotAcquistionTime() { return active_tx.TTS(); }  // SAT
 
   public:
    // -------------------------------------------------------------------------------------
    // TX Control
-   void startTX();
+   void startTX(TX_MODE next_tx_type = TX_MODE::OLTP,
+                TX_ISOLATION_LEVEL next_tx_isolation_level = TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION,
+                bool read_only = false);
    void commitTX();
    void abortTX();
    void checkup();
@@ -234,24 +327,24 @@ struct Worker {
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
-   void sortWorkers();
-   void refreshSnapshot();
+   void prepareForIntervalGC();
+   void refreshSnapshotHWMs();
+   void switchToAlwaysUpToDateMode();
    bool isVisibleForAll(u64 commited_before_so);
    bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
-   bool isVisibleForMe(u8 worker_id, u64 tts);
+   bool isVisibleForMe(u8 worker_id, u64 tts, bool to_write = true);
    bool isVisibleForMe(u64 tts);
-   // -------------------------------------------------------------------------------------
-   // Experimentell
-   bool isVisibleForItCommitedBeforeSO(u8 whom_worker_id, u64 cb_so) { return all_so_starts[whom_worker_id] > cb_so; }
-   u64 getCB(u8 from_worker_id, u64 ca_so)
-   {
-      return (all_so_starts[from_worker_id] > ca_so) ? all_so_starts[from_worker_id] : std::numeric_limits<u64>::max();
-   }
    // -------------------------------------------------------------------------------------
    void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALDTEntryPayload(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
 };
+// -------------------------------------------------------------------------------------
+// Shortcuts
+inline Transaction& activeTX()
+{
+   return cr::Worker::my().active_tx;
+}
 // -------------------------------------------------------------------------------------
 }  // namespace cr
 }  // namespace leanstore

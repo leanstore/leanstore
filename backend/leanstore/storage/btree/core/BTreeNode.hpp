@@ -39,6 +39,10 @@ static inline u16 swap(u16 x)
 {
    return __builtin_bswap16(x);
 }
+static inline u8 swap(u8 x)
+{
+   return x;
+}
 // -------------------------------------------------------------------------------------
 struct BTreeNodeHeader {
    static const u16 underFullSize = EFFECTIVE_PAGE_SIZE * 0.6;
@@ -68,7 +72,8 @@ struct BTreeNodeHeader {
    static const u16 hint_count = 16;
    u32 hint[hint_count];
    // -------------------------------------------------------------------------------------
-   u8 meta_box[64];  // Btree variants can cast and use this 64-bytes as they wish
+   // Needed for GC
+   bool has_garbage = false;
    // -------------------------------------------------------------------------------------
    BTreeNodeHeader(bool is_leaf) : is_leaf(is_leaf) {}
    ~BTreeNodeHeader() {}
@@ -122,6 +127,11 @@ struct BTreeNode : public BTreeNodeHeader {
    inline u16 getKeyLen(u16 slotId) { return slot[slotId].key_len; }
    inline u16 getFullKeyLen(u16 slotId) { return prefix_length + getKeyLen(slotId); }
    inline u16 getPayloadLength(u16 slotId) { return slot[slotId].payload_len; }
+   inline u8* getPayload(u16 slotId) { return ptr() + slot[slotId].offset + slot[slotId].key_len; }
+   inline SwipType& getChild(u16 slotId) { return *reinterpret_cast<SwipType*>(getPayload(slotId)); }
+   inline u16 getKVConsumedSpace(u16 slot_id) { return sizeof(Slot) + getKeyLen(slot_id) + getPayloadLength(slot_id); }
+   // -------------------------------------------------------------------------------------
+   // Attention: the caller has to hold a copy of the existing payload
    inline void shortenPayload(u16 slotId, u16 len)
    {
       assert(len <= slot[slotId].payload_len);
@@ -129,8 +139,41 @@ struct BTreeNode : public BTreeNodeHeader {
       space_used -= freed_space;
       slot[slotId].payload_len = len;
    }
-   inline u8* getPayload(u16 slotId) { return ptr() + slot[slotId].offset + slot[slotId].key_len; }
-   inline SwipType& getChild(u16 slotId) { return *reinterpret_cast<SwipType*>(getPayload(slotId)); }
+   inline bool canExtendPayload(u16 slot_id, u16 new_length)
+   {
+      assert(new_length > getPayloadLength(slot_id));
+      const u16 extra_space_needed = new_length - getPayloadLength(slot_id);
+      return freeSpaceAfterCompaction() >= extra_space_needed;
+   }
+   void extendPayload(u16 slot_id, u16 new_payload_length)
+   {
+      // Move key | payload to a new location
+      assert(canExtendPayload(slot_id, new_payload_length));
+      const u16 extra_space_needed = new_payload_length - getPayloadLength(slot_id);
+      requestSpaceFor(extra_space_needed);
+      // -------------------------------------------------------------------------------------
+      const u16 key_length = getKeyLen(slot_id);
+      const u16 old_total_length = key_length + getPayloadLength(slot_id);
+      const u16 new_total_length = key_length + new_payload_length;
+      u8 key[key_length];
+      std::memcpy(key, getKey(slot_id), key_length);
+      space_used -= old_total_length;
+      if (data_offset == slot[slot_id].offset && 0) {
+         data_offset += old_total_length;
+      }
+      slot[slot_id].payload_len = 0;
+      slot[slot_id].key_len = 0;
+      if (freeSpace() < new_total_length) {
+         compactify();
+      }
+      assert(freeSpace() >= new_total_length);
+      space_used += new_total_length;
+      data_offset -= new_total_length;
+      slot[slot_id].offset = data_offset;
+      slot[slot_id].key_len = key_length;
+      slot[slot_id].payload_len = new_payload_length;
+      std::memcpy(getKey(slot_id), key, key_length);
+   }
    // -------------------------------------------------------------------------------------
    inline u8* getPrefix() { return getLowerFenceKey(); }
    inline void copyPrefix(u8* out) { memcpy(out, getLowerFenceKey(), prefix_length); }
@@ -199,7 +242,7 @@ struct BTreeNode : public BTreeNodeHeader {
       key_length -= prefix_length;
 
       if (higher) {
-         assert(cmpKeys(key, getKey(start_pos), key_length, getKeyLen(start_pos)) >= 0);
+         // assert(cmpKeys(key, getKey(start_pos), key_length, getKeyLen(start_pos)) >= 0);
          s32 cur = start_pos + 1;
          for (; cur < count; cur++) {
             int cmp = cmpKeys(key, getKey(cur), key_length, getKeyLen(cur));

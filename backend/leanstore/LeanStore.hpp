@@ -1,11 +1,12 @@
 #pragma once
 #include "Config.hpp"
+#include "leanstore/concurrency-recovery/VersionsSpace.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
+#include "leanstore/storage/btree/BTreeLL.hpp"
+#include "leanstore/storage/btree/BTreeVI.hpp"
+#include "leanstore/storage/btree/BTreeVW.hpp"
+#include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "rapidjson/document.h"
-#include "storage/btree/BTreeLL.hpp"
-#include "storage/btree/BTreeVI.hpp"
-#include "storage/btree/BTreeVW.hpp"
-#include "storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <unordered_map>
@@ -28,8 +29,8 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    s32 ssd_fd;
    // -------------------------------------------------------------------------------------
-   unique_ptr<cr::CRManager> cr_manager;
    unique_ptr<storage::BufferManager> buffer_manager;
+   unique_ptr<cr::CRManager> cr_manager;
    // -------------------------------------------------------------------------------------
    atomic<u64> bg_threads_counter = 0;
    atomic<bool> bg_threads_keep_running = true;
@@ -37,6 +38,16 @@ class LeanStore
    u64 config_hash = 0;
    GlobalStats global_stats;
    // -------------------------------------------------------------------------------------
+   std::unique_ptr<cr::VersionsSpace> versions_space;
+   // -------------------------------------------------------------------------------------
+  private:
+   static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;
+   static std::list<std::tuple<string, s64*>> persisted_s64_flags;
+   void serializeFlags(rapidjson::Document& d);
+   void deserializeFlags();
+   void serializeState();
+   void deserializeState();
+
   public:
    LeanStore();
    ~LeanStore();
@@ -49,11 +60,11 @@ class LeanStore
    u64 getConfigHash();
    GlobalStats getGlobalStats();
    // -------------------------------------------------------------------------------------
-   storage::btree::BTreeLL& registerBTreeLL(string name);
+   storage::btree::BTreeLL& registerBTreeLL(string name, const bool enable_wal);
    storage::btree::BTreeLL& retrieveBTreeLL(string name) { return btrees_ll[name]; }
-   storage::btree::BTreeVW& registerBTreeVW(string name);
+   storage::btree::BTreeVW& registerBTreeVW(string name, const bool enable_wal);
    storage::btree::BTreeVW& retrieveBTreeVW(string name) { return btrees_vw[name]; }
-   storage::btree::BTreeVI& registerBTreeVI(string name);
+   storage::btree::BTreeVI& registerBTreeVI(string name, const bool enable_wal);
    storage::btree::BTreeVI& retrieveBTreeVI(string name) { return btrees_vi[name]; }
    // -------------------------------------------------------------------------------------
    storage::BufferManager& getBufferManager() { return *buffer_manager; }
@@ -61,24 +72,8 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
    // -------------------------------------------------------------------------------------
-   static void addStringFlag(string name, fLS::clstring* flag) { LeanStore::persistFlagsString().push_back(std::make_tuple(name, flag)); }
-   static void addS64Flag(string name, s64* flag) { LeanStore::persistFlagsS64().push_back(std::make_tuple(name, flag)); }
-   // -------------------------------------------------------------------------------------
-  private:
-   static std::list<std::tuple<string, fLS::clstring*>>& persistFlagsString()
-   {
-      static std::list<std::tuple<string, fLS::clstring*>> list = {};
-      return list;
-   };
-   static std::list<std::tuple<string, s64*>>& persistFlagsS64()
-   {
-      static std::list<std::tuple<string, s64*>> list = {};
-      return list;
-   };
-   void serializeFlags(rapidjson::Document& d);
-   void deserializeFlags();
-   void serializeState();
-   void deserializeState();
+   static void addStringFlag(string name, fLS::clstring* flag) { persisted_string_flags.push_back(std::make_tuple(name, flag)); }
+   static void addS64Flag(string name, s64* flag) { persisted_s64_flags.push_back(std::make_tuple(name, flag)); }
 };
 
 // -------------------------------------------------------------------------------------

@@ -30,6 +30,9 @@ void CRTable::open()
    columns.emplace("gct_rounds", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::gct_rounds); });
    columns.emplace("tx", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx); });
    columns.emplace("tx_abort", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx_abort); });
+   columns.emplace("olap_tx", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::olap_tx); });
+   columns.emplace("olap_tx_abort", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::olap_tx_abort); });
+   columns.emplace("rfa_committed_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::rfa_committed_tx); });
    // -------------------------------------------------------------------------------------
    columns.emplace("cc_snapshot_restart", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_snapshot_restart); });
    // -------------------------------------------------------------------------------------
@@ -43,6 +46,13 @@ void CRTable::open()
    columns.emplace("wal_miss", [&](Column& col) { col << wal_miss; });
    columns.emplace("wal_hit", [&](Column& col) { col << wal_hits; });
    columns.emplace("wal_total", [&](Column& col) { col << wal_total; });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("cc_cross_workers_visibility_check",
+                   [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_cross_workers_visibility_check); });
+   columns.emplace("cc_versions_space_removed", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_versions_space_removed); });
+   columns.emplace("cc_versions_space_inserted", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_versions_space_inserted); });
+   columns.emplace("cc_versions_space_inserted_opt",
+                   [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_versions_space_inserted_opt); });
 }
 // -------------------------------------------------------------------------------------
 void CRTable::next()

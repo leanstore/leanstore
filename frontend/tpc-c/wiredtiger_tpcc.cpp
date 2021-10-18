@@ -1,9 +1,8 @@
-#include "../shared/RocksDBAdapter.hpp"
+#include "../shared/WiredTigerAdapter.hpp"
 #include "TPCCWorkload.hpp"
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
-#include <rocksdb/db.h>
 
 #include "leanstore/Config.hpp"
 #include "leanstore/concurrency-recovery/Transaction.hpp"
@@ -23,56 +22,49 @@ DEFINE_uint32(tpcc_warehouse_count, 1, "");
 DEFINE_int32(tpcc_abort_pct, 0, "");
 DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
+DEFINE_bool(tpcc_cross_warehouses, true, "");
 DEFINE_bool(tpcc_fast_load, false, "");
 DEFINE_bool(tpcc_remove, true, "");
 DEFINE_bool(order_wdc_index, true, "");
 DEFINE_uint64(ch_a_threads, 0, "CH analytical threads");
 DEFINE_uint64(ch_a_rounds, 1, "");
 DEFINE_uint64(ch_a_query, 2, "");
-DEFINE_string(rocks_db, "none", "none/pessimistic/optimistic");
 // -------------------------------------------------------------------------------------
-thread_local rocksdb::Transaction* RocksDB::txn = nullptr;
+thread_local WT_SESSION* WiredTigerDB::session = nullptr;
+thread_local WT_CURSOR* WiredTigerDB::cursor[20] = {nullptr};
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-   gflags::SetUsageMessage("RocksDB TPC-C");
+   gflags::SetUsageMessage("WiredTiger TPC-C");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    // -------------------------------------------------------------------------------------
-   RocksDB::DB_TYPE type;
-   if (FLAGS_rocks_db == "none") {
-      type = RocksDB::DB_TYPE::DB;
-   } else if (FLAGS_rocks_db == "pessimistic") {
-      type = RocksDB::DB_TYPE::TransactionDB;
-   } else if (FLAGS_rocks_db == "optimistic") {
-      // TODO: still WIP
-      UNREACHABLE();
-      type = RocksDB::DB_TYPE::OptimisticDB;
-   } else {
-      UNREACHABLE();
-   }
-   RocksDB rocks_db(type);
-   RocksDBAdapter<warehouse_t> warehouse(rocks_db);
-   RocksDBAdapter<district_t> district(rocks_db);
-   RocksDBAdapter<customer_t> customer(rocks_db);
-   RocksDBAdapter<customer_wdl_t> customerwdl(rocks_db);
-   RocksDBAdapter<history_t> history(rocks_db);
-   RocksDBAdapter<neworder_t> neworder(rocks_db);
-   RocksDBAdapter<order_t> order(rocks_db);
-   RocksDBAdapter<order_wdc_t> order_wdc(rocks_db);
-   RocksDBAdapter<orderline_t> orderline(rocks_db);
-   RocksDBAdapter<item_t> item(rocks_db);
-   RocksDBAdapter<stock_t> stock(rocks_db);
+   WiredTigerDB wiredtiger_db;
+   wiredtiger_db.prepareThread();
+   WiredTigerAdapter<warehouse_t> warehouse(wiredtiger_db);
+   WiredTigerAdapter<district_t> district(wiredtiger_db);
+   WiredTigerAdapter<customer_t> customer(wiredtiger_db);
+   WiredTigerAdapter<customer_wdl_t> customerwdl(wiredtiger_db);
+   WiredTigerAdapter<history_t> history(wiredtiger_db);
+   WiredTigerAdapter<neworder_t> neworder(wiredtiger_db);
+   WiredTigerAdapter<order_t> order(wiredtiger_db);
+   WiredTigerAdapter<order_wdc_t> order_wdc(wiredtiger_db);
+   WiredTigerAdapter<orderline_t> orderline(wiredtiger_db);
+   WiredTigerAdapter<item_t> item(wiredtiger_db);
+   WiredTigerAdapter<stock_t> stock(wiredtiger_db);
    // -------------------------------------------------------------------------------------
-   TPCCWorkload<RocksDBAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
-                                     FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove, true, true);
+   leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
+   const bool should_tpcc_driver_handle_isolation_anomalies = isolation_level < leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION;
+   TPCCWorkload<WiredTigerAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
+                                        FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove,
+                                        should_tpcc_driver_handle_isolation_anomalies, FLAGS_tpcc_cross_warehouses);
+   // -------------------------------------------------------------------------------------
    std::vector<thread> threads;
    std::atomic<u32> g_w_id = 1;
-   rocks_db.startTX();
    tpcc.loadItem();
    tpcc.loadWarehouse();
-   rocks_db.commitTX();
    for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       threads.emplace_back([&]() {
+         wiredtiger_db.prepareThread();
          while (true) {
             const u32 w_id = g_w_id++;
             if (w_id > FLAGS_tpcc_warehouse_count) {
@@ -80,14 +72,14 @@ int main(int argc, char** argv)
             }
             jumpmuTry()
             {
-               rocks_db.startTX();
+               // wiredtiger_db.session->begin_transaction(wiredtiger_db.session, NULL);
                tpcc.loadStock(w_id);
                tpcc.loadDistrinct(w_id);
                for (Integer d_id = 1; d_id <= 10; d_id++) {
                   tpcc.loadCustomer(w_id, d_id);
                   tpcc.loadOrders(w_id, d_id);
                }
-               rocks_db.commitTX();
+               // wiredtiger_db.session->commit_transaction(wiredtiger_db.session, NULL);
             }
             jumpmuCatch() { UNREACHABLE(); }
          }
@@ -112,15 +104,16 @@ int main(int argc, char** argv)
          if (FLAGS_pin_threads) {
             leanstore::utils::pinThisThread(t_i);
          }
+         wiredtiger_db.prepareThread();
          tpcc.prepare();
          while (keep_running) {
             jumpmuTry()
             {
-               rocks_db.startTX();
+               wiredtiger_db.startTX();
                for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
                   tpcc.analyticalQuery(FLAGS_ch_a_query);
                }
-               rocks_db.commitTX();
+               wiredtiger_db.commitTX();
                thread_committed[t_i]++;
             }
             jumpmuCatch() { thread_aborted[t_i]++; }
@@ -138,25 +131,34 @@ int main(int argc, char** argv)
          if (FLAGS_pin_threads) {
             leanstore::utils::pinThisThread(t_i);
          }
+         wiredtiger_db.prepareThread();
          tpcc.prepare();
          while (keep_running) {
             jumpmuTry()
             {
-               Integer w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
-               rocks_db.startTX();
+               wiredtiger_db.startTX();
+               Integer w_id;
+               if (FLAGS_tpcc_warehouse_affinity) {
+                  w_id = t_i + 1;
+               } else {
+                  w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
+               }
                tpcc.tx(w_id);
-               rocks_db.commitTX();
+               wiredtiger_db.commitTX();
                thread_committed[t_i]++;
             }
             jumpmuCatch() { thread_aborted[t_i]++; }
-            running_threads_counter--;
          }
+         running_threads_counter--;
       });
    }
    // -------------------------------------------------------------------------------------
    threads.emplace_back([&]() {
       running_threads_counter++;
+      u64 time = 0;
+      cout << "t,tag,olap_committed,olap_aborted,oltp_committed,oltp_aborted" << endl;
       while (keep_running) {
+         cout << time++ << "," << FLAGS_tag << ",";
          u64 total_committed = 0, total_aborted = 0;
          for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
             total_committed += thread_committed[t_i].exchange(0);

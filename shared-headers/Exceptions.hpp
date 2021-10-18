@@ -34,7 +34,7 @@ Generic_Exception(TODO);
 }  // namespace ex
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------
-#define UNREACHABLE() throw ex::UnReachable(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
+#define UNREACHABLE() throw leanstore::ex::UnReachable(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
 #define always_check(e)                                                                                                          \
    (__builtin_expect(!(e), 0) ? throw leanstore::ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + \
@@ -50,11 +50,14 @@ Generic_Exception(TODO);
 #define TODOException() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 #define SetupFailed(msg) throw leanstore::ex::GenericException(msg + std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
 // -------------------------------------------------------------------------------------
-#define explain(e)    \
-   if (!(e)) {        \
-      raise(SIGTRAP); \
+#define explainIfNot(e) \
+   if (!(e)) {          \
+      raise(SIGTRAP);   \
    };
-
+#define explainWhen(e) \
+   if (e) {            \
+      raise(SIGTRAP);  \
+   };
 // -------------------------------------------------------------------------------------
 #ifdef MACRO_CHECK_DEBUG
 #define DEBUG_BLOCK() if (true)

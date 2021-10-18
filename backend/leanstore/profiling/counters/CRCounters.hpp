@@ -22,6 +22,12 @@ struct CRCounters {
    // -------------------------------------------------------------------------------------
    atomic<u64> gct_rounds = 0;
    atomic<u64> gct_committed_tx = 0;
+   atomic<u64> rfa_committed_tx = 0;
+   // -------------------------------------------------------------------------------------
+   atomic<u64> cc_cross_workers_visibility_check = {0};
+   atomic<u64> cc_versions_space_removed = {0};
+   atomic<u64> cc_versions_space_inserted = {0};
+   atomic<u64> cc_versions_space_inserted_opt = {0};
    // -------------------------------------------------------------------------------------
    CRCounters() {}
    // -------------------------------------------------------------------------------------

@@ -11,8 +11,8 @@
 namespace leanstore
 {
 struct WorkerCounters {
-   static constexpr u64 max_researchy_counter = 10;
-   static constexpr u64 max_dt_id = 20;
+   static constexpr u64 max_researchy_counter = 20;
+   static constexpr u64 max_dt_id = 1000;  // ATTENTION: buffer overflow if more than max_dt_id in system are registered
    // -------------------------------------------------------------------------------------
    atomic<u64> t_id = 9999;                // used by tpcc
    atomic<u64> variable_for_workload = 0;  // Used by tpcc
@@ -25,7 +25,9 @@ struct WorkerCounters {
    atomic<u64> allocate_operations_counter = 0;
    atomic<u64> restarts_counter = 0;
    atomic<u64> tx = 0;
+   atomic<u64> olap_tx = 0;
    atomic<u64> tx_abort = 0;
+   atomic<u64> olap_tx_abort = 0;
    atomic<u64> tmp = 0;
    // -------------------------------------------------------------------------------------
    // Space and contention management
@@ -44,13 +46,14 @@ struct WorkerCounters {
    atomic<u64> dt_restarts_read[max_dt_id] = {0};
    atomic<u64> dt_researchy[max_dt_id][max_researchy_counter] = {};  // temporary counter used to track some value for an idea in my mind
    // -------------------------------------------------------------------------------------
-   atomic<u64> dt_skipped_leaf[max_dt_id] = {0};
    atomic<u64> dt_empty_leaf[max_dt_id] = {0};
    atomic<u64> dt_goto_page_exec[max_dt_id] = {0};
    atomic<u64> dt_goto_page_shared[max_dt_id] = {0};
    atomic<u64> dt_next_tuple[max_dt_id] = {0};
    atomic<u64> dt_prev_tuple[max_dt_id] = {0};
    atomic<u64> dt_inner_page[max_dt_id] = {0};
+   atomic<u64> dt_scan_asc[max_dt_id] = {0};
+   atomic<u64> dt_scan_desc[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    // Concurrency control counters
    atomic<u64> cc_snapshot_restart = 0;
@@ -73,23 +76,13 @@ struct WorkerCounters {
    atomic<u64> cc_update_chains_pgc_skipped[max_dt_id] = {0};
    atomic<u64> cc_update_chains_pgc_workers_visited[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
-   atomic<u64> cc_todo_chains[max_dt_id] = {0};
-   atomic<u64> cc_todo_remove[max_dt_id] = {0};
-   atomic<u64> cc_todo_updates[max_dt_id] = {0};
-   atomic<u64> cc_todo_updates_versions_removed[max_dt_id] = {0};
-   atomic<u64> cc_todo_1_break[max_dt_id] = {0};
-   atomic<u64> cc_todo_2_break[max_dt_id] = {0};
-   atomic<u64> cc_todo_wasted[max_dt_id] = {0};
-   // -------------------------------------------------------------------------------------
-   atomic<u64> cc_rtodo_opt_staged[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_opt_considered[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_opt_executed[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_shrt_executed[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_lng_executed[max_dt_id] = {0};
-   atomic<u64> cc_rtodo_to_lng[max_dt_id] = {0};
+   atomic<u64> cc_todo_removed[max_dt_id] = {0};
+   atomic<u64> cc_todo_moved_gy[max_dt_id] = {0};
+   atomic<u64> cc_todo_oltp_executed[max_dt_id] = {0};
+   atomic<u64> cc_todo_olap_executed[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    atomic<u64> cc_fat_tuple_convert[max_dt_id] = {0};
-   atomic<u64> cc_fat_tuple_fallback[max_dt_id] = {0};
+   atomic<u64> cc_fat_tuple_decompose[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    constexpr static u64 VW_MAX_STEPS = 10;
    atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {{0}};

@@ -344,11 +344,11 @@ OP_RESULT BTreeVW::remove(u8* key, u16 key_length)
                   std::memcpy(wal_entry->payload + key_length, payload, payload_length);
                   wal_entry.submit();
                   // -------------------------------------------------------------------------------------
-                  cr::Worker::my().stageTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
-                     auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
-                     todo_entry.key_length = key_length;
-                     std::memcpy(todo_entry.key, key, key_length);
-                  });
+                  // cr::Worker::my().stageTODO(myWorkerID(), myTTS(), dt_id, key_length + sizeof(TODOEntry), [&](u8* entry) {
+                  //    auto& todo_entry = *reinterpret_cast<TODOEntry*>(entry);
+                  //    todo_entry.key_length = key_length;
+                  //    std::memcpy(todo_entry.key, key, key_length);
+                  // });
                   // -------------------------------------------------------------------------------------
                   version.in_memory_offset = wal_entry.in_memory_offset;
                   version.worker_id = myWorkerID();
@@ -600,7 +600,7 @@ void BTreeVW::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
 }
 // -------------------------------------------------------------------------------------
 // For Transaction abort and not for recovery
-void BTreeVW::todo(void* btree_object, const u8* entry_ptr, const u64, const u64 tts)
+void BTreeVW::todo(void* btree_object, const u8* entry_ptr, const u64, const u64 tts, const bool)
 {
    auto& btree = *reinterpret_cast<BTreeVW*>(btree_object);
    const auto& entry = *reinterpret_cast<const TODOEntry*>(entry_ptr);
@@ -632,6 +632,7 @@ struct DTRegistry::DTMeta BTreeVW::getMeta()
                                     .checkpoint = checkpoint,
                                     .undo = undo,
                                     .todo = todo,
+                                    .unlock = unlock,
                                     .serialize = serialize,
                                     .deserialize = deserialize};
    return btree_meta;

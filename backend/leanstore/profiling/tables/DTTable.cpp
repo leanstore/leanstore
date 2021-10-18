@@ -31,12 +31,14 @@ void DTTable::open()
    columns.emplace("dt_restarts_read", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_read, dt_id); });
    // -------------------------------------------------------------------------------------
    columns.emplace("dt_empty_leaf", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_empty_leaf, dt_id); });
-   columns.emplace("dt_skipped_leaf", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_skipped_leaf, dt_id); });
    columns.emplace("dt_goto_page_exec", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_goto_page_exec, dt_id); });
-   columns.emplace("dt_goto_page_shared", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_goto_page_shared, dt_id); });
+   columns.emplace("dt_goto_page_shared",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_goto_page_shared, dt_id); });
    columns.emplace("dt_next_tuple", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_next_tuple, dt_id); });
    columns.emplace("dt_prev_tuple", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_prev_tuple, dt_id); });
    columns.emplace("dt_inner_page", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_inner_page, dt_id); });
+   columns.emplace("dt_scan_asc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_scan_asc, dt_id); });
+   columns.emplace("dt_scan_desc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_scan_desc, dt_id); });
    // -------------------------------------------------------------------------------------
    columns.emplace("contention_split_succ_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_succ_counter, dt_id); });
@@ -91,31 +93,17 @@ void DTTable::open()
    columns.emplace("cc_update_chains_pgc_workers_visited",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_workers_visited, dt_id); });
    // -------------------------------------------------------------------------------------
-   columns.emplace("cc_todo_chains", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_chains, dt_id); });
-   columns.emplace("cc_todo_remove", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_remove, dt_id); });
-   columns.emplace("cc_todo_updates", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_updates, dt_id); });
-   columns.emplace("cc_todo_updates_versions_removed",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_updates_versions_removed, dt_id); });
-   // -------------------------------------------------------------------------------------
-   columns.emplace("cc_rtodo_opt_staged",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_opt_staged, dt_id); });
-   columns.emplace("cc_rtodo_opt_executed",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_opt_executed, dt_id); });
-   columns.emplace("cc_rtodo_opt_considered",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_opt_considered, dt_id); });
-   columns.emplace("cc_rtodo_lng_executed",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_lng_executed, dt_id); });
-   columns.emplace("cc_rtodo_shrt_executed",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_shrt_executed, dt_id); });
-   columns.emplace("cc_rtodo_to_lng", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_rtodo_to_lng, dt_id); });
-   columns.emplace("cc_todo_1_break", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_1_break, dt_id); });
-   columns.emplace("cc_todo_2_break", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_2_break, dt_id); });
-   columns.emplace("cc_todo_wasted", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_wasted, dt_id); });
+   columns.emplace("cc_todo_removed", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_removed, dt_id); });
+   columns.emplace("cc_todo_moved_gy", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_moved_gy, dt_id); });
+   columns.emplace("cc_todo_oltp_executed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_oltp_executed, dt_id); });
+   columns.emplace("cc_todo_olap_executed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_olap_executed, dt_id); });
    // -------------------------------------------------------------------------------------
    columns.emplace("cc_fat_tuple_convert",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_fat_tuple_convert, dt_id); });
-   columns.emplace("cc_fat_tuple_fallback",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_fat_tuple_fallback, dt_id); });
+   columns.emplace("cc_fat_tuple_decompose",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_fat_tuple_decompose, dt_id); });
 }
 // -------------------------------------------------------------------------------------
 void DTTable::next()

@@ -22,6 +22,22 @@ class SharedPageGuard;
 template <typename T>
 class HybridPageGuard
 {
+  protected:
+   void latchAccordingToFallbackMode(Guard& guard, const LATCH_FALLBACK_MODE if_contended)
+   {
+      if (if_contended == LATCH_FALLBACK_MODE::SPIN) {
+         guard.toOptimisticSpin();
+      } else if (if_contended == LATCH_FALLBACK_MODE::EXCLUSIVE) {
+         guard.toOptimisticOrExclusive();
+      } else if (if_contended == LATCH_FALLBACK_MODE::SHARED) {
+         guard.toOptimisticOrShared();
+      } else if (if_contended == LATCH_FALLBACK_MODE::JUMP) {
+         guard.toOptimisticOrJump();
+      } else {
+         UNREACHABLE();
+      }
+   }
+
   public:
    BufferFrame* bf = nullptr;
    Guard guard;
@@ -29,7 +45,7 @@ class HybridPageGuard
    // -------------------------------------------------------------------------------------
    // Constructors
    HybridPageGuard() : bf(nullptr), guard(nullptr) { jumpmu_registerDestructor(); }  // use with caution
-   HybridPageGuard(Guard& guard, BufferFrame* bf) : bf(bf), guard(std::move(guard)) { jumpmu_registerDestructor(); }
+   HybridPageGuard(Guard&& guard, BufferFrame* bf) : bf(bf), guard(std::move(guard)) { jumpmu_registerDestructor(); }
    // -------------------------------------------------------------------------------------
    HybridPageGuard(HybridPageGuard& other) = delete;   // Copy constructor
    HybridPageGuard(HybridPageGuard&& other) = delete;  // Move constructor
@@ -44,9 +60,10 @@ class HybridPageGuard
    }
    // -------------------------------------------------------------------------------------
    // I: Root case
-   HybridPageGuard(Swip<BufferFrame> sentinal_swip) : bf(&sentinal_swip.asBufferFrame()), guard(bf->header.latch)
+   HybridPageGuard(Swip<BufferFrame> sentinal_swip, const LATCH_FALLBACK_MODE if_contended = LATCH_FALLBACK_MODE::SPIN)
+       : bf(&sentinal_swip.asBufferFrame()), guard(bf->header.latch)
    {
-      guard.toOptimisticSpin();
+      latchAccordingToFallbackMode(guard, if_contended);
       syncGSN();
       jumpmu_registerDestructor();
    }
@@ -56,13 +73,7 @@ class HybridPageGuard
    HybridPageGuard(HybridPageGuard<T2>& p_guard, Swip<T>& swip, const LATCH_FALLBACK_MODE if_contended = LATCH_FALLBACK_MODE::SPIN)
        : bf(&BMC::global_bf->tryFastResolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
    {
-      if (if_contended == LATCH_FALLBACK_MODE::SPIN) {
-         guard.toOptimisticSpin();
-      } else if (if_contended == LATCH_FALLBACK_MODE::EXCLUSIVE) {
-         guard.toOptimisticOrExclusive();
-      } else if (if_contended == LATCH_FALLBACK_MODE::SHARED) {
-         guard.toOptimisticOrShared();
-      }
+      latchAccordingToFallbackMode(guard, if_contended);
       syncGSN();
       jumpmu_registerDestructor();
       // -------------------------------------------------------------------------------------
@@ -105,16 +116,21 @@ class HybridPageGuard
    inline void incrementGSN()
    {
       assert(bf != nullptr);
+      // TODO: this is a temporary hack, we should write WAL entries for every page we write and enable this check ensure(!FLAGS_wal);
       bf->page.GSN++;
+      cr::Worker::my().setCurrentGSN(std::max<LID>(cr::Worker::my().getCurrentGSN(), bf->page.GSN));
    }
    // WAL
    inline void syncGSN()
    {
+      // TODO: don't sync on temporary table pages like VersionsSpace
       if (FLAGS_wal) {
-         auto current_gsn = cr::Worker::my().getCurrentGSN();
-         if (current_gsn < bf->page.GSN) {
-            cr::Worker::my().setCurrentGSN(bf->page.GSN);
+         if (FLAGS_wal_rfa) {
+            if (bf->page.GSN > cr::Worker::my().rfa_gsn_flushed && bf->header.last_writer_worker_id != cr::Worker::my().worker_id) {
+               cr::Worker::my().needs_remote_flush = true;
+            }
          }
+         cr::Worker::my().setCurrentGSN(std::max<LID>(cr::Worker::my().getCurrentGSN(), bf->page.GSN));
       }
    }
    template <typename WT>
@@ -122,13 +138,14 @@ class HybridPageGuard
    {
       assert(FLAGS_wal);
       assert(guard.state == GUARD_STATE::EXCLUSIVE);
-      const LID gsn = std::max<LID>(bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
-      bf->page.GSN = gsn;
-      cr::Worker::my().setCurrentGSN(gsn);
+      const LID new_gsn = std::max<LID>(bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
+      bf->header.last_writer_worker_id = cr::Worker::my().worker_id;  // RFA
+      bf->page.GSN = new_gsn;
+      cr::Worker::my().setCurrentGSN(new_gsn);
       // -------------------------------------------------------------------------------------
       const auto pid = bf->header.pid;
       const auto dt_id = bf->page.dt_id;
-      auto handler = cr::Worker::my().reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, gsn, dt_id);
+      auto handler = cr::Worker::my().reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, new_gsn, dt_id);
       return handler;
    }
    inline void submitWALEntry(u64 total_size) { cr::Worker::my().submitDTEntry(total_size); }
@@ -145,6 +162,8 @@ class HybridPageGuard
    // Use with caution!
    void toShared() { guard.toShared(); }
    void toExclusive() { guard.toExclusive(); }
+   void tryToShared() { guard.tryToShared(); }        // Can jump
+   void tryToExclusive() { guard.tryToExclusive(); }  // Can jump
    // -------------------------------------------------------------------------------------
    // Parent should be exclusively locked, we need a Swip in the parent
    // This is the child page that we want to cool
@@ -186,13 +205,7 @@ class ExclusivePageGuard
   public:
    // -------------------------------------------------------------------------------------
    // I: Upgrade
-   ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard)
-   {
-      ref_guard.guard.toExclusive();
-      if (!FLAGS_wal) {
-         ref_guard.incrementGSN();
-      }
-   }
+   ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard) { ref_guard.guard.toExclusive(); }
    // -------------------------------------------------------------------------------------
    template <typename WT>
    cr::Worker::WALEntryHandler<WT> reserveWALEntry(u64 extra_size)
@@ -209,6 +222,7 @@ class ExclusivePageGuard
    }
    // -------------------------------------------------------------------------------------
    void keepAlive() { ref_guard.keep_alive = true; }
+   void incrementGSN() { ref_guard.incrementGSN(); }
    // -------------------------------------------------------------------------------------
    ~ExclusivePageGuard()
    {

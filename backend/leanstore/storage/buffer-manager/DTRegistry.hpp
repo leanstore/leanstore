@@ -1,7 +1,7 @@
 #pragma once
-#include "Units.hpp"
 #include "BMPlainGuard.hpp"
 #include "BufferFrame.hpp"
+#include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <functional>
@@ -24,20 +24,23 @@ struct ParentSwipHandler {
    template <typename T>
    HybridPageGuard<T> getParentReadPageGuard()
    {
-      return HybridPageGuard<T>(parent_guard, parent_bf);
+      return HybridPageGuard<T>(std::move(parent_guard), parent_bf);
    }
 };
+// -------------------------------------------------------------------------------------
+enum class SpaceCheckResult : u8 { NOTHING, PICK_ANOTHER_BF, RESTART_SAME_BF };
 // -------------------------------------------------------------------------------------
 struct DTRegistry {
    struct DTMeta {
       std::function<void(void*, BufferFrame&, std::function<bool(Swip<BufferFrame>&)>)> iterate_children;
       std::function<ParentSwipHandler(void*, BufferFrame&)> find_parent;
-      std::function<bool(void*, BufferFrame&, BMOptimisticGuard&, ParentSwipHandler&)> check_space_utilization;
+      std::function<SpaceCheckResult(void*, BufferFrame&)> check_space_utilization;
       std::function<void(void* dt_object, BufferFrame& bf, u8* dest)> checkpoint;
       // -------------------------------------------------------------------------------------
       // MVCC / SI
-      std::function<void(void* dt_object, const u8* entry, u64 tts)> undo;
-      std::function<void(void* dt_object, const u8* entry, const u64 version_worker_id, u64 version_tts)> todo;
+      std::function<void(void* dt_object, const u8* entry, u64 tx_id)> undo;
+      std::function<void(void* dt_object, const u8* entry, const u64 version_worker_id, u64 version_tx_id, const bool called_before)> todo;
+      std::function<void(void* dt_object, const u8* entry)> unlock;
       // -------------------------------------------------------------------------------------
       // Serialization
       std::function<std::unordered_map<std::string, std::string>(void* btree_boject)> serialize;
@@ -57,12 +60,13 @@ struct DTRegistry {
    // -------------------------------------------------------------------------------------
    void iterateChildrenSwips(DTID dtid, BufferFrame&, std::function<bool(Swip<BufferFrame>&)>);
    ParentSwipHandler findParent(DTID dtid, BufferFrame&);
-   bool checkSpaceUtilization(DTID dtid, BufferFrame&, BMOptimisticGuard&, ParentSwipHandler&);
+   SpaceCheckResult checkSpaceUtilization(DTID dtid, BufferFrame&);
    // Pre: bf is shared/exclusive latched
    void checkpoint(DTID dt_id, BufferFrame& bf, u8*);
    // Recovery / SI
    void undo(DTID dt_id, const u8* wal_entry, u64 tts);
-   void todo(DTID dt_id, const u8* entry, const u64 version_worker_id, u64 version_tts);
+   void todo(DTID dt_id, const u8* entry, const u64 version_worker_id, u64 version_tts, const bool called_before);
+   void unlock(DTID dt_id, const u8* entry);
    // Serialization
    std::unordered_map<std::string, std::string> serialize(DTID dt_id);
    void deserialize(DTID dt_id, std::unordered_map<std::string, std::string> map);

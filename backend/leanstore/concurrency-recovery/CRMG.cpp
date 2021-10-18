@@ -11,15 +11,19 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
+// Threads id order: workers (xN) -> Group Committer Thread (x1) -> Page Provider Threads (xP)
 CRManager* CRManager::global = nullptr;
 // -------------------------------------------------------------------------------------
-CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_of_block_device(end_of_block_device)
+CRManager::CRManager(VersionsSpaceInterface& versions_space, s32 ssd_fd, u64 end_of_block_device)
+    : ssd_fd(ssd_fd), end_of_block_device(end_of_block_device), versions_space(versions_space)
 {
    workers_count = FLAGS_worker_threads;
    ensure(workers_count < MAX_WORKER_THREADS);
    // -------------------------------------------------------------------------------------
-   Worker::global_so_starts = std::make_unique<atomic<u64>[]>(workers_count);
-   Worker::global_tts = std::make_unique<atomic<u64>[]>(workers_count);
+   Worker::global_workers_in_progress_txid = std::make_unique<atomic<u64>[]>(workers_count);
+   Worker::global_workers_rv_start = std::make_unique<atomic<u64>[]>(workers_count);
+   Worker::global_workers_oltp_lwm = std::make_unique<atomic<u64>[]>(workers_count);
+   Worker::global_workers_olap_lwm = std::make_unique<atomic<u64>[]>(workers_count);
    // -------------------------------------------------------------------------------------
    worker_threads.reserve(workers_count);
    for (u64 t_i = 0; t_i < workers_count; t_i++) {
@@ -33,7 +37,7 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
          WorkerCounters::myCounters().worker_id = t_i;
          CPUCounters::registerThread(thread_name, false);
          // -------------------------------------------------------------------------------------
-         workers[t_i] = new Worker(t_i, workers, workers_count, ssd_fd);
+         workers[t_i] = new Worker(t_i, workers, workers_count, versions_space, ssd_fd);
          Worker::tls_ptr = workers[t_i];
          // -------------------------------------------------------------------------------------
          running_threads++;
@@ -75,18 +79,9 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
    }
 }
 // -------------------------------------------------------------------------------------
-CRManager::~CRManager()
+void CRManager::registerMeAsSpecialWorker()
 {
-   keep_running = false;
-
-   for (u64 t_i = 0; t_i < workers_count; t_i++) {
-      worker_threads_meta[t_i].cv.notify_one();
-   }
-   while (running_threads) {
-   }
-   for (u64 t_i = 0; t_i < workers_count; t_i++) {
-      delete workers[t_i];
-   }
+   cr::Worker::tls_ptr = new Worker(std::numeric_limits<WORKERID>::max(), workers, workers_count, versions_space, ssd_fd, true);
 }
 // -------------------------------------------------------------------------------------
 void CRManager::scheduleJobSync(u64 t_i, std::function<void()> job)
@@ -140,6 +135,19 @@ void CRManager::joinOne(u64 t_i, std::function<bool(WorkerThread&)> condition)
    auto& meta = worker_threads_meta[t_i];
    std::unique_lock guard(meta.mutex);
    meta.cv.wait(guard, [&]() { return condition(meta); });
+}
+// -------------------------------------------------------------------------------------
+CRManager::~CRManager()
+{
+   keep_running = false;
+   for (u64 t_i = 0; t_i < workers_count; t_i++) {
+      worker_threads_meta[t_i].cv.notify_one();
+   }
+   while (running_threads) {
+   }
+   for (u64 t_i = 0; t_i < workers_count; t_i++) {
+      delete workers[t_i];
+   }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

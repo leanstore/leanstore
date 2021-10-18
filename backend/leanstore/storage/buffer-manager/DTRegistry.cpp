@@ -22,10 +22,10 @@ ParentSwipHandler DTRegistry::findParent(DTID dtid, BufferFrame& bf)
    return dt_types_ht[std::get<0>(dt_meta)].find_parent(std::get<1>(dt_meta), bf);
 }
 // -------------------------------------------------------------------------------------
-bool DTRegistry::checkSpaceUtilization(DTID dtid, BufferFrame& bf, BMOptimisticGuard& guard, ParentSwipHandler& parent_handler)
+SpaceCheckResult DTRegistry::checkSpaceUtilization(DTID dtid, BufferFrame& bf)
 {
    auto dt_meta = dt_instances_ht[dtid];
-   return dt_types_ht[std::get<0>(dt_meta)].check_space_utilization(std::get<1>(dt_meta), bf, guard, parent_handler);
+   return dt_types_ht[std::get<0>(dt_meta)].check_space_utilization(std::get<1>(dt_meta), bf);
 }
 // -------------------------------------------------------------------------------------
 void DTRegistry::checkpoint(DTID dtid, BufferFrame& bf, u8* dest)
@@ -66,10 +66,16 @@ void DTRegistry::undo(DTID dt_id, const u8* wal_entry, u64 tts)
 }
 
 // -------------------------------------------------------------------------------------
-void DTRegistry::todo(DTID dt_id, const u8* entry, const u64 version_worker_id, u64 version_tts)
+void DTRegistry::todo(DTID dt_id, const u8* entry, const u64 version_worker_id, u64 version_tx_id, const bool called_before)
 {
    auto dt_meta = dt_instances_ht[dt_id];
-   return dt_types_ht[std::get<0>(dt_meta)].todo(std::get<1>(dt_meta), entry, version_worker_id, version_tts);
+   return dt_types_ht[std::get<0>(dt_meta)].todo(std::get<1>(dt_meta), entry, version_worker_id, version_tx_id, called_before);
+}
+// -------------------------------------------------------------------------------------
+void DTRegistry::unlock(DTID dt_id, const u8* entry)
+{
+   auto dt_meta = dt_instances_ht[dt_id];
+   return dt_types_ht[std::get<0>(dt_meta)].unlock(std::get<1>(dt_meta), entry);
 }
 // -------------------------------------------------------------------------------------
 std::unordered_map<std::string, std::string> DTRegistry::serialize(DTID dt_id)

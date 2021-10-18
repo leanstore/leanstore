@@ -49,7 +49,7 @@ int main(int argc, char** argv)
    gflags::SetUsageMessage("Leanstore Minimal Example");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    assert(FLAGS_scale > 0);
-   LeanStore::addS64Flag("min_SCALE", &FLAGS_scale);  
+   LeanStore::addS64Flag("min_SCALE", &FLAGS_scale);
    {
       LeanStore db;
       setup(db);
@@ -150,7 +150,6 @@ void startBenchmarkThreads(LeanStore& db, atomic<u64>& keep_running, u64 tx_per_
    db.startProfilingThread();
    crm.scheduleJobs(FLAGS_worker_threads, [&, tx_per_thread](u64 t_i) {
       volatile u64 tx_acc = 0;
-      cr::Worker::my().refreshSnapshot();
       while (keep_running) {
          jumpmuTry() { executeOneTx(tx_acc); }
          jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }

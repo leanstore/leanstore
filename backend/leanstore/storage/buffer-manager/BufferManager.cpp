@@ -24,9 +24,6 @@
 #include <iomanip>
 #include <set>
 // -------------------------------------------------------------------------------------
-// Local GFlags
-// -------------------------------------------------------------------------------------
-using std::thread;
 namespace leanstore
 {
 namespace storage
@@ -67,12 +64,14 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
             p_i = (p_i + 1) % partitions_count;
          }
       });
-      // -------------------------------------------------------------------------------------
    }
-   // -------------------------------------------------------------------------------------
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::startBackgroundThreads()
+{
    // Page Provider threads
    if (FLAGS_pp_threads) {  // make it optional for pure in-memory experiments
-      std::vector<thread> pp_threads;
+      std::vector<std::thread> pp_threads;
       const u64 partitions_per_thread = partitions_count / FLAGS_pp_threads;
       ensure(FLAGS_pp_threads <= partitions_count);
       const u64 extra_partitions_for_last_thread = partitions_count % FLAGS_pp_threads;
@@ -81,7 +80,7 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
          pp_threads.emplace_back(
              [&, t_i](u64 p_begin, u64 p_end) {
                 if (FLAGS_pin_threads) {
-                   utils::pinThisThread(FLAGS_worker_threads + 1 + t_i);
+                   utils::pinThisThread(FLAGS_worker_threads + FLAGS_wal + t_i);
                 } else {
                    utils::pinThisThread(t_i);
                 }
@@ -189,13 +188,7 @@ BufferFrame& BufferManager::allocatePage()
    free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
    free_bf.header.pid = free_pid;
    free_bf.header.state = BufferFrame::STATE::HOT;
-   free_bf.header.lastWrittenGSN = free_bf.page.GSN = 0;
-   // -------------------------------------------------------------------------------------
-   if (free_pid == dram_pool_size) {
-      cout << "-------------------------------------------------------------------------------------" << endl;
-      cout << "Going out of memory !" << endl;
-      cout << "-------------------------------------------------------------------------------------" << endl;
-   }
+   free_bf.header.last_written_gsn = free_bf.page.GSN = 0;
    free_bf.header.latch.assertExclusivelyLatched();
    // -------------------------------------------------------------------------------------
    COUNTERS_BLOCK() { WorkerCounters::myCounters().allocate_operations_counter++; }
@@ -225,11 +218,10 @@ void BufferManager::reclaimPage(BufferFrame& bf)
    Partition& partition = getPartition(bf.header.pid);
    partition.freePage(bf.header.pid);
    // -------------------------------------------------------------------------------------
-   if (bf.header.isWB) {
+   if (bf.header.is_being_written_back) {
       // DO NOTHING ! we have a garbage collector ;-)
       bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
       bf.header.latch.mutex.unlock();
-      cout << "garbage collector, yeah" << endl;
    } else {
       Partition& partition = getPartition(bf.header.pid);
       bf.reset();
@@ -239,7 +231,7 @@ void BufferManager::reclaimPage(BufferFrame& bf)
    }
 }
 // -------------------------------------------------------------------------------------
-// returns a non-latched BufferFrame
+// Returns a non-latched BufferFrame, called by worker threads
 BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
 {
    if (swip_value.isHOT()) {
@@ -257,7 +249,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       return swip_value.asBufferFrame();
    }
    // -------------------------------------------------------------------------------------
-   swip_guard.unlock();  // otherwise we would get a deadlock, P->G, G->P
+   swip_guard.unlock();  // Otherwise we would get a deadlock, P->G, G->P
    const PID pid = swip_value.asPageID();
    Partition& partition = getPartition(pid);
    JMUW<std::unique_lock<std::mutex>> g_guard(partition.io_mutex);
@@ -280,7 +272,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       readPageSync(pid, bf.page);
       COUNTERS_BLOCK()
       {
-         // WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
+         WorkerCounters::myCounters().dt_misses_counter[bf.page.dt_id]++;
          if (FLAGS_trace_dt_id >= 0 && bf.page.dt_id == FLAGS_trace_dt_id &&
              utils::RandomGenerator::getRand<u64>(0, FLAGS_trace_trigger_probability) == 0) {
             utils::printBackTrace();
@@ -289,8 +281,8 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       assert(bf.page.magic_debugging_number == pid);
       // -------------------------------------------------------------------------------------
       // ATTENTION: Fill the BF
-      assert(!bf.header.isWB);
-      bf.header.lastWrittenGSN = bf.page.GSN;
+      assert(!bf.header.is_being_written_back);
+      bf.header.last_written_gsn = bf.page.GSN;
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
       // -------------------------------------------------------------------------------------

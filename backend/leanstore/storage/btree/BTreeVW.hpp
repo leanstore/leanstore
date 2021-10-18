@@ -86,7 +86,10 @@ class BTreeVW : public BTreeLL
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
-   virtual OP_RESULT updateSameSizeInPlace(u8* key, u16 key_length, function<void(u8* value, u16 value_size)>, UpdateSameSizeInPlaceDescriptor&) override;
+   virtual OP_RESULT updateSameSizeInPlace(u8* key,
+                                           u16 key_length,
+                                           function<void(u8* value, u16 value_size)>,
+                                           UpdateSameSizeInPlaceDescriptor&) override;
    virtual OP_RESULT remove(u8* key, u16 key_length) override;
    virtual OP_RESULT scanAsc(u8* start_key,
                              u16 key_length,
@@ -98,7 +101,7 @@ class BTreeVW : public BTreeLL
                               function<void()>) override;
    // -------------------------------------------------------------------------------------
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
-   static void todo(void* btree_object, const u8* wal_entry_ptr, const u64 version_worker_id, const u64 tts);
+   static void todo(void* btree_object, const u8* wal_entry_ptr, const u64 version_worker_id, const u64 tx_id, const bool called_before);
    static void deserialize(void*, std::unordered_map<std::string, std::string>) {}      // TODO:
    static std::unordered_map<std::string, std::string> serialize(void*) { return {}; }  // TODO:
    static DTRegistry::DTMeta getMeta();
@@ -107,10 +110,9 @@ class BTreeVW : public BTreeLL
    bool reconstructTuple(u8* payload, u16& payload_length, u8 worker_id, u64 lsn, u32 in_memory_offset);
    static void applyDelta(u8* dst, u16 dst_size, const u8* delta, u16 delta_size);
    inline u8 myWorkerID() { return cr::Worker::my().worker_id; }
-   inline u64 myTTS() { return cr::Worker::my().active_tx.tts; }
+   inline u64 myTTS() { return cr::activeTX().TTS(); }
    inline u64 myWTTS() { return myWorkerID() | (myTTS() << 8); }
    inline bool isVisibleForMe(u8 worker_id, u64 tts) { return cr::Worker::my().isVisibleForMe(worker_id, tts); }
-   inline bool isVisibleForMe(u64 wtts) { return cr::Worker::my().isVisibleForMe(wtts); }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace btree
