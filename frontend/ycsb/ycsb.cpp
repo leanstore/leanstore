@@ -50,6 +50,7 @@ int main(int argc, char** argv)
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    // -------------------------------------------------------------------------------------
    leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
+   TX_MODE tx_type = FLAGS_ycsb_single_statement_tx ? TX_MODE::SINGLE_STATEMENT : TX_MODE::OLTP;
    // -------------------------------------------------------------------------------------
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
@@ -81,7 +82,6 @@ int main(int argc, char** argv)
       begin = chrono::high_resolution_clock::now();
       utils::Parallelize::range(FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
          crm.scheduleJobAsync(t_i, [&, begin, end]() {
-            TX_MODE tx_type = FLAGS_ycsb_single_statement_tx ? TX_MODE::SINGLE_READWRITE : TX_MODE::LONG_READWRITE;
             for (u64 i = begin; i < end; i++) {
                YCSBPayload payload;
                utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
@@ -125,12 +125,10 @@ int main(int argc, char** argv)
                assert(key < ycsb_tuple_count);
                YCSBPayload result;
                if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
-                  TX_MODE tx_type = FLAGS_ycsb_single_statement_tx ? TX_MODE::SINGLE_READONLY : TX_MODE::LONG_READWRITE;
                   cr::Worker::my().startTX(tx_type, isolation_level);
                   table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
                   cr::Worker::my().commitTX();
                } else {
-                  TX_MODE tx_type = FLAGS_ycsb_single_statement_tx ? TX_MODE::SINGLE_READWRITE : TX_MODE::LONG_READWRITE;
                   UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
                   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));
                   // -------------------------------------------------------------------------------------
