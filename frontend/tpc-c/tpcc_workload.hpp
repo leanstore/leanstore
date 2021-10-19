@@ -195,8 +195,8 @@ void loadCustomer(Integer w_id, Integer d_id)
                                             randomastring<2>(2, 2), randomzip(), randomnstring(16, 16), now, c_credit, 50000.00,
                                             randomNumeric(0.0000, 0.5000), -10.00, 1, 0, 0, randomastring<500>(300, 500)});
       customerwdl.insert({w_id, d_id, c_last, c_first}, {i + 1});
-      Integer t_id = (Integer)WorkerCounters::myCounters().t_id;
-      Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
+      Integer t_id = (Integer)leanstore::WorkerCounters::myCounters().t_id;
+      Integer h_id = (Integer)leanstore::WorkerCounters::myCounters().variable_for_workload++;
       history.insert({t_id, h_id}, {i + 1, d_id, w_id, d_id, w_id, now, 10.00, randomastring<24>(12, 24)});
    }
 }
@@ -725,8 +725,8 @@ void paymentById(Integer w_id, Integer d_id, Integer c_w_id, Integer c_d_id, Int
    }
 
    Varchar<24> h_new_data = Varchar<24>(w_name) || Varchar<24>("    ") || d_name;
-   Integer t_id = (Integer)WorkerCounters::myCounters().t_id.load();
-   Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
+   Integer t_id = (Integer)leanstore::WorkerCounters::myCounters().t_id.load();
+   Integer h_id = (Integer)leanstore::WorkerCounters::myCounters().variable_for_workload++;
    history.insert({t_id, h_id}, {c_id, c_d_id, c_w_id, d_id, w_id, datetime, h_amount, h_new_data});
 }
 
@@ -841,8 +841,8 @@ void paymentByName(Integer w_id,
    }
 
    Varchar<24> h_new_data = Varchar<24>(w_name) || Varchar<24>("    ") || d_name;
-   Integer t_id = Integer(WorkerCounters::myCounters().t_id.load());
-   Integer h_id = (Integer)WorkerCounters::myCounters().variable_for_workload++;
+   Integer t_id = Integer(leanstore::WorkerCounters::myCounters().t_id.load());
+   Integer h_id = (Integer)leanstore::WorkerCounters::myCounters().variable_for_workload++;
    history.insert({t_id, h_id}, {c_id, c_d_id, c_w_id, d_id, w_id, datetime, h_amount, h_new_data});
 }
 
