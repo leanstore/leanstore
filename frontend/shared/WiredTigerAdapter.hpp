@@ -15,9 +15,11 @@
 #include <functional>
 #include <string>
 // -------------------------------------------------------------------------------------
-#define error_check(p) \
-   if (p)              \
-   wiredtiger_strerror(p)
+#define error_check(p)                        \
+   if (p) {                                   \
+      cerr << wiredtiger_strerror(p) << endl; \
+      raise(SIGTRAP);                         \
+   }
 // -------------------------------------------------------------------------------------
 // https://source.wiredtiger.com/10.0.0/config_strings.html
 struct WiredTigerDB {
