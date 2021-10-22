@@ -100,6 +100,13 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                DTID dt_id = r_buffer->page.dt_id;
                r_guard.recheck();
                ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, *r_buffer);
+               // -------------------------------------------------------------------------------------
+               if (FLAGS_optimistic_parent_pointer) {
+                  if (parent_handler.is_bf_updated) {
+                     r_guard.guard.version += 2;
+                  }
+               }
+               // -------------------------------------------------------------------------------------
                assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
                assert(parent_handler.parent_guard.latch != reinterpret_cast<HybridLatch*>(0x99));
                COUNTERS_BLOCK()
@@ -199,13 +206,20 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          // -------------------------------------------------------------------------------------
          FreedBfsBatch freed_bfs_batch;
          // -------------------------------------------------------------------------------------
-         auto evict_bf = [&](BufferFrame& bf, BMOptimisticGuard& guard, std::list<BufferFrame*>::iterator& bf_itr) {
+         auto evict_bf = [&](BufferFrame& bf, BMOptimisticGuard& c_guard, std::list<BufferFrame*>::iterator& bf_itr) {
             DTID dt_id = bf.page.dt_id;
-            guard.recheck();
+            c_guard.recheck();
             ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, bf);
+            // -------------------------------------------------------------------------------------
+            if (FLAGS_optimistic_parent_pointer) {
+               if (parent_handler.is_bf_updated) {
+                  c_guard.guard.version += 2;
+               }
+            }
+            // -------------------------------------------------------------------------------------
             assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
             BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
-            guard.guard.toExclusive();
+            c_guard.guard.toExclusive();
             // -------------------------------------------------------------------------------------
             partition.cooling_queue.erase(bf_itr);
             partition.cooling_bfs_counter--;

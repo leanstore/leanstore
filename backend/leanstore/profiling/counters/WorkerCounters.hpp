@@ -46,6 +46,11 @@ struct WorkerCounters {
    atomic<u64> dt_restarts_read[max_dt_id] = {0};
    atomic<u64> dt_researchy[max_dt_id][max_researchy_counter] = {};  // temporary counter used to track some value for an idea in my mind
    // -------------------------------------------------------------------------------------
+   atomic<u64> dt_find_parent[max_dt_id] = {0};
+   atomic<u64> dt_find_parent_root[max_dt_id] = {0};
+   atomic<u64> dt_find_parent_fast[max_dt_id] = {0};
+   atomic<u64> dt_find_parent_slow[max_dt_id] = {0};
+   // -------------------------------------------------------------------------------------
    atomic<u64> dt_empty_leaf[max_dt_id] = {0};
    atomic<u64> dt_goto_page_exec[max_dt_id] = {0};
    atomic<u64> dt_goto_page_shared[max_dt_id] = {0};

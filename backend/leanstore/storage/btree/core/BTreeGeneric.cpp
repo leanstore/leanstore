@@ -130,6 +130,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
                                                                      // for the separator?
          auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+         // -------------------------------------------------------------------------------------
          p_x_guard->requestSpaceFor(space_needed_for_separator);
          assert(&meta_node_bf.asBufferFrame() != p_x_guard.bf());
          assert(!p_x_guard->is_leaf);

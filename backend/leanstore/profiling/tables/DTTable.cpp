@@ -59,7 +59,14 @@ void DTTable::open()
                       [&, i](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::vw_version_step, dt_id, i); });
    }
    // -------------------------------------------------------------------------------------
-
+   columns.emplace("dt_find_parent", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent, dt_id); });
+   columns.emplace("dt_find_parent_root",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_root, dt_id); });
+   columns.emplace("dt_find_parent_fast",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_fast, dt_id); });
+   columns.emplace("dt_find_parent_slow",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_slow, dt_id); });
+   // -------------------------------------------------------------------------------------
    columns.emplace("cc_read_versions_visited",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_read_versions_visited, dt_id); });
    columns.emplace("cc_read_versions_visited_not_found",

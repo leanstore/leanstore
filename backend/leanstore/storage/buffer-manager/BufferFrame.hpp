@@ -41,12 +41,31 @@ struct BufferFrame {
          }
       };
       ContentionTracker contention_tracker;
-      std::shared_mutex meta_data_in_shared_mode_mutex;
+      // -------------------------------------------------------------------------------------
+      struct OptimisticParentPointer {
+         BufferFrame* parent_bf = nullptr;
+         PID parent_pid;
+         LID parent_gsn = 0;
+         BufferFrame** swip_ptr = nullptr;
+         s64 pos_in_parent = -1;
+         void update(BufferFrame* new_parent_bf, PID new_parent_pid, LID new_parent_gsn, BufferFrame** new_swip_ptr, s64 new_pos_in_parent)
+         {
+            if (parent_bf != new_parent_bf || parent_pid != new_parent_pid || parent_gsn != new_parent_gsn || swip_ptr != new_swip_ptr ||
+                pos_in_parent != new_pos_in_parent) {
+               parent_bf = new_parent_bf;
+               parent_pid = new_parent_pid;
+               parent_gsn = new_parent_gsn;
+               swip_ptr = new_swip_ptr;
+               pos_in_parent = new_pos_in_parent;
+            }
+         }
+      };
+      OptimisticParentPointer optimistic_parent_pointer;
       // -------------------------------------------------------------------------------------
       u64 debug;
    };
    struct alignas(512) Page {
-      u64 GSN = 0;
+      LID GSN = 0;
       DTID dt_id = 9999;                                                                // INIT: datastructure id
       u64 magic_debugging_number;                                                       // ATTENTION
       u8 dt[PAGE_SIZE - sizeof(GSN) - sizeof(dt_id) - sizeof(magic_debugging_number)];  // Datastruture BE CAREFUL HERE !!!!!

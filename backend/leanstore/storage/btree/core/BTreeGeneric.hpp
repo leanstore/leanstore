@@ -129,6 +129,35 @@ class BTreeGeneric
    template <bool jumpIfEvicted = true>
    static struct ParentSwipHandler findParent(BTreeGeneric& btree, BufferFrame& to_find)
    {
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent[btree.dt_id]++; }
+      if (FLAGS_optimistic_parent_pointer) {
+         jumpmuTry()
+         {
+            Guard c_guard(to_find.header.latch);
+            c_guard.toOptimisticOrJump();
+            BufferFrame::Header::OptimisticParentPointer optimistic_parent_pointer = to_find.header.optimistic_parent_pointer;
+            BufferFrame* parent_bf = optimistic_parent_pointer.parent_bf;
+            c_guard.recheck();
+            if (parent_bf != nullptr) {
+               Guard p_guard(parent_bf->header.latch);
+               p_guard.toOptimisticOrJump();
+               if (parent_bf->page.GSN == optimistic_parent_pointer.parent_gsn && parent_bf->header.pid == optimistic_parent_pointer.parent_pid) {
+                  if (*(optimistic_parent_pointer.swip_ptr) == &to_find) {
+                     p_guard.recheck();
+                     c_guard.recheck();
+                     ParentSwipHandler ret = {.swip = *reinterpret_cast<Swip<BufferFrame>*>(optimistic_parent_pointer.swip_ptr),
+                                              .parent_guard = std::move(p_guard),
+                                              .parent_bf = parent_bf,
+                                              .pos = optimistic_parent_pointer.pos_in_parent};
+                     COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent_fast[btree.dt_id]++; }
+                     jumpmu_return ret;
+                  }
+               }
+            }
+         }
+         jumpmuCatch() {}
+      }
+      // -------------------------------------------------------------------------------------
       auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
       // LATCH_FALLBACK_MODE latch_mode = (jumpIfEvicted) ? LATCH_FALLBACK_MODE::JUMP : LATCH_FALLBACK_MODE::EXCLUSIVE;
       LATCH_FALLBACK_MODE latch_mode = LATCH_FALLBACK_MODE::JUMP;  // : LATCH_FALLBACK_MODE::EXCLUSIVE;
@@ -149,6 +178,7 @@ class BTreeGeneric
       // check if bf is the root node
       if (&c_swip->asBufferFrameMasked() == &to_find) {
          p_guard.recheck();
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent_root[btree.dt_id]++; }
          return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = &btree.meta_node_bf.asBufferFrame()};
       }
       // -------------------------------------------------------------------------------------
@@ -190,7 +220,25 @@ class BTreeGeneric
       if (!found) {
          jumpmu::jump();
       }
-      return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.guard), .parent_bf = c_guard.bf, .pos = pos};
+      // -------------------------------------------------------------------------------------
+      ParentSwipHandler parent_handler = {
+          .swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.guard), .parent_bf = c_guard.bf, .pos = pos};
+      if (FLAGS_optimistic_parent_pointer) {
+         jumpmuTry()
+         {
+            Guard c_guard(to_find.header.latch);
+            c_guard.toOptimisticOrJump();
+            c_guard.tryToExclusive();
+            to_find.header.optimistic_parent_pointer.update(parent_handler.parent_bf, parent_handler.parent_bf->header.pid,
+                                                            parent_handler.parent_bf->page.GSN, reinterpret_cast<BufferFrame**>(&parent_handler.swip),
+                                                            parent_handler.pos);
+            c_guard.unlock();
+            parent_handler.is_bf_updated = true;
+         }
+         jumpmuCatch() {}
+      }
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent_slow[btree.dt_id]++; }
+      return parent_handler;
    }
    // -------------------------------------------------------------------------------------
    // Helpers

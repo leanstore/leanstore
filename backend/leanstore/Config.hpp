@@ -59,6 +59,7 @@ DECLARE_int64(trace_dt_id);
 DECLARE_int64(trace_trigger_probability);
 DECLARE_string(tag);
 // -------------------------------------------------------------------------------------
+DECLARE_bool(optimistic_parent_pointer);
 DECLARE_bool(out_of_place);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(wal);

@@ -64,6 +64,7 @@ DEFINE_int64(trace_trigger_probability, 100, "");
 // -------------------------------------------------------------------------------------
 DEFINE_string(tag, "", "Unique identifier for this, will be appended to each line csv");
 // -------------------------------------------------------------------------------------
+DEFINE_bool(optimistic_parent_pointer, true, "");
 DEFINE_bool(out_of_place, false, "Out of place writes");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(wal, true, "");
