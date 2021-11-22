@@ -63,9 +63,8 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
    } else if (pgc) {
       // -------------------------------------------------------------------------------------
       // Precise garbage collection
-      // Note: we can't use so ordering to decide whether to remove a version
-      // SO ordering helps in one case, if it tells visible then it is and nothing else
-      // Gonna get complicated here
+      // The idea behind it: check that all transaction that *could* (with larger tx_id than victim) see victim, see its successor (prev_tx_id,
+      // prev_worker_id here)
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_visited[btree.dt_id] += deltas_count; }
       cr::Worker::my().prepareForIntervalGC();

@@ -223,6 +223,7 @@ void Worker::refreshSnapshotHWMs()
 void Worker::prepareForIntervalGC()
 {
    if (!workers_sorted) {
+      COUNTERS_BLOCK() { CRCounters::myCounters().cc_prepare_igc++; }
       local_workers_sorted_txids[0] = 0;
       for (u64 w_i = 0; w_i < workers_count; w_i++) {
          local_workers_rv_start[w_i] = global_workers_rv_start[w_i].load();

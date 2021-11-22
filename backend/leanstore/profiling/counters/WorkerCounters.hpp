@@ -26,6 +26,7 @@ struct WorkerCounters {
    atomic<u64> restarts_counter = 0;
    atomic<u64> tx = 0;
    atomic<u64> olap_tx = 0;
+   atomic<u64> olap_scanned_tuples = 0;
    atomic<u64> tx_abort = 0;
    atomic<u64> olap_tx_abort = 0;
    atomic<u64> tmp = 0;
