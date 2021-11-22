@@ -29,7 +29,7 @@ struct WiredTigerDB {
 
    WiredTigerDB()
    {
-      std::string config_string("create, direct_io=[data, log, checkpoint], log=(enabled=false), session_max=2000, cache_size=" +
+      std::string config_string("create, direct_io=[data, log, checkpoint], log=(enabled=false), session_max=2000, eviction=(threads_max=4), cache_size=" +
                                 std::to_string(u64(FLAGS_dram_gib * 1024)) + "M");
       std::string cmd("rm -rf " + FLAGS_ssd_path);
       cmd = std::string("mkdir -p " + FLAGS_ssd_path);
@@ -49,8 +49,15 @@ struct WiredTigerDB {
       int ret = conn->open_session(conn, NULL, session_config.c_str(), &session);
       error_check(ret);
    }
-   void startTX() { session->begin_transaction(session, NULL); }
+   void startTX(bool si = true)
+   {
+      if (si)
+         session->begin_transaction(session, "isolation=snapshot");
+      else
+         session->begin_transaction(session, "isolation=read-uncommitted");
+   }
    void commitTX() { session->commit_transaction(session, NULL); }
+   void closeSession() { session->close(session, NULL); }
    ~WiredTigerDB() { conn->close(conn, NULL); }
 };
 // -------------------------------------------------------------------------------------
@@ -63,7 +70,7 @@ struct WiredTigerAdapter : public Adapter<Record> {
    WiredTigerAdapter(WiredTigerDB& map) : map(map)
    {
       table_name = std::string("table:tree_" + std::to_string(Record::id));
-      int ret = map.session->create(map.session, table_name.c_str(), "key_format=S,value_format=S");  // ,type=lsm
+      int ret = map.session->create(map.session, table_name.c_str(), "key_format=S,value_format=S,memory_page_max=10M");  // ,type=lsm
       error_check(ret);
    }
    // -------------------------------------------------------------------------------------

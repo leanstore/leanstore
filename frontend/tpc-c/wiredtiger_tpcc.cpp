@@ -30,6 +30,8 @@ DEFINE_uint64(ch_a_threads, 0, "CH analytical threads");
 DEFINE_uint64(ch_a_rounds, 1, "");
 DEFINE_uint64(ch_a_query, 2, "");
 // -------------------------------------------------------------------------------------
+DEFINE_bool(print_header, true, "");
+// -------------------------------------------------------------------------------------
 thread_local WT_SESSION* WiredTigerDB::session = nullptr;
 thread_local WT_CURSOR* WiredTigerDB::cursor[20] = {nullptr};
 // -------------------------------------------------------------------------------------
@@ -58,10 +60,14 @@ int main(int argc, char** argv)
                                         FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove,
                                         should_tpcc_driver_handle_isolation_anomalies, FLAGS_tpcc_cross_warehouses);
    // -------------------------------------------------------------------------------------
+   wiredtiger_db.startTX();
    std::vector<thread> threads;
    std::atomic<u32> g_w_id = 1;
    tpcc.loadItem();
    tpcc.loadWarehouse();
+   wiredtiger_db.commitTX();
+   wiredtiger_db.closeSession();
+
    for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       threads.emplace_back([&]() {
          wiredtiger_db.prepareThread();
@@ -105,7 +111,9 @@ int main(int argc, char** argv)
             leanstore::utils::pinThisThread(t_i);
          }
          wiredtiger_db.prepareThread();
+         wiredtiger_db.startTX(false);
          tpcc.prepare();
+         wiredtiger_db.commitTX();
          while (keep_running) {
             jumpmuTry()
             {
@@ -156,7 +164,9 @@ int main(int argc, char** argv)
    threads.emplace_back([&]() {
       running_threads_counter++;
       u64 time = 0;
-      cout << "t,tag,olap_committed,olap_aborted,oltp_committed,oltp_aborted" << endl;
+      if (FLAGS_print_header) {
+         cout << "t,tag,olap_committed,olap_aborted,oltp_committed,oltp_aborted" << endl;
+      }
       while (keep_running) {
          cout << time++ << "," << FLAGS_tag << ",";
          u64 total_committed = 0, total_aborted = 0;

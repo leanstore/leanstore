@@ -1051,6 +1051,7 @@ class TPCCWorkload
          neworder.scan(
              {0, 0, 0},
              [&](const neworder_t::Key& key, const neworder_t&) {
+                COUNTERS_BLOCK() { leanstore::WorkerCounters::myCounters().olap_scanned_tuples++; }
                 if (last_key.no_o_id != -1) {
                    if (!(last_key.no_w_id != key.no_w_id || last_key.no_d_id != key.no_d_id || last_key.no_o_id + 1 == key.no_o_id)) {
                       cout << last_key.no_w_id << "," << key.no_w_id << endl;
