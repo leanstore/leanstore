@@ -23,6 +23,7 @@ DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
 DEFINE_uint32(ycsb_warmup_rounds, 0, "");
 DEFINE_bool(ycsb_single_statement_tx, true, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
+DEFINE_uint32(ycsb_sleepy_thread, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -110,7 +111,7 @@ int main(int argc, char** argv)
    db.startProfilingThread();
    atomic<bool> keep_running = true;
    atomic<u64> running_threads_counter = 0;
-   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+   for (u64 t_i = 0; t_i < FLAGS_worker_threads - ((FLAGS_ycsb_sleepy_thread) ? 1 : 0); t_i++) {
       crm.scheduleJobAsync(t_i, [&]() {
          running_threads_counter++;
          while (keep_running) {
@@ -144,6 +145,24 @@ int main(int argc, char** argv)
          running_threads_counter--;
       });
    }
+   // -------------------------------------------------------------------------------------
+   if (FLAGS_ycsb_sleepy_thread) {
+      const leanstore::TX_MODE tx_type = FLAGS_olap_mode ? leanstore::TX_MODE::OLAP : leanstore::TX_MODE::OLTP;
+      crm.scheduleJobAsync(FLAGS_worker_threads - 1, [&]() {
+         running_threads_counter++;
+         while (keep_running) {
+            jumpmuTry()
+            {
+               cr::Worker::my().startTX(tx_type, leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION);
+               sleep(FLAGS_ycsb_sleepy_thread);
+               cr::Worker::my().commitTX();
+            }
+            jumpmuCatch() {}
+         }
+         running_threads_counter--;
+      });
+   }
+   // -------------------------------------------------------------------------------------
    {
       // Shutdown threads
       sleep(FLAGS_run_for_seconds);

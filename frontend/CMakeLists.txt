@@ -15,6 +15,10 @@ add_executable(graveyard micro-benchmarks/graveyard.cpp)
 target_link_libraries(graveyard leanstore Threads::Threads)
 target_include_directories(graveyard PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
+add_executable(queue micro-benchmarks/queue.cpp)
+target_link_libraries(queue leanstore Threads::Threads)
+target_include_directories(queue PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
 add_executable(min minimalExample/main.cpp)
 target_link_libraries(min leanstore Threads::Threads)
 target_include_directories(min PRIVATE ${SHARED_INCLUDE_DIRECTORY})

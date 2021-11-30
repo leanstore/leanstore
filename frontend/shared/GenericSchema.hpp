@@ -4,13 +4,12 @@
 // -------------------------------------------------------------------------------------
 template <typename TableKey, typename TablePayload>
 struct Relation {
-   // Entries: 1 to 1 160 000 * scale
    static constexpr int id = 0;
    struct Key {
       static constexpr int id = 0;
       TableKey my_key;
    };
-   TablePayload my_payload;  //
+   TablePayload my_payload;
    // -------------------------------------------------------------------------------------
    template <class T>
    static unsigned foldKey(uint8_t* out, const T& key)

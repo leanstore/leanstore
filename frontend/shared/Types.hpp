@@ -9,7 +9,7 @@
 // -------------------------------------------------------------------------------------
 using UInteger = u32;
 using Integer = s32;
-using Timestamp = u64;
+using Timestamp = s64;
 using Numeric = double;
 static constexpr Integer minUInteger = std::numeric_limits<UInteger>::min();
 static constexpr Integer minInteger = std::numeric_limits<Integer>::min();
@@ -81,6 +81,12 @@ unsigned fold(u8* writer, const Timestamp& x)
    return sizeof(x);
 }
 // -------------------------------------------------------------------------------------
+unsigned fold(u8* writer, const u64& x)
+{
+   *reinterpret_cast<u64*>(writer) = __builtin_bswap64(x);
+   return sizeof(x);
+}
+// -------------------------------------------------------------------------------------
 template <int len>
 unsigned fold(u8* writer, const Varchar<len>& x)
 {
@@ -98,6 +104,12 @@ unsigned unfold(const u8* input, Integer& x)
 unsigned unfold(const u8* input, Timestamp& x)
 {
    x = __builtin_bswap64(*reinterpret_cast<const u64*>(input)) ^ (1ul << 63);
+   return sizeof(x);
+}
+// -------------------------------------------------------------------------------------
+unsigned unfold(const u8* input, u64& x)
+{
+   x = __builtin_bswap64(*reinterpret_cast<const u64*>(input));
    return sizeof(x);
 }
 // -------------------------------------------------------------------------------------
