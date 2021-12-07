@@ -63,6 +63,7 @@ struct Worker {
    // All the local tracking data
    u64 local_oltp_lwm;
    u64 local_olap_lwm;
+   std::vector<WORKERID> local_seen_olap_workers;
    u64 command_id = 0;
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;
@@ -72,10 +73,8 @@ struct Worker {
    bool workers_sorted = false;
    bool transactions_order_refreshed = false;
    u64 local_oldest_olap_tx_id;
-   u64 local_oldest_olap_tx_worker_id;
    u64 local_oldest_oltp_tx_id;  // OLAP <= OLTP
    unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;
-   u64 local_workers_cut_timestamp = 0;
    unique_ptr<u64[]> local_workers_sorted_txids;
    unique_ptr<u64[]> local_workers_rv_start;
    unique_ptr<u64[]> local_workers_olap_lwm;
@@ -330,8 +329,10 @@ struct Worker {
    void prepareForIntervalGC();
    void refreshSnapshotHWMs();
    void switchToAlwaysUpToDateMode();
+   // -------------------------------------------------------------------------------------
+   enum class VISIBILITY : u8 { VISIBLE_ALREADY, VISIBLE_NEXT_ROUND, UNDETERMINED };
    bool isVisibleForAll(u64 commited_before_so);
-   bool isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
+   VISIBILITY isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
    bool isVisibleForMe(u8 worker_id, u64 tts, bool to_write = true);
    bool isVisibleForMe(u64 tts);
    // -------------------------------------------------------------------------------------

@@ -94,6 +94,7 @@ DECLARE_bool(vi_fat_tuple_decompose);
 DECLARE_bool(olap_mode);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(pgc);
+DECLARE_uint64(pgc_variant);
 DECLARE_double(garbage_in_page_pct);
 DECLARE_uint64(vi_max_chain_length);
 DECLARE_uint64(todo_batch_size);

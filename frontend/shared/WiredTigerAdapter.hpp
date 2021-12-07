@@ -29,7 +29,7 @@ struct WiredTigerDB {
 
    WiredTigerDB()
    {
-      std::string config_string("create, direct_io=[data, log, checkpoint], log=(enabled=false), session_max=2000, eviction=(threads_max=4), cache_size=" +
+      std::string config_string("create, direct_io=[data, log, checkpoint], log=(enabled=false), statistics_log=(wait=1), statistics=(all, clear), session_max=2000, eviction=(threads_max=4), cache_size=" +
                                 std::to_string(u64(FLAGS_dram_gib * 1024)) + "M");
       std::string cmd("rm -rf " + FLAGS_ssd_path);
       cmd = std::string("mkdir -p " + FLAGS_ssd_path);
@@ -70,7 +70,7 @@ struct WiredTigerAdapter : public Adapter<Record> {
    WiredTigerAdapter(WiredTigerDB& map) : map(map)
    {
       table_name = std::string("table:tree_" + std::to_string(Record::id));
-      int ret = map.session->create(map.session, table_name.c_str(), "key_format=S,value_format=S,memory_page_max=10M");  // ,type=lsm
+      int ret = map.session->create(map.session, table_name.c_str(), "type=btree,key_format=S,value_format=S,memory_page_max=10M");  // ,type=lsm
       error_check(ret);
    }
    // -------------------------------------------------------------------------------------

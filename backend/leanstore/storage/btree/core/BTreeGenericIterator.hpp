@@ -492,12 +492,17 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
    // The caller must retain the payload when using any of the following payload resize functions
    virtual void shorten(const u16 new_size) { leaf->shortenPayload(cur, new_size); }
    // -------------------------------------------------------------------------------------
-   void extendPayload(const u16 new_length)
+   bool extendPayload(const u16 new_length)
    {
-      ensure(new_length < EFFECTIVE_PAGE_SIZE - 500);
+      if (new_length >= EFFECTIVE_PAGE_SIZE) {
+         return false;
+      }
       ensure(cur != -1 && new_length > leaf->getPayloadLength(cur));
       OP_RESULT ret;
       while (!leaf->canExtendPayload(cur, new_length)) {
+         if (leaf->count == 1) {
+            return false;
+         }
          assembleKey();
          Slice key = this->key();
          splitForKey(key);
@@ -506,6 +511,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
       }
       assert(cur != -1);
       leaf->extendPayload(cur, new_length);
+      return true;
    }
    // -------------------------------------------------------------------------------------
    virtual MutableSlice mutableValue() { return MutableSlice(leaf->getPayload(cur), leaf->getPayloadLength(cur)); }

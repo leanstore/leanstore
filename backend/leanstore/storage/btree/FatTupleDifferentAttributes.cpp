@@ -48,13 +48,16 @@ void BTreeVI::FatTupleDifferentAttributes::undoLastUpdate()
    used_space -= total_freed_space;
 }
 // -------------------------------------------------------------------------------------
-void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
+void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, bool heavyweight)
 {
    if (deltas_count == 0) {
       return;
    }
+   if (deltas_count >= cr::Worker::my().workers_count) {
+      heavyweight = true;
+   }
    // -------------------------------------------------------------------------------------
-   const bool pgc = FLAGS_pgc && deltas_count >= 2 && !(worker_id == cr::Worker::my().workerID() && tx_id == cr::activeTX().TTS());
+   const bool pgc = (FLAGS_pgc) && deltas_count >= 1;
    // -------------------------------------------------------------------------------------
    if (cr::Worker::my().isVisibleForAll(tx_id)) {
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_count; }
@@ -67,46 +70,76 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
       // prev_worker_id here)
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_visited[btree.dt_id] += deltas_count; }
-      cr::Worker::my().prepareForIntervalGC();
-      auto delta = reinterpret_cast<Delta*>(payload + value_length);
-      TXID prev_prev_delta_tx_id = tx_id;
-      TXID prev_delta_worker_id = delta->worker_id;
-      TXID prev_delta_tx_id = delta->tx_id;
-      bool needs_the_loop = true;
+      TXID prev_delta_worker_id = worker_id;
+      TXID prev_delta_tx_id = tx_id;
       // -------------------------------------------------------------------------------------
-      u64 offset = value_length + sizeof(Delta) + delta->getDescriptor().size() + delta->getDescriptor().diffLength();
-      delta = reinterpret_cast<Delta*>(payload + offset);
-      u64 delta_i = 1;
+      auto delta = reinterpret_cast<Delta*>(payload + value_length);
+      u64 offset = value_length;
+      u64 delta_i = 0;
       std::vector<Delta*> deltas_to_merge;
       // -------------------------------------------------------------------------------------
-      auto can_we_delete = [&](const u64 prev_prev_tx_id, const u64 prev_tx_id, const u64 prev_worker_id, const u64 cur_tx_id) {
+      auto can_we_delete_light = [&](const u64 prev_worker_id, const u64 prev_tx_id, const u64 cur_worker_id, const u64 cur_tx_id) {
          if (cr::Worker::my().isVisibleForAll(prev_tx_id)) {
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_light_removed[btree.dt_id]++; }
             return true;
          }
          // -------------------------------------------------------------------------------------
-         u64* arr = cr::Worker::my().local_workers_sorted_txids.get();
-         const u64 max = cr::Worker::my().workers_count + 1;
-         u64 upper_bound_index = std::upper_bound(arr, arr + max, cur_tx_id << 8) - arr;
-         assert(upper_bound_index > 0);
-         if (upper_bound_index == max) {
-            return false;
+         if (cr::Worker::my().local_oltp_lwm > prev_tx_id) {  // There is a chance to quickly determine the result
+            for (const auto& olap_worker_id : cr::Worker::my().local_seen_olap_workers) {
+               if (cr::Worker::my().isVisibleForIt(olap_worker_id, cur_worker_id, cur_tx_id) != cr::Worker::VISIBILITY::VISIBLE_NEXT_ROUND) {
+                  return false;
+               }
+            }
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_light_removed[btree.dt_id]++; }
+            return true;
          }
-         if ((arr[upper_bound_index] >> cr::Worker::WORKERS_BITS) > cr::Worker::my().local_workers_cut_timestamp) {
-            return false;
+         // -------------------------------------------------------------------------------------
+         return false;
+      };
+      auto can_we_delete_heavy = [&](const u64 prev_worker_id, const u64 prev_tx_id, const u64 cur_worker_id, const u64 cur_tx_id) {
+         if (cr::Worker::my().isVisibleForAll(prev_tx_id)) {
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_light_removed[btree.dt_id]++; }
+            return true;
          }
-         if ((arr[upper_bound_index - 1] >> cr::Worker::WORKERS_BITS) >= cur_tx_id) {
-            return false;
-         }
-         for (u64 w_i = upper_bound_index; w_i < max; w_i++) {
-            if ((cr::Worker::my().local_workers_rv_start[arr[w_i] & cr::Worker::WORKERS_MASK] < prev_prev_tx_id) &&
-                !cr::Worker::my().isVisibleForIt(arr[w_i] & cr::Worker::WORKERS_MASK, prev_worker_id, prev_tx_id)) {
+         // -------------------------------------------------------------------------------------
+         for (u64 w_i = 0; w_i < cr::Worker::my().workers_count; w_i++) {
+            const auto prev_visibility = cr::Worker::my().isVisibleForIt(w_i, prev_worker_id, prev_tx_id);
+            if (prev_visibility == cr::Worker::VISIBILITY::VISIBLE_ALREADY) {
+               continue;
+            } else if (prev_visibility == cr::Worker::VISIBILITY::UNDETERMINED) {
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_skipped[btree.dt_id]++; }
                return false;
+            } else {  // prev is not visible atm but will be next round
+               // cur must be visible next work
+               const cr::Worker::VISIBILITY cur_visibility = cr::Worker::my().isVisibleForIt(w_i, cur_worker_id, cur_tx_id);
+               if (cur_visibility == cr::Worker::VISIBILITY::UNDETERMINED) {
+                  COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_skipped[btree.dt_id]++; }
+                  return false;
+               } else if (cur_visibility == cr::Worker::VISIBILITY::VISIBLE_ALREADY) {
+                  return false;
+               } else {
+                  continue;
+               }
             }
          }
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_heavy_removed[btree.dt_id]++; }
          return true;
       };
-      while (needs_the_loop) {
-         if (can_we_delete(prev_prev_delta_tx_id, prev_delta_tx_id, prev_delta_worker_id, delta->tx_id)) {
+      while (true) {
+         explainWhen(delta_i > 500);
+         bool should_delete;
+         if (delta->worker_id == cr::Worker::my().workerID() && delta->tx_id == cr::activeTX().TTS()) {
+            should_delete = false;
+         } else {
+            if (heavyweight) {
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_heavy[btree.dt_id]++; }
+               should_delete = can_we_delete_heavy(prev_delta_worker_id, prev_delta_tx_id, delta->worker_id, delta->tx_id);
+            } else {
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_light[btree.dt_id]++; }
+               should_delete = can_we_delete_light(prev_delta_worker_id, prev_delta_tx_id, delta->worker_id, delta->tx_id);
+            }
+         }
+         if (should_delete) {
             deltas_to_merge.push_back(delta);
          } else if (deltas_to_merge.size()) {
             // Merge all deltas in deltas_to_merge in delta*
@@ -118,6 +151,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
             }
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_to_merge.size(); }
             if (same_attributes) {
+               ensure(used_space >= (reinterpret_cast<u8*>(delta) - payload));
                std::memmove(deltas_to_merge.front(), delta, used_space - (reinterpret_cast<u8*>(delta) - payload));
                const u64 freed_space = reinterpret_cast<u8*>(delta) - reinterpret_cast<u8*>(deltas_to_merge.front());
                deltas_count -= deltas_to_merge.size();
@@ -129,7 +163,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
             } else {
                using Slot = UpdateSameSizeInPlaceDescriptor::Slot;
                std::unordered_map<Slot, std::basic_string<u8>> slots_map;
-               for (auto m_delta : deltas_to_merge) {
+               for (auto m_delta : deltas_to_merge) {  // TODO: reverse order
                   auto& m_descriptor = m_delta->getDescriptor();
                   u8* delta_diff_ptr = m_delta->payload + m_descriptor.size();
                   for (u64 s_i = 0; s_i < m_delta->getDescriptor().count; s_i++) {
@@ -171,7 +205,6 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree)
          delta_i++;
          offset += sizeof(Delta) + delta->getDescriptor().size() + delta->getDescriptor().diffLength();
          if (delta_i < deltas_count) {
-            prev_prev_delta_tx_id = prev_delta_tx_id;
             prev_delta_tx_id = delta->tx_id;
             prev_delta_worker_id = delta->worker_id;
             delta = reinterpret_cast<Delta*>(payload + offset);
@@ -198,6 +231,8 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
                                                   UpdateSameSizeInPlaceDescriptor& update_descriptor,
                                                   BTreeVI& btree)
 {
+   bool heavyweight_gc = false;
+cont : {
    auto fat_tuple = reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data());
    if (FLAGS_vi_fupdate_fat_tuple) {
       cb(fat_tuple->getValue(), fat_tuple->value_length);
@@ -209,17 +244,26 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
    const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
    const u32 needed_space = sizeof(Delta) + descriptor_and_diff_length;
    if (fat_tuple->deltas_count > 0) {  // fat_tuple->total_space < (needed_space + fat_tuple->used_space) &&
-      // Garbage collection first
-      fat_tuple->garbageCollection(btree);
+                                       // Garbage collection first
+      fat_tuple->garbageCollection(btree, heavyweight_gc);
    }
    if (fat_tuple->total_space < (needed_space + fat_tuple->used_space)) {
       const u32 fat_tuple_length = needed_space + fat_tuple->used_space + sizeof(FatTupleDifferentAttributes);
-      ensure(fat_tuple_length < PAGE_SIZE);
       u8 buffer[PAGE_SIZE];
+      ensure(iterator.value().length() <= PAGE_SIZE);
       std::memcpy(buffer, iterator.value().data(), iterator.value().length());
-      iterator.extendPayload(fat_tuple_length);
+      // -------------------------------------------------------------------------------------
+      const bool did_extend = iterator.extendPayload(fat_tuple_length);
+      if (did_extend == false) {
+         if (heavyweight_gc == true) {
+            TODOException();  // TODO; Fallback to chained (decompose)
+         }
+         heavyweight_gc = true;
+         goto cont;
+      }
+      // -------------------------------------------------------------------------------------
       std::memcpy(iterator.mutableValue().data(), buffer, fat_tuple_length);
-      fat_tuple = reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data());
+      fat_tuple = reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data());  // ATTENTION
       fat_tuple->total_space = needed_space + fat_tuple->used_space;
    }
    if (fat_tuple->deltas_count > 0) {
@@ -271,6 +315,7 @@ bool BTreeVI::FatTupleDifferentAttributes::update(BTreeExclusiveIterator& iterat
    assert(fat_tuple->deltas_count > 0);
    return true;
 }
+}
 // -------------------------------------------------------------------------------------
 std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTuple(std::function<void(Slice value)> cb) const
 {
@@ -311,10 +356,9 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    u16 number_of_deltas_to_replace = 0;
    std::vector<u8> dynamic_buffer;
    dynamic_buffer.resize(PAGE_SIZE * 4);
-   u8* fat_tuple_payload = dynamic_buffer.data();
-   auto& fat_tuple = *new (fat_tuple_payload) FatTupleDifferentAttributes();
-   fat_tuple.total_space = EFFECTIVE_PAGE_SIZE * 3.0 / 4.0;  // TODO: set a proper maximum
-   fat_tuple.used_space = 0;
+   auto fat_tuple = new (dynamic_buffer.data()) FatTupleDifferentAttributes();
+   fat_tuple->total_space = EFFECTIVE_PAGE_SIZE * 3.0 / 4.0;  // TODO: set a proper maximum
+   fat_tuple->used_space = 0;
    // -------------------------------------------------------------------------------------
    WORKERID next_worker_id;
    TXID next_tx_id;
@@ -325,11 +369,11 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    auto& chain_head = *reinterpret_cast<ChainedTuple*>(head.data());
    ensure(chain_head.isWriteLocked());
    // -------------------------------------------------------------------------------------
-   fat_tuple.value_length = head.length() - sizeof(ChainedTuple);
-   std::memcpy(fat_tuple.payload + fat_tuple.used_space, chain_head.payload, fat_tuple.value_length);
-   fat_tuple.used_space += fat_tuple.value_length;
-   fat_tuple.worker_id = chain_head.worker_id;
-   fat_tuple.tx_id = chain_head.tx_id;
+   fat_tuple->value_length = head.length() - sizeof(ChainedTuple);
+   std::memcpy(fat_tuple->payload + fat_tuple->used_space, chain_head.payload, fat_tuple->value_length);
+   fat_tuple->used_space += fat_tuple->value_length;
+   fat_tuple->worker_id = chain_head.worker_id;
+   fat_tuple->tx_id = chain_head.tx_id;
    // -------------------------------------------------------------------------------------
    next_worker_id = chain_head.worker_id;
    next_tx_id = chain_head.tx_id;
@@ -349,48 +393,50 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
              const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
              const u32 needed_space = sizeof(FatTupleDifferentAttributes::Delta) + descriptor_and_diff_length;
              // -------------------------------------------------------------------------------------
-             if ((fat_tuple.used_space + sizeof(FatTupleDifferentAttributes::Delta) + needed_space) >= dynamic_buffer.size()) {
-                dynamic_buffer.resize(fat_tuple.used_space + sizeof(FatTupleDifferentAttributes::Delta) + needed_space);
+             if ((fat_tuple->used_space + sizeof(FatTupleDifferentAttributes) + needed_space) >= dynamic_buffer.size()) {
+                dynamic_buffer.resize(fat_tuple->used_space + sizeof(FatTupleDifferentAttributes) + needed_space);
+                fat_tuple = reinterpret_cast<FatTupleDifferentAttributes*>(dynamic_buffer.data());
              }
              // -------------------------------------------------------------------------------------
              // Add a FatTuple::Delta
-             auto& new_delta = *new (fat_tuple.payload + fat_tuple.used_space) FatTupleDifferentAttributes::Delta();
-             fat_tuple.used_space += sizeof(FatTupleDifferentAttributes::Delta);
+             auto& new_delta = *new (fat_tuple->payload + fat_tuple->used_space) FatTupleDifferentAttributes::Delta();
+             fat_tuple->used_space += sizeof(FatTupleDifferentAttributes::Delta);
              new_delta.worker_id = chain_delta.worker_id;
              new_delta.tx_id = chain_delta.tx_id;
              new_delta.command_id = chain_delta.command_id;
              // -------------------------------------------------------------------------------------
              // Copy Descriptor + Diff
-             std::memcpy(fat_tuple.payload + fat_tuple.used_space, &update_descriptor, descriptor_and_diff_length);
-             fat_tuple.deltas_count++;
-             fat_tuple.used_space += descriptor_and_diff_length;
+             std::memcpy(fat_tuple->payload + fat_tuple->used_space, &update_descriptor, descriptor_and_diff_length);
+             fat_tuple->deltas_count++;
+             fat_tuple->used_space += descriptor_and_diff_length;
              // -------------------------------------------------------------------------------------
              next_worker_id = chain_delta.worker_id;
              next_tx_id = chain_delta.tx_id;
              next_command_id = chain_delta.command_id;
-             fat_tuple.garbageCollection(*this);  // TODO: temporary hack to hide overflow bugs
+             fat_tuple->garbageCollection(*this, true);
           })) {
          break;
       }
    }
-   if (fat_tuple.used_space > fat_tuple.total_space) {
+   if (fat_tuple->used_space > fat_tuple->total_space) {
       chain_head.unlock();
       return false;
    }
-   fat_tuple.total_space = fat_tuple.used_space;
+   fat_tuple->total_space = fat_tuple->used_space;
    if (number_of_deltas_to_replace >= convertToFatTupleThreshold()) {
       // Finalize the new FatTuple
       // TODO: corner cases, more careful about space usage
       // -------------------------------------------------------------------------------------
-      ensure(fat_tuple.total_space >= fat_tuple.used_space);
-      const u16 fat_tuple_length = sizeof(FatTupleDifferentAttributes) + fat_tuple.total_space;
+      ensure(fat_tuple->total_space >= fat_tuple->used_space);
+      const u16 fat_tuple_length = sizeof(FatTupleDifferentAttributes) + fat_tuple->total_space;
       if (iterator.value().length() < fat_tuple_length) {
          ensure(reinterpret_cast<const Tuple*>(iterator.value().data())->tuple_format == TupleFormat::CHAINED);
-         iterator.extendPayload(fat_tuple_length);
+         const bool did_extend = iterator.extendPayload(fat_tuple_length);
+         ensure(did_extend);
       } else {
          iterator.shorten(fat_tuple_length);
       }
-      std::memcpy(iterator.mutableValue().data(), fat_tuple_payload, fat_tuple_length);
+      std::memcpy(iterator.mutableValue().data(), dynamic_buffer.data(), fat_tuple_length);
       iterator.markAsDirty();
       return true;
    } else {

@@ -99,6 +99,7 @@ DEFINE_bool(vi_dangling_pointer, true, "");
 DEFINE_bool(olap_mode, false, "Use OLAP mode for long running transactions");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(pgc, true, "Precise garbage collection/recycling");
+DEFINE_uint64(pgc_variant, 0, "0 naive, 1 bit faster, 2 ...");
 DEFINE_double(garbage_in_page_pct, 15, "Threshold to trigger page-wise garbage collection (%)");
 DEFINE_uint64(vi_max_chain_length, 1000, "");
 DEFINE_uint64(todo_batch_size, 1024, "");

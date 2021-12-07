@@ -135,7 +135,7 @@ class BTreeVI : public BTreeLL
       // -------------------------------------------------------------------------------------
       u16 value_length;
       u16 total_space;       // From the payload bytes array
-      u16 used_space;        // u32 instead of u16 to make it easier to detect overflow while converting
+      u32 used_space;        // does not include the struct itself
       u16 deltas_count = 0;  // Attention: coupled with used_space
       u8 payload[];          // value, Delta+Descriptor+Diff[] N2O
       // -------------------------------------------------------------------------------------
@@ -147,7 +147,7 @@ class BTreeVI : public BTreeLL
                          function<void(u8* value, u16 value_size)>,
                          UpdateSameSizeInPlaceDescriptor&,
                          BTreeVI& btree);
-      void garbageCollection(BTreeVI& btree);
+      void garbageCollection(BTreeVI& btree, bool heavyweight = false);
       void undoLastUpdate();
       inline constexpr u8* getValue() { return payload; }
       inline const u8* getValueConstant() const { return payload; }
@@ -409,7 +409,7 @@ class BTreeVI : public BTreeLL
       return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
    }
    static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard) { return guard->has_garbage; }
-   u64 convertToFatTupleThreshold() { return cr::Worker::my().olap_in_progress_tx_count + 2; }
+   u64 convertToFatTupleThreshold() { return FLAGS_worker_threads; }
    // -------------------------------------------------------------------------------------
    inline std::tuple<OP_RESULT, u16> reconstructTuple(Slice key, Slice payload, std::function<void(Slice value)> callback)
    {

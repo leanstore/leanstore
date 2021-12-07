@@ -152,23 +152,31 @@ void Worker::submitDTEntry(u64 total_size)
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshotHWMs()
 {
-   local_oldest_olap_tx_worker_id = std::numeric_limits<u64>::max();
    local_oldest_oltp_tx_id = std::numeric_limits<u64>::max();
    local_oldest_olap_tx_id = std::numeric_limits<u64>::max();
-   bool is_oltp_same_as_olap = true;
-   local_workers_cut_timestamp = global_logical_clock.load();
-   olap_in_progress_tx_count = 0;
-   global_workers_rv_start[worker_id].store(global_logical_clock.fetch_add(1), std::memory_order_release);
+   bool is_oltp_same_as_olap = !activeTX().isOLAP();
+   olap_in_progress_tx_count = activeTX().isOLAP();
+   local_seen_olap_workers.clear();
+   // -------------------------------------------------------------------------------------
    for (u64 w_i = 0; w_i < workers_count; w_i++) {
+      local_workers_in_progress_txids[w_i].store(local_workers_in_progress_txids[w_i].load() | MSB, std::memory_order_release);
+   }
+   // -------------------------------------------------------------------------------------
+   for (u64 w_i = 0; w_i < workers_count; w_i++) {
+      if (w_i == worker_id) {
+         continue;
+      }
       u64 its_in_flight_tx_id = global_workers_in_progress_txid[w_i];
       const bool is_rc = its_in_flight_tx_id & RC_BIT;
       const bool is_olap = its_in_flight_tx_id & OLAP_BIT;
       olap_in_progress_tx_count += is_olap;
       its_in_flight_tx_id &= CLEAN_BITS_MASK;
       is_oltp_same_as_olap &= !is_olap;
+      if (is_olap) {
+         local_seen_olap_workers.push_back(w_i);
+      }
       if (!is_rc) {
          local_oldest_olap_tx_id = std::min<u64>(its_in_flight_tx_id, local_oldest_olap_tx_id);
-         local_oldest_olap_tx_worker_id = w_i;
          if (!is_olap) {
             local_oldest_oltp_tx_id = std::min<u64>(its_in_flight_tx_id, local_oldest_oltp_tx_id);
          }
@@ -188,10 +196,12 @@ void Worker::refreshSnapshotHWMs()
    const TXID tx_id = global_logical_clock.fetch_add(1);
    global_workers_in_progress_txid[worker_id].store(tx_id | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
    active_tx.tx_id = tx_id;
+   local_workers_in_progress_txids[worker_id].store(tx_id);
    // -------------------------------------------------------------------------------------
    // Special handling for OLAP tx
    if (active_tx.isOLAP()) {
       global_workers_olap_lwm[worker_id].store(local_oldest_olap_tx_id, std::memory_order_release);
+      // ATTENTION:
       global_workers_oltp_lwm[worker_id].store(std::numeric_limits<u64>::max(), std::memory_order_release);
    }
    // -------------------------------------------------------------------------------------
@@ -200,9 +210,10 @@ void Worker::refreshSnapshotHWMs()
    local_oltp_lwm = std::numeric_limits<u64>::max();
    for (u64 w_i = 0; w_i < workers_count; w_i++) {
       u64 its_olap_lwm = global_workers_olap_lwm[w_i].load();
-      bool is_olap_same_as_oltp_lwm = its_olap_lwm & OLTP_OLAP_SAME_BIT;
+      const bool is_olap_same_as_oltp_lwm = its_olap_lwm & OLTP_OLAP_SAME_BIT;
       its_olap_lwm &= CLEAN_BITS_MASK;
       local_workers_olap_lwm[w_i] = its_olap_lwm;
+      // -------------------------------------------------------------------------------------
       local_olap_lwm = std::min<u64>(local_olap_lwm, its_olap_lwm);
       if (is_olap_same_as_oltp_lwm) {
          local_oltp_lwm = std::min<u64>(local_oltp_lwm, its_olap_lwm);
@@ -222,6 +233,7 @@ void Worker::refreshSnapshotHWMs()
 // -------------------------------------------------------------------------------------
 void Worker::prepareForIntervalGC()
 {
+   raise(SIGTRAP);
    if (!workers_sorted) {
       COUNTERS_BLOCK() { CRCounters::myCounters().cc_prepare_igc++; }
       local_workers_sorted_txids[0] = 0;
@@ -240,6 +252,7 @@ void Worker::prepareForIntervalGC()
 // -------------------------------------------------------------------------------------
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
 {
+   Transaction prev_tx = active_tx;
    // For single-statement transactions, snapshot isolation and serialization are the same as read committed
    if (next_tx_type == TX_MODE::SINGLE_STATEMENT) {
       if (next_tx_isolation_level > TX_ISOLATION_LEVEL::READ_COMMITTED) {
@@ -254,7 +267,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          entry.type = WALEntry::TYPE::TX_START;
          submitWALMetaEntry();
       }
-      assert(active_tx.state != Transaction::STATE::STARTED);
+      assert(prev_tx.state != Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
       // Initialize RFA
       if (FLAGS_wal_rfa) {
@@ -271,6 +284,10 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
       // -------------------------------------------------------------------------------------
       active_tx.state = Transaction::STATE::STARTED;
       active_tx.min_observed_gsn_when_started = clock_gsn;
+      active_tx.current_tx_mode = next_tx_type;
+      active_tx.current_tx_isolation_level = next_tx_isolation_level;
+      active_tx.is_read_only = read_only;
+      active_tx.is_durable = FLAGS_wal;  // TODO:
       // -------------------------------------------------------------------------------------
       transactions_order_refreshed = false;
       if (next_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION) {
@@ -279,17 +296,13 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          }
          force_si_refresh = false;
       } else {
-         if (activeTX().atLeastSI()) {
+         if (prev_tx.atLeastSI()) {
             switchToAlwaysUpToDateMode();
          }
       }
       // -------------------------------------------------------------------------------------
       checkup();
    }
-   active_tx.current_tx_mode = next_tx_type;
-   active_tx.current_tx_isolation_level = next_tx_isolation_level;
-   active_tx.is_read_only = read_only;
-   active_tx.is_durable = FLAGS_wal;  // TODO:
 }
 // -------------------------------------------------------------------------------------
 void Worker::switchToAlwaysUpToDateMode()
@@ -337,11 +350,11 @@ void Worker::checkup()
          versions_space.visitRemoveVersions(worker_id, from_tx_id, local_oltp_lwm - 1,
                                             [&](const TXID tx_id, const DTID dt_id, const u8* version_payload,
                                                 [[maybe_unused]] u64 version_payload_length, const bool called_before) {
+                                               cleaned_untill_oltp_lwm = std::max(cleaned_untill_oltp_lwm, tx_id + 1);
                                                leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
                                                                                                        called_before);
                                                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
                                             });
-         cleaned_untill_oltp_lwm = local_oltp_lwm;
       }
    }
 }
@@ -419,10 +432,17 @@ void Worker::abortTX()
    jumpmu::jump();
 }
 // -------------------------------------------------------------------------------------
-bool Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
+Worker::VISIBILITY Worker::isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts)
 {
    COUNTERS_BLOCK() { CRCounters::myCounters().cc_cross_workers_visibility_check++; }
-   return what_worker_id == whom_worker_id || (all_workers[whom_worker_id]->local_workers_in_progress_txids[what_worker_id] > tts);
+   if (what_worker_id == whom_worker_id) {
+      return VISIBILITY::VISIBLE_ALREADY;
+   }
+   const u64 its = all_workers[whom_worker_id]->local_workers_in_progress_txids[what_worker_id].load();
+   if (tts & MSB) {
+      return VISIBILITY::UNDETERMINED;
+   }
+   return (its > tts) ? VISIBILITY::VISIBLE_ALREADY : VISIBILITY::VISIBLE_NEXT_ROUND;
 }
 // -------------------------------------------------------------------------------------
 // It is also used to check whether the tuple is write-locked, hence we need the to_write intention flag

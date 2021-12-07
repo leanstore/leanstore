@@ -99,6 +99,14 @@ void DTTable::open()
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_skipped, dt_id); });
    columns.emplace("cc_update_chains_pgc_workers_visited",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_workers_visited, dt_id); });
+   columns.emplace("cc_update_chains_pgc_heavy_removed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_heavy_removed, dt_id); });
+   columns.emplace("cc_update_chains_pgc_heavy",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_heavy, dt_id); });
+   columns.emplace("cc_update_chains_pgc_light_removed",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_light_removed, dt_id); });
+   columns.emplace("cc_update_chains_pgc_light",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_update_chains_pgc_light, dt_id); });
    // -------------------------------------------------------------------------------------
    columns.emplace("cc_todo_removed", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_removed, dt_id); });
    columns.emplace("cc_todo_moved_gy", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_moved_gy, dt_id); });
