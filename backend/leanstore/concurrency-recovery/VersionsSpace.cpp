@@ -88,10 +88,7 @@ void VersionsSpace::insertVersion(WORKERID session_id,
          });
          // -------------------------------------------------------------------------------------
          OP_RESULT ret = iterator.seekToInsert(key);
-         if (ret == OP_RESULT::DUPLICATE) {
-            iterator.markAsDirty();
-            jumpmu_continue;
-         }
+         explainWhen(ret == OP_RESULT::DUPLICATE);
          ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
             iterator.splitForKey(key);
@@ -150,7 +147,7 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id,
    return false;
 }
 // -------------------------------------------------------------------------------------
-void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb, const u64 limit)
+void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb, const u64 limit)  // [from, to]
 {
    u16 key_length = sizeof(to_tx_id);
    u8 key_buffer[PAGE_SIZE];
@@ -221,10 +218,11 @@ void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_t
       });
       // -------------------------------------------------------------------------------------
       iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
-         if (leaf->upper_fence.length > sizeof(to_tx_id)) {
-            TXID leaf_upper_fence_tx_id;
+         if (leaf->lower_fence.length >= sizeof(to_tx_id) && leaf->upper_fence.length >= sizeof(to_tx_id)) {
+            TXID leaf_upper_fence_tx_id, leaf_lower_fence_tx_id;  // ATTENTION: we use this also for purging the current aborted tx
             utils::unfold(iterator.leaf->getUpperFenceKey(), leaf_upper_fence_tx_id);
-            if (to_tx_id >= leaf_upper_fence_tx_id) {
+            utils::unfold(iterator.leaf->getLowerFenceKey(), leaf_lower_fence_tx_id);
+            if (leaf_lower_fence_tx_id >= from_tx_id && to_tx_id >= leaf_upper_fence_tx_id) {
                for (s32 s_i = iterator.leaf->count - 1; s_i > iterator.cur; s_i--) {
                   leaf->removeSlot(s_i);
                }
