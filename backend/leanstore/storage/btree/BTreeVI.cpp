@@ -150,6 +150,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          jumpmu_return ret;
       }
       // -------------------------------------------------------------------------------------
+      // Record is found
    restart : {
       MutableSlice primary_payload = iterator.mutableValue();
       auto& tuple = *reinterpret_cast<Tuple*>(primary_payload.data());
@@ -225,11 +226,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       const u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
       const u16 version_payload_length = delta_and_descriptor_size + sizeof(UpdateVersion);
-      COMMANDID command_id = cr::Worker::my().command_id++;
+      COMMANDID command_id = tuple_head.command_id;
       // -------------------------------------------------------------------------------------
       // Write the ChainedTupleDelta
       if (!update_without_versioning) {
-         command_id = cr::Worker::my().insertVersion(dt_id, false, version_payload_length, [&](u8* version_payload) {
+         command_id = cr::Worker::my().insertVersion(dt_id, false, version_payload_length * 2, [&](u8* version_payload) {
             auto& secondary_version = *new (version_payload) UpdateVersion(tuple_head.worker_id, tuple_head.tx_id, tuple_head.command_id, true);
             std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
             BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
@@ -812,6 +813,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple([[maybe_unused]] Sli
          next_command_id = version.command_id;
       });
       if (!found) {
+         explainWhen(next_command_id != ChainedTuple::INVALID_COMMANDID);
          return {OP_RESULT::NOT_FOUND, chain_length};
       }
       if (isVisibleForMe(next_worker_id, next_tx_id, false)) {

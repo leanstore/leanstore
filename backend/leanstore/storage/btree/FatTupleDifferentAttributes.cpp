@@ -84,7 +84,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
             return true;
          }
          // -------------------------------------------------------------------------------------
-         if (cr::Worker::my().local_oltp_lwm > prev_tx_id) {  // There is a chance to quickly determine the result
+         if (cr::Worker::my().global_oltp_lwm > prev_tx_id) {  // There is a chance to quickly determine the result
             for (const auto& olap_worker_id : cr::Worker::my().local_seen_olap_workers) {
                if (cr::Worker::my().isVisibleForIt(olap_worker_id, cur_worker_id, cur_tx_id) != cr::Worker::VISIBILITY::VISIBLE_NEXT_ROUND) {
                   return false;

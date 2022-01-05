@@ -49,7 +49,7 @@ struct Worker {
    static atomic<u64> global_gsn_flushed;       // The minimum of all workers maximum flushed GSN
    static atomic<u64> global_sync_to_this_gsn;  // Artifically increment the workers GSN to this point at the next round to prevent GSN from skewing
                                                 // and undermining RFA
-   static std::mutex global_mutex;
+   static std::shared_mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_workers_in_progress_txid;
    static unique_ptr<atomic<u64>[]> global_workers_rv_start;
@@ -69,12 +69,11 @@ struct Worker {
    WALMetaEntry* active_mt_entry;
    WALDTEntry* active_dt_entry;
    // Snapshot Acquisition Time (SAT) = TXID = CommitMark - 1
-   bool force_si_refresh = false;
    bool workers_sorted = false;
    bool transactions_order_refreshed = false;
-   u64 local_oldest_olap_tx_id;
-   u64 local_oldest_oltp_tx_id;  // OLAP <= OLTP
-   unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;
+   u64 local_oldest_olap_tx_id_in_rv;
+   u64 local_oldest_oltp_tx_id_in_rv;                          // OLAP <= OLTP
+   unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;  // = Readview
    unique_ptr<u64[]> local_workers_sorted_txids;
    unique_ptr<u64[]> local_workers_rv_start;
    unique_ptr<u64[]> local_workers_olap_lwm;
@@ -94,10 +93,13 @@ struct Worker {
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
    static constexpr u64 WORKERS_MASK = (1ull << WORKERS_BITS) - 1;
-   static constexpr u64 OLTP_OLAP_SAME_BIT = (1ull << 63);
-   static constexpr u64 RC_BIT = (1ull << 63);
-   static constexpr u64 OLAP_BIT = (1ull << 62);
-   static constexpr u64 CLEAN_BITS_MASK = ~(OLAP_BIT | RC_BIT);
+   static constexpr u64 LATCH_BIT = (1ull << 63);
+   static constexpr u64 RC_BIT = (1ull << 62);
+   static constexpr u64 OLAP_BIT = (1ull << 61);
+   static constexpr u64 OLTP_OLAP_SAME_BIT = OLAP_BIT;
+   static constexpr u64 CLEAN_BITS_MASK = ~(LATCH_BIT | OLAP_BIT | RC_BIT);
+   // TXID : [LATCH_BIT | RC_BIT | OLAP_BIT | id];
+   // LWM : [LATCH_BIT | RC_BIT | OLTP_OLAP_SAME_BIT | id];
    // -------------------------------------------------------------------------------------
    // Temporary helpers
    static std::tuple<u8, u64> decomposeWIDCM(u64 widcm)
@@ -213,19 +215,19 @@ struct Worker {
    u8 pad4[64];
    void publishOffset()
    {
-      const u64 msb = wal_gct & (u64(1) << 63);
+      const u64 msb = wal_gct & MSB;
       wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
    }
    void publishMaxGSNOffset()
    {
-      const bool was_second_slot = wal_gct & (u64(1) << 63);
+      const bool was_second_slot = wal_gct & MSB;
       u64 msb;
       if (was_second_slot) {
          wal_gct_max_gsn_0.store(clock_gsn, std::memory_order_release);
          msb = 0;
       } else {
          wal_gct_max_gsn_1.store(clock_gsn, std::memory_order_release);
-         msb = 1ull << 63;
+         msb = MSB;
       }
       wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
    }
@@ -233,12 +235,12 @@ struct Worker {
    {
       const u64 worker_atomic = wal_gct.load();
       LID gsn;
-      if (worker_atomic & (1ull << 63)) {
+      if (worker_atomic & (MSB)) {
          gsn = wal_gct_max_gsn_1.load();
       } else {
          gsn = wal_gct_max_gsn_0.load();
       }
-      const u64 max_gsn = worker_atomic & (~(1ull << 63));
+      const u64 max_gsn = worker_atomic & (~(MSB));
       return {gsn, max_gsn};
    }
    // -------------------------------------------------------------------------------------
@@ -327,8 +329,9 @@ struct Worker {
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
    void prepareForIntervalGC();
-   void refreshSnapshotHWMs();
-   void switchToAlwaysUpToDateMode();
+   void refreshSnapshot();
+   void switchToReadCommittedMode();
+   void switchToSnapshotIsolationMode();
    // -------------------------------------------------------------------------------------
    enum class VISIBILITY : u8 { VISIBLE_ALREADY, VISIBLE_NEXT_ROUND, UNDETERMINED };
    bool isVisibleForAll(u64 commited_before_so);

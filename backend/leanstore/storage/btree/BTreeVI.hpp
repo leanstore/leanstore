@@ -114,7 +114,7 @@ class BTreeVI : public BTreeLL
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
       ChainedTuple(u8 worker_id, TXID tx_id) : Tuple(TupleFormat::CHAINED, worker_id, tx_id), is_removed(false) { reset(); }
-      bool isFinal() const { return false; }
+      bool isFinal() const { return command_id == INVALID_COMMANDID; }
       void reset() { can_convert_to_fat_tuple = 1; }
    };
    // static_assert(sizeof(ChainedTuple) <= 42, "");
