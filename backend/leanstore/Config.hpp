@@ -78,6 +78,7 @@ DECLARE_bool(vw);
 DECLARE_bool(todo);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(vi);
+DECLARE_bool(vi_delta);
 DECLARE_bool(vi_utodo);
 DECLARE_bool(vi_rtodo);
 DECLARE_bool(vi_flookup);

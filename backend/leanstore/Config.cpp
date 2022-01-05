@@ -83,6 +83,7 @@ DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(todo, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(vi, true, "BTree with SI using in-place version");
+DEFINE_bool(vi_delta, true, "");
 DEFINE_bool(vi_utodo, true, "");
 DEFINE_bool(vi_rtodo, true, "");
 DEFINE_bool(vi_flookup, false, "");

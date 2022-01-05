@@ -88,6 +88,16 @@ struct LeanStoreAdapter : Adapter<Record> {
    {
       u8 folded_key[Record::maxFoldLength()];
       u16 folded_key_len = Record::foldKey(folded_key, key);
+      // -------------------------------------------------------------------------------------
+      if (!FLAGS_vi_delta) {
+         // Disable deltas, copy the whole tuple [hacky]
+         ensure(update_descriptor.count > 0);
+         ensure(!FLAGS_vi_fat_tuple);
+         update_descriptor.count = 1;
+         update_descriptor.slots[0].offset = 0;
+         update_descriptor.slots[0].length = sizeof(Record);
+      }
+      // -------------------------------------------------------------------------------------
       const OP_RESULT res = btree->updateSameSizeInPlace(
           folded_key, folded_key_len,
           [&](u8* payload, u16 payload_length) {
