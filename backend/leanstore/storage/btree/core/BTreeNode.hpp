@@ -91,7 +91,7 @@ struct BTreeNode : public BTreeNodeHeader {
       // Layout:  key wihtout prefix | Payload
       u16 offset;
       u16 key_len;
-      u16 payload_len : 15;
+      u16 payload_len;
       union {
          HeadType head;
          u8 head_bytes[4];
