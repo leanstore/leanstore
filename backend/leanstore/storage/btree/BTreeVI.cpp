@@ -230,7 +230,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // -------------------------------------------------------------------------------------
       // Write the ChainedTupleDelta
       if (!update_without_versioning) {
-         command_id = cr::Worker::my().insertVersion(dt_id, false, version_payload_length * 2, [&](u8* version_payload) {
+         command_id = cr::Worker::my().insertVersion(dt_id, false, version_payload_length, [&](u8* version_payload) {
             auto& secondary_version = *new (version_payload) UpdateVersion(tuple_head.worker_id, tuple_head.tx_id, tuple_head.command_id, true);
             std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
             BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
