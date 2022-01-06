@@ -22,10 +22,8 @@ struct LeanStoreAdapter {
    }
    LeanStoreAdapter(LeanStore& db, string name) : name(name)
    {
-      if (FLAGS_vw) {
-         btree = &db.registerBTreeVW(name);
-      } else if (FLAGS_vi) {
-         btree = &db.registerBTreeVI(name);
+      if (FLAGS_recover) {
+         btree = &db.retrieveBTreeLL(name);
       } else {
          btree = &db.registerBTreeLL(name);
       }

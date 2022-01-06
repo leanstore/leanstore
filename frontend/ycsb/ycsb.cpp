@@ -50,8 +50,13 @@ int main(int argc, char** argv)
    // LeanStore DB
    LeanStore db;
    unique_ptr<BTreeInterface<YCSBKey, YCSBPayload>> adapter;
-   auto& vs_btree = db.registerBTreeLL("ycsb");
-   adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
+   leanstore::storage::btree::BTreeLL* btree_ptr = nullptr;
+   if (FLAGS_recover) {
+      btree_ptr = &db.retrieveBTreeLL("ycsb");
+   } else {
+      btree_ptr = &db.registerBTreeLL("ycsb");
+   }
+   adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(*btree_ptr));
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);
    db.startProfilingThread();
@@ -61,7 +66,21 @@ int main(int argc, char** argv)
                                     ? FLAGS_ycsb_tuple_count
                                     : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
    // Insert values
-   {
+   if (FLAGS_recover) {
+      // Warmup
+      const u64 n = ycsb_tuple_count;
+      cout << "Warmup: Scanning..." << endl;
+      tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
+         for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
+            YCSBPayload result;
+            table.lookup(t_i, result);
+         }
+      });
+      // -------------------------------------------------------------------------------------
+      cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
+      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
+      cout << "-------------------------------------------------------------------------------------" << endl;
+   } else {
       const u64 n = ycsb_tuple_count;
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Inserting values" << endl;

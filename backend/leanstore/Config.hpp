@@ -70,4 +70,7 @@ DECLARE_bool(vw_todo);
 DECLARE_bool(vi);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
+DECLARE_bool(recover);
+DECLARE_string(persist_file);
+DECLARE_string(recover_file);
 DECLARE_uint64(tmp);

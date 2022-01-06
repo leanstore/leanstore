@@ -22,6 +22,8 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
   public:
    BTreeGeneric& btree;
    HybridPageGuard<BTreeNode> leaf;
+   u16 fence_length;
+   bool is_using_upper_fence;
    s32 cur = -1;
    u8 buffer[1024];
    // -------------------------------------------------------------------------------------
@@ -80,10 +82,10 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          btree.findLeafAndLatch<mode>(leaf, key.data(), key.length());
       }
       cur = leaf->lowerBound<false>(key.data(), key.length());
-      if (cur == leaf->count) {
-         return OP_RESULT::NOT_FOUND;
-      } else {
+      if (cur < leaf->count) {
          return OP_RESULT::OK;
+      } else {
+         return next();
       }
    }
    // -------------------------------------------------------------------------------------
@@ -97,11 +99,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       if (is_equal == true) {
          return OP_RESULT::OK;
       } else if (cur == 0) {
-         if (prevLeaf() && cur < leaf->count) {
-            return OP_RESULT::OK;
-         } else {
-            return OP_RESULT::NOT_FOUND;
-         }
+         return prev();
       } else {
          cur -= 1;
          return OP_RESULT::OK;
@@ -110,29 +108,65 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT next() override
    {
-      if ((cur + 1) < leaf->count) {
-         cur += 1;
-         return OP_RESULT::OK;
-      } else {
-         if (nextLeaf() && leaf->count > 0) {
+      while (true) {
+         ensure(leaf.guard.state != GUARD_STATE::OPTIMISTIC);
+         if ((cur + 1) < leaf->count) {
+            cur += 1;
             return OP_RESULT::OK;
-         } else {
+         } else if (leaf->upper_fence.length == 0) {
             return OP_RESULT::NOT_FOUND;
+         } else {
+            fence_length = leaf->upper_fence.length + 1;
+            is_using_upper_fence = true;
+            std::memcpy(buffer, leaf->getUpperFenceKey(), leaf->upper_fence.length);
+            buffer[fence_length - 1] = 0;
+            // -------------------------------------------------------------------------------------
+            leaf.unlock();
+            // ----------------------------------------------------------------------------------
+            // Construct the next key (lower bound)
+            btree.findLeafAndLatch<mode>(leaf, buffer, fence_length);
+            // -------------------------------------------------------------------------------------
+            if (leaf->count == 0) {
+               continue;
+            }
+            cur = leaf->lowerBound<false>(buffer, fence_length);
+            if (cur == leaf->count) {
+               continue;
+            }
+            return OP_RESULT::OK;
          }
       }
    }
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT prev() override
    {
-      if ((cur - 1) >= 0) {
-         cur -= 1;
-         return OP_RESULT::OK;
-      } else {
-         if (prevLeaf() && leaf->count > 0) {
-            cur = leaf->count - 1;
+      while (true) {
+         if ((cur - 1) >= 0) {
+            cur -= 1;
             return OP_RESULT::OK;
-         } else {
+         } else if (leaf->lower_fence.length == 0) {
             return OP_RESULT::NOT_FOUND;
+         } else {
+            fence_length = leaf->lower_fence.length;
+            is_using_upper_fence = false;
+            std::memcpy(buffer, leaf->getLowerFenceKey(), fence_length);
+            // -------------------------------------------------------------------------------------
+            leaf.unlock();
+            // -------------------------------------------------------------------------------------
+            btree.findLeafAndLatch<mode>(leaf, buffer, fence_length);
+            // -------------------------------------------------------------------------------------
+            if (leaf->count == 0) {
+               continue;
+            }
+            bool is_equal = false;
+            cur = leaf->lowerBound<false>(buffer, fence_length, &is_equal);
+            if (is_equal) {
+               return OP_RESULT::OK;
+            } else if (cur > 0) {
+               cur -= 1;
+            } else {
+               continue;
+            }
          }
       }
    }

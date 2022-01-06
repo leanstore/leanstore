@@ -5,9 +5,9 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <functional>
+#include <mutex>
 #include <tuple>
 #include <unordered_map>
-#include <mutex>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -37,6 +37,10 @@ struct DTRegistry {
       // MVCC / SI
       std::function<void(void* btree_object, const u8* entry, u64 tts)> undo;
       std::function<void(void* btree_object, const u8* entry, u64 tts)> todo;
+      // -------------------------------------------------------------------------------------
+      // Serialization
+      std::function<std::unordered_map<std::string, std::string>(void* btree_boject)> serialize;
+      std::function<void(void* btree_boject, std::unordered_map<std::string, std::string>)> deserialize;
    };
    // -------------------------------------------------------------------------------------
    // TODO: Not syncrhonized
@@ -49,6 +53,7 @@ struct DTRegistry {
    // -------------------------------------------------------------------------------------
    void registerDatastructureType(DTType type, DTRegistry::DTMeta dt_meta);
    DTID registerDatastructureInstance(DTType type, void* root_object, string name);
+   void registerDatastructureInstance(DTType type, void* root_object, string name, DTID dt_id);
    // -------------------------------------------------------------------------------------
    void iterateChildrenSwips(DTID dtid, BufferFrame&, std::function<bool(Swip<BufferFrame>&)>);
    ParentSwipHandler findParent(DTID dtid, BufferFrame&);
@@ -59,8 +64,11 @@ struct DTRegistry {
    // Recovery / SI
    void undo(DTID dt_id, const u8* wal_entry, u64 tts);
    void todo(DTID dt_id, const u8* wal_entry, u64 tts);
+   // -------------------------------------------------------------------------------------
+   // Serialization
+   std::unordered_map<std::string, std::string> serialize(DTID dt_id);
+   void deserialize(DTID dt_id, std::unordered_map<std::string, std::string> map);
 };
-
 // -------------------------------------------------------------------------------------
 }  // namespace storage
 }  // namespace leanstore

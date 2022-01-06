@@ -106,6 +106,8 @@ class BufferManager
    void clearSSD();
    void restore();
    void writeAllBufferFrames();
+   std::unordered_map<std::string, std::string> serialize();
+   void deserialize(std::unordered_map<std::string, std::string> map);
    // -------------------------------------------------------------------------------------
    u64 getPoolSize() { return dram_pool_size; }
    DTRegistry& getDTRegistry() { return DTRegistry::global_dt_registry; }

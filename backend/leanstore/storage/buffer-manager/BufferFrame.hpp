@@ -59,6 +59,7 @@ struct BufferFrame {
    bool operator==(const BufferFrame& other) { return this == &other; }
    // -------------------------------------------------------------------------------------
    inline bool isDirty() const { return header.lastWrittenGSN != page.GSN; }
+   inline bool isFree() const { return header.state == STATE::FREE; }
    // -------------------------------------------------------------------------------------
    // Pre: bf is exclusively locked
    void reset()

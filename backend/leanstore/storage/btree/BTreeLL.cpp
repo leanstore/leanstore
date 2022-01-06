@@ -127,7 +127,7 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
          std::memcpy(wal_entry->payload + key.length(), value.data(), value.length());
          wal_entry.submit();
       } else {
-        iterator.leaf.incrementGSN();
+         iterator.leaf.incrementGSN();
       }
       jumpmu_return OP_RESULT::OK;
    }
@@ -224,6 +224,16 @@ void BTreeLL::undo(void*, const u8*, const u64)
 // -------------------------------------------------------------------------------------
 void BTreeLL::todo(void*, const u8*, const u64) {}
 // -------------------------------------------------------------------------------------
+std::unordered_map<std::string, std::string> BTreeLL::serialize(void* btree_object)
+{
+   return BTreeGeneric::serialize(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)));
+}
+// -------------------------------------------------------------------------------------
+void BTreeLL::deserialize(void* btree_object, std::unordered_map<std::string, std::string> serialized)
+{
+   BTreeGeneric::deserialize(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), serialized);
+}
+// -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTreeLL::getMeta()
 {
    DTRegistry::DTMeta btree_meta = {.iterate_children = iterateChildrenSwips,
@@ -231,7 +241,9 @@ struct DTRegistry::DTMeta BTreeLL::getMeta()
                                     .check_space_utilization = checkSpaceUtilization,
                                     .checkpoint = checkpoint,
                                     .undo = undo,
-                                    .todo = todo};
+                                    .todo = todo,
+                                    .serialize = serialize,
+                                    .deserialize = deserialize};
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------

@@ -376,8 +376,9 @@ void delivery(Integer w_id, Integer carrier_id, Timestamp datetime)
              return false;
           },
           [&]() { o_id = minInteger; });
-      if (o_id == minInteger)
+      if (o_id == minInteger) {
          continue;
+      }
       // -------------------------------------------------------------------------------------
       if (FLAGS_tpcc_remove) {
          const auto ret = neworder.erase({w_id, d_id, o_id});
@@ -892,4 +893,22 @@ int tx(Integer w_id)
    rnd -= 400;
    newOrderRnd(w_id);
    return 4;
+}
+// -------------------------------------------------------------------------------------
+// To recover state from last run
+void prepareThread()
+{
+   Integer t_id = Integer(leanstore::WorkerCounters::myCounters().t_id.load());
+   Integer h_id = leanstore::WorkerCounters::myCounters().variable_for_workload;
+   history.scanDesc(
+       {t_id, std::numeric_limits<Integer>::max()},
+       [&](const history_t::Key& key, const history_t&) {
+          if (key.thread_id == t_id) {
+             h_id = key.h_pk + 1;
+             return false;
+          }
+          return false;
+       },
+       []() {});
+   leanstore::WorkerCounters::myCounters().variable_for_workload = h_id;
 }

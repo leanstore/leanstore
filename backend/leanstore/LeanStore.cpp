@@ -11,6 +11,10 @@
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
+#include "rapidjson/document.h"
+#include "rapidjson/istreamwrapper.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
 #include "tabulate/table.hpp"
 // -------------------------------------------------------------------------------------
 #include <linux/fs.h>
@@ -24,11 +28,22 @@
 // -------------------------------------------------------------------------------------
 using namespace tabulate;
 using leanstore::utils::threadlocal::sum;
+namespace rs = rapidjson;
 namespace leanstore
 {
 // -------------------------------------------------------------------------------------
 LeanStore::LeanStore()
 {
+   LeanStore::addStringFlag("ssd_path", &FLAGS_ssd_path);
+   if (FLAGS_recover_file != "./leanstore.json") {
+      FLAGS_recover = true;
+   }
+   if (FLAGS_persist_file != "./leanstore.json") {
+      FLAGS_persist = true;
+   }
+   if (FLAGS_recover) {
+      deserializeFlags();
+   }
    // -------------------------------------------------------------------------------------
    // Check if configurations make sense
    ensure(!FLAGS_vw || FLAGS_wal);
@@ -57,8 +72,10 @@ LeanStore::LeanStore()
    BMC::global_bf = buffer_manager.get();
    // -------------------------------------------------------------------------------------
    DTRegistry::global_dt_registry.registerDatastructureType(0, storage::btree::BTreeLL::getMeta());
-   DTRegistry::global_dt_registry.registerDatastructureType(1, storage::btree::BTreeVW::getMeta());
-   DTRegistry::global_dt_registry.registerDatastructureType(2, storage::btree::BTreeVI::getMeta());
+   // -------------------------------------------------------------------------------------
+   if (FLAGS_recover) {
+      deserializeState();
+   }
    // -------------------------------------------------------------------------------------
    u64 end_of_block_device;
    if (FLAGS_wal_offset_gib == 0) {
@@ -75,6 +92,10 @@ LeanStore::~LeanStore()
    bg_threads_keep_running = false;
    while (bg_threads_counter) {
       MYPAUSE();
+   }
+   if (FLAGS_persist) {
+      serializeState();
+      buffer_manager->writeAllBufferFrames();
    }
    //  close(ssd_fd);
 }
@@ -201,35 +222,6 @@ storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name)
    btree.create(dtid, &bf);
    return btree;
 }
-
-// -------------------------------------------------------------------------------------
-storage::btree::BTreeVW& LeanStore::registerBTreeVW(string name)
-{
-   assert(btrees_vw.find(name) == btrees_vw.end());
-   auto& btree = btrees_vw[name];
-   DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(1, reinterpret_cast<void*>(&btree), name);
-   auto& bf = buffer_manager->allocatePage();
-   Guard guard(bf.header.latch, GUARD_STATE::EXCLUSIVE);
-   bf.header.keep_in_memory = true;
-   bf.page.dt_id = dtid;
-   guard.unlock();
-   btree.create(dtid, &bf);
-   return btree;
-}
-// -------------------------------------------------------------------------------------
-storage::btree::BTreeVI& LeanStore::registerBTreeVI(string name)
-{
-   assert(btrees_vi.find(name) == btrees_vi.end());
-   auto& btree = btrees_vi[name];
-   DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(2, reinterpret_cast<void*>(&btree), name);
-   auto& bf = buffer_manager->allocatePage();
-   Guard guard(bf.header.latch, GUARD_STATE::EXCLUSIVE);
-   bf.header.keep_in_memory = true;
-   bf.page.dt_id = dtid;
-   guard.unlock();
-   btree.create(dtid, &bf);
-   return btree;
-}
 // -------------------------------------------------------------------------------------
 u64 LeanStore::getConfigHash()
 {
@@ -241,15 +233,138 @@ LeanStore::GlobalStats LeanStore::getGlobalStats()
    return global_stats;
 }
 // -------------------------------------------------------------------------------------
-void LeanStore::persist()
+void LeanStore::serializeState()
 {
-   // TODO
+   // Serialize data structure instances
+   std::ofstream json_file;
+   json_file.open(FLAGS_persist_file, ios::trunc);
+   rs::Document d;
+   rs::Document::AllocatorType& allocator = d.GetAllocator();
+   d.SetObject();
+   // -------------------------------------------------------------------------------------
+   std::unordered_map<std::string, std::string> serialized_bm_map = buffer_manager->serialize();
+   rs::Value bm_serialized(rs::kObjectType);
+   for (const auto& [key, value] : serialized_bm_map) {
+      rs::Value k, v;
+      k.SetString(key.c_str(), key.length(), allocator);
+      v.SetString(value.c_str(), value.length(), allocator);
+      bm_serialized.AddMember(k, v, allocator);
+   }
+   d.AddMember("buffer_manager", bm_serialized, allocator);
+   // -------------------------------------------------------------------------------------
+   rs::Value dts(rs::kArrayType);
+   for (auto& dt : DTRegistry::global_dt_registry.dt_instances_ht) {
+      rs::Value dt_json_object(rs::kObjectType);
+      const DTID dt_id = dt.first;
+      rs::Value name;
+      name.SetString(std::get<2>(dt.second).c_str(), std::get<2>(dt.second).length(), allocator);
+      dt_json_object.AddMember("name", name, allocator);
+      dt_json_object.AddMember("type", rs::Value(std::get<0>(dt.second)), allocator);
+      dt_json_object.AddMember("id", rs::Value(dt_id), allocator);
+      // -------------------------------------------------------------------------------------
+      std::unordered_map<std::string, std::string> serialized_dt_map = DTRegistry::global_dt_registry.serialize(dt_id);
+      rs::Value dt_serialized(rs::kObjectType);
+      for (const auto& [key, value] : serialized_dt_map) {
+         rs::Value k, v;
+         k.SetString(key.c_str(), key.length(), allocator);
+         v.SetString(value.c_str(), value.length(), allocator);
+         dt_serialized.AddMember(k, v, allocator);
+      }
+      dt_json_object.AddMember("serialized", dt_serialized, allocator);
+      // -------------------------------------------------------------------------------------
+      dts.PushBack(dt_json_object, allocator);
+   }
+   d.AddMember("registered_datastructures", dts, allocator);
+   // -------------------------------------------------------------------------------------
+   serializeFlags(d);
+   rs::StringBuffer sb;
+   rs::PrettyWriter<rs::StringBuffer> writer(sb);
+   d.Accept(writer);
+   json_file << sb.GetString();
 }
 // -------------------------------------------------------------------------------------
-void LeanStore::restore()
+void LeanStore::serializeFlags(rs::Document& d)
 {
-   // TODO
+   rs::Value flags_serialized(rs::kObjectType);
+   rs::Document::AllocatorType& allocator = d.GetAllocator();
+   for (auto flags : persisted_string_flags) {
+      rs::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
+      rs::Value value;
+      value.SetString((*std::get<1>(flags)).c_str(), (*std::get<1>(flags)).length(), allocator);
+      flags_serialized.AddMember(name, value, allocator);
+   }
+   for (auto flags : persisted_s64_flags) {
+      rs::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
+      string value_string = std::to_string(*std::get<1>(flags));
+      rs::Value value;
+      value.SetString(value_string.c_str(), value_string.length(), d.GetAllocator());
+      flags_serialized.AddMember(name, value, allocator);
+   }
+   d.AddMember("flags", flags_serialized, allocator);
 }
+// -------------------------------------------------------------------------------------
+void LeanStore::deserializeState()
+{
+   std::ifstream json_file;
+   json_file.open(FLAGS_recover_file);
+   rs::IStreamWrapper isw(json_file);
+   rs::Document d;
+   d.ParseStream(isw);
+   // -------------------------------------------------------------------------------------
+   const rs::Value& bm = d["buffer_manager"];
+   std::unordered_map<std::string, std::string> serialized_bm_map;
+   for (rs::Value::ConstMemberIterator itr = bm.MemberBegin(); itr != bm.MemberEnd(); ++itr) {
+      serialized_bm_map[itr->name.GetString()] = itr->value.GetString();
+   }
+   buffer_manager->deserialize(serialized_bm_map);
+   // -------------------------------------------------------------------------------------
+   const rs::Value& dts = d["registered_datastructures"];
+   assert(dts.IsArray());
+   for (auto& dt : dts.GetArray()) {
+      assert(dt.IsObject());
+      const DTID dt_id = dt["id"].GetInt();
+      const DTType dt_type = dt["type"].GetInt();
+      const std::string dt_name = dt["name"].GetString();
+      std::unordered_map<std::string, std::string> serialized_dt_map;
+      const rs::Value& serialized_object = dt["serialized"];
+      for (rs::Value::ConstMemberIterator itr = serialized_object.MemberBegin(); itr != serialized_object.MemberEnd(); ++itr) {
+         serialized_dt_map[itr->name.GetString()] = itr->value.GetString();
+      }
+      // -------------------------------------------------------------------------------------
+      if (dt_type == 0) {
+         auto& btree = btrees_ll[dt_name];
+         DTRegistry::global_dt_registry.registerDatastructureInstance(0, reinterpret_cast<void*>(&btree), dt_name, dt_id);
+      } else {
+         UNREACHABLE();
+      }
+      DTRegistry::global_dt_registry.deserialize(dt_id, serialized_dt_map);
+   }
+}
+// -------------------------------------------------------------------------------------
+void LeanStore::deserializeFlags()
+{
+   std::ifstream json_file;
+   json_file.open(FLAGS_recover_file);
+   rs::IStreamWrapper isw(json_file);
+   rs::Document d;
+   d.ParseStream(isw);
+   // -------------------------------------------------------------------------------------
+   const rs::Value& flags = d["flags"];
+   std::unordered_map<std::string, std::string> flags_serialized;
+   for (rs::Value::ConstMemberIterator itr = flags.MemberBegin(); itr != flags.MemberEnd(); ++itr) {
+      flags_serialized[itr->name.GetString()] = itr->value.GetString();
+   }
+   for (auto flags : persisted_string_flags) {
+      *std::get<1>(flags) = flags_serialized[std::get<0>(flags)];
+   }
+   for (auto flags : persisted_s64_flags) {
+      *std::get<1>(flags) = atoi(flags_serialized[std::get<0>(flags)].c_str());
+   }
+}
+// -------------------------------------------------------------------------------------
+// Static members
+std::list<std::tuple<string, fLS::clstring*>> LeanStore::persisted_string_flags = {};
+std::list<std::tuple<string, s64*>> LeanStore::persisted_s64_flags = {};
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------

@@ -59,6 +59,8 @@ class BTreeGeneric
    static ParentSwipHandler findParent(BTreeGeneric& btree_object, BufferFrame& to_find);
    static void iterateChildrenSwips(void* btree_object, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback);
    static void checkpoint(void*, BufferFrame& bf, u8* dest);
+   static std::unordered_map<std::string, std::string> serialize(BTreeGeneric&);
+   static void deserialize(BTreeGeneric&, std::unordered_map<std::string, std::string>);
    // -------------------------------------------------------------------------------------
    ~BTreeGeneric();
    // -------------------------------------------------------------------------------------

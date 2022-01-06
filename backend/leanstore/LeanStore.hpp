@@ -2,9 +2,8 @@
 #include "Config.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
 #include "storage/btree/BTreeLL.hpp"
-#include "storage/btree/BTreeVI.hpp"
-#include "storage/btree/BTreeVW.hpp"
 #include "storage/buffer-manager/BufferManager.hpp"
+#include "rapidjson/document.h"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <unordered_map>
@@ -22,8 +21,6 @@ class LeanStore
   public:
    // Poor man catalog
    std::unordered_map<string, storage::btree::BTreeLL> btrees_ll;
-   std::unordered_map<string, storage::btree::BTreeVW> btrees_vw;
-   std::unordered_map<string, storage::btree::BTreeVI> btrees_vi;
    // -------------------------------------------------------------------------------------
    s32 ssd_fd;
    // -------------------------------------------------------------------------------------
@@ -49,10 +46,6 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    storage::btree::BTreeLL& registerBTreeLL(string name);
    storage::btree::BTreeLL& retrieveBTreeLL(string name) { return btrees_ll[name]; }
-   storage::btree::BTreeVW& registerBTreeVW(string name);
-   storage::btree::BTreeVW& retrieveBTreeVW(string name) { return btrees_vw[name]; }
-   storage::btree::BTreeVI& registerBTreeVI(string name);
-   storage::btree::BTreeVI& retrieveBTreeVI(string name) { return btrees_vi[name]; }
    // -------------------------------------------------------------------------------------
    storage::BufferManager& getBufferManager() { return *buffer_manager; }
    cr::CRManager& getCRManager() { return *cr_manager; }
@@ -62,6 +55,18 @@ class LeanStore
    void restore();
    // -------------------------------------------------------------------------------------
    ~LeanStore();
+  // State
+  private:
+   static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;
+   static std::list<std::tuple<string, s64*>> persisted_s64_flags;
+   void serializeFlags(rapidjson::Document& d);
+   void deserializeFlags();
+   void serializeState();
+   void deserializeState();
+public:
+     static void addStringFlag(string name, fLS::clstring* flag) { persisted_string_flags.push_back(std::make_tuple(name, flag)); }
+   static void addS64Flag(string name, s64* flag) { persisted_s64_flags.push_back(std::make_tuple(name, flag)); }
+
 };
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore

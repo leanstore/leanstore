@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(tpcc_warehouse_count, 1, "");
+DEFINE_int64(tpcc_warehouse_count, 1, "");
 DEFINE_int32(tpcc_abort_pct, 0, "");
 DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
@@ -55,6 +55,7 @@ int main(int argc, char** argv)
 {
    gflags::SetUsageMessage("Leanstore TPC-C");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
+   LeanStore::addS64Flag("TPC_SCALE", &FLAGS_tpcc_warehouse_count);
    // -------------------------------------------------------------------------------------
    LeanStore db;
    auto& crm = db.getCRManager();
@@ -79,7 +80,7 @@ int main(int argc, char** argv)
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
    // -------------------------------------------------------------------------------------
    // const u64 load_threads = (FLAGS_tpcc_fast_load) ? thread::hardware_concurrency() : FLAGS_worker_threads;
-   {
+   if (!FLAGS_recover) {
       crm.scheduleJobSync(0, [&]() {
          cr::Worker::my().startTX();
          loadItem();
@@ -122,6 +123,7 @@ int main(int argc, char** argv)
    for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
+         prepareThread();
          volatile u64 tx_acc = 0;
          cr::Worker::my().refreshSnapshot();
          while (keep_running) {

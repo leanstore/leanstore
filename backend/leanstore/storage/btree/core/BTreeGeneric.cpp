@@ -460,18 +460,18 @@ bool BTreeGeneric::checkSpaceUtilization(void* btree_object, BufferFrame& bf, Op
 void BTreeGeneric::checkpoint(void*, BufferFrame& bf, u8* dest)
 {
    std::memcpy(dest, bf.page.dt, EFFECTIVE_PAGE_SIZE);
-   auto node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
-   auto dest_node = *reinterpret_cast<BTreeNode*>(bf.page.dt);
-   if (!node.is_leaf) {
+   auto& dest_node = *reinterpret_cast<BTreeNode*>(dest);
+   // root node is handled as inner
+   if (dest_node.isInner()) {
       for (u64 t_i = 0; t_i < dest_node.count; t_i++) {
          if (!dest_node.getChild(t_i).isEVICTED()) {
-            auto& bf = dest_node.getChild(t_i).bfRefAsHot();
-            dest_node.getChild(t_i).evict(bf.header.pid);
+           auto& child_bf = *dest_node.getChild(t_i).bfPtrAsHot();
+           dest_node.getChild(t_i).evict(child_bf.header.pid);
          }
       }
       if (!dest_node.upper.isEVICTED()) {
-         auto& bf = dest_node.upper.bfRefAsHot();
-         dest_node.upper.evict(bf.header.pid);
+         auto& child_bf = *dest_node.upper.bfPtrAsHot();
+         dest_node.upper.evict(child_bf.header.pid);
       }
    }
 }
@@ -616,6 +616,43 @@ u32 BTreeGeneric::bytesFree()
 {
    return iterateAllPages([](BTreeNode& inner) { return inner.freeSpaceAfterCompaction(); },
                           [](BTreeNode& leaf) { return leaf.freeSpaceAfterCompaction(); });
+}
+// -------------------------------------------------------------------------------------
+std::unordered_map<std::string, std::string> BTreeGeneric::serialize(BTreeGeneric& btree)
+{
+   assert(btree.meta_node_bf->page.dt_id == btree.dt_id);
+   return {{"dt_id", std::to_string(btree.dt_id)},
+           {"height", std::to_string(btree.height.load())},
+           {"meta_pid", std::to_string(btree.meta_node_bf->header.pid)}};
+}
+// -------------------------------------------------------------------------------------
+void BTreeGeneric::deserialize(BTreeGeneric& btree, std::unordered_map<std::string, std::string> map)
+{
+   btree.dt_id = std::stol(map["dt_id"]);
+   btree.height = std::stol(map["height"]);
+   btree.meta_node_bf = reinterpret_cast<BufferFrame*>(std::stol(map["meta_pid"]) | (u64(1) << 63));
+   HybridLatch dummy_latch;
+   Guard dummy_guard(&dummy_latch);
+   dummy_guard.toOptimisticSpin();
+   u16 failcounter = 0;
+   while (true) {
+      jumpmuTry()
+      {
+         btree.meta_node_bf = &BMC::global_bf->resolveSwip(dummy_guard, *reinterpret_cast<Swip<BufferFrame>*>(&btree.meta_node_bf));
+         jumpmu_break;
+      }
+      jumpmuCatch()
+      {
+         failcounter++;
+         if (failcounter >= 200) {
+            cerr << "Failed to allocate MetaNode, Buffer might be to small" << endl;
+            assert(false);
+         }
+      }
+   }
+   btree.meta_node_bf->header.keep_in_memory = true;
+   assert(btree.meta_node_bf->page.dt_id == btree.dt_id);
+   // assert(reinterpret_cast<BTreeNode*>(btree.meta_node_bf->page.dt)->count > 0);
 }
 // -------------------------------------------------------------------------------------
 void BTreeGeneric::printInfos(uint64_t totalSize)
