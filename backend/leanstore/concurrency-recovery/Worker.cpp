@@ -24,7 +24,6 @@ atomic<u64> Worker::global_gsn_flushed = 0;
 atomic<u64> Worker::global_sync_to_this_gsn = 0;
 std::shared_mutex Worker::global_mutex;                                  // Unused
 std::unique_ptr<atomic<u64>[]> Worker::global_workers_in_progress_txid;  // All transactions < are committed
-std::unique_ptr<atomic<u64>[]> Worker::global_workers_rv_start;          //
 // -------------------------------------------------------------------------------------
 std::unique_ptr<atomic<u64>[]> Worker::global_workers_oltp_lwm;
 std::unique_ptr<atomic<u64>[]> Worker::global_workers_olap_lwm;
@@ -45,7 +44,6 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsS
    if (!is_page_provider) {
       local_workers_in_progress_txids = make_unique<atomic<u64>[]>(workers_count);
       local_workers_sorted_txids = make_unique<u64[]>(workers_count + 1);
-      local_workers_rv_start = make_unique<u64[]>(workers_count + 1);
       local_workers_olap_lwm = make_unique<u64[]>(workers_count);
       global_workers_in_progress_txid[worker_id] = 0;
    }
@@ -247,7 +245,6 @@ void Worker::prepareForIntervalGC()
       COUNTERS_BLOCK() { CRCounters::myCounters().cc_prepare_igc++; }
       local_workers_sorted_txids[0] = 0;
       for (u64 w_i = 0; w_i < workers_count; w_i++) {
-         local_workers_rv_start[w_i] = global_workers_rv_start[w_i].load();
          local_workers_sorted_txids[w_i + 1] = (local_workers_in_progress_txids[w_i] << WORKERS_BITS) | w_i;
       }
       // Avoid extra work if the last round also was full of single statement workers
