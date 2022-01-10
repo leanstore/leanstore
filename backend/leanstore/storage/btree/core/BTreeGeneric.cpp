@@ -536,9 +536,9 @@ std::unordered_map<std::string, std::string> BTreeGeneric::serialize(BTreeGeneri
 // -------------------------------------------------------------------------------------
 void BTreeGeneric::deserialize(BTreeGeneric& btree, std::unordered_map<std::string, std::string> map)
 {
-   btree.dt_id = std::stod(map["dt_id"]);
-   btree.height = std::stod(map["height"]);
-   btree.meta_node_bf.evict(std::stod(map["meta_pid"]));
+   btree.dt_id = std::stol(map["dt_id"]);
+   btree.height = std::stol(map["height"]);
+   btree.meta_node_bf.evict(std::stol(map["meta_pid"]));
    HybridLatch dummy_latch;
    Guard dummy_guard(&dummy_latch);
    dummy_guard.toOptimisticSpin();
