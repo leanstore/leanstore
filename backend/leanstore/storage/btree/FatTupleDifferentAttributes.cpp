@@ -59,7 +59,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
    // -------------------------------------------------------------------------------------
    const bool pgc = (FLAGS_pgc) && deltas_count >= 1;
    // -------------------------------------------------------------------------------------
-   if (cr::Worker::my().isVisibleForAll(tx_id)) {
+   if (cr::Worker::my().isVisibleForAll(worker_id, tx_id)) {
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_count; }
       used_space = value_length;
       deltas_count = 0;
@@ -72,32 +72,15 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_visited[btree.dt_id] += deltas_count; }
       TXID prev_delta_worker_id = worker_id;
       TXID prev_delta_tx_id = tx_id;
+      TXID prev_delta_commit_ts = cr::Worker::my().getCommitTimestamp(worker_id, tx_id);
       // -------------------------------------------------------------------------------------
       auto delta = reinterpret_cast<Delta*>(payload + value_length);
       u64 offset = value_length;
       u64 delta_i = 0;
       std::vector<Delta*> deltas_to_merge;
       // -------------------------------------------------------------------------------------
-      auto can_we_delete_light = [&](const u64 prev_worker_id, const u64 prev_tx_id, const u64 cur_worker_id, const u64 cur_tx_id) {
-         if (cr::Worker::my().isVisibleForAll(prev_tx_id)) {
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_light_removed[btree.dt_id]++; }
-            return true;
-         }
-         // -------------------------------------------------------------------------------------
-         if (cr::Worker::my().global_oltp_lwm > prev_tx_id) {  // There is a chance to quickly determine the result
-            for (const auto& olap_worker_id : cr::Worker::my().local_seen_olap_workers) {
-               if (cr::Worker::my().isVisibleForIt(olap_worker_id, cur_worker_id, cur_tx_id) != cr::Worker::VISIBILITY::VISIBLE_NEXT_ROUND) {
-                  return false;
-               }
-            }
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_light_removed[btree.dt_id]++; }
-            return true;
-         }
-         // -------------------------------------------------------------------------------------
-         return false;
-      };
       auto can_we_delete_heavy = [&](const u64 prev_worker_id, const u64 prev_tx_id, const u64 cur_worker_id, const u64 cur_tx_id) {
-         if (cr::Worker::my().isVisibleForAll(prev_tx_id)) {
+         if (cr::Worker::my().isVisibleForAll(prev_worker_id, prev_tx_id)) {
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_light_removed[btree.dt_id]++; }
             return true;
          }
@@ -131,13 +114,8 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
          if (delta->worker_id == cr::Worker::my().workerID() && delta->tx_id == cr::activeTX().TTS()) {
             should_delete = false;
          } else {
-            if (heavyweight) {
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_heavy[btree.dt_id]++; }
-               should_delete = can_we_delete_heavy(prev_delta_worker_id, prev_delta_tx_id, delta->worker_id, delta->tx_id);
-            } else {
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_light[btree.dt_id]++; }
-               should_delete = can_we_delete_light(prev_delta_worker_id, prev_delta_tx_id, delta->worker_id, delta->tx_id);
-            }
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_heavy[btree.dt_id]++; }
+            should_delete = can_we_delete_heavy(prev_delta_worker_id, prev_delta_tx_id, delta->worker_id, delta->tx_id);
          }
          if (should_delete) {
             deltas_to_merge.push_back(delta);
@@ -205,8 +183,9 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
          delta_i++;
          offset += sizeof(Delta) + delta->getDescriptor().size() + delta->getDescriptor().diffLength();
          if (delta_i < deltas_count) {
-            prev_delta_tx_id = delta->tx_id;
             prev_delta_worker_id = delta->worker_id;
+            prev_delta_tx_id = delta->tx_id;
+            prev_delta_commit_ts = cr::Worker::my().getCommitTimestamp(prev_delta_worker_id, prev_delta_tx_id);
             delta = reinterpret_cast<Delta*>(payload + offset);
             continue;
          } else {
@@ -380,7 +359,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    next_command_id = chain_head.command_id;
    // TODO: check for used_space overflow
    while (true) {
-      if (cr::Worker::my().isVisibleForAll(next_tx_id)) {  // Pruning versions space might get delayed
+      if (cr::Worker::my().isVisibleForAll(next_worker_id, next_tx_id)) {  // Pruning versions space might get delayed
          break;
       }
       // -------------------------------------------------------------------------------------

@@ -52,9 +52,10 @@ struct Worker {
    static std::shared_mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_workers_current_start_timestamp;
-   static atomic<u64> global_oltp_lwm;  // TODO:
-   static atomic<u64> global_olap_lwm;  // TODO:
-                                        // -------------------------------------------------------------------------------------
+   static atomic<u64> global_oltp_lwm;        // TODO:
+   static atomic<u64> global_oldest_tx;       // TODO:
+   static atomic<u64> global_oldest_oltp_tx;  // TODO:
+                                              // -------------------------------------------------------------------------------------
 
    // -------------------------------------------------------------------------------------
    // All the local tracking data
@@ -65,7 +66,6 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    u64 local_oltp_lwm;
    u64 local_olap_lwm;
-   std::vector<WORKERID> local_seen_olap_workers;
    u64 command_id = 0;
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;
@@ -74,11 +74,10 @@ struct Worker {
    bool workers_sorted = false;
    bool transactions_order_refreshed = false;
    u64 local_oldest_olap_tx_id_in_rv;
-   u64 local_oldest_oltp_tx_id_in_rv;                          // OLAP <= OLTP
+   u64 local_oldest_oltp_tx_id_in_rv;                  // OLAP <= OLTP
    unique_ptr<u64[]> local_workers_in_progress_txids;  // = Readview
-   unique_ptr<u64[]> local_workers_sorted_txids;
-   unique_ptr<u64[]> local_workers_olap_lwm;
-   u64 olap_in_progress_tx_count = 0;
+   unique_ptr<u64[]> local_workers_start_ts;
+   unique_ptr<u64[]> local_workers_sorted_start_ts;
    // -------------------------------------------------------------------------------------
    // Clean up state
    u64 cleaned_untill_oltp_lwm = 0;
@@ -323,7 +322,7 @@ struct Worker {
                 bool read_only = false);
    void commitTX();
    void abortTX();
-   void checkup();
+   void garbageCollection();
    void shutdown();
    // -------------------------------------------------------------------------------------
    inline LID getCurrentGSN() { return clock_gsn; }
@@ -331,14 +330,18 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    void prepareForIntervalGC();
    void refreshSnapshot();
+   void prepareForGarbageCollection();
    void switchToReadCommittedMode();
    void switchToSnapshotIsolationMode();
    // -------------------------------------------------------------------------------------
    enum class VISIBILITY : u8 { VISIBLE_ALREADY, VISIBLE_NEXT_ROUND, UNDETERMINED };
-   bool isVisibleForAll(u64 commited_before_so);
-   VISIBILITY isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
+   bool isVisibleForAll(WORKERID worker_id, TXID start_ts);
+   bool isVisibleForAll(TXID commit_ts);
    bool isVisibleForMe(u8 worker_id, u64 tts, bool to_write = true);
-   bool isVisibleForMe(u64 tts);
+   VISIBILITY isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
+   VISIBILITY isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts);
+   TXID getCommitTimestamp(WORKERID worker_id, TXID start_ts) { return all_workers[worker_id]->getCommitTimestamp(start_ts); }
+   TXID getCommitTimestamp(TXID start_ts);
    // -------------------------------------------------------------------------------------
    void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);

@@ -72,7 +72,6 @@ DECLARE_bool(wal_fsync);
 DECLARE_string(isolation_level);
 DECLARE_bool(mv);
 DECLARE_bool(2pl);
-DECLARE_bool(commit_hwm);
 DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
 DECLARE_bool(todo);

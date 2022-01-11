@@ -77,7 +77,6 @@ DEFINE_bool(wal_fsync, false, "");
 DEFINE_string(isolation_level, "si", "options: ru (READ_UNCOMMITTED), rc (READ_COMMITTED), si (SNAPSHOT_ISOLATION), ser (SERIALIZABLE)");
 DEFINE_bool(mv, true, "Multi-version");
 DEFINE_bool(2pl, false, "");
-DEFINE_bool(commit_hwm, true, "");
 DEFINE_uint64(si_refresh_rate, 0, "");
 DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(todo, true, "");

@@ -195,7 +195,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                                   tuple_head.command_id != Tuple::INVALID_COMMANDID &&
                                   !(tuple_head.worker_id == cr::Worker::my().workerID() && tuple_head.tx_id == cr::activeTX().TTS());
       if (convert_to_fat_tuple) {
-         convert_to_fat_tuple &= !cr::Worker::my().isVisibleForAll(tuple_head.tx_id);
+         convert_to_fat_tuple &= !cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_id);
       }
       if (convert_to_fat_tuple) {
          convert_to_fat_tuple &= utils::RandomGenerator::getRandU64(0, convertToFatTupleThreshold()) == 0;
