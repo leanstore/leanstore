@@ -217,7 +217,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          // Avoid creating version if all transactions are running in read-committed mode and the current tx is single-statement
          update_without_versioning &= cr::activeTX().isSingleStatement();
          for (u64 w_i = 0; w_i < cr::Worker::my().workers_count && update_without_versioning; w_i++) {
-            update_without_versioning &= (cr::Worker::my().global_workers_in_progress_txid[w_i].load() & (1ull << 63));
+            update_without_versioning &= (cr::Worker::my().global_workers_current_start_timestamp[w_i].load() & (1ull << 63));
          }
       }
       // -------------------------------------------------------------------------------------

@@ -104,6 +104,8 @@ LeanStore::LeanStore()
          std::string name = "versions_space_" + std::to_string(w_i);
          versions_space->update_btrees[w_i] = &registerBTreeLL(name + "_updates", false);
          versions_space->remove_btrees[w_i] = &registerBTreeLL(name + "_removes", false);
+         cr_manager->workers[w_i]->start_to_commit_map = &registerBTreeLL("start_commit_" + std::to_string(w_i), false);
+         cr_manager->workers[w_i]->commit_to_start_map = &registerBTreeLL("commit_start_" + std::to_string(w_i), false);
       }
    });
    // -------------------------------------------------------------------------------------

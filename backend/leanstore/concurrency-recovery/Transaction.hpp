@@ -31,7 +31,7 @@ struct Transaction {
    enum class TYPE : u8 { USER, SYSTEM };
    enum class STATE { IDLE, STARTED, READY_TO_COMMIT, COMMITTED, ABORTED };
    STATE state = STATE::IDLE;
-   u64 tx_id = 0;
+   u64 tx_id = 0;  // = start timestamp
    LID min_observed_gsn_when_started, max_observed_gsn;
    TX_MODE current_tx_mode = TX_MODE::OLTP;
    TX_ISOLATION_LEVEL current_tx_isolation_level = TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION;

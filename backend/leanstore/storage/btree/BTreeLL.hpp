@@ -49,6 +49,7 @@ class BTreeLL : public KVInterface, public BTreeGeneric
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
+   virtual OP_RESULT insertCallback(std::function<void(u8*)> o_key, u16 key_length, std::function<void(u8*)> value, u16 value_length) override;
    virtual OP_RESULT updateSameSizeInPlace(u8* key,
                                            u16 key_length,
                                            function<void(u8* value, u16 value_size)>,

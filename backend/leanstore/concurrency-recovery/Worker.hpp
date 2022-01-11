@@ -51,15 +51,18 @@ struct Worker {
                                                 // and undermining RFA
    static std::shared_mutex global_mutex;
    // -------------------------------------------------------------------------------------
-   static unique_ptr<atomic<u64>[]> global_workers_in_progress_txid;
-   static unique_ptr<atomic<u64>[]> global_workers_oltp_lwm;
-   static unique_ptr<atomic<u64>[]> global_workers_olap_lwm;
+   static unique_ptr<atomic<u64>[]> global_workers_current_start_timestamp;
    static atomic<u64> global_oltp_lwm;  // TODO:
    static atomic<u64> global_olap_lwm;  // TODO:
                                         // -------------------------------------------------------------------------------------
 
    // -------------------------------------------------------------------------------------
    // All the local tracking data
+   // New age
+   leanstore::KVInterface* start_to_commit_map;
+   leanstore::KVInterface* commit_to_start_map;
+
+   // -------------------------------------------------------------------------------------
    u64 local_oltp_lwm;
    u64 local_olap_lwm;
    std::vector<WORKERID> local_seen_olap_workers;
@@ -72,7 +75,7 @@ struct Worker {
    bool transactions_order_refreshed = false;
    u64 local_oldest_olap_tx_id_in_rv;
    u64 local_oldest_oltp_tx_id_in_rv;                          // OLAP <= OLTP
-   unique_ptr<atomic<u64>[]> local_workers_in_progress_txids;  // = Readview
+   unique_ptr<u64[]> local_workers_in_progress_txids;  // = Readview
    unique_ptr<u64[]> local_workers_sorted_txids;
    unique_ptr<u64[]> local_workers_olap_lwm;
    u64 olap_in_progress_tx_count = 0;
