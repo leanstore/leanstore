@@ -345,26 +345,26 @@ void Worker::garbageCollection()
       // -------------------------------------------------------------------------------------
       // TODO: purge commit_start_mappings
       // Exp
-      u8 key[sizeof(TXID)];
-      std::vector<TXID> remove_queue;
-      remove_queue.clear();
-      utils::fold(key, local_olap_lwm - 1);
-      commit_to_start_map->scanDesc(
-          key, sizeof(TXID),
-          [&](const u8* s_key, u16, const u8*, u16) {
-             TXID current_tx;
-             utils::unfold(s_key, current_tx);
-             if (current_tx <= local_olap_lwm) {
-                remove_queue.push_back(current_tx);
-                return true;
-             }
-             return false;
-          },
-          [&]() { remove_queue.clear(); });
-      for (auto& tx_id : remove_queue) {
-         utils::fold(key, tx_id);
-         commit_to_start_map->remove(key, sizeof(TXID));
-      }
+      // u8 key[sizeof(TXID)];
+      // std::vector<TXID> remove_queue;
+      // remove_queue.clear();
+      // utils::fold(key, local_olap_lwm - 1);
+      // commit_to_start_map->scanDesc(
+      //     key, sizeof(TXID),
+      //     [&](const u8* s_key, u16, const u8*, u16) {
+      //        TXID current_tx;
+      //        utils::unfold(s_key, current_tx);
+      //        if (current_tx <= local_olap_lwm) {
+      //           remove_queue.push_back(current_tx);
+      //           return true;
+      //        }
+      //        return false;
+      //     },
+      //     [&]() { remove_queue.clear(); });
+      // for (auto& tx_id : remove_queue) {
+      //    utils::fold(key, tx_id);
+      //    commit_to_start_map->remove(key, sizeof(TXID));
+      // }
    }
    if (FLAGS_olap_mode && local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
       // MOVE deletes to the graveyard
@@ -484,7 +484,7 @@ TXID Worker::getCommitTimestamp(TXID start_ts)
 // TODO: description
 // It is also used to check whether the tuple is write-locked, hence we need the to_write intention flag
 // There are/will be two types of write locks: ones that are released with commit hwm and ones that are manually released after commit.
-bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts, bool to_write)
+bool Worker::isVisibleForMe(u8 other_worker_id, u64 start_ts, bool to_write)
 {
    if (!to_write && activeTX().isReadUncommitted()) {
       return true;
@@ -503,10 +503,10 @@ bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts, bool to_write)
                 return false;
              },
              [&]() {});
-         return committed_till >= tts;
+         return committed_till >= start_ts;
       } else if (activeTX().atLeastSI()) {
          if (local_workers_in_progress_txids[other_worker_id]) {  // Use the cache
-            return local_workers_in_progress_txids[other_worker_id] >= tts;
+            return local_workers_in_progress_txids[other_worker_id] >= start_ts;
          }
          TXID largest_commit_id;
          u8 key[sizeof(TXID)];
@@ -520,7 +520,7 @@ bool Worker::isVisibleForMe(u8 other_worker_id, u64 tts, bool to_write)
              [&]() {});
          if (ret == OP_RESULT::OK) {
             local_workers_in_progress_txids[other_worker_id] = largest_commit_id;
-            return local_workers_in_progress_txids[other_worker_id] >= tts;
+            return local_workers_in_progress_txids[other_worker_id] >= start_ts;
          }
          return false;
       } else {

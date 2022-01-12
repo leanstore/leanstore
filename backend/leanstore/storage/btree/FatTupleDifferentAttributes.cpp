@@ -72,7 +72,6 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_visited[btree.dt_id] += deltas_count; }
       TXID prev_delta_worker_id = worker_id;
       TXID prev_delta_tx_id = tx_id;
-      TXID prev_delta_commit_ts = cr::Worker::my().getCommitTimestamp(worker_id, tx_id);
       // -------------------------------------------------------------------------------------
       auto delta = reinterpret_cast<Delta*>(payload + value_length);
       u64 offset = value_length;
@@ -89,10 +88,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
             const auto prev_visibility = cr::Worker::my().isVisibleForIt(w_i, prev_worker_id, prev_tx_id);
             if (prev_visibility == cr::Worker::VISIBILITY::VISIBLE_ALREADY) {
                continue;
-            } else if (prev_visibility == cr::Worker::VISIBILITY::UNDETERMINED) {
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_skipped[btree.dt_id]++; }
-               return false;
-            } else {  // prev is not visible atm but will be next round
+            } else if (prev_visibility == cr::Worker::VISIBILITY::VISIBLE_NEXT_ROUND) {  // prev is not visible atm but will be next round
                // cur must be visible next work
                const cr::Worker::VISIBILITY cur_visibility = cr::Worker::my().isVisibleForIt(w_i, cur_worker_id, cur_tx_id);
                if (cur_visibility == cr::Worker::VISIBILITY::UNDETERMINED) {
@@ -103,6 +99,8 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
                } else {
                   continue;
                }
+            } else {
+               UNREACHABLE();
             }
          }
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_heavy_removed[btree.dt_id]++; }
@@ -185,7 +183,6 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
          if (delta_i < deltas_count) {
             prev_delta_worker_id = delta->worker_id;
             prev_delta_tx_id = delta->tx_id;
-            prev_delta_commit_ts = cr::Worker::my().getCommitTimestamp(prev_delta_worker_id, prev_delta_tx_id);
             delta = reinterpret_cast<Delta*>(payload + offset);
             continue;
          } else {
