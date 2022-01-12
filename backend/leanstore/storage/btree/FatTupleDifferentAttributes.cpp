@@ -399,6 +399,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    }
    if (fat_tuple->used_space > fat_tuple->total_space) {
       chain_head.unlock();
+      raise(SIGTRAP);
       return false;
    }
    fat_tuple->total_space = fat_tuple->used_space;

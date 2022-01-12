@@ -60,7 +60,6 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    // All the local tracking data
    // New age
-   leanstore::KVInterface* start_to_commit_map;
    leanstore::KVInterface* commit_to_start_map;
 
    // -------------------------------------------------------------------------------------

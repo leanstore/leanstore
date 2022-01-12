@@ -346,24 +346,7 @@ void Worker::garbageCollection()
       // TODO: purge commit_start_mappings
       // Exp
       u8 key[sizeof(TXID)];
-      utils::fold(key, local_olap_lwm);
       std::vector<TXID> remove_queue;
-      start_to_commit_map->scanAsc(
-          key, sizeof(TXID),
-          [&](const u8* s_key, u16, const u8*, u16) {
-             TXID current_tx;
-             utils::unfold(s_key, current_tx);
-             if (current_tx <= local_olap_lwm) {
-                remove_queue.push_back(current_tx);
-                return true;
-             }
-             return false;
-          },
-          [&]() { remove_queue.clear(); });
-      for (auto& tx_id : remove_queue) {
-         utils::fold(key, tx_id);
-         start_to_commit_map->remove(key, sizeof(TXID));
-      }
       remove_queue.clear();
       utils::fold(key, local_olap_lwm - 1);
       commit_to_start_map->scanDesc(
@@ -428,20 +411,8 @@ void Worker::commitTX()
       }
       // -------------------------------------------------------------------------------------
       if (!activeTX().isReadOnly()) {
-         if constexpr (1) {
-            start_to_commit_map->insertCallback([&](u8* key) { utils::fold(key, active_tx.TTS()); }, sizeof(TXID),
-                                                [&](u8* value) {
-                                                   TXID commit_tx = global_logical_clock.fetch_add(1);
-                                                   *reinterpret_cast<TXID*>(value) = commit_tx;
-                                                   commit_to_start_map->insertCallback(
-                                                       [&](u8* key) { utils::fold(key, commit_tx); }, sizeof(TXID),
-                                                       [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID));
-                                                },
-                                                sizeof(TXID));
-         } else {
-            commit_to_start_map->insertCallback([&](u8* key) { utils::fold(key, global_logical_clock.fetch_add(1)); }, sizeof(TXID),
-                                                [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID));
-         }
+         commit_to_start_map->insertCallback([&](u8* key) { utils::fold(key, global_logical_clock.fetch_add(1)); }, sizeof(TXID),
+                                             [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID));
       }
       if (activeTX().isSerializable()) {
          executeUnlockTasks();
@@ -500,7 +471,13 @@ TXID Worker::getCommitTimestamp(TXID start_ts)
    TXID commit_ts = 0;
    u8 key[sizeof(TXID)];
    utils::fold(key, start_ts);
-   start_to_commit_map->lookup(key, sizeof(TXID), [&](const u8* value, u16) { commit_ts = *reinterpret_cast<const TXID*>(value); });
+   commit_to_start_map->scanAsc(
+       key, sizeof(TXID),
+       [&](const u8* s_key, u16, const u8*, u16) {
+          utils::unfold(s_key, commit_ts);
+          return false;
+       },
+       [&]() {});
    return commit_ts;
 }
 // -------------------------------------------------------------------------------------
