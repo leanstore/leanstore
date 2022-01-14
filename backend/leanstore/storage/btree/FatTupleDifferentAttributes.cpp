@@ -35,7 +35,7 @@ void BTreeVI::FatTupleDifferentAttributes::undoLastUpdate()
    ensure(deltas_count >= 1);
    auto& delta = *reinterpret_cast<Delta*>(payload + value_length);
    worker_id = delta.worker_id;
-   tx_id = delta.tx_id;
+   tx_ts = delta.tx_id;
    deltas_count -= 1;
    const u32 total_freed_space = sizeof(Delta) + delta.getDescriptor().size() + delta.getDescriptor().diffLength();
    BTreeLL::applyDiff(delta.getDescriptor(), getValue(), delta.payload + delta.getDescriptor().size());
@@ -59,7 +59,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
    // -------------------------------------------------------------------------------------
    const bool pgc = (FLAGS_pgc) && deltas_count >= 1;
    // -------------------------------------------------------------------------------------
-   if (cr::Worker::my().isVisibleForAll(worker_id, tx_id)) {
+   if (cr::Worker::my().isVisibleForAll(worker_id, tx_ts)) {
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_count; }
       used_space = value_length;
       deltas_count = 0;
@@ -71,7 +71,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_visited[btree.dt_id] += deltas_count; }
       TXID prev_delta_worker_id = worker_id;
-      TXID prev_delta_tx_id = tx_id;
+      TXID prev_delta_tx_ts = tx_ts;
       // -------------------------------------------------------------------------------------
       auto delta = reinterpret_cast<Delta*>(payload + value_length);
       u64 offset = value_length;
@@ -100,6 +100,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
                   continue;
                }
             } else {
+               return false;
                UNREACHABLE();
             }
          }
@@ -113,7 +114,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
             should_delete = false;
          } else {
             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_heavy[btree.dt_id]++; }
-            should_delete = can_we_delete_heavy(prev_delta_worker_id, prev_delta_tx_id, delta->worker_id, delta->tx_id);
+            should_delete = can_we_delete_heavy(prev_delta_worker_id, prev_delta_tx_ts, delta->worker_id, delta->tx_id);
          }
          if (should_delete) {
             deltas_to_merge.push_back(delta);
@@ -182,7 +183,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
          offset += sizeof(Delta) + delta->getDescriptor().size() + delta->getDescriptor().diffLength();
          if (delta_i < deltas_count) {
             prev_delta_worker_id = delta->worker_id;
-            prev_delta_tx_id = delta->tx_id;
+            prev_delta_tx_ts = delta->tx_id;
             delta = reinterpret_cast<Delta*>(payload + offset);
             continue;
          } else {
@@ -253,7 +254,7 @@ cont : {
       // Insert the new delta
       auto& new_delta = *new (fat_tuple->payload + fat_tuple->value_length) Delta();
       new_delta.worker_id = fat_tuple->worker_id;
-      new_delta.tx_id = fat_tuple->tx_id;
+      new_delta.tx_id = fat_tuple->tx_ts;
       new_delta.command_id = fat_tuple->command_id;
       std::memcpy(new_delta.payload, &update_descriptor, update_descriptor.size());
       BTreeLL::generateDiff(update_descriptor, new_delta.payload + update_descriptor.size(), fat_tuple->getValue());
@@ -270,10 +271,10 @@ cont : {
       wal_entry->key_length = o_key_length;
       wal_entry->delta_length = delta_and_descriptor_size;
       wal_entry->before_worker_id = fat_tuple->worker_id;
-      wal_entry->before_tx_id = fat_tuple->tx_id;
+      wal_entry->before_tx_id = fat_tuple->tx_ts;
       // -------------------------------------------------------------------------------------
       fat_tuple->worker_id = cr::Worker::my().workerID();
-      fat_tuple->tx_id = cr::activeTX().TTS();
+      fat_tuple->tx_ts = cr::activeTX().TTS();
       fat_tuple->command_id = cr::Worker::my().command_id++;  // A version is not inserted in versions space however. Needed for decompose
       // -------------------------------------------------------------------------------------
       std::memcpy(wal_entry->payload, o_key, o_key_length);
@@ -295,7 +296,7 @@ cont : {
 // -------------------------------------------------------------------------------------
 std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTuple(std::function<void(Slice value)> cb) const
 {
-   if (cr::Worker::my().isVisibleForMe(worker_id, tx_id)) {
+   if (cr::Worker::my().isVisibleForMe(worker_id, tx_ts)) {
       // Latest version is visible
       cb(Slice(getValueConstant(), value_length));
       return {OP_RESULT::OK, 1};
@@ -349,10 +350,10 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    std::memcpy(fat_tuple->payload + fat_tuple->used_space, chain_head.payload, fat_tuple->value_length);
    fat_tuple->used_space += fat_tuple->value_length;
    fat_tuple->worker_id = chain_head.worker_id;
-   fat_tuple->tx_id = chain_head.tx_id;
+   fat_tuple->tx_ts = chain_head.tx_ts;
    // -------------------------------------------------------------------------------------
    next_worker_id = chain_head.worker_id;
-   next_tx_id = chain_head.tx_id;
+   next_tx_id = chain_head.tx_ts;
    next_command_id = chain_head.command_id;
    // TODO: check for used_space overflow
    while (true) {

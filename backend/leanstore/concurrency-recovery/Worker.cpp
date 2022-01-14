@@ -337,34 +337,33 @@ void Worker::garbageCollection()
       versions_space.purgeVersions(
           worker_id, 0, local_olap_lwm - 1,
           [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length, const bool called_before) {
-             leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id, called_before);
+             leanstore::storage::DlTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id, called_before);
              COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
           },
           FLAGS_todo_batch_size);
       cleaned_untill_oltp_lwm = std::max(local_olap_lwm, cleaned_untill_oltp_lwm);
       // -------------------------------------------------------------------------------------
-      // TODO: purge commit_start_mappings
-      // Exp
-      // u8 key[sizeof(TXID)];
-      // std::vector<TXID> remove_queue;
-      // remove_queue.clear();
-      // utils::fold(key, local_olap_lwm - 1);
-      // commit_to_start_map->scanDesc(
-      //     key, sizeof(TXID),
-      //     [&](const u8* s_key, u16, const u8*, u16) {
-      //        TXID current_tx;
-      //        utils::unfold(s_key, current_tx);
-      //        if (current_tx <= local_olap_lwm) {
-      //           remove_queue.push_back(current_tx);
-      //           return true;
-      //        }
-      //        return false;
-      //     },
-      //     [&]() { remove_queue.clear(); });
-      // for (auto& tx_id : remove_queue) {
-      //    utils::fold(key, tx_id);
-      //    commit_to_start_map->remove(key, sizeof(TXID));
-      // }
+      // TODO: Optimize
+      u8 key[sizeof(TXID)];
+      std::vector<TXID> remove_queue;
+      remove_queue.clear();
+      utils::fold(key, local_olap_lwm - 1);
+      commit_to_start_map->scanDesc(
+          key, sizeof(TXID),
+          [&](const u8* s_key, u16, const u8*, u16) {
+             TXID current_tx;
+             utils::unfold(s_key, current_tx);
+             if (current_tx <= local_olap_lwm) {
+                remove_queue.push_back(current_tx);
+                return true;
+             }
+             return false;
+          },
+          [&]() { remove_queue.clear(); });
+      for (auto& tx_id : remove_queue) {
+         utils::fold(key, tx_id);
+         commit_to_start_map->remove(key, sizeof(TXID));
+      }
    }
    if (FLAGS_olap_mode && local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
       // MOVE deletes to the graveyard
@@ -452,14 +451,24 @@ void Worker::abortTX()
 // -------------------------------------------------------------------------------------
 Worker::VISIBILITY Worker::isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts)
 {
+   if constexpr (0) {
+      auto tmp = global_workers_current_start_timestamp[whom_worker_id].load();
+      if (tmp & MSB) {
+         return VISIBILITY::UNDETERMINED;
+      } else {
+         ensure(tmp > active_tx.TTS() || tmp == local_workers_start_ts[whom_worker_id]);
+         return tmp > commit_ts ? VISIBILITY::VISIBLE_ALREADY : VISIBILITY::VISIBLE_NEXT_ROUND;
+      }
+   }
    return local_workers_start_ts[whom_worker_id] > commit_ts ? VISIBILITY::VISIBLE_ALREADY : VISIBILITY::VISIBLE_NEXT_ROUND;
 }
 // -------------------------------------------------------------------------------------
 // UNDETERMINED is not possible atm because we spin on start_ts
 Worker::VISIBILITY Worker::isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, TXID start_ts)
 {
-   TXID commit_ts = getCommitTimestamp(what_worker_id, start_ts);
+   const TXID commit_ts = (start_ts & MSB) ? (start_ts & MSB_MASK) : getCommitTimestamp(what_worker_id, start_ts);
    if (commit_ts == 0) {
+      raise(SIGTRAP);
       return VISIBILITY::VISIBLE_ALREADY;
    } else {
       return isVisibleForIt(whom_worker_id, commit_ts);
@@ -468,7 +477,10 @@ Worker::VISIBILITY Worker::isVisibleForIt(WORKERID whom_worker_id, WORKERID what
 // -------------------------------------------------------------------------------------
 TXID Worker::getCommitTimestamp(TXID start_ts)
 {
-   TXID commit_ts = 0;
+   if (start_ts & MSB) {
+      return start_ts & MSB_MASK;
+   }
+   TXID commit_ts = std::numeric_limits<TXID>::max();  // TODO: align with GC
    u8 key[sizeof(TXID)];
    utils::fold(key, start_ts);
    commit_to_start_map->scanAsc(
@@ -478,6 +490,7 @@ TXID Worker::getCommitTimestamp(TXID start_ts)
           return false;
        },
        [&]() {});
+   ensure(commit_ts > start_ts);
    return commit_ts;
 }
 // -------------------------------------------------------------------------------------
@@ -486,6 +499,7 @@ TXID Worker::getCommitTimestamp(TXID start_ts)
 // There are/will be two types of write locks: ones that are released with commit hwm and ones that are manually released after commit.
 bool Worker::isVisibleForMe(u8 other_worker_id, u64 start_ts, bool to_write)
 {
+   const u64 committed_ts = (start_ts & MSB) ? (start_ts & MSB_MASK) : 0;
    if (!to_write && activeTX().isReadUncommitted()) {
       return true;
    }
@@ -493,6 +507,9 @@ bool Worker::isVisibleForMe(u8 other_worker_id, u64 start_ts, bool to_write)
       return true;
    } else {
       if (activeTX().isReadCommitted() || activeTX().isReadUncommitted()) {
+         if (committed_ts) {
+            return true;
+         }
          u8 key[sizeof(TXID)];
          utils::fold(key, std::numeric_limits<TXID>::max());
          TXID committed_till = 0;
@@ -531,7 +548,7 @@ bool Worker::isVisibleForMe(u8 other_worker_id, u64 start_ts, bool to_write)
 // -------------------------------------------------------------------------------------
 bool Worker::isVisibleForAll(WORKERID worker_id, TXID start_ts)
 {
-   TXID commit_ts = all_workers[worker_id]->getCommitTimestamp(start_ts);
+   TXID commit_ts = (start_ts & MSB) ? (start_ts & MSB_MASK) : all_workers[worker_id]->getCommitTimestamp(start_ts);
    if (commit_ts == 0) {
       return true;
    } else {

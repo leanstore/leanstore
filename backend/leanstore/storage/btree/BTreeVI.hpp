@@ -91,12 +91,12 @@ class BTreeVI : public BTreeLL
       };
       TupleFormat tuple_format;
       WORKERID worker_id;
-      TXID tx_id;
+      TXID tx_ts;  // Could be start_ts or commit_ts depending on MSB
       COMMANDID command_id;
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
       Tuple(TupleFormat tuple_format, u8 worker_id, TXID tx_id)
-          : tuple_format(tuple_format), worker_id(worker_id), tx_id(tx_id), command_id(INVALID_COMMANDID)
+          : tuple_format(tuple_format), worker_id(worker_id), tx_ts(tx_id), command_id(INVALID_COMMANDID)
       {
          write_locked = false;
       }
@@ -418,7 +418,7 @@ class BTreeVI : public BTreeLL
          {
             if (reinterpret_cast<const Tuple*>(payload.data())->tuple_format == TupleFormat::CHAINED) {
                const ChainedTuple& primary_version = *reinterpret_cast<const ChainedTuple*>(payload.data());
-               if (isVisibleForMe(primary_version.worker_id, primary_version.tx_id, false)) {
+               if (isVisibleForMe(primary_version.worker_id, primary_version.tx_ts, false)) {
                   if (primary_version.is_removed) {
                      jumpmu_return{OP_RESULT::NOT_FOUND, 1};
                   }
