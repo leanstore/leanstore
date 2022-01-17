@@ -59,145 +59,137 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
    // -------------------------------------------------------------------------------------
    const bool pgc = (FLAGS_pgc) && deltas_count >= 1;
    // -------------------------------------------------------------------------------------
+   // this->tx_ts = cr::Worker::my().getCommitTimestamp(worker_id, this->tx_ts) | MSB;
+   // assert(this->tx_ts & MSB);
    if (cr::Worker::my().isVisibleForAll(worker_id, tx_ts)) {
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_count; }
       used_space = value_length;
       deltas_count = 0;
    } else if (pgc) {
-      // -------------------------------------------------------------------------------------
-      // Precise garbage collection
-      // The idea behind it: check that all transaction that *could* (with larger tx_id than victim) see victim, see its successor (prev_tx_id,
-      // prev_worker_id here)
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc[btree.dt_id]++; }
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_visited[btree.dt_id] += deltas_count; }
-      TXID prev_delta_worker_id = worker_id;
-      TXID prev_delta_tx_ts = tx_ts;
-      // -------------------------------------------------------------------------------------
+      cr::Worker::my().prepareForIntervalGC();
+      u64 w_s_i = 0, w_i = cr::Worker::my().local_workers_sorted_start_ts[w_s_i] & cr::Worker::WORKERS_MASK;
+      u64 delta_i = 0;
       auto delta = reinterpret_cast<Delta*>(payload + value_length);
       u64 offset = value_length;
-      u64 delta_i = 0;
       std::vector<Delta*> deltas_to_merge;
-      // -------------------------------------------------------------------------------------
-      auto can_we_delete_heavy = [&](const u64 prev_worker_id, const u64 prev_tx_id, const u64 cur_worker_id, const u64 cur_tx_id) {
-         if (cr::Worker::my().isVisibleForAll(prev_worker_id, prev_tx_id)) {
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_light_removed[btree.dt_id]++; }
-            return true;
-         }
-         // -------------------------------------------------------------------------------------
-         for (u64 w_i = 0; w_i < cr::Worker::my().workers_count; w_i++) {
-            const auto prev_visibility = cr::Worker::my().isVisibleForIt(w_i, prev_worker_id, prev_tx_id);
-            if (prev_visibility == cr::Worker::VISIBILITY::VISIBLE_ALREADY) {
-               continue;
-            } else if (prev_visibility == cr::Worker::VISIBILITY::VISIBLE_NEXT_ROUND) {  // prev is not visible atm but will be next round
-               // cur must be visible next work
-               const cr::Worker::VISIBILITY cur_visibility = cr::Worker::my().isVisibleForIt(w_i, cur_worker_id, cur_tx_id);
-               if (cur_visibility == cr::Worker::VISIBILITY::UNDETERMINED) {
-                  COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_skipped[btree.dt_id]++; }
-                  return false;
-               } else if (cur_visibility == cr::Worker::VISIBILITY::VISIBLE_ALREADY) {
-                  return false;
-               } else {
-                  continue;
-               }
-            } else {
-               return false;
-               UNREACHABLE();
-            }
-         }
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_heavy_removed[btree.dt_id]++; }
-         return true;
-      };
+      cr::Worker::VISIBILITY visibility;
       while (true) {
-         explainWhen(delta_i > 500);
-         bool should_delete;
-         if (delta->worker_id == cr::Worker::my().workerID() && delta->tx_id == cr::activeTX().TTS()) {
-            should_delete = false;
-         } else {
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains_pgc_heavy[btree.dt_id]++; }
-            should_delete = can_we_delete_heavy(prev_delta_worker_id, prev_delta_tx_ts, delta->worker_id, delta->tx_id);
-         }
-         if (should_delete) {
-            deltas_to_merge.push_back(delta);
-         } else if (deltas_to_merge.size()) {
-            // Merge all deltas in deltas_to_merge in delta*
-            // Check whether all attributes are the same
-            bool same_attributes = true;
-            UpdateSameSizeInPlaceDescriptor& last_descriptor = delta->getDescriptor();
-            for (u64 d_i = 0; same_attributes && d_i < deltas_to_merge.size(); d_i++) {
-               same_attributes &= last_descriptor == deltas_to_merge[d_i]->getDescriptor();
-            }
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_to_merge.size(); }
-            if (same_attributes) {
-               ensure(used_space >= (reinterpret_cast<u8*>(delta) - payload));
-               std::memmove(deltas_to_merge.front(), delta, used_space - (reinterpret_cast<u8*>(delta) - payload));
-               const u64 freed_space = reinterpret_cast<u8*>(delta) - reinterpret_cast<u8*>(deltas_to_merge.front());
-               deltas_count -= deltas_to_merge.size();
-               delta_i -= deltas_to_merge.size();
-               used_space -= freed_space;
-               delta = deltas_to_merge.front();
-               offset = reinterpret_cast<u8*>(delta) - payload;
-               deltas_to_merge.clear();
+         visibility = cr::Worker::my().isVisibleForIt(w_i, worker_id, tx_ts);
+         if (visibility == cr::Worker::VISIBILITY::VISIBLE_ALREADY) {
+            // Nothing
+            if (++w_s_i < cr::Worker::my().workers_count) {
+               w_i = cr::Worker::my().local_workers_sorted_start_ts[w_s_i] & cr::Worker::WORKERS_MASK;
             } else {
-               using Slot = UpdateSameSizeInPlaceDescriptor::Slot;
-               std::unordered_map<Slot, std::basic_string<u8>> slots_map;
-               for (auto m_delta : deltas_to_merge) {  // TODO: reverse order
-                  auto& m_descriptor = m_delta->getDescriptor();
-                  u8* delta_diff_ptr = m_delta->payload + m_descriptor.size();
-                  for (u64 s_i = 0; s_i < m_delta->getDescriptor().count; s_i++) {
-                     slots_map[m_descriptor.slots[s_i]] = std::basic_string<u8>(delta_diff_ptr, m_descriptor.slots[s_i].length);
-                     delta_diff_ptr += m_descriptor.slots[s_i].length;
-                  }
-               }
-               u8 merge_result[PAGE_SIZE];
-               auto& merge_delta = *reinterpret_cast<Delta*>(merge_result);
-               merge_delta = *delta;
-               UpdateSameSizeInPlaceDescriptor& merge_descriptor = merge_delta.getDescriptor();
-               merge_descriptor.count = slots_map.size();
-               u8* merge_diff_ptr = merge_delta.payload + merge_descriptor.size();
-               u32 s_i = 0;
-               for (auto& slot_itr : slots_map) {
-                  merge_descriptor.slots[s_i++] = slot_itr.first;
-                  std::memcpy(merge_diff_ptr, slot_itr.second.c_str(), slot_itr.second.size());
-                  merge_diff_ptr += slot_itr.second.size();
-               }
-               const u32 total_merge_delta_size = merge_diff_ptr - merge_result;
-               const u32 space_to_replace = (reinterpret_cast<u8*>(delta) - reinterpret_cast<u8*>(deltas_to_merge.front())) + sizeof(Delta) +
-                                            delta->getDescriptor().size() + delta->getDescriptor().diffLength();
-               ensure(space_to_replace >= total_merge_delta_size);
-               const u16 copy_dst = reinterpret_cast<u8*>(deltas_to_merge.front()) - payload;
-               std::memcpy(payload + copy_dst, merge_result, total_merge_delta_size);
-               std::memmove(payload + copy_dst + total_merge_delta_size, payload + copy_dst + space_to_replace,
-                            used_space - (copy_dst + space_to_replace));
-               used_space -= space_to_replace - total_merge_delta_size;
-               // -------------------------------------------------------------------------------------
-               delta_i -= deltas_to_merge.size();
-               deltas_count -= deltas_to_merge.size();
-               offset = copy_dst;
-               delta = deltas_to_merge.front();
-               // -------------------------------------------------------------------------------------
-               deltas_to_merge.clear();
+               break;
             }
-         }
-         // Next version
-         delta_i++;
-         offset += sizeof(Delta) + delta->getDescriptor().size() + delta->getDescriptor().diffLength();
-         if (delta_i < deltas_count) {
-            prev_delta_worker_id = delta->worker_id;
-            prev_delta_tx_ts = delta->tx_id;
-            delta = reinterpret_cast<Delta*>(payload + offset);
-            continue;
-         } else {
+         } else if (visibility == cr::Worker::VISIBILITY::VISIBLE_NEXT_ROUND) {
+            deltas_to_merge.push_back(nullptr);
             break;
+         } else {
+            UNREACHABLE();
          }
       }
-      if (deltas_to_merge.size()) {
+      TXID commit_ts = cr::Worker::my().getCommitTimestamp(delta->worker_id, delta->tx_id);
+      while (w_s_i < cr::Worker::my().workers_count && delta_i < deltas_count) {
+         if (delta->worker_id == cr::Worker::my().workerID() && delta->tx_id == cr::activeTX().TTS()) {
+            deltas_to_merge.clear();
+            break;
+         }
+         visibility = cr::Worker::my().isVisibleForIt(w_i, delta->worker_id, delta->tx_id);
+         if (visibility == cr::Worker::VISIBILITY::VISIBLE_NEXT_ROUND) {
+            // TODO: add to delete
+            deltas_to_merge.push_back(delta);
+            // TODO: get next version
+            delta_i++;
+            offset += sizeof(Delta) + delta->getDescriptor().size() + delta->getDescriptor().diffLength();
+            if (delta_i < deltas_count) {
+               delta = reinterpret_cast<Delta*>(payload + offset);
+               commit_ts = cr::Worker::my().getCommitTimestamp(delta->worker_id, delta->tx_id);
+            }
+         } else if (visibility == cr::Worker::VISIBILITY::VISIBLE_ALREADY) {
+            // TODO: merge everything in-between
+            if (deltas_to_merge.size() > 1) {
+               deltas_to_merge.erase(deltas_to_merge.begin());
+               // Merge all deltas in deltas_to_merge in delta*
+               // Check whether all attributes are the same
+               bool same_attributes = true;
+               UpdateSameSizeInPlaceDescriptor& last_descriptor = delta->getDescriptor();
+               for (u64 d_i = 0; same_attributes && d_i < deltas_to_merge.size(); d_i++) {
+                  same_attributes &= last_descriptor == deltas_to_merge[d_i]->getDescriptor();
+               }
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_to_merge.size(); }
+               if (same_attributes) {
+                  ensure(used_space >= (reinterpret_cast<u8*>(delta) - payload));
+                  std::memmove(deltas_to_merge.front(), delta, used_space - (reinterpret_cast<u8*>(delta) - payload));
+                  const u64 freed_space = reinterpret_cast<u8*>(delta) - reinterpret_cast<u8*>(deltas_to_merge.front());
+                  deltas_count -= deltas_to_merge.size();
+                  delta_i -= deltas_to_merge.size();
+                  used_space -= freed_space;
+                  delta = deltas_to_merge.front();
+                  offset = reinterpret_cast<u8*>(delta) - payload;
+                  deltas_to_merge.clear();
+               } else {
+                  using Slot = UpdateSameSizeInPlaceDescriptor::Slot;
+                  std::unordered_map<Slot, std::basic_string<u8>> slots_map;
+                  for (auto d_iter = deltas_to_merge.rbegin(); d_iter != deltas_to_merge.rend(); d_iter++) {
+                     auto& m_delta = *d_iter;
+                     auto& m_descriptor = m_delta->getDescriptor();
+                     u8* delta_diff_ptr = m_delta->payload + m_descriptor.size();
+                     for (u64 s_i = 0; s_i < m_delta->getDescriptor().count; s_i++) {
+                        slots_map[m_descriptor.slots[s_i]] = std::basic_string<u8>(delta_diff_ptr, m_descriptor.slots[s_i].length);
+                        delta_diff_ptr += m_descriptor.slots[s_i].length;
+                     }
+                  }
+                  u8 merge_result[PAGE_SIZE];
+                  auto& merge_delta = *reinterpret_cast<Delta*>(merge_result);
+                  merge_delta = *delta;
+                  UpdateSameSizeInPlaceDescriptor& merge_descriptor = merge_delta.getDescriptor();
+                  merge_descriptor.count = slots_map.size();
+                  u8* merge_diff_ptr = merge_delta.payload + merge_descriptor.size();
+                  u32 s_i = 0;
+                  for (auto& slot_itr : slots_map) {
+                     merge_descriptor.slots[s_i++] = slot_itr.first;
+                     std::memcpy(merge_diff_ptr, slot_itr.second.c_str(), slot_itr.second.size());
+                     merge_diff_ptr += slot_itr.second.size();
+                  }
+                  const u32 total_merge_delta_size = merge_diff_ptr - merge_result;
+                  const u32 space_to_replace = (reinterpret_cast<u8*>(delta) - reinterpret_cast<u8*>(deltas_to_merge.front())) + sizeof(Delta) +
+                                               delta->getDescriptor().size() + delta->getDescriptor().diffLength();
+                  ensure(space_to_replace >= total_merge_delta_size);
+                  const u16 copy_dst = reinterpret_cast<u8*>(deltas_to_merge.front()) - payload;
+                  std::memcpy(payload + copy_dst, merge_result, total_merge_delta_size);
+                  std::memmove(payload + copy_dst + total_merge_delta_size, payload + copy_dst + space_to_replace,
+                               used_space - (copy_dst + space_to_replace));
+                  used_space -= space_to_replace - total_merge_delta_size;
+                  // -------------------------------------------------------------------------------------
+                  delta_i -= deltas_to_merge.size();
+                  deltas_count -= deltas_to_merge.size();
+                  offset = copy_dst;
+                  delta = deltas_to_merge.front();
+                  // -------------------------------------------------------------------------------------
+                  deltas_to_merge.clear();
+               }
+            } else {
+               // The previous one was not visible but this one is
+               deltas_to_merge.clear();
+            }
+            w_s_i++;
+            if (w_s_i == cr::Worker::my().workers_count) {
+               break;
+            }
+            w_i = cr::Worker::my().local_workers_sorted_start_ts[w_s_i] & cr::Worker::WORKERS_MASK;
+         } else {
+            ensure(false);
+         }
+      }
+      // -------------------------------------------------------------------------------------
+      if (deltas_to_merge.size() > 1) {
+         deltas_to_merge.erase(deltas_to_merge.begin());
          used_space = reinterpret_cast<u8*>(deltas_to_merge.front()) - payload;
          deltas_count -= deltas_to_merge.size();
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_removed[btree.dt_id] += deltas_to_merge.size(); }
       }
-      // explainWhen(deltas_count > (cr::Worker::my().workers_count + 2));
    }
-   // explainWhen(deltas_count > (cr::Worker::my().workers_count + 2));
 }
 // -------------------------------------------------------------------------------------
 // Pre: tuple is write locked

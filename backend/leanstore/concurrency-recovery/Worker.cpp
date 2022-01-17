@@ -173,6 +173,7 @@ void Worker::prepareForGarbageCollection()
       local_workers_start_ts[w_i] = its_in_flight_tx_id;
    }
    // -------------------------------------------------------------------------------------
+   workers_sorted = false;
    // std::sort(local_workers_sorted_start_ts.get(), local_workers_sorted_start_ts.get() + workers_count + 1, std::less<u64>());
    // -------------------------------------------------------------------------------------
    u64 current_global_oldest_tx = global_oldest_tx.load();
@@ -225,17 +226,15 @@ void Worker::refreshSnapshot()
 // -------------------------------------------------------------------------------------
 void Worker::prepareForIntervalGC()
 {
-   raise(SIGTRAP);
    if (!workers_sorted) {
       COUNTERS_BLOCK() { CRCounters::myCounters().cc_prepare_igc++; }
-      local_workers_sorted_start_ts[0] = 0;
       for (u64 w_i = 0; w_i < workers_count; w_i++) {
-         local_workers_sorted_start_ts[w_i + 1] = (local_workers_in_progress_txids[w_i] << WORKERS_BITS) | w_i;
+         local_workers_sorted_start_ts[w_i] = (local_workers_start_ts[w_i] << WORKERS_BITS) | w_i;
       }
       // Avoid extra work if the last round also was full of single statement workers
       if (1 || local_oldest_olap_tx_id_in_rv < std::numeric_limits<u64>::max()) {  // TODO: Disable
-         std::sort(local_workers_sorted_start_ts.get(), local_workers_sorted_start_ts.get() + workers_count + 1, std::less<u64>());
-         assert(local_workers_sorted_start_ts[0] <= local_workers_sorted_start_ts[1]);
+         std::sort(local_workers_sorted_start_ts.get(), local_workers_sorted_start_ts.get() + workers_count, std::greater<u64>());
+         assert(local_workers_sorted_start_ts[0] >= local_workers_sorted_start_ts[1]);
       }
    }
    workers_sorted = true;
@@ -337,7 +336,7 @@ void Worker::garbageCollection()
       versions_space.purgeVersions(
           worker_id, 0, local_olap_lwm - 1,
           [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length, const bool called_before) {
-             leanstore::storage::DlTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id, called_before);
+             leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id, called_before);
              COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
           },
           FLAGS_todo_batch_size);
@@ -468,11 +467,19 @@ Worker::VISIBILITY Worker::isVisibleForIt(WORKERID whom_worker_id, WORKERID what
 {
    const TXID commit_ts = (start_ts & MSB) ? (start_ts & MSB_MASK) : getCommitTimestamp(what_worker_id, start_ts);
    if (commit_ts == 0) {
-      raise(SIGTRAP);
       return VISIBILITY::VISIBLE_ALREADY;
    } else {
       return isVisibleForIt(whom_worker_id, commit_ts);
    }
+}
+// -------------------------------------------------------------------------------------
+TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID start_ts)
+{
+   if (start_ts & MSB) {
+      return start_ts & MSB_MASK;
+   }
+   assert((start_ts & MSB) || isVisibleForMe(worker_id, start_ts));
+   return all_workers[worker_id]->getCommitTimestamp(start_ts);
 }
 // -------------------------------------------------------------------------------------
 TXID Worker::getCommitTimestamp(TXID start_ts)

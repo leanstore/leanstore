@@ -339,7 +339,7 @@ struct Worker {
    bool isVisibleForMe(u8 worker_id, u64 tts, bool to_write = true);
    VISIBILITY isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
    VISIBILITY isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts);
-   TXID getCommitTimestamp(WORKERID worker_id, TXID start_ts) { return all_workers[worker_id]->getCommitTimestamp(start_ts); }
+   TXID getCommitTimestamp(WORKERID worker_id, TXID start_ts);
    TXID getCommitTimestamp(TXID start_ts);
    // -------------------------------------------------------------------------------------
    void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
