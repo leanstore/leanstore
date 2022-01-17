@@ -504,9 +504,10 @@ TXID Worker::getCommitTimestamp(TXID start_ts)
 // TODO: description
 // It is also used to check whether the tuple is write-locked, hence we need the to_write intention flag
 // There are/will be two types of write locks: ones that are released with commit hwm and ones that are manually released after commit.
-bool Worker::isVisibleForMe(u8 other_worker_id, u64 start_ts, bool to_write)
+bool Worker::isVisibleForMe(u8 other_worker_id, u64 tx_ts, bool to_write)
 {
-   const u64 committed_ts = (start_ts & MSB) ? (start_ts & MSB_MASK) : 0;
+   const u64 committed_ts = (tx_ts & MSB) ? (tx_ts & MSB_MASK) : 0;
+   const u64 start_ts = tx_ts & MSB_MASK;
    if (!to_write && activeTX().isReadUncommitted()) {
       return true;
    }
@@ -527,8 +528,12 @@ bool Worker::isVisibleForMe(u8 other_worker_id, u64 start_ts, bool to_write)
                 return false;
              },
              [&]() {});
-         return committed_till >= start_ts;
+         return committed_till >= tx_ts;
       } else if (activeTX().atLeastSI()) {
+         if (committed_ts > 0) {
+            return active_tx.TTS() > committed_ts;
+         }
+         // -------------------------------------------------------------------------------------
          if (local_workers_in_progress_txids[other_worker_id]) {  // Use the cache
             return local_workers_in_progress_txids[other_worker_id] >= start_ts;
          }

@@ -122,8 +122,8 @@ class BTreeVI : public BTreeLL
    // We always append the descriptor, one format to keep simple
    struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
       struct __attribute__((packed)) Delta {
-         u8 worker_id : 8;
-         u64 tx_id : 56;
+         WORKERID worker_id;
+         TXID tx_ts;
          COMMANDID command_id = INVALID_COMMANDID;
          u8 payload[];  // Descriptor + Diff
          UpdateSameSizeInPlaceDescriptor& getDescriptor() { return *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(payload); }

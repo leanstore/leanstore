@@ -576,13 +576,13 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
             cr::Worker::my().versions_space.insertVersion(
                 prev_worker_id, prev_tx_id, prev_command_id, btree.dt_id, false, version_payload_length,
                 [&](u8* version_payload) {
-                   auto& secondary_version = *new (version_payload) UpdateVersion(delta->worker_id, delta->tx_id, delta->command_id, true);
+                   auto& secondary_version = *new (version_payload) UpdateVersion(delta->worker_id, delta->tx_ts, delta->command_id, true);
                    std::memcpy(secondary_version.payload, update_descriptor, delta_and_descriptor_size);
                 },
                 false);
             // -------------------------------------------------------------------------------------
             prev_worker_id = delta->worker_id;
-            prev_tx_id = delta->tx_id;
+            prev_tx_id = delta->tx_ts;
             prev_command_id = delta->command_id;
             // -------------------------------------------------------------------------------------
             offset += sizeof(FatTupleDifferentAttributes::Delta) + delta_and_descriptor_size;
