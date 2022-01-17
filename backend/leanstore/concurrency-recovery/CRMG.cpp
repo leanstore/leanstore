@@ -31,8 +31,10 @@ CRManager::CRManager(VersionsSpaceInterface& versions_space, s32 ssd_fd, u64 end
             utils::pinThisThread(t_i);
          }
          // -------------------------------------------------------------------------------------
+         if (FLAGS_cpu_counters) {
+            CPUCounters::registerThread(thread_name, false);
+         }
          WorkerCounters::myCounters().worker_id = t_i;
-         CPUCounters::registerThread(thread_name, false);
          // -------------------------------------------------------------------------------------
          workers[t_i] = new Worker(t_i, workers, workers_count, versions_space, ssd_fd);
          Worker::tls_ptr = workers[t_i];
