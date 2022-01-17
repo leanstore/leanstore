@@ -44,7 +44,6 @@ class KVInterface
   public:
    virtual OP_RESULT lookup(u8* key, u16 key_length, std::function<void(const u8*, u16)> payload_callback) = 0;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) = 0;
-   virtual OP_RESULT insertCallback(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16) { return OP_RESULT::OTHER; }
    virtual OP_RESULT updateSameSizeInPlace(u8* key,
                                            u16 key_length,
                                            std::function<void(u8* value, u16 value_size)>,
@@ -62,6 +61,16 @@ class KVInterface
    virtual u64 countPages() = 0;
    virtual u64 countEntries() = 0;
    virtual u64 getHeight() = 0;
+   // -------------------------------------------------------------------------------------
+   virtual OP_RESULT insertCallback(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16) { return OP_RESULT::OTHER; }
+   virtual OP_RESULT append(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16, std::unique_ptr<u8[]>& leaf_handler)
+   {
+      return OP_RESULT::OTHER;
+   }
+   virtual OP_RESULT rangeRemove(u8* start_key, u16 start_key_length, u8* end_key, u16 end_key_length)
+   {
+      return OP_RESULT::OTHER;
+   }
 };
 // -------------------------------------------------------------------------------------
 using Slice = std::basic_string_view<u8>;

@@ -425,6 +425,10 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
          return OP_RESULT::OK;
       }
    }
+   virtual OP_RESULT enoughSpaceInCurrentNode(const u16 key_length, const u16 value_length)
+   {
+      return (leaf->canInsert(key_length, value_length)) ? OP_RESULT::OK : OP_RESULT::NOT_ENOUGH_SPACE;
+   }
    virtual OP_RESULT enoughSpaceInCurrentNode(Slice key, const u16 value_length)
    {
       return (leaf->canInsert(key.length(), value_length)) ? OP_RESULT::OK : OP_RESULT::NOT_ENOUGH_SPACE;

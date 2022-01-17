@@ -49,7 +49,6 @@ class BTreeLL : public KVInterface, public BTreeGeneric
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT lookup(u8* key, u16 key_length, function<void(const u8*, u16)> payload_callback) override;
    virtual OP_RESULT insert(u8* key, u16 key_length, u8* value, u16 value_length) override;
-   virtual OP_RESULT insertCallback(std::function<void(u8*)> o_key, u16 key_length, std::function<void(u8*)> value, u16 value_length) override;
    virtual OP_RESULT updateSameSizeInPlace(u8* key,
                                            u16 key_length,
                                            function<void(u8* value, u16 value_size)>,
@@ -63,6 +62,10 @@ class BTreeLL : public KVInterface, public BTreeGeneric
                               u16 key_length,
                               function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                               function<void()>) override;
+   // -------------------------------------------------------------------------------------
+   virtual OP_RESULT insertCallback(std::function<void(u8*)> o_key, u16 key_length, std::function<void(u8*)> value, u16 value_length) override;
+   virtual OP_RESULT append(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16, std::unique_ptr<u8[]>&) override;
+   virtual OP_RESULT rangeRemove(u8* start_key, u16 start_key_length, u8* end_key, u16 end_key_length) override;
    // -------------------------------------------------------------------------------------
    bool isRangeSurelyEmpty(Slice start_key, Slice end_key);
    // -------------------------------------------------------------------------------------

@@ -60,6 +60,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    // All the local tracking data
    // New age
+   std::unique_ptr<u8[]> map_leaf_handler;
    leanstore::KVInterface* commit_to_start_map;
 
    // -------------------------------------------------------------------------------------

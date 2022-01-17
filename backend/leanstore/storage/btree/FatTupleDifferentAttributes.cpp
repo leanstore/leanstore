@@ -66,16 +66,12 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection(BTreeVI& btree, boo
       deltas_count = 0;
    } else if (pgc) {
       cr::Worker::my().prepareForIntervalGC();
-      if (FLAGS_tmp7) {
-         tx_ts = cr::Worker::my().getCommitTimestamp(worker_id, tx_ts) | MSB;
-      }
+      tx_ts = cr::Worker::my().getCommitTimestamp(worker_id, tx_ts) | MSB;
       // -------------------------------------------------------------------------------------
       u64 w_s_i = 0, w_i = cr::Worker::my().local_workers_sorted_start_ts[w_s_i] & cr::Worker::WORKERS_MASK;
       u64 delta_i = 0;
       auto delta = reinterpret_cast<Delta*>(payload + value_length);
-      if (FLAGS_tmp7) {
-         delta->tx_ts = cr::Worker::my().getCommitTimestamp(delta->worker_id, delta->tx_ts) | MSB;
-      }
+      delta->tx_ts = cr::Worker::my().getCommitTimestamp(delta->worker_id, delta->tx_ts) | MSB;
       u64 offset = value_length;
       std::vector<Delta*> deltas_to_merge;
       cr::Worker::VISIBILITY visibility;

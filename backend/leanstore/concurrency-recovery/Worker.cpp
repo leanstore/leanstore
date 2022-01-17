@@ -409,8 +409,8 @@ void Worker::commitTX()
       }
       // -------------------------------------------------------------------------------------
       if (!activeTX().isReadOnly()) {
-         commit_to_start_map->insertCallback([&](u8* key) { utils::fold(key, global_logical_clock.fetch_add(1)); }, sizeof(TXID),
-                                             [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID));
+         commit_to_start_map->append([&](u8* key) { utils::fold(key, global_logical_clock.fetch_add(1)); }, sizeof(TXID),
+                                     [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID), map_leaf_handler);
       }
       if (activeTX().isSerializable()) {
          executeUnlockTasks();
@@ -450,15 +450,6 @@ void Worker::abortTX()
 // -------------------------------------------------------------------------------------
 Worker::VISIBILITY Worker::isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts)
 {
-   if constexpr (0) {
-      auto tmp = global_workers_current_start_timestamp[whom_worker_id].load();
-      if (tmp & MSB) {
-         return VISIBILITY::UNDETERMINED;
-      } else {
-         ensure(tmp > active_tx.TTS() || tmp == local_workers_start_ts[whom_worker_id]);
-         return tmp > commit_ts ? VISIBILITY::VISIBLE_ALREADY : VISIBILITY::VISIBLE_NEXT_ROUND;
-      }
-   }
    return local_workers_start_ts[whom_worker_id] > commit_ts ? VISIBILITY::VISIBLE_ALREADY : VISIBILITY::VISIBLE_NEXT_ROUND;
 }
 // -------------------------------------------------------------------------------------

@@ -42,7 +42,7 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
             jumpmu_return OP_RESULT::OK;
          } else {
             leaf.recheck();
-            // raise(SIGTRAP);
+            raise(SIGTRAP);
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }
@@ -167,6 +167,81 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
    jumpmuCatch() {}
    UNREACHABLE();
    return OP_RESULT::OTHER;
+}
+// -------------------------------------------------------------------------------------
+OP_RESULT BTreeLL::append(std::function<void(u8*)> o_key,
+                          u16 o_key_length,
+                          std::function<void(u8*)> o_value,
+                          u16 o_value_length,
+                          std::unique_ptr<u8[]>& session_ptr)
+{
+   struct alignas(64) Session {
+      BufferFrame* bf;
+   };
+   // -------------------------------------------------------------------------------------
+   if (session_ptr.get()) {
+      auto session = reinterpret_cast<Session*>(session_ptr.get());
+      jumpmuTry()
+      {
+         Guard opt_guard(session->bf->header.latch);
+         opt_guard.toOptimisticOrJump();
+         {
+            BTreeNode& node = *reinterpret_cast<BTreeNode*>(session->bf->page.dt);
+            if (!node.is_leaf || node.upper_fence.length != 0 || node.upper_fence.offset != 0) {
+               jumpmu::jump();
+            }
+         }
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this), session->bf, opt_guard.version);
+         // -------------------------------------------------------------------------------------
+         OP_RESULT ret = iterator.enoughSpaceInCurrentNode(o_key_length, o_value_length);
+         if (ret == OP_RESULT::OK) {  // iterator.keyInCurrentBoundaries(key)
+            u8 key_buffer[o_key_length];
+            o_key(key_buffer);
+            const s32 pos = iterator.leaf->count;
+            iterator.leaf->insertDoNotCopyPayload(key_buffer, o_key_length, o_value_length, pos);
+            iterator.cur = pos;
+            o_value(iterator.mutableValue().data());
+            iterator.markAsDirty();
+            jumpmu_return OP_RESULT::OK;
+         }
+      }
+      jumpmuCatch() {}
+   }
+   // -------------------------------------------------------------------------------------
+   while (true) {
+      jumpmuTry()
+      {
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
+         u8 key_buffer[o_key_length];
+         for (u64 i = 0; i < o_key_length; i++) {
+            key_buffer[i] = 255;
+         }
+         const Slice key(key_buffer, o_key_length);
+         OP_RESULT ret = iterator.seekToInsert(key);
+         explainWhen(ret == OP_RESULT::DUPLICATE);
+         ret = iterator.enoughSpaceInCurrentNode(key, o_value_length);
+         if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
+            iterator.splitForKey(key);
+            jumpmu_continue;
+         }
+         o_key(key_buffer);
+         iterator.insertInCurrentNode(key, o_value_length);
+         o_value(iterator.mutableValue().data());
+         iterator.markAsDirty();
+         // -------------------------------------------------------------------------------------
+         Session* session = nullptr;
+         if (session_ptr) {
+            session = reinterpret_cast<Session*>(session_ptr.get());
+         } else {
+            session_ptr = std::make_unique<u8[]>(sizeof(Session));
+            session = new (session_ptr.get()) Session();
+         }
+         session->bf = iterator.leaf.bf;
+         // -------------------------------------------------------------------------------------
+         jumpmu_return OP_RESULT::OK;
+      }
+      jumpmuCatch() {}
+   }
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::insertCallback(std::function<void(u8*)> o_key, u16 o_key_length, std::function<void(u8*)> o_value, u16 o_value_length)
@@ -294,6 +369,47 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
       ret = iterator.removeCurrent();
       ensure(ret == OP_RESULT::OK);
       iterator.mergeIfNeeded();
+      jumpmu_return OP_RESULT::OK;
+   }
+   jumpmuCatch() {}
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
+}
+// -------------------------------------------------------------------------------------
+OP_RESULT BTreeLL::rangeRemove(u8* start_key, u16 start_key_length, u8* end_key, u16 end_key_length)
+{
+   const Slice s_key(start_key, start_key_length);
+   const Slice e_key(end_key, end_key_length);
+   jumpmuTry()
+   {
+      BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
+      iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+         if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+            iterator.cleanUpCallback([&, to_find = leaf.bf] {
+               jumpmuTry() { this->tryMerge(*to_find); }
+               jumpmuCatch() {}
+            });
+         }
+      });
+      // -------------------------------------------------------------------------------------
+      auto ret = iterator.seek(s_key);
+      if (ret != OP_RESULT::OK) {
+         jumpmu_return ret;
+      }
+      while (true) {
+         iterator.assembleKey();
+         auto c_key = iterator.key();
+         if (c_key >= s_key && c_key <= e_key) {
+            ret = iterator.removeCurrent();
+            ensure(ret == OP_RESULT::OK);
+            if (iterator.cur == iterator.leaf->count) {
+               ret = iterator.next();
+            }
+         } else {
+            break;
+         }
+      }
+      // TODO: WAL, atm used by none persistence trees
       jumpmu_return OP_RESULT::OK;
    }
    jumpmuCatch() {}
