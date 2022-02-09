@@ -393,7 +393,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
       return false;
    }
    fat_tuple->total_space = fat_tuple->used_space;
-   if (number_of_deltas_to_replace >= convertToFatTupleThreshold()) {
+   if (number_of_deltas_to_replace > convertToFatTupleThreshold() && cr::Worker::my().local_olap_lwm != cr::Worker::my().local_oltp_lwm) {
       // Finalize the new FatTuple
       // TODO: corner cases, more careful about space usage
       // -------------------------------------------------------------------------------------
