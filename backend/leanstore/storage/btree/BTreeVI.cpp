@@ -226,7 +226,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       const u16 delta_and_descriptor_size = update_descriptor.size() + update_descriptor.diffLength();
       const u16 version_payload_length = delta_and_descriptor_size + sizeof(UpdateVersion);
-      COMMANDID command_id = tuple_head.command_id;
+      COMMANDID command_id;
       // -------------------------------------------------------------------------------------
       // Write the ChainedTupleDelta
       if (!update_without_versioning) {
@@ -236,6 +236,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
          });
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
+      } else {
+         command_id = tuple_head.command_id;
       }
       // -------------------------------------------------------------------------------------
       // WAL
