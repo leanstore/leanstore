@@ -409,6 +409,13 @@ bool BTreeNode::remove(const u8* key, const u16 keyLength)
    return removeSlot(slotId);
 }
 // -------------------------------------------------------------------------------------
+void BTreeNode::reset()
+{
+   space_used = upper_fence.length + lower_fence.length;
+   data_offset = EFFECTIVE_PAGE_SIZE - space_used;
+   count = 0;
+}
+// -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage
 }  // namespace leanstore

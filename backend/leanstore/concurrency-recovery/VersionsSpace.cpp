@@ -205,52 +205,51 @@ void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_t
    btree = update_btrees[worker_id];
    utils::fold(key_buffer, from_tx_id);
    // -------------------------------------------------------------------------------------
-   jumpmuTry()
-   {
-      leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
-      iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
-         if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-            iterator.cleanUpCallback([&, to_find = leaf.bf] {
-               jumpmuTry() { btree->tryMerge(*to_find); }
-               jumpmuCatch() {}
-            });
-         }
-      });
-      // -------------------------------------------------------------------------------------
-      iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
-         if (leaf->lower_fence.length >= sizeof(to_tx_id) && leaf->upper_fence.length >= sizeof(to_tx_id)) {
-            TXID leaf_upper_fence_tx_id, leaf_lower_fence_tx_id;  // ATTENTION: we use this also for purging the current aborted tx
-            utils::unfold(iterator.leaf->getUpperFenceKey(), leaf_upper_fence_tx_id);
-            utils::unfold(iterator.leaf->getLowerFenceKey(), leaf_lower_fence_tx_id);
-            if (leaf_lower_fence_tx_id >= from_tx_id && to_tx_id >= leaf_upper_fence_tx_id) {
-               for (s32 s_i = iterator.leaf->count - 1; s_i > iterator.cur; s_i--) {
-                  leaf->removeSlot(s_i);
-               }
+   while (true) {
+      jumpmuTry()
+      {
+         leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
+         iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+            if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+               iterator.cleanUpCallback([&, to_find = leaf.bf] {
+                  jumpmuTry() { btree->tryMerge(*to_find); }
+                  jumpmuCatch() {}
+               });
             }
-         }
-      });
-      // -------------------------------------------------------------------------------------
-      OP_RESULT ret = iterator.seek(key);
-      while (ret == OP_RESULT::OK && (limit == 0 || removed_versions < limit)) {
-         iterator.assembleKey();
-         TXID current_tx_id;
-         utils::unfold(iterator.key().data(), current_tx_id);
-         if (current_tx_id >= from_tx_id && current_tx_id <= to_tx_id) {
+         });
+         // -------------------------------------------------------------------------------------
+         // ATTENTION: we use this also for purging the current aborted tx so we can not simply assume from_tx_id = 0
+         bool did_purge_full_page = false;
+         iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+            if (leaf->count == 0) {
+               return;
+            }
+            u8 first_key[leaf->getFullKeyLen(0)];
+            leaf->copyFullKey(0, first_key);
+            TXID first_key_tx_id;
+            utils::unfold(first_key, first_key_tx_id);
             // -------------------------------------------------------------------------------------
-            ret = iterator.removeCurrent();
-            removed_versions++;
-            ensure(ret == OP_RESULT::OK);
-            COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed++; }
-            iterator.markAsDirty();
-            if (iterator.cur == iterator.leaf->count) {
-               ret = iterator.next();
+            u8 last_key[leaf->getFullKeyLen(leaf->count - 1)];
+            leaf->copyFullKey(leaf->count - 1, last_key);
+            TXID last_key_tx_id;
+            utils::unfold(last_key, last_key_tx_id);
+            if (first_key_tx_id >= from_tx_id && to_tx_id >= last_key_tx_id) {
+               // Purge the whole page
+               removed_versions = leaf->count;
+               leaf->reset();
+               did_purge_full_page = true;
             }
+         });
+         // -------------------------------------------------------------------------------------
+         if (did_purge_full_page) {
+            jumpmu_continue;
          } else {
-            break;
+            jumpmu_break;
          }
+         iterator.seek(key);
       }
+      jumpmuCatch() { UNREACHABLE(); }
    }
-   jumpmuCatch() { UNREACHABLE(); }
 }
 // -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer

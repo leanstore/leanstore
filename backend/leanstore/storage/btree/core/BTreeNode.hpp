@@ -379,6 +379,7 @@ struct BTreeNode : public BTreeNodeHeader {
    // Not synchronized or todo section
    bool removeSlot(u16 slotId);
    bool remove(const u8* key, const u16 keyLength);
+   void reset();
 };  // namespace btree
 // -------------------------------------------------------------------------------------
 static_assert(sizeof(BTreeNode) == EFFECTIVE_PAGE_SIZE, "BTreeNode must be equal to one page");
