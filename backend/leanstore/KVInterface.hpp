@@ -26,6 +26,7 @@ struct UpdateSameSizeInPlaceDescriptor {
       }
       return length;
    }
+   u64 totalLength() const { return size() + diffLength(); }
    bool operator==(const UpdateSameSizeInPlaceDescriptor& other)
    {
       if (count != other.count)
@@ -63,14 +64,8 @@ class KVInterface
    virtual u64 getHeight() = 0;
    // -------------------------------------------------------------------------------------
    virtual OP_RESULT insertCallback(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16) { return OP_RESULT::OTHER; }
-   virtual OP_RESULT append(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16, std::unique_ptr<u8[]>& leaf_handler)
-   {
-      return OP_RESULT::OTHER;
-   }
-   virtual OP_RESULT rangeRemove(u8* start_key, u16 start_key_length, u8* end_key, u16 end_key_length)
-   {
-      return OP_RESULT::OTHER;
-   }
+   virtual OP_RESULT append(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16, std::unique_ptr<u8[]>&) { return OP_RESULT::OTHER; }
+   virtual OP_RESULT rangeRemove(u8*, u16, u8*, u16) { return OP_RESULT::OTHER; }
 };
 // -------------------------------------------------------------------------------------
 using Slice = std::basic_string_view<u8>;

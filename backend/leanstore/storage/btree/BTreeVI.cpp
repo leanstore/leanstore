@@ -173,8 +173,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // -------------------------------------------------------------------------------------
       if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
          explainWhen(cr::activeTX().isSingleStatement());  // TODO: not implemented yet
-         const bool res =
-             reinterpret_cast<FatTupleDifferentAttributes*>(&tuple)->update(iterator, o_key, o_key_length, callback, update_descriptor, *this);
+         const bool res = reinterpret_cast<FatTupleDifferentAttributes*>(&tuple)->update(iterator, o_key, o_key_length, callback, update_descriptor);
          ensure(res);  // TODO: what if it fails, then we have to do something else
          // Attention: tuple pointer is not valid here
          reinterpret_cast<Tuple*>(iterator.mutableValue().data())->unlock();
@@ -190,9 +189,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       }
       // -------------------------------------------------------------------------------------
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
-      bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && !tried_converting_to_fat_tuple &&
-                                  tuple_head.can_convert_to_fat_tuple &&  // dt_id == FLAGS_tmp4 &&
-                                  tuple_head.command_id != Tuple::INVALID_COMMANDID &&
+      bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && !tried_converting_to_fat_tuple && tuple_head.can_convert_to_fat_tuple &&
+                                  dt_id == FLAGS_tmp4 && tuple_head.command_id != Tuple::INVALID_COMMANDID &&
                                   !(tuple_head.worker_id == cr::Worker::my().workerID() && tuple_head.tx_ts == cr::activeTX().TTS());
       if (convert_to_fat_tuple) {
          convert_to_fat_tuple &= !cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts);

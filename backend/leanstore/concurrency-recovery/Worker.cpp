@@ -25,9 +25,9 @@ atomic<u64> Worker::global_sync_to_this_gsn = 0;
 std::shared_mutex Worker::global_mutex;  // Unused
 // -------------------------------------------------------------------------------------
 std::unique_ptr<atomic<u64>[]> Worker::global_workers_current_start_timestamp;  // All transactions < are committed
-atomic<u64> Worker::global_oltp_lwm = 0;                                        // No worker should start with TTS == 0
 atomic<u64> Worker::global_oldest_tx = 0;                                       // No worker should start with TTS == 0
-atomic<u64> Worker::global_oldest_oltp_tx = 0;                                  // No worker should start with TTS == 0
+atomic<u64> Worker::global_oldest_oltp = 0;                                     // No worker should start with TTS == 0
+atomic<u64> Worker::global_newest_olap = 0;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface& versions_space, s32 fd, const bool is_page_provider)
     : worker_id(worker_id),
@@ -150,47 +150,52 @@ void Worker::submitDTEntry(u64 total_size)
 // Also for interval garbage collection
 void Worker::prepareForGarbageCollection()
 {
-   bool is_oltp_same_as_olap = !activeTX().isOLAP();
-   local_oldest_oltp_tx_id_in_rv = std::numeric_limits<u64>::max();
-   local_oldest_olap_tx_id_in_rv = std::numeric_limits<u64>::max();
-   for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
-      u64 its_in_flight_tx_id = global_workers_current_start_timestamp[w_i].load();
-      // -------------------------------------------------------------------------------------
-      while ((its_in_flight_tx_id & LATCH_BIT) && ((its_in_flight_tx_id & CLEAN_BITS_MASK) < active_tx.TTS())) {
-         its_in_flight_tx_id = global_workers_current_start_timestamp[w_i].load();
-      }
-      // -------------------------------------------------------------------------------------
-      const bool is_rc = its_in_flight_tx_id & RC_BIT;
-      const bool is_olap = its_in_flight_tx_id & OLAP_BIT;
-      its_in_flight_tx_id &= CLEAN_BITS_MASK;
-      is_oltp_same_as_olap &= !is_olap;
-      if (!is_rc) {
-         local_oldest_olap_tx_id_in_rv = std::min<u64>(its_in_flight_tx_id, local_oldest_olap_tx_id_in_rv);
-         if (!is_olap) {
-            local_oldest_oltp_tx_id_in_rv = std::min<u64>(its_in_flight_tx_id, local_oldest_oltp_tx_id_in_rv);
+   if (utils::RandomGenerator::getRandU64(0, workers_count) == 0) {
+      TXID local_newest_olap = std::numeric_limits<u64>::min();
+      TXID local_oldest_oltp = std::numeric_limits<u64>::max();
+      TXID local_oldest_tx = std::numeric_limits<u64>::max();
+      for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
+         u64 its_in_flight_tx_id = global_workers_current_start_timestamp[w_i].load();
+         // -------------------------------------------------------------------------------------
+         while ((its_in_flight_tx_id & LATCH_BIT) && ((its_in_flight_tx_id & CLEAN_BITS_MASK) < active_tx.TTS())) {
+            its_in_flight_tx_id = global_workers_current_start_timestamp[w_i].load();
+         }
+         // -------------------------------------------------------------------------------------
+         const bool is_rc = its_in_flight_tx_id & RC_BIT;
+         const bool is_olap = its_in_flight_tx_id & OLAP_BIT;
+         its_in_flight_tx_id &= CLEAN_BITS_MASK;
+         if (!is_rc) {
+            local_oldest_tx = std::min<TXID>(its_in_flight_tx_id, local_oldest_tx);
+            if (is_olap) {
+               local_newest_olap = std::max<TXID>(its_in_flight_tx_id, local_newest_olap);
+            } else {
+               local_oldest_oltp = std::min<TXID>(its_in_flight_tx_id, local_oldest_oltp);
+            }
          }
       }
-      local_workers_start_ts[w_i] = its_in_flight_tx_id;
-   }
-   // -------------------------------------------------------------------------------------
-   workers_sorted = false;
-   // std::sort(local_workers_sorted_start_ts.get(), local_workers_sorted_start_ts.get() + workers_count + 1, std::less<u64>());
-   // -------------------------------------------------------------------------------------
-   u64 current_global_oldest_tx = global_oldest_tx.load();
-   while (local_oldest_olap_tx_id_in_rv > current_global_oldest_tx) {
-      if (global_oldest_tx.compare_exchange_strong(current_global_oldest_tx, local_oldest_olap_tx_id_in_rv))
-         break;
-   }
-   // -------------------------------------------------------------------------------------
-   u64 current_global_oldest_oltp_tx = global_oldest_oltp_tx.load();
-   while (local_oldest_oltp_tx_id_in_rv > current_global_oldest_oltp_tx) {
-      if (global_oldest_oltp_tx.compare_exchange_strong(current_global_oldest_oltp_tx, local_oldest_oltp_tx_id_in_rv))
-         break;
+      // -------------------------------------------------------------------------------------
+      u64 current_global_oldest_tx = global_oldest_tx.load();
+      while (local_oldest_tx > current_global_oldest_tx) {
+         if (global_oldest_tx.compare_exchange_strong(current_global_oldest_tx, local_oldest_tx))
+            break;
+      }
+      // -------------------------------------------------------------------------------------
+      u64 current_global_oldest_oltp = global_oldest_oltp.load();
+      while (local_oldest_oltp > current_global_oldest_oltp) {
+         if (global_oldest_oltp.compare_exchange_strong(current_global_oldest_oltp, local_oldest_oltp))
+            break;
+      }
+      // -------------------------------------------------------------------------------------
+      u64 current_global_newest_olap = global_newest_olap.load();
+      while (local_newest_olap > current_global_newest_olap) {
+         if (global_newest_olap.compare_exchange_strong(current_global_newest_olap, local_newest_olap))
+            break;
+      }
    }
    // -------------------------------------------------------------------------------------
    {
       u8 key[sizeof(TXID)];
-      utils::fold(key, local_oldest_olap_tx_id_in_rv);
+      utils::fold(key, global_oldest_tx);
       commit_to_start_map->scanDesc(
           key, sizeof(TXID),
           [&](const u8* s_key, u16, const u8*, u16) {
@@ -199,7 +204,7 @@ void Worker::prepareForGarbageCollection()
           },
           [&]() {});
       // -------------------------------------------------------------------------------------
-      utils::fold(key, local_oldest_oltp_tx_id_in_rv);
+      utils::fold(key, global_oldest_oltp);
       commit_to_start_map->scanDesc(
           key, sizeof(TXID),
           [&](const u8* s_key, u16, const u8*, u16) {
@@ -222,22 +227,6 @@ void Worker::refreshSnapshot()
    relations_cut_from_snapshot.reset();
    if (FLAGS_tmp4)
       global_mutex.unlock_shared();
-}
-// -------------------------------------------------------------------------------------
-void Worker::prepareForIntervalGC()
-{
-   if (!workers_sorted) {
-      COUNTERS_BLOCK() { CRCounters::myCounters().cc_prepare_igc++; }
-      for (u64 w_i = 0; w_i < workers_count; w_i++) {
-         local_workers_sorted_start_ts[w_i] = (local_workers_start_ts[w_i] << WORKERS_BITS) | w_i;
-      }
-      // Avoid extra work if the last round also was full of single statement workers
-      if (1 || local_oldest_olap_tx_id_in_rv < std::numeric_limits<u64>::max()) {  // TODO: Disable
-         std::sort(local_workers_sorted_start_ts.get(), local_workers_sorted_start_ts.get() + workers_count, std::greater<u64>());
-         assert(local_workers_sorted_start_ts[0] >= local_workers_sorted_start_ts[1]);
-      }
-   }
-   workers_sorted = true;
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)

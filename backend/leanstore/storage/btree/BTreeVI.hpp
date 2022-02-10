@@ -131,26 +131,42 @@ class BTreeVI : public BTreeLL
          {
             return *reinterpret_cast<const UpdateSameSizeInPlaceDescriptor*>(payload);
          }
+         inline u32 totalLength() { return sizeof(Delta) + getConstantDescriptor().size() + getConstantDescriptor().diffLength(); }
       };
       // -------------------------------------------------------------------------------------
-      u16 value_length;
-      u16 total_space;       // From the payload bytes array
-      u32 used_space;        // does not include the struct itself
+      u16 value_length = 0;
+      u32 total_space = 0;  // From the payload bytes array
+      u32 used_space = 0;   // does not include the struct itself
+      u32 data_offset = 0;
       u16 deltas_count = 0;  // Attention: coupled with used_space
-      u8 payload[];          // value, Delta+Descriptor+Diff[] N2O
-      // -------------------------------------------------------------------------------------
-      FatTupleDifferentAttributes() : Tuple(TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES, 0, 0) {}
+      u8 payload[];          // value, Delta+Descriptor+Diff[] O2N
+                             // -------------------------------------------------------------------------------------
+      FatTupleDifferentAttributes(const u32 init_total_space)
+          : Tuple(TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES, 0, 0), total_space(init_total_space), data_offset(init_total_space)
+      {
+      }
       // returns false to fallback to chained mode
       static bool update(BTreeExclusiveIterator& iterator,
                          u8* key,
                          u16 o_key_length,
                          function<void(u8* value, u16 value_size)>,
-                         UpdateSameSizeInPlaceDescriptor&,
-                         BTreeVI& btree);
-      void garbageCollection(BTreeVI& btree, bool heavyweight = false);
+                         UpdateSameSizeInPlaceDescriptor&);
+      bool hasSpaceFor(const UpdateSameSizeInPlaceDescriptor&);
+      void append(UpdateSameSizeInPlaceDescriptor&);
+      Delta& allocateDelta(u32 delta_total_length);
+      void garbageCollection();
       void undoLastUpdate();
       inline constexpr u8* getValue() { return payload; }
       inline const u8* getValueConstant() const { return payload; }
+      // -------------------------------------------------------------------------------------
+      inline u16* getDeltaOffsets() { return reinterpret_cast<u16*>(payload + value_length); }
+      inline const u16* getDeltaOffsetsConstant() const { return reinterpret_cast<const u16*>(payload + value_length); }
+      inline Delta& getDelta(u16 d_i)
+      {
+         assert(reinterpret_cast<u8*>(getDeltaOffsets() + d_i) < reinterpret_cast<u8*>(payload + getDeltaOffsets()[d_i]));
+         return *reinterpret_cast<Delta*>(payload + getDeltaOffsets()[d_i]);
+      }
+      inline const Delta& getDeltaConstant(u16 d_i) const { return *reinterpret_cast<const Delta*>(payload + getDeltaOffsetsConstant()[d_i]); }
       std::tuple<OP_RESULT, u16> reconstructTuple(std::function<void(Slice value)> callback) const;
    };
    static_assert(sizeof(ChainedTuple) <= sizeof(FatTupleDifferentAttributes), "");

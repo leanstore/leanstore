@@ -52,11 +52,10 @@ struct Worker {
    static std::shared_mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_workers_current_start_timestamp;
-   static atomic<u64> global_oltp_lwm;        // TODO:
-   static atomic<u64> global_oldest_tx;       // TODO:
-   static atomic<u64> global_oldest_oltp_tx;  // TODO:
-                                              // -------------------------------------------------------------------------------------
-
+   // -------------------------------------------------------------------------------------
+   static atomic<u64> global_oldest_oltp;
+   static atomic<u64> global_oldest_tx;
+   static atomic<u64> global_newest_olap;
    // -------------------------------------------------------------------------------------
    // All the local tracking data
    // New age
@@ -73,8 +72,9 @@ struct Worker {
    // Snapshot Acquisition Time (SAT) = TXID = CommitMark - 1
    bool workers_sorted = false;
    bool transactions_order_refreshed = false;
-   u64 local_oldest_olap_tx_id_in_rv;
-   u64 local_oldest_oltp_tx_id_in_rv;                  // OLAP <= OLTP
+   // u64 local_oldest_tx;
+   // u64 local_oldest_oltp;  // OLAP <= OLTP
+   // u64 local_newest_olap;
    unique_ptr<u64[]> local_workers_in_progress_txids;  // = Readview
    unique_ptr<u64[]> local_workers_start_ts;
    unique_ptr<u64[]> local_workers_sorted_start_ts;
@@ -328,7 +328,6 @@ struct Worker {
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
-   void prepareForIntervalGC();
    void refreshSnapshot();
    void prepareForGarbageCollection();
    void switchToReadCommittedMode();
