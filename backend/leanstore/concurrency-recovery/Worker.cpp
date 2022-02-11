@@ -148,9 +148,9 @@ void Worker::submitDTEntry(u64 total_size)
 }
 // -------------------------------------------------------------------------------------
 // Also for interval garbage collection
-void Worker::prepareForGarbageCollection()
+void Worker::refreshGlobalState()
 {
-   if (utils::RandomGenerator::getRandU64(0, workers_count) == 0) {
+   if (global_mutex.try_lock()) {
       TXID local_newest_olap = std::numeric_limits<u64>::min();
       TXID local_oldest_oltp = std::numeric_limits<u64>::max();
       TXID local_oldest_tx = std::numeric_limits<u64>::max();
@@ -174,23 +174,11 @@ void Worker::prepareForGarbageCollection()
          }
       }
       // -------------------------------------------------------------------------------------
-      u64 current_global_oldest_tx = global_oldest_tx.load();
-      while (local_oldest_tx > current_global_oldest_tx) {
-         if (global_oldest_tx.compare_exchange_strong(current_global_oldest_tx, local_oldest_tx))
-            break;
-      }
+      global_oldest_tx.store(local_oldest_tx, std::memory_order_release);
+      global_oldest_oltp.store(local_oldest_oltp, std::memory_order_release);
+      global_newest_olap.store(local_newest_olap, std::memory_order_release);
       // -------------------------------------------------------------------------------------
-      u64 current_global_oldest_oltp = global_oldest_oltp.load();
-      while (local_oldest_oltp > current_global_oldest_oltp) {
-         if (global_oldest_oltp.compare_exchange_strong(current_global_oldest_oltp, local_oldest_oltp))
-            break;
-      }
-      // -------------------------------------------------------------------------------------
-      u64 current_global_newest_olap = global_newest_olap.load();
-      while (local_newest_olap > current_global_newest_olap) {
-         if (global_newest_olap.compare_exchange_strong(current_global_newest_olap, local_newest_olap))
-            break;
-      }
+      global_mutex.unlock();
    }
    // -------------------------------------------------------------------------------------
    {
@@ -217,16 +205,9 @@ void Worker::prepareForGarbageCollection()
 // -------------------------------------------------------------------------------------
 void Worker::refreshSnapshot()
 {
-   if (FLAGS_tmp4)
-      global_mutex.lock_shared();
-   // -------------------------------------------------------------------------------------
    for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
       local_workers_in_progress_txids[w_i] = 0;  // Reset local cache
    }
-   // -------------------------------------------------------------------------------------
-   relations_cut_from_snapshot.reset();
-   if (FLAGS_tmp4)
-      global_mutex.unlock_shared();
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
@@ -291,20 +272,16 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
 // -------------------------------------------------------------------------------------
 void Worker::switchToSnapshotIsolationMode()
 {
-   // TODO: verify
-   global_mutex.lock();
+   std::unique_lock guard(global_mutex);
    global_workers_current_start_timestamp[worker_id].store(global_logical_clock.load(), std::memory_order_release);
-   global_mutex.unlock();
 }
 // -------------------------------------------------------------------------------------
 void Worker::switchToReadCommittedMode()
 {
-   // TODO: verify
    // Latch-free work only when all counters increase monotone, we can not simply go back
-   {
-      const u64 last_commit_mark_flagged = global_workers_current_start_timestamp[worker_id].load() | RC_BIT;
-      global_workers_current_start_timestamp[worker_id].store(last_commit_mark_flagged, std::memory_order_release);
-   }
+   std::unique_lock guard(global_mutex);
+   const u64 last_commit_mark_flagged = global_workers_current_start_timestamp[worker_id].load() | RC_BIT;
+   global_workers_current_start_timestamp[worker_id].store(last_commit_mark_flagged, std::memory_order_release);
 }
 // -------------------------------------------------------------------------------------
 void Worker::shutdown()
@@ -318,7 +295,7 @@ void Worker::garbageCollection()
    if (!FLAGS_todo) {
       return;
    }
-   prepareForGarbageCollection();
+   refreshGlobalState();
    // TODO: smooth purge, we should not let the system hang on this, as a quick fix, it should be enough if we purge in small batches
    if (local_olap_lwm > 0) {
       // PURGE!

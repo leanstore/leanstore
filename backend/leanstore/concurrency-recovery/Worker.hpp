@@ -160,6 +160,7 @@ struct Worker {
       return versions_space.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
    }
    // -------------------------------------------------------------------------------------
+   // Not used atm:
    // Optimization: remove relations from snapshot as soon as we are finished with them (esp. in long read-only tx)
    static constexpr u64 MAX_RELATIONS_COUNT = 128;
    struct RelationsList {
@@ -329,7 +330,7 @@ struct Worker {
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
    void refreshSnapshot();
-   void prepareForGarbageCollection();
+   void refreshGlobalState();
    void switchToReadCommittedMode();
    void switchToSnapshotIsolationMode();
    // -------------------------------------------------------------------------------------
