@@ -97,7 +97,7 @@ DEFINE_bool(vi_fat_tuple_decompose, true, "");
 DEFINE_uint64(vi_fat_tuple_threshold, 4, "Minimum length of chain length before converting the tuple format to FatTuple");
 DEFINE_bool(vi_dangling_pointer, true, "");
 // -------------------------------------------------------------------------------------
-DEFINE_bool(olap_mode, false, "Use OLAP mode for long running transactions");
+DEFINE_bool(olap_mode, true, "Use OLAP mode for long running transactions");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(pgc, true, "Precise garbage collection/recycling");
 DEFINE_uint64(pgc_variant, 0, "0 naive, 1 bit faster, 2 ...");
