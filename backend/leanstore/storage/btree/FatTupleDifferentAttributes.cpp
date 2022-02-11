@@ -52,11 +52,17 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    }
    // -------------------------------------------------------------------------------------
    // Delete for all visible deltas, atm using cheap visibility check
+   if (cr::Worker::my().isVisibleForAll(worker_id, tx_ts)) {
+      deltas_count = 0;
+      data_offset = total_space;
+      used_space = value_length;
+      return;
+   }
    u16 deltas_visible_by_all_counter = 0;
    u32 freed_space = 0;
    for (u32 d_i = 0; (1 + d_i) < deltas_count; d_i++) {
       auto& delta = getDelta(d_i + 1);
-      if (delta.tx_ts < cr::Worker::global_oldest_tx.load()) {
+      if (cr::Worker::my().isVisibleForAll(delta.worker_id, delta.tx_ts)) {
          deltas_visible_by_all_counter++;
          freed_space += delta.totalLength();
       } else {
@@ -65,12 +71,16 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    }
    if (deltas_visible_by_all_counter) {
       used_space -= (sizeof(u16) * deltas_visible_by_all_counter) + freed_space;
+      std::memmove(payload + data_offset + freed_space, payload + data_offset, (total_space - data_offset - freed_space));
+      data_offset += freed_space;
       std::memmove(getDeltaOffsets(), getDeltaOffsets() + deltas_visible_by_all_counter,
                    (deltas_count - deltas_visible_by_all_counter) * sizeof(u16));
       deltas_count -= deltas_visible_by_all_counter;
+      for (u32 d_i = 0; d_i < deltas_count; d_i++) {
+         getDeltaOffsets()[d_i] += freed_space;
+      }
    }
    // -------------------------------------------------------------------------------------
-   // TODO: DeadZone technique
    // Identify tuples we should merge
    u16 deltas_to_merge[deltas_count];
    u16 deltas_to_merge_counter = 0;
@@ -163,7 +173,6 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    std::memcpy(this, buffer, buffer_size);
    assert(total_space >= used_space);
    // -------------------------------------------------------------------------------------
-   explainWhen(deltas_count > 97 && getDelta(97).tx_ts > 9999);
    DEBUG_BLOCK()
    {
       u32 should_used_space = value_length;
@@ -172,12 +181,12 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
       }
       assert(used_space == should_used_space);
    }
-}
+}  // namespace leanstore::storage::btree
 // -------------------------------------------------------------------------------------
 bool BTreeVI::FatTupleDifferentAttributes::hasSpaceFor(const UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
    const u32 needed_space = update_descriptor.size() + update_descriptor.diffLength() + sizeof(u16) + sizeof(Delta);
-   return (total_space - used_space) >= needed_space;
+   return (data_offset - (value_length + (deltas_count * sizeof(u16)))) >= needed_space;
 }
 // -------------------------------------------------------------------------------------
 BTreeVI::FatTupleDifferentAttributes::Delta& BTreeVI::FatTupleDifferentAttributes::allocateDelta(u32 delta_total_length)
@@ -247,9 +256,11 @@ cont : {
       if (fat_tuple->hasSpaceFor(update_descriptor)) {
          goto cont;
       } else {
+         raise(SIGTRAP);
+         fat_tuple->garbageCollection();
          TODOException();
-         if (fat_tuple->total_space < 3000) {
-            const u32 new_fat_tuple_length = std::min<u32>(3000, fat_tuple->total_space * 2);
+         if (fat_tuple->total_space < maxFatTupleLength()) {
+            const u32 new_fat_tuple_length = std::min<u32>(maxFatTupleLength(), fat_tuple->total_space * 2);
             u8 buffer[PAGE_SIZE];
             ensure(iterator.value().length() <= PAGE_SIZE);
             std::memcpy(buffer, iterator.value().data(), iterator.value().length());
@@ -282,7 +293,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTupl
       std::memcpy(materialized_value, getValueConstant(), value_length);
       // we have to apply the diffs
       u16 chain_length = 2;
-      for (s16 d_i = deltas_count; d_i >= 0; d_i--) {
+      for (s16 d_i = deltas_count - 1; d_i >= 0; d_i--) {
          auto& delta = getDeltaConstant(d_i);
          BTreeLL::applyDiff(delta.getConstantDescriptor(), materialized_value,
                             delta.payload + delta.getConstantDescriptor().size());  // Apply diff
@@ -306,7 +317,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
 {
    u16 number_of_deltas_to_replace = 0;
    std::vector<u8> dynamic_buffer;
-   dynamic_buffer.resize(3000);
+   dynamic_buffer.resize(maxFatTupleLength());
    auto fat_tuple = new (dynamic_buffer.data()) FatTupleDifferentAttributes(dynamic_buffer.size() - sizeof(FatTupleDifferentAttributes));
    // -------------------------------------------------------------------------------------
    WORKERID next_worker_id;
@@ -328,7 +339,8 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    next_tx_id = chain_head.tx_ts;
    next_command_id = chain_head.command_id;
    // TODO: check for used_space overflow
-   while (true) {
+   bool abort_conversion = false;
+   while (!abort_conversion) {
       if (cr::Worker::my().isVisibleForAll(next_worker_id, next_tx_id)) {  // Pruning versions space might get delayed
          break;
       }
@@ -342,10 +354,15 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
              const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
              const u32 needed_space = sizeof(FatTupleDifferentAttributes::Delta) + descriptor_and_diff_length;
              // -------------------------------------------------------------------------------------
+             if (needed_space > 400) {
+                abort_conversion = true;
+                return;
+             }
              if (!fat_tuple->hasSpaceFor(update_descriptor)) {
                 fat_tuple->garbageCollection();
                 if (!fat_tuple->hasSpaceFor(update_descriptor)) {
-                   TODOException();
+                   abort_conversion = true;
+                   return;
                 }
              }
              // -------------------------------------------------------------------------------------
@@ -365,13 +382,17 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
          break;
       }
    }
+   if (abort_conversion) {
+      chain_head.unlock();
+      return false;
+   }
    // -------------------------------------------------------------------------------------
    // Problem: chain order is from newest to oldest. FatTuple order is O2N
    // Solution: naive, reverse the order at the end
    std::reverse(fat_tuple->getDeltaOffsets(), fat_tuple->getDeltaOffsets() + fat_tuple->deltas_count);
    // -------------------------------------------------------------------------------------
    fat_tuple->garbageCollection();
-   if (fat_tuple->used_space > 3000) {
+   if (fat_tuple->used_space > maxFatTupleLength()) {
       chain_head.unlock();
       raise(SIGTRAP);
       return false;
@@ -398,6 +419,6 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
       chain_head.unlock();
       return false;
    }
-}
+}  // namespace leanstore::storage::btree
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore::storage::btree

@@ -474,6 +474,7 @@ class BTreeVI : public BTreeLL
       }
    }
    std::tuple<OP_RESULT, u16> reconstructChainedTuple(Slice key, Slice payload, std::function<void(Slice value)> callback);
+   static inline u64 maxFatTupleLength() { return EFFECTIVE_PAGE_SIZE - 1000; }
 };  // namespace btree
 // -------------------------------------------------------------------------------------
 }  // namespace btree

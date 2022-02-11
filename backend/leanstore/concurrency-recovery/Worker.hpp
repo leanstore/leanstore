@@ -311,7 +311,7 @@ struct Worker {
    }
    void submitDTEntry(u64 total_size);
    // -------------------------------------------------------------------------------------
-   inline u8 workerID() { return worker_id; }
+   inline WORKERID workerID() { return worker_id; }
    inline u64 snapshotAcquistionTime() { return active_tx.TTS(); }  // SAT
 
   public:
@@ -336,15 +336,15 @@ struct Worker {
    enum class VISIBILITY : u8 { VISIBLE_ALREADY, VISIBLE_NEXT_ROUND, UNDETERMINED };
    bool isVisibleForAll(WORKERID worker_id, TXID start_ts);
    bool isVisibleForAll(TXID commit_ts);
-   bool isVisibleForMe(u8 worker_id, u64 tts, bool to_write = true);
+   bool isVisibleForMe(WORKERID worker_id, u64 tts, bool to_write = true);
    VISIBILITY isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
    VISIBILITY isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts);
    TXID getCommitTimestamp(WORKERID worker_id, TXID start_ts);
    TXID getCommitTimestamp(TXID start_ts);
    // -------------------------------------------------------------------------------------
-   void getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
+   void getWALEntry(WORKERID worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
    void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
-   void getWALDTEntryPayload(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
+   void getWALDTEntryPayload(WORKERID worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
 };
 // -------------------------------------------------------------------------------------
 // Shortcuts

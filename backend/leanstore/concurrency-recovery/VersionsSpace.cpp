@@ -142,7 +142,7 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id,
       cb(version_container.payload, payload.length() - sizeof(VersionMeta));
       jumpmu_return true;
    }
-   jumpmuCatch() {}
+   jumpmuCatch() { jumpmu::jump(); }
    UNREACHABLE();
    return false;
 }

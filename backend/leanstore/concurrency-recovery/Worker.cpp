@@ -583,12 +583,12 @@ void Worker::WALFinder::insertJumpPoint(LID LSN, WALChunk::Slot slot)
 // -------------------------------------------------------------------------------------
 Worker::WALFinder::~WALFinder() {}
 // -------------------------------------------------------------------------------------
-void Worker::getWALDTEntryPayload(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
+void Worker::getWALDTEntryPayload(WORKERID worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback)
 {
    all_workers[worker_id]->getWALEntry(lsn, in_memory_offset, [&](WALEntry* entry) { callback(reinterpret_cast<WALDTEntry*>(entry)->payload); });
 }
 // -------------------------------------------------------------------------------------
-void Worker::getWALEntry(u8 worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback)
+void Worker::getWALEntry(WORKERID worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback)
 {
    all_workers[worker_id]->getWALEntry(lsn, in_memory_offset, callback);
 }
