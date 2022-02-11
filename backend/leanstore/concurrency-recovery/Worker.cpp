@@ -180,30 +180,9 @@ void Worker::refreshGlobalState()
       // -------------------------------------------------------------------------------------
       global_mutex.unlock();
    }
-   // -------------------------------------------------------------------------------------
-   {
-      u8 key[sizeof(TXID)];
-      utils::fold(key, global_oldest_tx);
-      commit_to_start_map->scanDesc(
-          key, sizeof(TXID),
-          [&](const u8* s_key, u16, const u8*, u16) {
-             utils::unfold(s_key, local_olap_lwm);
-             return false;
-          },
-          [&]() {});
-      // -------------------------------------------------------------------------------------
-      utils::fold(key, global_oldest_oltp);
-      commit_to_start_map->scanDesc(
-          key, sizeof(TXID),
-          [&](const u8* s_key, u16, const u8*, u16) {
-             utils::unfold(s_key, local_oltp_lwm);
-             return false;
-          },
-          [&]() {});
-   }
 }
 // -------------------------------------------------------------------------------------
-void Worker::refreshSnapshot()
+void Worker::resetSnapshotCache()
 {
    for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
       local_workers_in_progress_txids[w_i] = 0;  // Reset local cache
@@ -259,14 +238,12 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          global_workers_current_start_timestamp[worker_id].store(active_tx.tx_id | LATCH_BIT, std::memory_order_release);
          active_tx.tx_id = global_logical_clock.fetch_add(1);
          global_workers_current_start_timestamp[worker_id].store(active_tx.tx_id | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
-         refreshSnapshot();
+         resetSnapshotCache();
       } else {
          if (prev_tx.atLeastSI()) {
             switchToReadCommittedMode();
          }
       }
-      // -------------------------------------------------------------------------------------
-      garbageCollection();
    }
 }
 // -------------------------------------------------------------------------------------
@@ -295,7 +272,28 @@ void Worker::garbageCollection()
    if (!FLAGS_todo) {
       return;
    }
-   refreshGlobalState();
+   // -------------------------------------------------------------------------------------
+   {
+      u8 key[sizeof(TXID)];
+      utils::fold(key, global_oldest_tx);
+      commit_to_start_map->scanDesc(
+          key, sizeof(TXID),
+          [&](const u8* s_key, u16, const u8*, u16) {
+             utils::unfold(s_key, local_olap_lwm);
+             return false;
+          },
+          [&]() {});
+      // -------------------------------------------------------------------------------------
+      utils::fold(key, global_oldest_oltp);
+      commit_to_start_map->scanDesc(
+          key, sizeof(TXID),
+          [&](const u8* s_key, u16, const u8*, u16) {
+             utils::unfold(s_key, local_oltp_lwm);
+             return false;
+          },
+          [&]() {});
+   }
+   // -------------------------------------------------------------------------------------
    // TODO: smooth purge, we should not let the system hang on this, as a quick fix, it should be enough if we purge in small batches
    if (local_olap_lwm > 0) {
       // PURGE!
@@ -364,6 +362,10 @@ void Worker::commitTX()
       }
       if (activeTX().isSerializable()) {
          executeUnlockTasks();
+      }
+      if (activeTX().atLeastSI()) {
+         refreshGlobalState();
+         garbageCollection();
       }
    }
 }

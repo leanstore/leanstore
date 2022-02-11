@@ -329,7 +329,7 @@ struct Worker {
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
-   void refreshSnapshot();
+   void resetSnapshotCache();
    void refreshGlobalState();
    void switchToReadCommittedMode();
    void switchToSnapshotIsolationMode();

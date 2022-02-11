@@ -63,7 +63,6 @@ class KVInterface
    virtual u64 countEntries() = 0;
    virtual u64 getHeight() = 0;
    // -------------------------------------------------------------------------------------
-   virtual OP_RESULT insertCallback(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16) { return OP_RESULT::OTHER; }
    virtual OP_RESULT append(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16, std::unique_ptr<u8[]>&) { return OP_RESULT::OTHER; }
    virtual OP_RESULT rangeRemove(u8*, u16, u8*, u16) { return OP_RESULT::OTHER; }
 };

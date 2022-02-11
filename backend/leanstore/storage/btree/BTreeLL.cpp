@@ -187,7 +187,7 @@ OP_RESULT BTreeLL::append(std::function<void(u8*)> o_key,
          opt_guard.toOptimisticOrJump();
          {
             BTreeNode& node = *reinterpret_cast<BTreeNode*>(session->bf->page.dt);
-            if (!node.is_leaf || node.upper_fence.length != 0 || node.upper_fence.offset != 0) {
+            if (session->bf->page.dt_id != dt_id || !node.is_leaf || node.upper_fence.length != 0 || node.upper_fence.offset != 0) {
                jumpmu::jump();
             }
          }
@@ -242,56 +242,6 @@ OP_RESULT BTreeLL::append(std::function<void(u8*)> o_key,
       }
       jumpmuCatch() {}
    }
-}
-// -------------------------------------------------------------------------------------
-OP_RESULT BTreeLL::insertCallback(std::function<void(u8*)> o_key, u16 o_key_length, std::function<void(u8*)> o_value, u16 o_value_length)
-{
-   if (is_wal_enabled) {
-      cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   }
-   u8 key_buffer[o_key_length];
-   for (u64 i = 0; i < o_key_length; i++) {
-      key_buffer[i] = 255;
-   }
-   const Slice key(key_buffer, o_key_length);
-   jumpmuTry()
-   {
-      BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(this));
-      OP_RESULT ret;
-   restart : {
-      ret = iterator.seekToInsert(key);
-      if (ret != OP_RESULT::OK) {
-         jumpmu_return ret;
-      }
-      ret = iterator.enoughSpaceInCurrentNode(key, o_value_length);
-      if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
-         iterator.splitForKey(key);
-         goto restart;
-      } else if (ret == OP_RESULT::OK) {
-         o_key(key_buffer);
-         iterator.insertInCurrentNode(key, o_value_length);
-         MutableSlice value = iterator.mutableValue();
-         o_value(value.data());
-         if (is_wal_enabled) {
-            auto wal_entry = iterator.leaf.reserveWALEntry<WALInsert>(key.length() + value.length());
-            wal_entry->type = WAL_LOG_TYPE::WALInsert;
-            wal_entry->key_length = key.length();
-            wal_entry->value_length = value.length();
-            std::memcpy(wal_entry->payload, key.data(), key.length());
-            std::memcpy(wal_entry->payload + key.length(), value.data(), value.length());
-            wal_entry.submit();
-         } else {
-            iterator.leaf.incrementGSN();
-         }
-         jumpmu_return OP_RESULT::OK;
-      } else {
-         jumpmu_return ret;
-      }
-   }
-   }
-   jumpmuCatch() {}
-   UNREACHABLE();
-   return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
