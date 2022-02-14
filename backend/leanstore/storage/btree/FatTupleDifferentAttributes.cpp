@@ -256,9 +256,11 @@ cont : {
       if (fat_tuple->hasSpaceFor(update_descriptor)) {
          goto cont;
       } else {
-         raise(SIGTRAP);
-         fat_tuple->garbageCollection();
-         TODOException();
+         const u32 new_length = fat_tuple->value_length + sizeof(ChainedTuple);
+         fat_tuple->convertToChained(iterator.btree.dt_id);
+         ensure(new_length < iterator.value().length());
+         iterator.shorten(new_length);
+         return false;
          if (fat_tuple->total_space < maxFatTupleLength()) {
             const u32 new_fat_tuple_length = std::min<u32>(maxFatTupleLength(), fat_tuple->total_space * 2);
             u8 buffer[PAGE_SIZE];
@@ -354,10 +356,6 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
              const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
              const u32 needed_space = sizeof(FatTupleDifferentAttributes::Delta) + descriptor_and_diff_length;
              // -------------------------------------------------------------------------------------
-             if (needed_space > 50) {
-                abort_conversion = true;
-                return;
-             }
              if (!fat_tuple->hasSpaceFor(update_descriptor)) {
                 fat_tuple->garbageCollection();
                 if (!fat_tuple->hasSpaceFor(update_descriptor)) {
@@ -394,7 +392,6 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    fat_tuple->garbageCollection();
    if (fat_tuple->used_space > maxFatTupleLength()) {
       chain_head.unlock();
-      raise(SIGTRAP);
       return false;
    }
    assert(fat_tuple->total_space >= fat_tuple->used_space);
@@ -419,6 +416,36 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
       chain_head.unlock();
       return false;
    }
-}  // namespace leanstore::storage::btree
+}
+// -------------------------------------------------------------------------------------
+void BTreeVI::FatTupleDifferentAttributes::convertToChained(DTID dt_id)
+{
+   WORKERID prev_worker_id = worker_id;
+   TXID prev_tx_id = tx_ts;
+   COMMANDID prev_command_id = command_id;
+   for (s64 v_i = deltas_count - 1; v_i >= 0; v_i--) {
+      auto& delta = getDelta(v_i);
+      const u32 version_payload_length = delta.getDescriptor().totalLength() + sizeof(BTreeVI::UpdateVersion);
+      cr::Worker::my().versions_space.insertVersion(
+          prev_worker_id, prev_tx_id, prev_command_id, dt_id, false, version_payload_length,
+          [&](u8* version_payload) {
+             auto& secondary_version = *new (version_payload) UpdateVersion(delta.worker_id, delta.tx_ts, delta.command_id, true);
+             std::memcpy(secondary_version.payload, delta.payload, version_payload_length - sizeof(BTreeVI::UpdateVersion));
+          },
+          false);
+      // -------------------------------------------------------------------------------------
+      prev_worker_id = delta.worker_id;
+      prev_tx_id = delta.tx_ts;
+      prev_command_id = delta.command_id;
+   }
+   // -------------------------------------------------------------------------------------
+   const FatTupleDifferentAttributes old_fat_tuple = *this;
+   static_assert(sizeof(FatTupleDifferentAttributes) >= sizeof(ChainedTuple));
+   u8* value = payload;
+   auto& chained_tuple = *new (this) ChainedTuple(old_fat_tuple.worker_id, old_fat_tuple.tx_ts);
+   chained_tuple.command_id = old_fat_tuple.command_id;
+   std::memmove(chained_tuple.payload, value, old_fat_tuple.value_length);
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_decompose[dt_id]++; }
+}
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore::storage::btree

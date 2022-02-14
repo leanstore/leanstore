@@ -88,7 +88,11 @@ void VersionsSpace::insertVersion(WORKERID session_id,
          // });
          // -------------------------------------------------------------------------------------
          OP_RESULT ret = iterator.seekToInsert(key);
-         explainWhen(ret == OP_RESULT::DUPLICATE);
+         if (ret == OP_RESULT::DUPLICATE) {
+            iterator.removeCurrent();  // TODO: verify, this implies upsert semantic
+         } else {
+           ensure(ret == OP_RESULT::OK);
+         }
          ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
             iterator.splitForKey(key);

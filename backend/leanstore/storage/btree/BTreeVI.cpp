@@ -172,18 +172,18 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
       // -------------------------------------------------------------------------------------
       if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
-         explainWhen(cr::activeTX().isSingleStatement());  // TODO: not implemented yet
+         ensure(!cr::activeTX().isSingleStatement());  // TODO: not implemented yet
          const bool res = reinterpret_cast<FatTupleDifferentAttributes*>(&tuple)->update(iterator, o_key, o_key_length, callback, update_descriptor);
-         ensure(res);  // TODO: what if it fails, then we have to do something else
-         // Attention: tuple pointer is not valid here
          reinterpret_cast<Tuple*>(iterator.mutableValue().data())->unlock();
-         // -------------------------------------------------------------------------------------
-         if (cr::activeTX().isSingleStatement()) {
-            cr::Worker::my().commitTX();
-         }
+         // Attention: tuple pointer is not valid here
          // -------------------------------------------------------------------------------------
          iterator.markAsDirty();
          iterator.contentionSplit();
+         // -------------------------------------------------------------------------------------
+         if (!res) {
+            // Converted back to chained -> restart
+            goto restart;
+         }
          // -------------------------------------------------------------------------------------
          jumpmu_return OP_RESULT::OK;
       }
@@ -566,42 +566,11 @@ SpaceCheckResult BTreeVI::checkSpaceUtilization(void* btree_object, BufferFrame&
       auto& tuple = *reinterpret_cast<Tuple*>(c_guard->getPayload(s_i));
       if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
          auto& fat_tuple = *reinterpret_cast<FatTupleDifferentAttributes*>(c_guard->getPayload(s_i));
-         u64 offset = fat_tuple.value_length;
-         auto delta = reinterpret_cast<FatTupleDifferentAttributes::Delta*>(fat_tuple.payload + offset);
-         auto update_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(delta->payload);
-         WORKERID prev_worker_id = fat_tuple.worker_id;
-         TXID prev_tx_id = fat_tuple.tx_ts;
-         COMMANDID prev_command_id = fat_tuple.command_id;
-         for (u64 v_i = 0; v_i < fat_tuple.deltas_count; v_i++) {
-            const u16 delta_and_descriptor_size = update_descriptor->size() + update_descriptor->diffLength();
-            const u16 version_payload_length = delta_and_descriptor_size + sizeof(UpdateVersion);
-            cr::Worker::my().versions_space.insertVersion(
-                prev_worker_id, prev_tx_id, prev_command_id, btree.dt_id, false, version_payload_length,
-                [&](u8* version_payload) {
-                   auto& secondary_version = *new (version_payload) UpdateVersion(delta->worker_id, delta->tx_ts, delta->command_id, true);
-                   std::memcpy(secondary_version.payload, update_descriptor, delta_and_descriptor_size);
-                },
-                false);
-            // -------------------------------------------------------------------------------------
-            prev_worker_id = delta->worker_id;
-            prev_tx_id = delta->tx_ts;
-            prev_command_id = delta->command_id;
-            // -------------------------------------------------------------------------------------
-            offset += sizeof(FatTupleDifferentAttributes::Delta) + delta_and_descriptor_size;
-            delta = reinterpret_cast<FatTupleDifferentAttributes::Delta*>(fat_tuple.payload + offset);
-            update_descriptor = reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(delta->payload);
-         }
-         // -------------------------------------------------------------------------------------
-         const FatTupleDifferentAttributes old_fat_tuple = fat_tuple;
-         u8* value = fat_tuple.payload;
-         auto& chained_tuple = *new (c_guard->getPayload(s_i)) ChainedTuple(old_fat_tuple.worker_id, old_fat_tuple.tx_ts);
-         chained_tuple.command_id = old_fat_tuple.command_id;
-         std::memmove(chained_tuple.payload, value, old_fat_tuple.value_length);
-         const u16 new_length = old_fat_tuple.value_length + sizeof(ChainedTuple);
+         const u32 new_length = fat_tuple.value_length + sizeof(ChainedTuple);
+         fat_tuple.convertToChained(btree.dt_id);
          ensure(new_length < c_guard->getPayloadLength(s_i));
          c_guard->shortenPayload(s_i, new_length);
          ensure(tuple.tuple_format == TupleFormat::CHAINED);
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_decompose[btree.dt_id]++; }
       }
    }
    c_guard->has_garbage = false;

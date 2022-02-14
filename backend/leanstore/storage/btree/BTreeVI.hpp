@@ -106,7 +106,6 @@ class BTreeVI : public BTreeLL
       void writeLock() { write_locked = true; }
       void unlock() { write_locked = false; }
    };
-   // static_assert(sizeof(Tuple) <= 32, "");
    // -------------------------------------------------------------------------------------
    // Chained: only scheduled gc todos. FatTuple: eager pgc, no scheduled gc todos
    struct __attribute__((packed)) ChainedTuple : Tuple {
@@ -119,7 +118,6 @@ class BTreeVI : public BTreeLL
       bool isFinal() const { return command_id == INVALID_COMMANDID; }
       void reset() { can_convert_to_fat_tuple = 1; }
    };
-   // static_assert(sizeof(ChainedTuple) <= 42, "");
    // -------------------------------------------------------------------------------------
    // We always append the descriptor, one format to keep simple
    struct __attribute__((packed)) FatTupleDifferentAttributes : Tuple {
@@ -170,6 +168,8 @@ class BTreeVI : public BTreeLL
       }
       inline const Delta& getDeltaConstant(u16 d_i) const { return *reinterpret_cast<const Delta*>(payload + getDeltaOffsetsConstant()[d_i]); }
       std::tuple<OP_RESULT, u16> reconstructTuple(std::function<void(Slice value)> callback) const;
+      // -------------------------------------------------------------------------------------
+      void convertToChained(DTID dt_id);
    };
    static_assert(sizeof(ChainedTuple) <= sizeof(FatTupleDifferentAttributes), "");
    // -------------------------------------------------------------------------------------
@@ -476,7 +476,7 @@ class BTreeVI : public BTreeLL
       }
    }
    std::tuple<OP_RESULT, u16> reconstructChainedTuple(Slice key, Slice payload, std::function<void(Slice value)> callback);
-   static inline u64 maxFatTupleLength() { return EFFECTIVE_PAGE_SIZE - 1000; }
+   static inline u64 maxFatTupleLength() { return EFFECTIVE_PAGE_SIZE - 400; }
 };  // namespace btree
 // -------------------------------------------------------------------------------------
 }  // namespace btree
