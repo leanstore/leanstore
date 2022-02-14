@@ -45,14 +45,14 @@ void VersionsSpace::insertVersion(WORKERID session_id,
       jumpmuTry()
       {
          BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)), session->bf, session->version);
-         iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
-            if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-               iterator.cleanUpCallback([&, to_find = leaf.bf] {
-                  jumpmuTry() { btree->tryMerge(*to_find); }
-                  jumpmuCatch() {}
-               });
-            }
-         });
+         // iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+         //    if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+         //       iterator.cleanUpCallback([&, to_find = leaf.bf] {
+         //          jumpmuTry() { btree->tryMerge(*to_find); }
+         //          jumpmuCatch() {}
+         //       });
+         //    }
+         // });
          // -------------------------------------------------------------------------------------
          OP_RESULT ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::OK && iterator.keyInCurrentBoundaries(key)) {
@@ -78,14 +78,14 @@ void VersionsSpace::insertVersion(WORKERID session_id,
       jumpmuTry()
       {
          BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
-         iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
-            if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
-               iterator.cleanUpCallback([&, to_find = leaf.bf] {
-                  jumpmuTry() { btree->tryMerge(*to_find); }
-                  jumpmuCatch() {}
-               });
-            }
-         });
+         // iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+         //    if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
+         //       iterator.cleanUpCallback([&, to_find = leaf.bf] {
+         //          jumpmuTry() { btree->tryMerge(*to_find); }
+         //          jumpmuCatch() {}
+         //       });
+         //    }
+         // });
          // -------------------------------------------------------------------------------------
          OP_RESULT ret = iterator.seekToInsert(key);
          explainWhen(ret == OP_RESULT::DUPLICATE);

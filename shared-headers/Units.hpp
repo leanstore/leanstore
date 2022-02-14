@@ -36,7 +36,7 @@ using LID = u64;   // Log ID
 using TTS = u64;   // Transaction Time Stamp
 using DTID = s64;  // Datastructure ID
 // -------------------------------------------------------------------------------------
-using WORKERID = u8;
+using WORKERID = u16;
 using TXID = u64;
 using COMMANDID = u32;
 #define TYPE_MSB(TYPE) (1ull << ((sizeof(TYPE) * 8) - 1))

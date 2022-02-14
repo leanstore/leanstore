@@ -50,11 +50,15 @@ class BTreeGeneric
    Swip<BufferFrame> meta_node_bf;  // kept in memory
    atomic<u64> height = 1;
    DTID dt_id;
-   bool is_wal_enabled;
+   struct Config {
+      bool enable_wal = true;
+      bool use_bulk_insert = false;
+   };
+   Config config;
    // -------------------------------------------------------------------------------------
    BTreeGeneric() = default;
    // -------------------------------------------------------------------------------------
-   void create(DTID dtid, bool enable_wal);
+   void create(DTID dtid, Config config);
    // -------------------------------------------------------------------------------------
    bool tryMerge(BufferFrame& to_split, bool swizzle_sibling = true);
    // -------------------------------------------------------------------------------------

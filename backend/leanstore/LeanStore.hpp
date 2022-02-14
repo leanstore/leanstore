@@ -60,11 +60,11 @@ class LeanStore
    u64 getConfigHash();
    GlobalStats getGlobalStats();
    // -------------------------------------------------------------------------------------
-   storage::btree::BTreeLL& registerBTreeLL(string name, const bool enable_wal);
+   storage::btree::BTreeLL& registerBTreeLL(string name, const storage::btree::BTreeLL::Config config);
    storage::btree::BTreeLL& retrieveBTreeLL(string name) { return btrees_ll[name]; }
-   storage::btree::BTreeVW& registerBTreeVW(string name, const bool enable_wal);
+   storage::btree::BTreeVW& registerBTreeVW(string name, const storage::btree::BTreeLL::Config config);
    storage::btree::BTreeVW& retrieveBTreeVW(string name) { return btrees_vw[name]; }
-   storage::btree::BTreeVI& registerBTreeVI(string name, const bool enable_wal);
+   storage::btree::BTreeVI& registerBTreeVI(string name, const storage::btree::BTreeLL::Config config);
    storage::btree::BTreeVI& retrieveBTreeVI(string name) { return btrees_vi[name]; }
    // -------------------------------------------------------------------------------------
    storage::BufferManager& getBufferManager() { return *buffer_manager; }

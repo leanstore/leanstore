@@ -102,9 +102,10 @@ LeanStore::LeanStore()
       versions_space->remove_btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
       for (u64 w_i = 0; w_i < FLAGS_worker_threads; w_i++) {
          std::string name = "versions_space_" + std::to_string(w_i);
-         versions_space->update_btrees[w_i] = &registerBTreeLL(name + "_updates", false);
-         versions_space->remove_btrees[w_i] = &registerBTreeLL(name + "_removes", false);
-         cr_manager->workers[w_i]->commit_to_start_map = &registerBTreeLL("commit_start_" + std::to_string(w_i), false);
+         versions_space->update_btrees[w_i] = &registerBTreeLL(name + "_updates", {.enable_wal = false, .use_bulk_insert = true});
+         versions_space->remove_btrees[w_i] = &registerBTreeLL(name + "_removes", {.enable_wal = false, .use_bulk_insert = true});
+         cr_manager->workers[w_i]->commit_to_start_map =
+             &registerBTreeLL("commit_start_" + std::to_string(w_i), {.enable_wal = false, .use_bulk_insert = true});
       }
    });
    // -------------------------------------------------------------------------------------
@@ -226,32 +227,32 @@ void LeanStore::startProfilingThread()
    profiling_thread.detach();
 }
 // -------------------------------------------------------------------------------------
-storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name, bool enable_wal)
+storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name, storage::btree::BTreeGeneric::Config config)
 {
    assert(btrees_ll.find(name) == btrees_ll.end());
    auto& btree = btrees_ll[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(0, reinterpret_cast<void*>(&btree), name);
-   btree.create(dtid, enable_wal);
+   btree.create(dtid, config);
    return btree;
 }
 
 // -------------------------------------------------------------------------------------
-storage::btree::BTreeVW& LeanStore::registerBTreeVW(string name, bool enable_wal)
+storage::btree::BTreeVW& LeanStore::registerBTreeVW(string name, storage::btree::BTreeLL::Config config)
 {
    assert(btrees_vw.find(name) == btrees_vw.end());
    auto& btree = btrees_vw[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(1, reinterpret_cast<void*>(&btree), name);
-   btree.create(dtid, enable_wal);
+   btree.create(dtid, config);
    return btree;
 }
 // -------------------------------------------------------------------------------------
-storage::btree::BTreeVI& LeanStore::registerBTreeVI(string name, bool enable_wal)
+storage::btree::BTreeVI& LeanStore::registerBTreeVI(string name, storage::btree::BTreeLL::Config config)
 {
    assert(btrees_vi.find(name) == btrees_vi.end());
    auto& btree = btrees_vi[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(2, reinterpret_cast<void*>(&btree), name);
-   auto& graveyard_btree = registerBTreeLL(name + "_graveyard", false);
-   btree.create(dtid, enable_wal, &graveyard_btree);
+   auto& graveyard_btree = registerBTreeLL(name + "_graveyard", config);
+   btree.create(dtid, config, &graveyard_btree);
    return btree;
 }
 // -------------------------------------------------------------------------------------

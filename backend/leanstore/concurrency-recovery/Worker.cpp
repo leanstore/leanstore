@@ -24,9 +24,9 @@ atomic<u64> Worker::global_gsn_flushed = 0;
 atomic<u64> Worker::global_sync_to_this_gsn = 0;
 std::shared_mutex Worker::global_mutex;  // Unused
 // -------------------------------------------------------------------------------------
-std::unique_ptr<atomic<u64>[]> Worker::global_workers_current_start_timestamp;  // All transactions < are committed
-atomic<u64> Worker::global_oldest_tx = 0;                                       // No worker should start with TTS == 0
-atomic<u64> Worker::global_oldest_oltp = 0;                                     // No worker should start with TTS == 0
+std::unique_ptr<atomic<u64>[]> Worker::global_workers_current_snapshot;  // All transactions < are committed
+atomic<u64> Worker::global_oldest_tx = 0;                                // No worker should start with TTS == 0
+atomic<u64> Worker::global_oldest_oltp = 0;                              // No worker should start with TTS == 0
 atomic<u64> Worker::global_newest_olap = 0;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsSpaceInterface& versions_space, s32 fd, const bool is_page_provider)
@@ -44,7 +44,7 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsS
       local_workers_in_progress_txids = make_unique<u64[]>(workers_count);
       local_workers_start_ts = make_unique<u64[]>(workers_count + 1);
       local_workers_sorted_start_ts = make_unique<u64[]>(workers_count + 1);
-      global_workers_current_start_timestamp[worker_id] = 0;
+      global_workers_current_snapshot[worker_id] = 0;
    }
 }
 Worker::~Worker() = default;
@@ -155,10 +155,10 @@ void Worker::refreshGlobalState()
       TXID local_oldest_oltp = std::numeric_limits<u64>::max();
       TXID local_oldest_tx = std::numeric_limits<u64>::max();
       for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
-         u64 its_in_flight_tx_id = global_workers_current_start_timestamp[w_i].load();
+         u64 its_in_flight_tx_id = global_workers_current_snapshot[w_i].load();
          // -------------------------------------------------------------------------------------
          while ((its_in_flight_tx_id & LATCH_BIT) && ((its_in_flight_tx_id & CLEAN_BITS_MASK) < active_tx.TTS())) {
-            its_in_flight_tx_id = global_workers_current_start_timestamp[w_i].load();
+            its_in_flight_tx_id = global_workers_current_snapshot[w_i].load();
          }
          // -------------------------------------------------------------------------------------
          const bool is_rc = its_in_flight_tx_id & RC_BIT;
@@ -228,20 +228,25 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
       active_tx.is_read_only = read_only;
       active_tx.is_durable = FLAGS_wal;  // TODO:
       // -------------------------------------------------------------------------------------
-      transactions_order_refreshed = false;
+      // Draw TXID from global counter and publish it with the TX type (i.e., OLAP or OLTP)
+      // We have to acquire a transaction id and use it for locking in ANY isolation level
       if (next_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION) {
+         // Also means multi statement
+         global_workers_current_snapshot[worker_id].store(active_tx.tx_id | LATCH_BIT, std::memory_order_release);
+         active_tx.tx_id = global_logical_clock.fetch_add(1);
+         global_workers_current_snapshot[worker_id].store(active_tx.tx_id | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
+         // -------------------------------------------------------------------------------------
          if (prev_tx.isReadCommitted() || prev_tx.isReadUncommitted()) {
             switchToSnapshotIsolationMode();
          }
          // -------------------------------------------------------------------------------------
-         // (1) Draw TXID from global counter and publish it with the TX type (i.e., OLAP or OLTP)
-         global_workers_current_start_timestamp[worker_id].store(active_tx.tx_id | LATCH_BIT, std::memory_order_release);
-         active_tx.tx_id = global_logical_clock.fetch_add(1);
-         global_workers_current_start_timestamp[worker_id].store(active_tx.tx_id | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
          resetSnapshotCache();
       } else {
          if (prev_tx.atLeastSI()) {
             switchToReadCommittedMode();
+         }
+         if (next_tx_type != TX_MODE::SINGLE_STATEMENT) {
+            active_tx.tx_id = global_logical_clock.fetch_add(1);
          }
       }
    }
@@ -249,16 +254,22 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
 // -------------------------------------------------------------------------------------
 void Worker::switchToSnapshotIsolationMode()
 {
-   std::unique_lock guard(global_mutex);
-   global_workers_current_start_timestamp[worker_id].store(global_logical_clock.load(), std::memory_order_release);
+   {
+      std::unique_lock guard(global_mutex);
+      global_workers_current_snapshot[worker_id].store(global_logical_clock.load(), std::memory_order_release);
+   }
+   refreshGlobalState();
 }
 // -------------------------------------------------------------------------------------
 void Worker::switchToReadCommittedMode()
 {
-   // Latch-free work only when all counters increase monotone, we can not simply go back
-   std::unique_lock guard(global_mutex);
-   const u64 last_commit_mark_flagged = global_workers_current_start_timestamp[worker_id].load() | RC_BIT;
-   global_workers_current_start_timestamp[worker_id].store(last_commit_mark_flagged, std::memory_order_release);
+   {
+      // Latch-free work only when all counters increase monotone, we can not simply go back
+      std::unique_lock guard(global_mutex);
+      const u64 last_commit_mark_flagged = global_workers_current_snapshot[worker_id].load() | RC_BIT;
+      global_workers_current_snapshot[worker_id].store(last_commit_mark_flagged, std::memory_order_release);
+   }
+   refreshGlobalState();
 }
 // -------------------------------------------------------------------------------------
 void Worker::shutdown()
@@ -363,10 +374,12 @@ void Worker::commitTX()
       if (activeTX().isSerializable()) {
          executeUnlockTasks();
       }
+      // Only committing snapshot/ changing between SI and lower modes
       if (activeTX().atLeastSI()) {
          refreshGlobalState();
-         garbageCollection();
       }
+      // All isolation level generate garbage
+      garbageCollection();
    }
 }
 // -------------------------------------------------------------------------------------
@@ -447,7 +460,7 @@ TXID Worker::getCommitTimestamp(TXID start_ts)
 // TODO: description
 // It is also used to check whether the tuple is write-locked, hence we need the to_write intention flag
 // There are/will be two types of write locks: ones that are released with commit hwm and ones that are manually released after commit.
-bool Worker::isVisibleForMe(u8 other_worker_id, u64 tx_ts, bool to_write)
+bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
 {
    const u64 committed_ts = (tx_ts & MSB) ? (tx_ts & MSB_MASK) : 0;
    const u64 start_ts = tx_ts & MSB_MASK;

@@ -13,10 +13,10 @@ using namespace leanstore::storage;
 namespace leanstore::storage::btree
 {
 // -------------------------------------------------------------------------------------
-void BTreeGeneric::create(DTID dtid, bool enable_wal)
+void BTreeGeneric::create(DTID dtid, Config config)
 {
    this->dt_id = dtid;
-   this->is_wal_enabled = enable_wal;
+   this->config = config;
    // -------------------------------------------------------------------------------------
    meta_node_bf = &BMC::global_bf->allocatePage();
    Guard guard(meta_node_bf.asBufferFrame().header.latch, GUARD_STATE::EXCLUSIVE);
@@ -49,7 +49,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
    // -------------------------------------------------------------------------------------
    BTreeNode::SeparatorInfo sep_info;
    if (favored_split_pos < 0 || favored_split_pos >= c_guard->count - 1) {
-      if (FLAGS_bulk_insert) {
+      if (config.use_bulk_insert) {
          favored_split_pos = c_guard->count - 2;
          sep_info = BTreeNode::SeparatorInfo{c_guard->getFullKeyLen(favored_split_pos), static_cast<u16>(favored_split_pos), false};
       } else {
@@ -87,7 +87,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          c_x_guard->getSep(sep_key, sep_info);
          c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
       };
-      if (is_wal_enabled) {
+      if (config.enable_wal) {
          auto new_root_init_wal = new_root.reserveWALEntry<WALInitPage>(0);
          new_root_init_wal->type = WAL_LOG_TYPE::WALInitPage;
          new_root_init_wal->dt_id = dt_id;
@@ -150,7 +150,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
             c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
          };
          // -------------------------------------------------------------------------------------
-         if (is_wal_enabled) {
+         if (config.enable_wal) {
             auto new_left_init_wal = new_left_node.reserveWALEntry<WALInitPage>(0);
             new_left_init_wal->type = WAL_LOG_TYPE::WALInitPage;
             new_left_init_wal->dt_id = dt_id;

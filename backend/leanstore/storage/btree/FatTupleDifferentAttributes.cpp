@@ -354,7 +354,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
              const u32 descriptor_and_diff_length = update_descriptor.size() + update_descriptor.diffLength();
              const u32 needed_space = sizeof(FatTupleDifferentAttributes::Delta) + descriptor_and_diff_length;
              // -------------------------------------------------------------------------------------
-             if (needed_space > 400) {
+             if (needed_space > 50) {
                 abort_conversion = true;
                 return;
              }

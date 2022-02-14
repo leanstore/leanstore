@@ -18,25 +18,13 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-struct WTTS {
-   u8 worker_id : 8;
-   u64 tts : 56;
-};
-struct WLSN {
-   u8 worker_id : 8;
-   u64 lsn : 56;
-   WLSN(u8 worker_id, u64 lsn) : worker_id(worker_id), lsn(lsn) {}
-};
-static_assert(sizeof(WTTS) == sizeof(u64), "");
-static_assert(sizeof(WLSN) == sizeof(u64), "");
-// -------------------------------------------------------------------------------------
-static constexpr u16 STATIC_MAX_WORKERS = 256;
+static constexpr u16 STATIC_MAX_WORKERS = std::numeric_limits<WORKERID>::max();
 struct alignas(512) WALChunk {
    struct Slot {
       u64 offset;
       u64 length;
    };
-   u8 workers_count;
+   WORKERID workers_count;
    u32 total_size;
    Slot slot[STATIC_MAX_WORKERS];
 };
@@ -51,7 +39,7 @@ struct Worker {
                                                 // and undermining RFA
    static std::shared_mutex global_mutex;
    // -------------------------------------------------------------------------------------
-   static unique_ptr<atomic<u64>[]> global_workers_current_start_timestamp;
+   static unique_ptr<atomic<u64>[]> global_workers_current_snapshot;
    // -------------------------------------------------------------------------------------
    static atomic<u64> global_oldest_oltp;
    static atomic<u64> global_oldest_tx;
@@ -70,11 +58,6 @@ struct Worker {
    WALMetaEntry* active_mt_entry;
    WALDTEntry* active_dt_entry;
    // Snapshot Acquisition Time (SAT) = TXID = CommitMark - 1
-   bool workers_sorted = false;
-   bool transactions_order_refreshed = false;
-   // u64 local_oldest_tx;
-   // u64 local_oldest_oltp;  // OLAP <= OLTP
-   // u64 local_newest_olap;
    unique_ptr<u64[]> local_workers_in_progress_txids;  // = Readview
    unique_ptr<u64[]> local_workers_start_ts;
    unique_ptr<u64[]> local_workers_sorted_start_ts;
@@ -100,20 +83,6 @@ struct Worker {
    static constexpr u64 CLEAN_BITS_MASK = ~(LATCH_BIT | OLAP_BIT | RC_BIT);
    // TXID : [LATCH_BIT | RC_BIT | OLAP_BIT | id];
    // LWM : [LATCH_BIT | RC_BIT | OLTP_OLAP_SAME_BIT | id];
-   // -------------------------------------------------------------------------------------
-   // Temporary helpers
-   static std::tuple<u8, u64> decomposeWIDCM(u64 widcm)
-   {
-      u8 worker_id = widcm & WORKERS_MASK;
-      u64 worker_commit_mark = widcm >> WORKERS_BITS;
-      return {worker_id, worker_commit_mark};
-   }
-   static u64 composeWIDCM(u8 worker_id, u64 worker_commit_mark)
-   {
-      u64 widcm = worker_commit_mark << WORKERS_BITS;
-      widcm |= worker_id;
-      return widcm;
-   }
    // -------------------------------------------------------------------------------------
    Worker(u64 worker_id,
           Worker** all_workers,
@@ -338,7 +307,7 @@ struct Worker {
    bool isVisibleForAll(WORKERID worker_id, TXID start_ts);
    bool isVisibleForAll(TXID commit_ts);
    bool isVisibleForMe(WORKERID worker_id, u64 tts, bool to_write = true);
-   VISIBILITY isVisibleForIt(u8 whom_worker_id, u8 what_worker_id, u64 tts);
+   VISIBILITY isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, u64 tts);
    VISIBILITY isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts);
    TXID getCommitTimestamp(WORKERID worker_id, TXID start_ts);
    TXID getCommitTimestamp(TXID start_ts);

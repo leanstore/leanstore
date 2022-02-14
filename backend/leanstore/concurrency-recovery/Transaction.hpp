@@ -45,7 +45,8 @@ struct Transaction {
    bool isReadOnly() { return is_read_only; }
    bool isSingleStatement() { return current_tx_mode == TX_MODE::SINGLE_STATEMENT; }
    bool isDurable() { return is_durable; }
-   bool isSerializable() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::SERIALIZABLE; }
+   // bool isSerializable() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::SERIALIZABLE; }
+   constexpr bool isSerializable() { return false; }
    bool atLeastSI() { return current_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION; }
    bool isSI() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION; }
    bool isReadCommitted() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::READ_COMMITTED; }

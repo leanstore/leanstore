@@ -778,7 +778,6 @@ class TPCCWorkload
              customer_update_descriptor);
       } else {
          // UpdateDescriptorGenerator4(customer_update_descriptor, customer_t, c_data, c_balance, c_ytd_payment, c_payment_cnt);
-         // TODO: when variable-diffs are fully-implemented
          UpdateDescriptorGenerator3(customer_update_descriptor, customer_t, c_balance, c_ytd_payment, c_payment_cnt);
          customer.update1(
              {c_w_id, c_d_id, c_id},

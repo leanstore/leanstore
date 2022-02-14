@@ -86,8 +86,10 @@ class BTreeVI : public BTreeLL
    struct __attribute__((packed)) Tuple {
       static constexpr COMMANDID INVALID_COMMANDID = std::numeric_limits<COMMANDID>::max();
       union {
-         u128 read_ts = 0;
-         u128 read_lock_counter;
+         // u128 read_ts = 0;
+         // u128 read_lock_counter;
+         u8 read_ts : 1;
+         u8 read_lock_counter : 1;
       };
       TupleFormat tuple_format;
       WORKERID worker_id;
@@ -95,7 +97,7 @@ class BTreeVI : public BTreeLL
       COMMANDID command_id;
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
-      Tuple(TupleFormat tuple_format, u8 worker_id, TXID tx_id)
+      Tuple(TupleFormat tuple_format, WORKERID worker_id, TXID tx_id)
           : tuple_format(tuple_format), worker_id(worker_id), tx_ts(tx_id), command_id(INVALID_COMMANDID)
       {
          write_locked = false;
@@ -113,7 +115,7 @@ class BTreeVI : public BTreeLL
       // -------------------------------------------------------------------------------------
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
-      ChainedTuple(u8 worker_id, TXID tx_id) : Tuple(TupleFormat::CHAINED, worker_id, tx_id), is_removed(false) { reset(); }
+      ChainedTuple(WORKERID worker_id, TXID tx_id) : Tuple(TupleFormat::CHAINED, worker_id, tx_id), is_removed(false) { reset(); }
       bool isFinal() const { return command_id == INVALID_COMMANDID; }
       void reset() { can_convert_to_fat_tuple = 1; }
    };
@@ -223,10 +225,10 @@ class BTreeVI : public BTreeLL
                       function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                       function<void()>) override;
    // -------------------------------------------------------------------------------------
-   void create(DTID dtid, bool enable_wal, BTreeLL* graveyard_btree)
+   void create(DTID dtid, Config config, BTreeLL* graveyard_btree)
    {
       this->graveyard = graveyard_btree;
-      BTreeLL::create(dtid, enable_wal);
+      BTreeLL::create(dtid, config);
    }
    // -------------------------------------------------------------------------------------
    static SpaceCheckResult checkSpaceUtilization(void* btree_object, BufferFrame&);
@@ -420,7 +422,7 @@ class BTreeVI : public BTreeLL
       jumpmu_return OP_RESULT::OTHER;
    }
    // -------------------------------------------------------------------------------------
-   inline bool isVisibleForMe(u8 worker_id, u64 worker_commit_mark, bool to_write = true)
+   inline bool isVisibleForMe(WORKERID worker_id, u64 worker_commit_mark, bool to_write = true)
    {
       return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
    }
