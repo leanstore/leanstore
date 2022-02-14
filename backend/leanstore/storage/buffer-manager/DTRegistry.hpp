@@ -52,7 +52,7 @@ struct DTRegistry {
    std::mutex mutex;
    s64 instances_counter = 0;
    std::unordered_map<DTType, DTMeta> dt_types_ht;
-   std::unordered_map<u64, std::tuple<DTType, void*, string>> dt_instances_ht;
+   std::unordered_map<DTID, std::tuple<DTType, void*, string>> dt_instances_ht;
    static DTRegistry global_dt_registry;
    // -------------------------------------------------------------------------------------
    void registerDatastructureType(DTType type, DTRegistry::DTMeta dt_meta);

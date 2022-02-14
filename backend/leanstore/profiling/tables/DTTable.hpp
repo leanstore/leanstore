@@ -13,7 +13,7 @@ class DTTable : public ProfilingTable
 {
   private:
    string dt_name;
-   u64 dt_id;
+   DTID dt_id;
    BufferManager& bm;
 
   public:
