@@ -47,9 +47,9 @@ class BTreeVI : public BTreeLL
    struct WALUpdateSSIP : WALEntry {
       u16 key_length;
       u64 delta_length;
-      u8 before_worker_id;
-      u64 before_tx_id;
-      u64 before_command_id;
+      WORKERID before_worker_id;
+      TXID before_tx_id;
+      TXID before_command_id;
       u8 payload[];
    };
    struct WALRemove : WALEntry {
@@ -124,8 +124,8 @@ class BTreeVI : public BTreeLL
       struct __attribute__((packed)) Delta {
          WORKERID worker_id;
          TXID tx_ts;
-         COMMANDID command_id = INVALID_COMMANDID;
-         u8 payload[];  // Descriptor + Diff
+         COMMANDID command_id = INVALID_COMMANDID;  // ATTENTION: TAKE CARE OF THIS, OTHERWISE WE WOULD OVERWRITE ANOTHER UNDO VERSION
+         u8 payload[];                              // Descriptor + Diff
          UpdateSameSizeInPlaceDescriptor& getDescriptor() { return *reinterpret_cast<UpdateSameSizeInPlaceDescriptor*>(payload); }
          const UpdateSameSizeInPlaceDescriptor& getConstantDescriptor() const
          {
@@ -464,11 +464,14 @@ class BTreeVI : public BTreeLL
                      jumpmu_return{OP_RESULT::NOT_FOUND, 1};
                   } else {
                      auto ret = reconstructChainedTuple(key, payload, callback);
+                     if (FLAGS_tmp6)
+                        explainWhen(std::get<0>(ret) == OP_RESULT::NOT_FOUND);
                      jumpmu_return ret;
                   }
                }
             } else {
                auto ret = reinterpret_cast<const FatTupleDifferentAttributes*>(payload.data())->reconstructTuple(callback);
+               explainWhen(std::get<0>(ret) == OP_RESULT::NOT_FOUND);
                jumpmu_return ret;
             }
          }
@@ -476,7 +479,7 @@ class BTreeVI : public BTreeLL
       }
    }
    std::tuple<OP_RESULT, u16> reconstructChainedTuple(Slice key, Slice payload, std::function<void(Slice value)> callback);
-   static inline u64 maxFatTupleLength() { return EFFECTIVE_PAGE_SIZE - 400; }
+   static inline u64 maxFatTupleLength() { return EFFECTIVE_PAGE_SIZE - 1000; }
 };  // namespace btree
 // -------------------------------------------------------------------------------------
 }  // namespace btree
