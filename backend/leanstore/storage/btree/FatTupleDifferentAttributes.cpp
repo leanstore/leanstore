@@ -52,13 +52,23 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
       return;
    }
    // -------------------------------------------------------------------------------------
+   auto append_ll = [](FatTupleDifferentAttributes& fat_tuple, u8* delta, u16 delta_length) {
+      assert(fat_tuple.total_space >= (fat_tuple.used_space + delta_length + sizeof(u16)));
+      const u16 d_i = fat_tuple.deltas_count++;
+      fat_tuple.used_space += delta_length + sizeof(u16);
+      fat_tuple.data_offset -= delta_length;
+      fat_tuple.getDeltaOffsets()[d_i] = fat_tuple.data_offset;
+      std::memcpy(fat_tuple.payload + fat_tuple.data_offset, delta, delta_length);
+   };
+   // -------------------------------------------------------------------------------------
    // Delete for all visible deltas, atm using cheap visibility check
    if (cr::Worker::my().isVisibleForAll(worker_id, tx_ts)) {
       deltas_count = 0;
       data_offset = total_space;
       used_space = value_length;
-      return;
+      return;  // Done
    }
+   // TODO: Optimize
    u16 deltas_visible_by_all_counter = 0;
    for (u32 d_i = 0; (1 + d_i) < deltas_count; d_i++) {
       auto& delta = getDelta(d_i + 1);
@@ -71,27 +81,46 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    // -------------------------------------------------------------------------------------
    const TXID local_oldest_oltp = cr::Worker::my().global_oldest_oltp.load();
    const TXID local_newest_olap = cr::Worker::my().global_newest_olap.load();
-   if (local_newest_olap > local_oldest_oltp) {
+   if (deltas_visible_by_all_counter == 0 && local_newest_olap > local_oldest_oltp) {
       return;  // Nothing to do here
    }
-   // Identify tuples we should merge
-   u16 deltas_to_merge[deltas_count];
-   u16 deltas_to_merge_counter = 0;
-   for (u32 d_i = 0; d_i < deltas_count; d_i++) {
-      auto& delta = getDelta(d_i);
-      if (delta.tx_ts >= local_oldest_oltp) {
-         break;
+   // -------------------------------------------------------------------------------------
+   auto bin_search = [&](TXID upper_bound) {
+      s64 l = 0;
+      s64 r = deltas_count - 1;
+      s64 m = -1;
+      while (l <= r) {
+         m = l + (r - l) / 2;
+         TXID it = getDelta(m).tx_ts;
+         if (it == upper_bound) {
+            return m;
+         } else if (it < upper_bound) {
+            l = m + 1;
+         } else {
+            r = m - 1;
+         }
       }
-      if (delta.tx_ts > local_newest_olap) {
-         deltas_to_merge[deltas_to_merge_counter++] = d_i;
+      return l;
+   };
+   // -------------------------------------------------------------------------------------
+   // Identify tuples we should merge --> [zone_begin, zone_end)
+   // TODO: optimize: zone_begin first > newest_olap, zone_end first > oldest_oltp - 1 positions
+   s32 deltas_to_merge_counter = 0;
+   s32 zone_begin = -1, zone_end = -1;  // [zone_begin, zone_end)
+   {
+      s32 res = bin_search(local_newest_olap);
+      if (res < deltas_count) {
+         zone_begin = res;
+         res = bin_search(local_oldest_oltp);
+         if (res - 2 > zone_begin) {  // 1 is enough but 2 is an easy fix for res=deltas_count case
+            zone_end = res - 2;
+            deltas_to_merge_counter = zone_end - zone_begin;
+         }
       }
    }
-   if (deltas_to_merge_counter <= 1) {
+   if (deltas_visible_by_all_counter == 0 && deltas_to_merge_counter <= 0) {
       return;
-   } else {
-      deltas_to_merge_counter--;
    }
-   u16 zone_begin = deltas_to_merge[0], zone_end = deltas_to_merge[deltas_to_merge_counter];  // [zone_begin, zone_end)
    // -------------------------------------------------------------------------------------
    u32 buffer_size = total_space + sizeof(FatTupleDifferentAttributes);
    u8 buffer[buffer_size];
@@ -103,52 +132,57 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    new_fat_tuple.value_length = value_length;
    std::memcpy(new_fat_tuple.payload, payload, value_length);  // Copy value
    // -------------------------------------------------------------------------------------
-   auto append_ll = [](FatTupleDifferentAttributes& fat_tuple, u8* delta, u16 delta_length) {
-      assert(fat_tuple.total_space >= (fat_tuple.used_space + delta_length + sizeof(u16)));
-      const u16 d_i = fat_tuple.deltas_count++;
-      fat_tuple.used_space += delta_length + sizeof(u16);
-      fat_tuple.data_offset -= delta_length;
-      fat_tuple.getDeltaOffsets()[d_i] = fat_tuple.data_offset;
-      std::memcpy(fat_tuple.payload + fat_tuple.data_offset, delta, delta_length);
-   };
-   for (u32 d_i = deltas_visible_by_all_counter; d_i < zone_begin; d_i++) {
-      auto& delta = getDelta(d_i);
-      append_ll(new_fat_tuple, reinterpret_cast<u8*>(&delta), delta.totalLength());
-   }
-   // -------------------------------------------------------------------------------------
-   // TODO:
-   // Merge from newest to oldest, i.e., from end of array into beginning
-   using Slot = UpdateSameSizeInPlaceDescriptor::Slot;
-   std::unordered_map<Slot, std::basic_string<u8>> slots_map;
-   for (s32 d_i = zone_end - 1; d_i >= zone_begin; d_i--) {
-      auto& delta_i = getDelta(d_i);
-      auto& descriptor_i = delta_i.getDescriptor();
-      u8* delta_diff_ptr = delta_i.payload + descriptor_i.size();
-      for (s16 s_i = 0; s_i < descriptor_i.count; s_i++) {
-         slots_map[descriptor_i.slots[s_i]] = std::basic_string<u8>(delta_diff_ptr, descriptor_i.slots[s_i].length);
-         delta_diff_ptr += descriptor_i.slots[s_i].length;
+   if (deltas_to_merge_counter <= 0) {
+      for (u32 d_i = deltas_visible_by_all_counter; d_i < deltas_count; d_i++) {
+         auto& delta = getDelta(d_i);
+         append_ll(new_fat_tuple, reinterpret_cast<u8*>(&delta), delta.totalLength());
       }
-   }
-   u32 new_delta_total_length =
-       sizeof(Delta) + sizeof(UpdateSameSizeInPlaceDescriptor) + (sizeof(UpdateSameSizeInPlaceDescriptor::Slot) * slots_map.size());
-   for (auto& slot_itr : slots_map) {
-      new_delta_total_length += slot_itr.second.size();
-   }
-   auto& merge_delta = new_fat_tuple.allocateDelta(new_delta_total_length);
-   merge_delta = getDelta(zone_begin);
-   UpdateSameSizeInPlaceDescriptor& merge_descriptor = merge_delta.getDescriptor();
-   merge_descriptor.count = slots_map.size();
-   u8* merge_diff_ptr = merge_delta.payload + merge_descriptor.size();
-   u32 s_i = 0;
-   for (auto& slot_itr : slots_map) {
-      merge_descriptor.slots[s_i++] = slot_itr.first;
-      std::memcpy(merge_diff_ptr, slot_itr.second.c_str(), slot_itr.second.size());
-      merge_diff_ptr += slot_itr.second.size();
-   }
-   // -------------------------------------------------------------------------------------
-   for (u32 d_i = zone_end; d_i < deltas_count; d_i++) {
-      auto& delta = getDelta(d_i);
-      append_ll(new_fat_tuple, reinterpret_cast<u8*>(&delta), delta.totalLength());
+   } else {
+      for (s32 d_i = deltas_visible_by_all_counter; d_i < zone_begin; d_i++) {
+         auto& delta = getDelta(d_i);
+         append_ll(new_fat_tuple, reinterpret_cast<u8*>(&delta), delta.totalLength());
+      }
+      // -------------------------------------------------------------------------------------
+      // TODO: Optimize
+      // Merge from newest to oldest, i.e., from end of array into beginning
+      if (FLAGS_tmp5) {
+         // Hack
+         auto& delta = getDelta(zone_begin);
+         append_ll(new_fat_tuple, reinterpret_cast<u8*>(&delta), delta.totalLength());
+      } else {
+         using Slot = UpdateSameSizeInPlaceDescriptor::Slot;
+         std::unordered_map<Slot, std::basic_string<u8>> slots_map;
+         for (s32 d_i = zone_end - 1; d_i >= zone_begin; d_i--) {
+            auto& delta_i = getDelta(d_i);
+            auto& descriptor_i = delta_i.getDescriptor();
+            u8* delta_diff_ptr = delta_i.payload + descriptor_i.size();
+            for (s16 s_i = 0; s_i < descriptor_i.count; s_i++) {
+               slots_map[descriptor_i.slots[s_i]] = std::basic_string<u8>(delta_diff_ptr, descriptor_i.slots[s_i].length);
+               delta_diff_ptr += descriptor_i.slots[s_i].length;
+            }
+         }
+         u32 new_delta_total_length =
+             sizeof(Delta) + sizeof(UpdateSameSizeInPlaceDescriptor) + (sizeof(UpdateSameSizeInPlaceDescriptor::Slot) * slots_map.size());
+         for (auto& slot_itr : slots_map) {
+            new_delta_total_length += slot_itr.second.size();
+         }
+         auto& merge_delta = new_fat_tuple.allocateDelta(new_delta_total_length);
+         merge_delta = getDelta(zone_begin);
+         UpdateSameSizeInPlaceDescriptor& merge_descriptor = merge_delta.getDescriptor();
+         merge_descriptor.count = slots_map.size();
+         u8* merge_diff_ptr = merge_delta.payload + merge_descriptor.size();
+         u32 s_i = 0;
+         for (auto& slot_itr : slots_map) {
+            merge_descriptor.slots[s_i++] = slot_itr.first;
+            std::memcpy(merge_diff_ptr, slot_itr.second.c_str(), slot_itr.second.size());
+            merge_diff_ptr += slot_itr.second.size();
+         }
+      }
+      // -------------------------------------------------------------------------------------
+      for (u32 d_i = zone_end; d_i < deltas_count; d_i++) {
+         auto& delta = getDelta(d_i);
+         append_ll(new_fat_tuple, reinterpret_cast<u8*>(&delta), delta.totalLength());
+      }
    }
    // -------------------------------------------------------------------------------------
    std::memcpy(this, buffer, buffer_size);
