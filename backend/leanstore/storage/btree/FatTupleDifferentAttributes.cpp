@@ -68,13 +68,12 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
       used_space = value_length;
       return;  // Done
    }
-   // TODO: Optimize
+   // -------------------------------------------------------------------------------------
    u16 deltas_visible_by_all_counter = 0;
-   for (u32 d_i = 0; (1 + d_i) < deltas_count; d_i++) {
-      auto& delta = getDelta(d_i + 1);
-      if (cr::Worker::my().isVisibleForAll(delta.worker_id, delta.tx_ts)) {
-         deltas_visible_by_all_counter++;
-      } else {
+   for (s32 d_i = deltas_count - 1; d_i >= 1; d_i--) {
+      auto& delta = getDelta(d_i);
+      if (cr::Worker::my().isVisibleForAll(delta.tx_ts)) {
+         deltas_visible_by_all_counter = d_i - 1;
          break;
       }
    }
@@ -86,7 +85,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    }
    // -------------------------------------------------------------------------------------
    auto bin_search = [&](TXID upper_bound) {
-      s64 l = 0;
+      s64 l = deltas_visible_by_all_counter;
       s64 r = deltas_count - 1;
       s64 m = -1;
       while (l <= r) {
@@ -104,18 +103,15 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    };
    // -------------------------------------------------------------------------------------
    // Identify tuples we should merge --> [zone_begin, zone_end)
-   // TODO: optimize: zone_begin first > newest_olap, zone_end first > oldest_oltp - 1 positions
    s32 deltas_to_merge_counter = 0;
    s32 zone_begin = -1, zone_end = -1;  // [zone_begin, zone_end)
-   {
-      s32 res = bin_search(local_newest_olap);
-      if (res < deltas_count) {
-         zone_begin = res;
-         res = bin_search(local_oldest_oltp);
-         if (res - 2 > zone_begin) {  // 1 is enough but 2 is an easy fix for res=deltas_count case
-            zone_end = res - 2;
-            deltas_to_merge_counter = zone_end - zone_begin;
-         }
+   s32 res = bin_search(local_newest_olap);
+   if (res < deltas_count) {
+      zone_begin = res;
+      res = bin_search(local_oldest_oltp);
+      if (res - 2 > zone_begin) {  // 1 is enough but 2 is an easy fix for res=deltas_count case
+         zone_end = res - 2;
+         deltas_to_merge_counter = zone_end - zone_begin;
       }
    }
    if (deltas_visible_by_all_counter == 0 && deltas_to_merge_counter <= 0) {
@@ -413,7 +409,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    }
    assert(fat_tuple->total_space >= fat_tuple->used_space);
    // We can not simply change total_space because this affects data_offset
-   if (number_of_deltas_to_replace > convertToFatTupleThreshold() && cr::Worker::my().local_olap_lwm != cr::Worker::my().local_oltp_lwm) {
+   if (number_of_deltas_to_replace > convertToFatTupleThreshold()) {
       // Finalize the new FatTuple
       // TODO: corner cases, more careful about space usage
       // -------------------------------------------------------------------------------------

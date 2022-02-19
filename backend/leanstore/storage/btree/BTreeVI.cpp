@@ -195,10 +195,10 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                                   tuple_head.command_id != Tuple::INVALID_COMMANDID &&
                                   !(tuple_head.worker_id == cr::Worker::my().workerID() && tuple_head.tx_ts == cr::activeTX().TTS());
       if (convert_to_fat_tuple) {
-         convert_to_fat_tuple &= !cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts);
+         convert_to_fat_tuple &= (tuple_head.updates_counter & 255) == 0;
       }
       if (convert_to_fat_tuple) {
-         convert_to_fat_tuple &= utils::RandomGenerator::getRandU64(0, convertToFatTupleThreshold()) == 0;
+         convert_to_fat_tuple &= !cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts);
       }
       if (convert_to_fat_tuple) {
          tried_converting_to_fat_tuple = true;
@@ -258,6 +258,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       tuple_head.worker_id = cr::Worker::my().workerID();
       tuple_head.tx_ts = cr::activeTX().TTS();
       tuple_head.command_id = command_id;
+      tuple_head.updates_counter++;
       // -------------------------------------------------------------------------------------
       if (cr::activeTX().isSerializable()) {
          if (FLAGS_2pl) {

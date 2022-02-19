@@ -109,6 +109,7 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    // Chained: only scheduled gc todos. FatTuple: eager pgc, no scheduled gc todos
    struct __attribute__((packed)) ChainedTuple : Tuple {
+      WORKERID updates_counter = 0;
       u8 can_convert_to_fat_tuple : 1;
       u8 is_removed : 1;
       // -------------------------------------------------------------------------------------
