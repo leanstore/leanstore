@@ -154,6 +154,9 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
       if (cur < leaf->count) {
          return OP_RESULT::OK;
       } else {
+         // TODO: Is there a better solution?
+         // In composed keys {K1, K2}, it can happen that when we look for {2, 0} we always land on {1,..} page because its upper bound is beyond
+         // {2,0} Example: TPC-C Neworder
          return next();
       }
    }
@@ -232,6 +235,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                         jumpmu_continue;
                      }
                      ensure(cur < leaf->count);
+                     COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_next_tuple_opt[btree.dt_id]++; }
                      jumpmu_return OP_RESULT::OK;
                   }
                }
@@ -312,6 +316,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                      if (leaf->count == 0) {
                         jumpmu_continue;
                      }
+                     COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_prev_tuple_opt[btree.dt_id]++; }
                      jumpmu_return OP_RESULT::OK;
                   }
                }
