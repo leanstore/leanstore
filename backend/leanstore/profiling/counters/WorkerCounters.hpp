@@ -56,7 +56,9 @@ struct WorkerCounters {
    atomic<u64> dt_goto_page_exec[max_dt_id] = {0};
    atomic<u64> dt_goto_page_shared[max_dt_id] = {0};
    atomic<u64> dt_next_tuple[max_dt_id] = {0};
+   atomic<u64> dt_next_tuple_opt[max_dt_id] = {0};
    atomic<u64> dt_prev_tuple[max_dt_id] = {0};
+   atomic<u64> dt_prev_tuple_opt[max_dt_id] = {0};
    atomic<u64> dt_inner_page[max_dt_id] = {0};
    atomic<u64> dt_scan_asc[max_dt_id] = {0};
    atomic<u64> dt_scan_desc[max_dt_id] = {0};

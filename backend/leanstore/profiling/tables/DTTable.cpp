@@ -35,7 +35,9 @@ void DTTable::open()
    columns.emplace("dt_goto_page_shared",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_goto_page_shared, dt_id); });
    columns.emplace("dt_next_tuple", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_next_tuple, dt_id); });
+   columns.emplace("dt_next_tuple_opt", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_next_tuple_opt, dt_id); });
    columns.emplace("dt_prev_tuple", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_prev_tuple, dt_id); });
+   columns.emplace("dt_prev_tuple_opt", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_prev_tuple_opt, dt_id); });
    columns.emplace("dt_inner_page", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_inner_page, dt_id); });
    columns.emplace("dt_scan_asc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_scan_asc, dt_id); });
    columns.emplace("dt_scan_desc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_scan_desc, dt_id); });
