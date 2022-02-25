@@ -99,6 +99,7 @@ DECLARE_uint64(pgc_variant);
 DECLARE_double(garbage_in_page_pct);
 DECLARE_uint64(vi_max_chain_length);
 DECLARE_uint64(todo_batch_size);
+DECLARE_bool(history_tree_inserts);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
 DECLARE_bool(recover);

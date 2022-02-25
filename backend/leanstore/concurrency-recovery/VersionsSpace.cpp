@@ -28,6 +28,9 @@ void VersionsSpace::insertVersion(WORKERID session_id,
                                   std::function<void(u8*)> cb,
                                   bool same_thread)
 {
+   if (!FLAGS_history_tree_inserts) {
+      return;
+   }
    const u64 key_length = sizeof(tx_id) + sizeof(command_id);
    u8 key_buffer[key_length];
    u64 offset = 0;
@@ -75,7 +78,7 @@ void VersionsSpace::insertVersion(WORKERID session_id,
          if (ret == OP_RESULT::DUPLICATE) {
             iterator.removeCurrent();  // TODO: verify, this implies upsert semantic
          } else {
-           ensure(ret == OP_RESULT::OK);
+            ensure(ret == OP_RESULT::OK);
          }
          ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::NOT_ENOUGH_SPACE) {
