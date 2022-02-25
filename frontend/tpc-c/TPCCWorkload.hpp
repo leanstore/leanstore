@@ -39,7 +39,7 @@ class TPCCWorkload
    const Integer warehouseCount;
    const Integer tpcc_remove;
    const bool manually_handle_isolation_anomalies;
-   const bool cross_warehouses;
+   const bool warehouse_affinity;
    // -------------------------------------------------------------------------------------
    Integer urandexcept(Integer low, Integer high, Integer v)
    {
@@ -260,7 +260,7 @@ class TPCCWorkload
       qtys.reserve(15);
       for (Integer i = 1; i <= ol_cnt; i++) {
          Integer supware = w_id;
-         if (cross_warehouses && urand(1, 100) == 1)  // ATTN:remote transaction
+         if (!warehouse_affinity && urand(1, 100) == 1)  // ATTN:remote transaction
             supware = urandexcept(1, warehouseCount, w_id);
          Integer itemid = getItemID();
          if (false && (i == ol_cnt) && (urand(1, 100) == 1))  // invalid item => random
@@ -800,7 +800,7 @@ class TPCCWorkload
       Integer d_id = urand(1, 10);
       Integer c_w_id = w_id;
       Integer c_d_id = d_id;
-      if (cross_warehouses && urand(1, 100) > 85) {  // ATTN: cross warehouses
+      if (!warehouse_affinity && urand(1, 100) > 85) {  // ATTN: cross warehouses
          c_w_id = urandexcept(1, warehouseCount, w_id);
          c_d_id = urand(1, 10);
       }
@@ -830,7 +830,7 @@ class TPCCWorkload
                 Integer warehouse_count,
                 bool tpcc_remove,
                 bool manually_handle_isolation_anomalies = true,
-                bool cross_warehouses = true)
+                bool warehouse_affinity = true)
        : warehouse(w),
          district(d),
          customer(customer),
@@ -846,7 +846,7 @@ class TPCCWorkload
          warehouseCount(warehouse_count),
          tpcc_remove(tpcc_remove),
          manually_handle_isolation_anomalies(manually_handle_isolation_anomalies),
-         cross_warehouses(cross_warehouses)
+         warehouse_affinity(warehouse_affinity)
    {
    }
    // -------------------------------------------------------------------------------------
@@ -968,6 +968,10 @@ class TPCCWorkload
    // -------------------------------------------------------------------------------------
    int tx(Integer w_id)
    {
+      if (FLAGS_tmp5) {
+         newOrderRnd(w_id);
+         return 4;
+      }
       // micro-optimized version of weighted distribution
       u64 rnd = leanstore::utils::RandomGenerator::getRand(0, 10000);
       if (rnd < 4300) {

@@ -22,7 +22,6 @@ DEFINE_uint32(tpcc_warehouse_count, 1, "");
 DEFINE_int32(tpcc_abort_pct, 0, "");
 DEFINE_uint64(run_until_tx, 0, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
-DEFINE_bool(tpcc_cross_warehouses, true, "");
 DEFINE_bool(tpcc_fast_load, false, "");
 DEFINE_bool(tpcc_remove, true, "");
 DEFINE_bool(order_wdc_index, true, "");
@@ -58,7 +57,7 @@ int main(int argc, char** argv)
    const bool should_tpcc_driver_handle_isolation_anomalies = isolation_level < leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION;
    TPCCWorkload<WiredTigerAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
                                         FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove,
-                                        should_tpcc_driver_handle_isolation_anomalies, FLAGS_tpcc_cross_warehouses);
+                                        should_tpcc_driver_handle_isolation_anomalies, FLAGS_tpcc_warehouse_affinity);
    // -------------------------------------------------------------------------------------
    wiredtiger_db.startTX();
    std::vector<thread> threads;
