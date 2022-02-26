@@ -150,7 +150,7 @@ void Worker::submitDTEntry(u64 total_size)
 // Also for interval garbage collection
 void Worker::refreshGlobalState()
 {
-   if (global_mutex.try_lock()) {
+   if (utils::RandomGenerator::getRandU64(0, workers_count) == 0 && global_mutex.try_lock()) {
       TXID local_newest_olap = std::numeric_limits<u64>::min();
       TXID local_oldest_oltp = std::numeric_limits<u64>::max();
       TXID local_oldest_tx = std::numeric_limits<u64>::max();
