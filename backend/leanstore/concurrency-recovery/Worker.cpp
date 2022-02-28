@@ -41,7 +41,8 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsS
    CRCounters::myCounters().worker_id = worker_id;
    std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
    if (!is_page_provider) {
-      local_workers_in_progress_txids = make_unique<u64[]>(workers_count);
+      local_snapshot_cache = make_unique<u64[]>(workers_count);
+      local_snapshot_cache_ts = make_unique<u64[]>(workers_count);
       local_workers_start_ts = make_unique<u64[]>(workers_count + 1);
       local_workers_sorted_start_ts = make_unique<u64[]>(workers_count + 1);
       global_workers_current_snapshot[worker_id] = 0;
@@ -182,13 +183,6 @@ void Worker::refreshGlobalState()
    }
 }
 // -------------------------------------------------------------------------------------
-void Worker::resetSnapshotCache()
-{
-   for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
-      local_workers_in_progress_txids[w_i] = 0;  // Reset local cache
-   }
-}
-// -------------------------------------------------------------------------------------
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
 {
    Transaction prev_tx = active_tx;
@@ -240,7 +234,6 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
             switchToSnapshotIsolationMode();
          }
          // -------------------------------------------------------------------------------------
-         resetSnapshotCache();
       } else {
          if (prev_tx.atLeastSI()) {
             switchToReadCommittedMode();
@@ -490,8 +483,8 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
             return active_tx.TTS() > committed_ts;
          }
          // -------------------------------------------------------------------------------------
-         if (local_workers_in_progress_txids[other_worker_id]) {  // Use the cache
-            return local_workers_in_progress_txids[other_worker_id] >= start_ts;
+         if (local_snapshot_cache_ts[other_worker_id] == active_tx.TTS()) {  // Use the cache
+            return local_snapshot_cache[other_worker_id] >= start_ts;
          }
          TXID largest_commit_id;
          u8 key[sizeof(TXID)];
@@ -504,8 +497,9 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
              },
              [&]() {});
          if (ret == OP_RESULT::OK) {
-            local_workers_in_progress_txids[other_worker_id] = largest_commit_id;
-            return local_workers_in_progress_txids[other_worker_id] >= start_ts;
+            local_snapshot_cache[other_worker_id] = largest_commit_id;
+            local_snapshot_cache_ts[other_worker_id] = active_tx.TTS();
+            return largest_commit_id >= start_ts;
          }
          return false;
       } else {
@@ -514,9 +508,9 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
    }
 }
 // -------------------------------------------------------------------------------------
-bool Worker::isVisibleForAll(WORKERID worker_id, TXID start_ts)
+bool Worker::isVisibleForAll(WORKERID worker_id, TXID tx_ts)
 {
-   TXID commit_ts = (start_ts & MSB) ? (start_ts & MSB_MASK) : all_workers[worker_id]->getCommitTimestamp(start_ts);
+   const TXID commit_ts = getCommitTimestamp(worker_id, tx_ts);
    if (commit_ts == 0) {
       return true;
    } else {

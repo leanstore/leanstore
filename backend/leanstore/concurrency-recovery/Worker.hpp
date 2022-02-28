@@ -46,10 +46,8 @@ struct Worker {
    static atomic<u64> global_newest_olap;
    // -------------------------------------------------------------------------------------
    // All the local tracking data
-   // New age
    std::unique_ptr<u8[]> map_leaf_handler;
    leanstore::KVInterface* commit_to_start_map;
-
    // -------------------------------------------------------------------------------------
    u64 local_oltp_lwm;
    u64 local_olap_lwm;
@@ -58,7 +56,8 @@ struct Worker {
    WALMetaEntry* active_mt_entry;
    WALDTEntry* active_dt_entry;
    // Snapshot Acquisition Time (SAT) = TXID = CommitMark - 1
-   unique_ptr<u64[]> local_workers_in_progress_txids;  // = Readview
+   unique_ptr<u64[]> local_snapshot_cache;  // = Readview
+   unique_ptr<u64[]> local_snapshot_cache_ts;
    unique_ptr<u64[]> local_workers_start_ts;
    unique_ptr<u64[]> local_workers_sorted_start_ts;
    // -------------------------------------------------------------------------------------
@@ -298,7 +297,6 @@ struct Worker {
    inline LID getCurrentGSN() { return clock_gsn; }
    inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
-   void resetSnapshotCache();
    void refreshGlobalState();
    void switchToReadCommittedMode();
    void switchToSnapshotIsolationMode();

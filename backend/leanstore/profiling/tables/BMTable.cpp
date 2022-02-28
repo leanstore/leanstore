@@ -27,6 +27,10 @@ void BMTable::open()
       const double gib = bm.consumedPages() * 1.0 * PAGE_SIZE / 1024.0 / 1024.0 / 1024.0;
       col << gib;
    });
+   columns.emplace("space_usage_kib", [&](Column& col) {
+      const double kib = bm.consumedPages() * 1.0 * PAGE_SIZE / 1024.0;
+      col << kib;
+   });
    columns.emplace("consumed_pages", [&](Column& col) { col << bm.consumedPages(); });
    columns.emplace("p1_pct", [&](Column& col) { col << (local_phase_1_ms * 100.0 / total); });
    columns.emplace("p2_pct", [&](Column& col) { col << (local_phase_2_ms * 100.0 / total); });

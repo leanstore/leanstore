@@ -72,7 +72,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    u16 deltas_visible_by_all_counter = 0;
    for (s32 d_i = deltas_count - 1; d_i >= 1; d_i--) {
       auto& delta = getDelta(d_i);
-      if (cr::Worker::my().isVisibleForAll(delta.tx_ts)) {
+      if (cr::Worker::my().isVisibleForAll(delta.worker_id, delta.tx_ts)) {
          deltas_visible_by_all_counter = d_i - 1;
          break;
       }
