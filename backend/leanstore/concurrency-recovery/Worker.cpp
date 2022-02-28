@@ -282,8 +282,8 @@ void Worker::garbageCollection()
       utils::fold(key, global_oldest_tx);
       commit_to_start_map->scanDesc(
           key, sizeof(TXID),
-          [&](const u8* s_key, u16, const u8*, u16) {
-             utils::unfold(s_key, local_olap_lwm);
+          [&](const u8*, u16, const u8* s_payload, u16) {
+             local_olap_lwm = *reinterpret_cast<const TXID*>(s_payload);
              return false;
           },
           [&]() {});
@@ -291,8 +291,8 @@ void Worker::garbageCollection()
       utils::fold(key, global_oldest_oltp);
       commit_to_start_map->scanDesc(
           key, sizeof(TXID),
-          [&](const u8* s_key, u16, const u8*, u16) {
-             utils::unfold(s_key, local_oltp_lwm);
+          [&](const u8*, u16, const u8* s_payload, u16) {
+             local_oltp_lwm = *reinterpret_cast<const TXID*>(s_payload);
              return false;
           },
           [&]() {});
@@ -455,8 +455,8 @@ TXID Worker::getCommitTimestamp(TXID start_ts)
 // There are/will be two types of write locks: ones that are released with commit hwm and ones that are manually released after commit.
 bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
 {
-   const u64 committed_ts = (tx_ts & MSB) ? (tx_ts & MSB_MASK) : 0;
-   const u64 start_ts = tx_ts & MSB_MASK;
+   const TXID committed_ts = (tx_ts & MSB) ? (tx_ts & MSB_MASK) : 0;
+   const TXID start_ts = tx_ts & MSB_MASK;
    if (!to_write && activeTX().isReadUncommitted()) {
       return true;
    }
