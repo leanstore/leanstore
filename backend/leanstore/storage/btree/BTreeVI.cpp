@@ -70,7 +70,6 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, funct
       if (ret != OP_RESULT::ABORT_TX && ret != OP_RESULT::OK) {  // For debugging
          cout << endl;
          cout << u64(std::get<1>(reconstruct)) << " , " << dt_id << endl;
-         raise(SIGTRAP);
       }
       jumpmu_return ret;
    }
@@ -190,7 +189,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // -------------------------------------------------------------------------------------
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       tuple_head.can_convert_to_fat_tuple = !tried_converting_to_fat_tuple;
-      bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && cr::Worker::global_oldest_oltp != cr::Worker::global_oldest_tx &&
+      bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && cr::Worker::global_oldest_oltp_start_ts != cr::Worker::global_oldest_all_start_ts &&
                                   !tried_converting_to_fat_tuple && tuple_head.can_convert_to_fat_tuple &&
                                   tuple_head.command_id != Tuple::INVALID_COMMANDID &&
                                   !(tuple_head.worker_id == cr::Worker::my().workerID() && tuple_head.tx_ts == cr::activeTX().TTS());
@@ -590,7 +589,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    // Only point-gc and for removed tuples
    const auto& version = *reinterpret_cast<const RemoveVersion*>(entry_ptr);
-   if (FLAGS_vi_dangling_pointer) {
+   if (false && FLAGS_vi_dangling_pointer) {
       assert(version.dangling_pointer.bf != nullptr);
       // Optimistic fast path
       jumpmuTry()
@@ -615,15 +614,18 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    // -------------------------------------------------------------------------------------
    if (called_before) {
       // Delete from graveyard
-      ensure(version_tx_id < cr::Worker::my().local_olap_lwm);
+      // ensure(version_tx_id < cr::Worker::my().local_all_lwm);
       jumpmuTry()
       {
          BTreeExclusiveIterator g_iterator(*static_cast<BTreeGeneric*>(btree.graveyard));
          ret = g_iterator.seekExact(key);
-         ensure(ret == OP_RESULT::OK);
-         ret = g_iterator.removeCurrent();
-         ensure(ret == OP_RESULT::OK);
-         g_iterator.markAsDirty();
+         if (ret == OP_RESULT::OK) {
+            ret = g_iterator.removeCurrent();
+            ensure(ret == OP_RESULT::OK);
+            g_iterator.markAsDirty();
+         } else {
+            // TODO: should happen rarly as a result of loose lwm sync
+         }
       }
       jumpmuCatch() {}
       return;
@@ -651,7 +653,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_ts == version_tx_id && primary_version.is_removed) {
-            if (primary_version.tx_ts < cr::Worker::my().local_olap_lwm) {
+            if (primary_version.tx_ts < cr::Worker::my().local_all_lwm) {
                ret = iterator.removeCurrent();
                iterator.markAsDirty();
                ensure(ret == OP_RESULT::OK);

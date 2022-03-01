@@ -78,8 +78,8 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
       }
    }
    // -------------------------------------------------------------------------------------
-   const TXID local_oldest_oltp = cr::Worker::my().global_oldest_oltp.load();
-   const TXID local_newest_olap = cr::Worker::my().global_newest_olap.load();
+   const TXID local_oldest_oltp = cr::Worker::my().global_oldest_oltp_start_ts.load();
+   const TXID local_newest_olap = cr::Worker::my().global_newest_olap_start_ts.load();
    if (deltas_visible_by_all_counter == 0 && local_newest_olap > local_oldest_oltp) {
       return;  // Nothing to do here
    }

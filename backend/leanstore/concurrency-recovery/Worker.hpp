@@ -41,16 +41,17 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_workers_current_snapshot;
    // -------------------------------------------------------------------------------------
-   static atomic<u64> global_oldest_oltp;
-   static atomic<u64> global_oldest_tx;
-   static atomic<u64> global_newest_olap;
+   // LWM: start timestamp of the transaction that has its effect visible by all in its class
+   static atomic<u64> global_oldest_oltp_start_ts, global_oltp_lwm;
+   static atomic<u64> global_oldest_all_start_ts, global_all_lwm;
+   static atomic<u64> global_newest_olap_start_ts;
+   atomic<u64> local_oltp_lwm;
+   atomic<u64> local_all_lwm;
    // -------------------------------------------------------------------------------------
    // All the local tracking data
    std::unique_ptr<u8[]> map_leaf_handler;
    leanstore::KVInterface* commit_to_start_map;
    // -------------------------------------------------------------------------------------
-   u64 local_oltp_lwm;
-   u64 local_olap_lwm;
    u64 command_id = 0;
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;
@@ -303,7 +304,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    enum class VISIBILITY : u8 { VISIBLE_ALREADY, VISIBLE_NEXT_ROUND, UNDETERMINED };
    bool isVisibleForAll(WORKERID worker_id, TXID start_ts);
-   bool isVisibleForAll(TXID commit_ts);
+   bool isVisibleForAllCT(TXID commit_ts);
    bool isVisibleForMe(WORKERID worker_id, u64 tts, bool to_write = true);
    VISIBILITY isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, u64 tts);
    VISIBILITY isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts);
