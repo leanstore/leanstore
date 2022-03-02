@@ -455,34 +455,25 @@ Worker::VISIBILITY Worker::isVisibleForIt(WORKERID whom_worker_id, TXID commit_t
 }
 // -------------------------------------------------------------------------------------
 // UNDETERMINED is not possible atm because we spin on start_ts
-Worker::VISIBILITY Worker::isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, TXID start_ts)
+Worker::VISIBILITY Worker::isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, TXID tx_ts)
 {
-   const TXID commit_ts = (start_ts & MSB) ? (start_ts & MSB_MASK) : getCommitTimestamp(what_worker_id, start_ts);
-   if (commit_ts == 0) {
-      return VISIBILITY::VISIBLE_ALREADY;
-   } else {
-      return isVisibleForIt(whom_worker_id, commit_ts);
-   }
+   const bool is_commit_ts = tx_ts & MSB;
+   const TXID commit_ts = is_commit_ts ? (tx_ts & MSB_MASK) : getCommitTimestamp(what_worker_id, tx_ts);
+   return isVisibleForIt(whom_worker_id, commit_ts);
 }
 // -------------------------------------------------------------------------------------
-TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID start_ts)
+TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID tx_ts)
 {
-   if (start_ts & MSB) {
-      return start_ts & MSB_MASK;
+   if (tx_ts & MSB) {
+      return tx_ts & MSB_MASK;
    }
-   assert((start_ts & MSB) || isVisibleForMe(worker_id, start_ts));
-   return all_workers[worker_id]->getCommitTimestamp(start_ts);
-}
-// -------------------------------------------------------------------------------------
-TXID Worker::getCommitTimestamp(TXID start_ts)
-{
-   if (start_ts & MSB) {
-      return start_ts & MSB_MASK;
-   }
+   assert((tx_ts & MSB) || isVisibleForMe(worker_id, tx_ts));
+   // -------------------------------------------------------------------------------------
+   const TXID& start_ts = tx_ts;
    TXID commit_ts = std::numeric_limits<TXID>::max();  // TODO: align with GC
    u8 key[sizeof(TXID)];
    utils::fold(key, start_ts);
-   commit_to_start_map->scanAsc(
+   all_workers[worker_id]->commit_to_start_map->scanAsc(
        key, sizeof(TXID),
        [&](const u8* s_key, u16, const u8*, u16) {
           utils::unfold(s_key, commit_ts);
@@ -498,6 +489,7 @@ TXID Worker::getCommitTimestamp(TXID start_ts)
 // There are/will be two types of write locks: ones that are released with commit hwm and ones that are manually released after commit.
 bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
 {
+   const bool is_commit_ts = tx_ts & MSB;
    const TXID committed_ts = (tx_ts & MSB) ? (tx_ts & MSB_MASK) : 0;
    const TXID start_ts = tx_ts & MSB_MASK;
    if (!to_write && activeTX().isReadUncommitted()) {
@@ -507,7 +499,7 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
       return true;
    } else {
       if (activeTX().isReadCommitted() || activeTX().isReadUncommitted()) {
-         if (committed_ts) {
+         if (is_commit_ts) {
             return true;
          }
          u8 key[sizeof(TXID)];
@@ -522,7 +514,7 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
              [&]() {});
          return committed_till >= tx_ts;
       } else if (activeTX().atLeastSI()) {
-         if (committed_ts > 0) {
+         if (is_commit_ts) {
             return active_tx.TTS() > committed_ts;
          }
          // -------------------------------------------------------------------------------------
@@ -555,7 +547,7 @@ bool Worker::isVisibleForAll(WORKERID, TXID ts)
 {
    if (ts & MSB) {
       // Commit Timestamp
-     return (ts & MSB_MASK) < global_oldest_all_start_ts.load();
+      return (ts & MSB_MASK) < global_oldest_all_start_ts.load();
    } else {
       // Start Timestamp
       return ts < global_all_lwm.load();

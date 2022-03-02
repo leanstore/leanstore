@@ -63,6 +63,8 @@ class BTreeLL : public KVInterface, public BTreeGeneric
                               function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                               function<void()>) override;
    // -------------------------------------------------------------------------------------
+   virtual OP_RESULT seek(u8* key, u16 key_length, std::function<void(const u8*, u16)> payload_callback) override;
+   virtual OP_RESULT seekForPrev(u8* key, u16 key_length, std::function<void(const u8*, u16)> payload_callback) override;
    virtual OP_RESULT append(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16, std::unique_ptr<u8[]>&) override;
    virtual OP_RESULT rangeRemove(u8* start_key, u16 start_key_length, u8* end_key, u16 end_key_length) override;
    // -------------------------------------------------------------------------------------

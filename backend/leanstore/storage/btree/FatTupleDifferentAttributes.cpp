@@ -333,7 +333,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    std::vector<u8> dynamic_buffer;
    dynamic_buffer.resize(maxFatTupleLength());
    auto fat_tuple = new (dynamic_buffer.data()) FatTupleDifferentAttributes(dynamic_buffer.size() - sizeof(FatTupleDifferentAttributes));
-   // -------------------------------------------------------------------------------------
+   // -------- -----------------------------------------------------------------------------
    WORKERID next_worker_id;
    TXID next_tx_id;
    COMMANDID next_command_id;
