@@ -202,6 +202,7 @@ OP_RESULT BTreeLL::append(std::function<void(u8*)> o_key,
             iterator.cur = pos;
             o_value(iterator.mutableValue().data());
             iterator.markAsDirty();
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_append_opt[dt_id]++; }
             jumpmu_return OP_RESULT::OK;
          }
       }
@@ -238,6 +239,7 @@ OP_RESULT BTreeLL::append(std::function<void(u8*)> o_key,
          }
          session->bf = iterator.leaf.bf;
          // -------------------------------------------------------------------------------------
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_append[dt_id]++; }
          jumpmu_return OP_RESULT::OK;
       }
       jumpmuCatch() {}
@@ -342,29 +344,61 @@ OP_RESULT BTreeLL::rangeRemove(u8* start_key, u16 start_key_length, u8* end_key,
          }
       });
       // -------------------------------------------------------------------------------------
-      auto ret = iterator.seek(s_key);
-      if (ret != OP_RESULT::OK) {
-         jumpmu_return ret;
-      }
-      while (true) {
-         iterator.assembleKey();
-         auto c_key = iterator.key();
-         if (c_key >= s_key && c_key <= e_key) {
-            ret = iterator.removeCurrent();
-            ensure(ret == OP_RESULT::OK);
-            if (iterator.cur == iterator.leaf->count) {
-               ret = iterator.next();
+      if (FLAGS_tmp6) {
+         auto ret = iterator.seek(s_key);
+         if (ret != OP_RESULT::OK) {
+            jumpmu_return ret;
+         }
+         while (true) {
+            iterator.assembleKey();
+            auto c_key = iterator.key();
+            if (c_key >= s_key && c_key <= e_key) {
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_range_removed[dt_id]++; }
+               ret = iterator.removeCurrent();
+               ensure(ret == OP_RESULT::OK);
+               if (iterator.cur == iterator.leaf->count) {
+                  ret = iterator.next();
+               }
+            } else {
+               break;
             }
-         } else {
-            break;
+         }
+         jumpmu_return OP_RESULT::OK;
+         // TODO: WAL, atm used by none persistence trees
+      } else {
+         bool did_purge_full_page = false;
+         iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
+            if (leaf->count == 0) {
+               return;
+            }
+            u8 first_key[leaf->getFullKeyLen(0)];
+            leaf->copyFullKey(0, first_key);
+            Slice p_s_key(first_key, leaf->getFullKeyLen(0));
+            // -------------------------------------------------------------------------------------
+            u8 last_key[leaf->getFullKeyLen(leaf->count - 1)];
+            leaf->copyFullKey(leaf->count - 1, last_key);
+            Slice p_e_key(last_key, leaf->getFullKeyLen(leaf->count - 1));
+            if (p_s_key >= s_key && p_e_key <= e_key) {
+               // Purge the whole page
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_range_removed[dt_id] += leaf->count; }
+               leaf->reset();
+               did_purge_full_page = true;
+            }
+         });
+         // -------------------------------------------------------------------------------------
+         while (true) {
+            iterator.seek(s_key);
+            if (did_purge_full_page) {
+               did_purge_full_page = false;
+               continue;
+            } else {
+               break;
+            }
          }
       }
-      // TODO: WAL, atm used by none persistence trees
-      jumpmu_return OP_RESULT::OK;
    }
    jumpmuCatch() {}
-   UNREACHABLE();
-   return OP_RESULT::OTHER;
+   return OP_RESULT::OK;
 }
 // -------------------------------------------------------------------------------------
 u64 BTreeLL::countEntries()

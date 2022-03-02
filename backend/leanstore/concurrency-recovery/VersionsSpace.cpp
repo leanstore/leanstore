@@ -138,7 +138,11 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id,
    return false;
 }
 // -------------------------------------------------------------------------------------
-void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_tx_id, RemoveVersionCallback cb, const u64 limit)  // [from, to]
+void VersionsSpace::purgeVersions(WORKERID worker_id,
+                                  TXID from_tx_id,
+                                  TXID to_tx_id,
+                                  RemoveVersionCallback cb,
+                                  [[maybe_unused]] const u64 limit)  // [from, to]
 {
    u16 key_length = sizeof(to_tx_id);
    u8 key_buffer[PAGE_SIZE];
@@ -164,7 +168,7 @@ void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_t
          });
          // -------------------------------------------------------------------------------------
          OP_RESULT ret = iterator.seek(key);
-         while (ret == OP_RESULT::OK && (limit == 0 || removed_versions < limit)) {
+         while (ret == OP_RESULT::OK) {
             iterator.assembleKey();
             TXID current_tx_id;
             utils::unfold(iterator.key().data(), current_tx_id);
@@ -226,21 +230,23 @@ void VersionsSpace::purgeVersions(WORKERID worker_id, TXID from_tx_id, TXID to_t
             utils::unfold(last_key, last_key_tx_id);
             if (first_key_tx_id >= from_tx_id && to_tx_id >= last_key_tx_id) {
                // Purge the whole page
-               removed_versions = leaf->count;
+               removed_versions += leaf->count;
                leaf->reset();
                did_purge_full_page = true;
             }
          });
          // -------------------------------------------------------------------------------------
+         iterator.seek(key);
          if (did_purge_full_page) {
+            did_purge_full_page = false;
             jumpmu_continue;
          } else {
             jumpmu_break;
          }
-         iterator.seek(key);
       }
       jumpmuCatch() { UNREACHABLE(); }
    }
+   COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed += removed_versions; }
 }
 // -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer

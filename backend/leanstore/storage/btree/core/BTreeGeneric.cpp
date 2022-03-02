@@ -122,6 +122,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
       }
       // -------------------------------------------------------------------------------------
       height++;
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_split[dt_id]++; }
       return;
    } else {
       // Parent is not root
@@ -182,6 +183,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          } else {
             exec();
          }
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_split[dt_id]++; }
       } else {
          p_guard.unlock();
          c_guard.unlock();

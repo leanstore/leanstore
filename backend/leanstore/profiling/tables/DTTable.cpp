@@ -42,10 +42,15 @@ void DTTable::open()
    columns.emplace("dt_scan_asc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_scan_asc, dt_id); });
    columns.emplace("dt_scan_desc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_scan_desc, dt_id); });
    // -------------------------------------------------------------------------------------
+   columns.emplace("dt_append", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_append, dt_id); });
+   columns.emplace("dt_append_opt", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_append_opt, dt_id); });
+   columns.emplace("dt_range_removed", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_range_removed, dt_id); });
+   // -------------------------------------------------------------------------------------
    columns.emplace("contention_split_succ_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_succ_counter, dt_id); });
    columns.emplace("contention_split_fail_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_fail_counter, dt_id); });
+   columns.emplace("dt_split", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_split, dt_id); });
    columns.emplace("dt_merge_succ", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_succ, dt_id); });
    columns.emplace("dt_merge_fail", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_merge_fail, dt_id); });
    columns.emplace("dt_merge_parent_succ",

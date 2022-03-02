@@ -45,8 +45,10 @@ struct Worker {
    static atomic<u64> global_oldest_oltp_start_ts, global_oltp_lwm;
    static atomic<u64> global_oldest_all_start_ts, global_all_lwm;
    static atomic<u64> global_newest_olap_start_ts;
-   atomic<u64> local_oltp_lwm;
-   atomic<u64> local_all_lwm;
+   atomic<u64> local_lwm_latch = 0;
+   atomic<u64> oltp_lwm_receiver;
+   atomic<u64> all_lwm_receiver;
+   u64 local_all_lwm, local_oltp_lwm;
    // -------------------------------------------------------------------------------------
    // All the local tracking data
    std::unique_ptr<u8[]> map_leaf_handler;
@@ -304,7 +306,6 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    enum class VISIBILITY : u8 { VISIBLE_ALREADY, VISIBLE_NEXT_ROUND, UNDETERMINED };
    bool isVisibleForAll(WORKERID worker_id, TXID start_ts);
-   bool isVisibleForAllCT(TXID commit_ts);
    bool isVisibleForMe(WORKERID worker_id, u64 tts, bool to_write = true);
    VISIBILITY isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, u64 tts);
    VISIBILITY isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts);

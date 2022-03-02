@@ -589,7 +589,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    // Only point-gc and for removed tuples
    const auto& version = *reinterpret_cast<const RemoveVersion*>(entry_ptr);
-   if (false && FLAGS_vi_dangling_pointer) {
+   if (FLAGS_vi_dangling_pointer && version.tx_id < cr::Worker::my().local_all_lwm) {
       assert(version.dangling_pointer.bf != nullptr);
       // Optimistic fast path
       jumpmuTry()
@@ -624,7 +624,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
             ensure(ret == OP_RESULT::OK);
             g_iterator.markAsDirty();
          } else {
-            // TODO: should happen rarly as a result of loose lwm sync
+            UNREACHABLE();
          }
       }
       jumpmuCatch() {}
@@ -653,7 +653,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_ts == version_tx_id && primary_version.is_removed) {
-            if (primary_version.tx_ts < cr::Worker::my().local_all_lwm) {
+            if (FLAGS_tmp4 || primary_version.tx_ts < cr::Worker::my().local_all_lwm) {
                ret = iterator.removeCurrent();
                iterator.markAsDirty();
                ensure(ret == OP_RESULT::OK);
@@ -672,6 +672,8 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                iterator.markAsDirty();
                iterator.mergeIfNeeded();
                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_moved_gy[btree.dt_id]++; }
+            } else {
+               UNREACHABLE();
             }
          }
       }
