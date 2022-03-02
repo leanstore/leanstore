@@ -169,7 +169,7 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
    return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeLL::seekForPrev(u8* key, u16 key_length, std::function<void(const u8*, u16)> payload_callback)
+OP_RESULT BTreeLL::prefixLookup(u8* key, u16 key_length, std::function<void(const u8*, u16, const u8*, u16)> payload_callback)
 {
    while (true) {
       jumpmuTry()
@@ -179,16 +179,68 @@ OP_RESULT BTreeLL::seekForPrev(u8* key, u16 key_length, std::function<void(const
          // -------------------------------------------------------------------------------------
          bool is_equal = false;
          s16 cur = leaf->lowerBound<false>(key, key_length, &is_equal);
-         if (is_equal == false) {
-            if (cur == 0) {
-               TODOException();
-            } else {
-               cur -= 1;
-            }
+         if (is_equal == true) {
+            payload_callback(key, key_length, leaf->getPayload(cur), leaf->getPayloadLength(cur));
+            leaf.recheck();
+            jumpmu_return OP_RESULT::OK;
+         } else if (cur < leaf->count) {
+            u16 compiled_key_length = leaf->getFullKeyLen(cur);
+            leaf.recheck();
+            u8 compiled_key[compiled_key_length];
+            leaf->copyFullKey(cur, compiled_key);
+            payload_callback(key, key_length, leaf->getPayload(cur), leaf->getPayloadLength(cur));
+            leaf.recheck();
+            jumpmu_return OP_RESULT::OK;
+         } else {
+            OP_RESULT ret = scanAsc(
+                key, key_length,
+                [&](const u8* s_key, u16 s_key_length, const u8* s_value, u16 s_value_length) {
+                   payload_callback(s_key, s_key_length, s_value, s_value_length);
+                   return false;
+                },
+                [&]() {});
+            jumpmu_return ret;
          }
-         payload_callback(leaf->getPayload(cur), leaf->getPayloadLength(cur));
-         leaf.recheck();
-         jumpmu_return OP_RESULT::OK;
+      }
+      jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
+   }
+   UNREACHABLE();
+   return OP_RESULT::OTHER;
+}
+// -------------------------------------------------------------------------------------
+OP_RESULT BTreeLL::prefixLookupForPrev(u8* key, u16 key_length, std::function<void(const u8*, u16, const u8*, u16)> payload_callback)
+{
+   while (true) {
+      jumpmuTry()
+      {
+         HybridPageGuard<BTreeNode> leaf;
+         findLeafCanJump(leaf, key, key_length);
+         // -------------------------------------------------------------------------------------
+         bool is_equal = false;
+         s16 cur = leaf->lowerBound<false>(key, key_length, &is_equal);
+         if (is_equal == true) {
+            payload_callback(key, key_length, leaf->getPayload(cur), leaf->getPayloadLength(cur));
+            leaf.recheck();
+            jumpmu_return OP_RESULT::OK;
+         } else if (cur > 0) {
+            cur -= 1;
+            u16 compiled_key_length = leaf->getFullKeyLen(cur);
+            leaf.recheck();
+            u8 compiled_key[compiled_key_length];
+            leaf->copyFullKey(cur, compiled_key);
+            payload_callback(key, key_length, leaf->getPayload(cur), leaf->getPayloadLength(cur));
+            leaf.recheck();
+            jumpmu_return OP_RESULT::OK;
+         } else {
+            OP_RESULT ret = scanDesc(
+                key, key_length,
+                [&](const u8* s_key, u16 s_key_length, const u8* s_value, u16 s_value_length) {
+                   payload_callback(s_key, s_key_length, s_value, s_value_length);
+                   return false;
+                },
+                [&]() {});
+            jumpmu_return ret;
+         }
       }
       jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
    }

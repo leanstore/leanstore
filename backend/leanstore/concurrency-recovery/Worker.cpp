@@ -188,21 +188,11 @@ void Worker::refreshGlobalState()
          TXID its_all_lwm_buffer = 0, its_oltp_lwm_buffer = 0;
          u8 key[sizeof(TXID)];
          utils::fold(key, global_oldest_all_start_ts);
-         all_workers[w_i]->commit_to_start_map->scanDesc(
-             key, sizeof(TXID),
-             [&](const u8*, u16, const u8* s_payload, u16) {
-                its_all_lwm_buffer = *reinterpret_cast<const TXID*>(s_payload);
-                return false;
-             },
-             [&]() {});
+         all_workers[w_i]->commit_to_start_map->prefixLookupForPrev(
+             key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_all_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
          utils::fold(key, global_oldest_oltp_start_ts);
-         all_workers[w_i]->commit_to_start_map->scanDesc(
-             key, sizeof(TXID),
-             [&](const u8*, u16, const u8* s_payload, u16) {
-                its_oltp_lwm_buffer = *reinterpret_cast<const TXID*>(s_payload);
-                return false;
-             },
-             [&]() {});
+         all_workers[w_i]->commit_to_start_map->prefixLookupForPrev(
+             key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_oltp_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
          ensure(its_all_lwm_buffer <= its_oltp_lwm_buffer);
          // -------------------------------------------------------------------------------------
          global_all_lwm_buffer = std::min<TXID>(its_all_lwm_buffer, global_all_lwm_buffer);
@@ -218,7 +208,7 @@ void Worker::refreshGlobalState()
       // -------------------------------------------------------------------------------------
       global_mutex.unlock();
    }
-}
+}  // namespace cr
 // -------------------------------------------------------------------------------------
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
 {
@@ -343,13 +333,7 @@ synclwm : {
          // TODO: What about TXID between OLAP and OLTP
          u8 key[sizeof(TXID)];
          utils::fold(key, global_oldest_all_start_ts);
-         commit_to_start_map->scanDesc(
-             key, sizeof(TXID),
-             [&](const u8* s_key, u16, const u8*, u16) {
-                utils::unfold(s_key, erase_till);
-                return false;
-             },
-             [&]() {});
+         commit_to_start_map->prefixLookupForPrev(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_till); });
          if (erase_till) {
             u8 start_key[sizeof(TXID)];
             utils::fold(start_key, u64(0));
@@ -473,13 +457,9 @@ TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID tx_ts)
    TXID commit_ts = std::numeric_limits<TXID>::max();  // TODO: align with GC
    u8 key[sizeof(TXID)];
    utils::fold(key, start_ts);
-   all_workers[worker_id]->commit_to_start_map->scanAsc(
-       key, sizeof(TXID),
-       [&](const u8* s_key, u16, const u8*, u16) {
-          utils::unfold(s_key, commit_ts);
-          return false;
-       },
-       [&]() {});
+   all_workers[worker_id]->commit_to_start_map->prefixLookup(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) {
+      utils::unfold(s_key, commit_ts);
+   });
    ensure(commit_ts > start_ts);
    return commit_ts;
 }
@@ -505,13 +485,8 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
          u8 key[sizeof(TXID)];
          utils::fold(key, std::numeric_limits<TXID>::max());
          TXID committed_till = 0;
-         all_workers[other_worker_id]->commit_to_start_map->scanDesc(
-             key, sizeof(TXID),
-             [&](const u8*, const u16, const u8* s_value, u16) {
-                committed_till = *reinterpret_cast<const TXID*>(s_value);
-                return false;
-             },
-             [&]() {});
+         all_workers[other_worker_id]->commit_to_start_map->prefixLookupForPrev(
+             key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { committed_till = *reinterpret_cast<const TXID*>(s_value); });
          return committed_till >= tx_ts;
       } else if (activeTX().atLeastSI()) {
          if (is_commit_ts) {
@@ -524,13 +499,8 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
          TXID largest_visible_tx_id = 0;
          u8 key[sizeof(TXID)];
          utils::fold(key, active_tx.TTS());
-         const OP_RESULT ret = all_workers[other_worker_id]->commit_to_start_map->scanDesc(
-             key, sizeof(TXID),
-             [&](const u8*, u16, const u8* s_value, u16) {
-                largest_visible_tx_id = *reinterpret_cast<const TXID*>(s_value);
-                return false;
-             },
-             [&]() {});
+         OP_RESULT ret = all_workers[other_worker_id]->commit_to_start_map->prefixLookupForPrev(
+             key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { largest_visible_tx_id = *reinterpret_cast<const TXID*>(s_value); });
          if (ret == OP_RESULT::OK) {
             local_snapshot_cache[other_worker_id] = largest_visible_tx_id;
             local_snapshot_cache_ts[other_worker_id] = active_tx.TTS();
