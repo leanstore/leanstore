@@ -1,6 +1,7 @@
 #include "AsyncWriteBuffer.hpp"
 
 #include "Exceptions.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
@@ -44,6 +45,7 @@ void AsyncWriteBuffer::add(BufferFrame& bf, PID pid)
    assert(!full());
    assert(u64(&bf.page) % 512 == 0);
    assert(pending_requests <= batch_max_size);
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_page_writes[bf.page.dt_id]++; }
    // -------------------------------------------------------------------------------------
    auto slot = pending_requests++;
    write_buffer_commands[slot].bf = &bf;

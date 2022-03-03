@@ -184,11 +184,17 @@ OP_RESULT BTreeLL::prefixLookup(u8* key, u16 key_length, std::function<void(cons
             leaf.recheck();
             jumpmu_return OP_RESULT::OK;
          } else if (cur < leaf->count) {
-            u16 compiled_key_length = leaf->getFullKeyLen(cur);
+            const u16 s_prefix_length = leaf->prefix_length;
+            const u16 s_key_length = leaf->getKeyLen(cur);
+            const u16 compiled_key_length = s_prefix_length + s_key_length;
             leaf.recheck();
             u8 compiled_key[compiled_key_length];
-            leaf->copyFullKey(cur, compiled_key);
-            payload_callback(key, key_length, leaf->getPayload(cur), leaf->getPayloadLength(cur));
+            std::memcpy(compiled_key, leaf->getPrefix(), s_prefix_length);
+            std::memcpy(compiled_key + s_prefix_length, leaf->getKey(cur), s_key_length);
+            const u8* s_payload = leaf->getPayload(cur);
+            const u16 s_payload_length = leaf->getPayloadLength(cur);
+            leaf.recheck();
+            payload_callback(compiled_key, compiled_key_length, s_payload, s_payload_length);
             leaf.recheck();
             jumpmu_return OP_RESULT::OK;
          } else {
@@ -224,11 +230,17 @@ OP_RESULT BTreeLL::prefixLookupForPrev(u8* key, u16 key_length, std::function<vo
             jumpmu_return OP_RESULT::OK;
          } else if (cur > 0) {
             cur -= 1;
-            u16 compiled_key_length = leaf->getFullKeyLen(cur);
+            const u16 s_prefix_length = leaf->prefix_length;
+            const u16 s_key_length = leaf->getKeyLen(cur);
+            const u16 compiled_key_length = s_prefix_length + s_key_length;
             leaf.recheck();
             u8 compiled_key[compiled_key_length];
-            leaf->copyFullKey(cur, compiled_key);
-            payload_callback(key, key_length, leaf->getPayload(cur), leaf->getPayloadLength(cur));
+            std::memcpy(compiled_key, leaf->getPrefix(), s_prefix_length);
+            std::memcpy(compiled_key + s_prefix_length, leaf->getKey(cur), s_key_length);
+            const u8* s_payload = leaf->getPayload(cur);
+            const u16 s_payload_length = leaf->getPayloadLength(cur);
+            leaf.recheck();
+            payload_callback(compiled_key, compiled_key_length, s_payload, s_payload_length);
             leaf.recheck();
             jumpmu_return OP_RESULT::OK;
          } else {
@@ -407,7 +419,7 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
    return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
-OP_RESULT BTreeLL::rangeRemove(u8* start_key, u16 start_key_length, u8* end_key, u16 end_key_length)
+OP_RESULT BTreeLL::rangeRemove(u8* start_key, u16 start_key_length, u8* end_key, u16 end_key_length, bool page_wise)
 {
    const Slice s_key(start_key, start_key_length);
    const Slice e_key(end_key, end_key_length);
@@ -423,7 +435,8 @@ OP_RESULT BTreeLL::rangeRemove(u8* start_key, u16 start_key_length, u8* end_key,
          }
       });
       // -------------------------------------------------------------------------------------
-      if (FLAGS_tmp6) {
+      ensure(config.enable_wal == false);
+      if (!page_wise) {
          auto ret = iterator.seek(s_key);
          if (ret != OP_RESULT::OK) {
             jumpmu_return ret;
@@ -443,7 +456,6 @@ OP_RESULT BTreeLL::rangeRemove(u8* start_key, u16 start_key_length, u8* end_key,
             }
          }
          jumpmu_return OP_RESULT::OK;
-         // TODO: WAL, atm used by none persistence trees
       } else {
          bool did_purge_full_page = false;
          iterator.enterLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {

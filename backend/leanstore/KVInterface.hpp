@@ -66,7 +66,7 @@ class KVInterface
    virtual OP_RESULT prefixLookup(u8*, u16, std::function<void(const u8*, u16, const u8*, u16)>) { return OP_RESULT::OTHER; }
    virtual OP_RESULT prefixLookupForPrev(u8*, u16, std::function<void(const u8*, u16, const u8*, u16)>) { return OP_RESULT::OTHER; }
    virtual OP_RESULT append(std::function<void(u8*)>, u16, std::function<void(u8*)>, u16, std::unique_ptr<u8[]>&) { return OP_RESULT::OTHER; }
-   virtual OP_RESULT rangeRemove(u8*, u16, u8*, u16) { return OP_RESULT::OTHER; }
+   virtual OP_RESULT rangeRemove(u8*, u16, u8*, u16, [[maybe_unused]] bool page_wise = true) { return OP_RESULT::OTHER; }
 };
 // -------------------------------------------------------------------------------------
 using Slice = std::basic_string_view<u8>;

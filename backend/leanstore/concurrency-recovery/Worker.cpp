@@ -343,6 +343,21 @@ synclwm : {
          }
       }
    }
+   {
+      TXID erase_till = 0, erase_from = 0;
+      u8 key[sizeof(TXID)];
+      utils::fold(key, global_newest_olap_start_ts);
+      commit_to_start_map->prefixLookup(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_from); });
+      utils::fold(key, global_oldest_oltp_start_ts);
+      commit_to_start_map->prefixLookupForPrev(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_till); });
+      if (erase_till) {
+         u8 start_key[sizeof(TXID)];
+         utils::fold(start_key, erase_from + 1);
+         u8 end_key[sizeof(TXID)];
+         utils::fold(end_key, erase_till - 1);
+         commit_to_start_map->rangeRemove(start_key, sizeof(TXID), end_key, sizeof(TXID), false);
+      }
+   }
    if (FLAGS_olap_mode && local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
       // MOVE deletes to the graveyard
       const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
@@ -354,7 +369,7 @@ synclwm : {
              COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
           });
    }
-}
+}  // namespace cr
 // -------------------------------------------------------------------------------------
 void Worker::commitTX()
 {
@@ -457,9 +472,8 @@ TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID tx_ts)
    TXID commit_ts = std::numeric_limits<TXID>::max();  // TODO: align with GC
    u8 key[sizeof(TXID)];
    utils::fold(key, start_ts);
-   all_workers[worker_id]->commit_to_start_map->prefixLookup(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) {
-      utils::unfold(s_key, commit_ts);
-   });
+   all_workers[worker_id]->commit_to_start_map->prefixLookup(key, sizeof(TXID),
+                                                             [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, commit_ts); });
    ensure(commit_ts > start_ts);
    return commit_ts;
 }

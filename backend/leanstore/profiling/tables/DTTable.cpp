@@ -23,7 +23,8 @@ void DTTable::open()
 {
    columns.emplace("key", [&](Column& col) { col << dt_id; });
    columns.emplace("dt_name", [&](Column& col) { col << dt_name; });
-   columns.emplace("dt_misses_counter", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_misses_counter, dt_id); });
+   columns.emplace("dt_page_reads", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_page_reads, dt_id); });
+   columns.emplace("dt_page_writes", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_page_writes, dt_id); });
    columns.emplace("dt_restarts_update_same_size",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_restarts_update_same_size, dt_id); });
    columns.emplace("dt_restarts_structural_change",
@@ -122,6 +123,11 @@ void DTTable::open()
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_fat_tuple_convert, dt_id); });
    columns.emplace("cc_fat_tuple_decompose",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_fat_tuple_decompose, dt_id); });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("cc_versions_space_inserted",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_versions_space_inserted, dt_id); });
+   columns.emplace("cc_versions_space_inserted_opt",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_versions_space_inserted_opt, dt_id); });
 }
 // -------------------------------------------------------------------------------------
 void DTTable::next()

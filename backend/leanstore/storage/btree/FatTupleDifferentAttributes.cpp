@@ -268,27 +268,34 @@ cont : {
       if (fat_tuple->hasSpaceFor(update_descriptor)) {
          goto cont;
       } else {
-         const u32 new_length = fat_tuple->value_length + sizeof(ChainedTuple);
-         fat_tuple->convertToChained(iterator.btree.dt_id);
-         ensure(new_length < iterator.value().length());
-         iterator.shorten(new_length);
-         return false;
-         if (fat_tuple->total_space < maxFatTupleLength()) {
-            const u32 new_fat_tuple_length = std::min<u32>(maxFatTupleLength(), fat_tuple->total_space * 2);
-            u8 buffer[PAGE_SIZE];
-            ensure(iterator.value().length() <= PAGE_SIZE);
-            std::memcpy(buffer, iterator.value().data(), iterator.value().length());
-            // -------------------------------------------------------------------------------------
-            const bool did_extend = iterator.extendPayload(new_fat_tuple_length);
-            ensure(did_extend);
-            // -------------------------------------------------------------------------------------
-            std::memcpy(iterator.mutableValue().data(), buffer, new_fat_tuple_length);
-            fat_tuple = reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data());  // ATTENTION
-            fat_tuple->total_space = new_fat_tuple_length - sizeof(FatTupleDifferentAttributes);
-            goto cont;
+         if (FLAGS_tmp6) {
+            fat_tuple->deltas_count = 0;
+            fat_tuple->used_space = fat_tuple->value_length;
+            fat_tuple->data_offset = fat_tuple->total_space;
+            return false;
          } else {
-            TODOException();
+            const u32 new_length = fat_tuple->value_length + sizeof(ChainedTuple);
+            fat_tuple->convertToChained(iterator.btree.dt_id);
+            ensure(new_length < iterator.value().length());
+            iterator.shorten(new_length);
+            return false;
          }
+         // if (fat_tuple->total_space < maxFatTupleLength()) {
+         //    const u32 new_fat_tuple_length = std::min<u32>(maxFatTupleLength(), fat_tuple->total_space * 2);
+         //    u8 buffer[PAGE_SIZE];
+         //    ensure(iterator.value().length() <= PAGE_SIZE);
+         //    std::memcpy(buffer, iterator.value().data(), iterator.value().length());
+         //    // -------------------------------------------------------------------------------------
+         //    const bool did_extend = iterator.extendPayload(new_fat_tuple_length);
+         //    ensure(did_extend);
+         //    // -------------------------------------------------------------------------------------
+         //    std::memcpy(iterator.mutableValue().data(), buffer, new_fat_tuple_length);
+         //    fat_tuple = reinterpret_cast<FatTupleDifferentAttributes*>(iterator.mutableValue().data());  // ATTENTION
+         //    fat_tuple->total_space = new_fat_tuple_length - sizeof(FatTupleDifferentAttributes);
+         //    goto cont;
+         // } else {
+         //    TODOException();
+         // }
       }
    }
    assert(fat_tuple->total_space >= fat_tuple->used_space);

@@ -42,7 +42,8 @@ struct WorkerCounters {
    atomic<u64> xmerge_partial_counter[max_dt_id] = {0};
    atomic<u64> xmerge_full_counter[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
-   atomic<u64> dt_misses_counter[max_dt_id] = {0};
+   atomic<u64> dt_page_reads[max_dt_id] = {0};
+   atomic<u64> dt_page_writes[max_dt_id] = {0};
    atomic<u64> dt_restarts_update_same_size[max_dt_id] = {0};   // without structural change
    atomic<u64> dt_restarts_structural_change[max_dt_id] = {0};  // includes insert, remove, update with different size
    atomic<u64> dt_restarts_read[max_dt_id] = {0};
@@ -92,6 +93,9 @@ struct WorkerCounters {
    atomic<u64> cc_update_chains_pgc_heavy_removed[max_dt_id] = {0};
    atomic<u64> cc_update_chains_pgc_light[max_dt_id] = {0};
    atomic<u64> cc_update_chains_pgc_light_removed[max_dt_id] = {0};
+   // -------------------------------------------------------------------------------------
+   atomic<u64> cc_versions_space_inserted[max_dt_id] = {0};
+   atomic<u64> cc_versions_space_inserted_opt[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    atomic<u64> cc_todo_removed[max_dt_id] = {0};
    atomic<u64> cc_todo_moved_gy[max_dt_id] = {0};

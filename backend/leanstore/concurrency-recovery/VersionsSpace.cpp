@@ -61,7 +61,7 @@ void VersionsSpace::insertVersion(WORKERID session_id,
             version_meta.dt_id = dt_id;
             cb(version_meta.payload);
             iterator.markAsDirty();
-            COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_inserted_opt++; }
+            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_versions_space_inserted_opt[dt_id]++; }
             iterator.leaf.unlock();
             jumpmu_return;
          }
@@ -99,7 +99,7 @@ void VersionsSpace::insertVersion(WORKERID session_id,
             session->init = true;
          }
          // -------------------------------------------------------------------------------------
-         COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_inserted++; }
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_versions_space_inserted[dt_id]++; }
          jumpmu_return;
       }
       jumpmuCatch() {}

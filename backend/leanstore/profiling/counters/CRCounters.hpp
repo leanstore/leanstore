@@ -26,9 +26,7 @@ struct CRCounters {
    // -------------------------------------------------------------------------------------
    atomic<u64> cc_prepare_igc = 0;
    atomic<u64> cc_cross_workers_visibility_check = 0;
-   atomic<u64> cc_versions_space_removed = 0;
-   atomic<u64> cc_versions_space_inserted = 0;
-   atomic<u64> cc_versions_space_inserted_opt = 0;
+   atomic<u64> cc_versions_space_removed = {0};
    // -------------------------------------------------------------------------------------
    CRCounters() {}
    // -------------------------------------------------------------------------------------
