@@ -70,7 +70,7 @@ struct WiredTigerAdapter : public Adapter<Record> {
    WiredTigerAdapter(WiredTigerDB& map) : map(map)
    {
       table_name = std::string("table:tree_" + std::to_string(Record::id));
-      int ret = map.session->create(map.session, table_name.c_str(), "type=btree,key_format=S,value_format=S,memory_page_max=10M");  // ,type=lsm
+      int ret = map.session->create(map.session, table_name.c_str(), "key_format=S,value_format=S,memory_page_max=10M");  // ,type=lsm
       error_check(ret);
    }
    // -------------------------------------------------------------------------------------
