@@ -27,6 +27,7 @@ DEFINE_bool(order_wdc_index, true, "");
 DEFINE_uint64(ch_a_threads, 0, "CH analytical threads");
 DEFINE_uint64(ch_a_rounds, 1, "");
 DEFINE_uint64(ch_a_query, 2, "");
+DEFINE_uint64(ch_a_delay_sec, 0, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(print_header, true, "");
 // -------------------------------------------------------------------------------------
@@ -106,6 +107,11 @@ int main(int argc, char** argv)
          lm_db.startTX();
          tpcc.prepare();
          lm_db.commitTX();
+         // -------------------------------------------------------------------------------------
+         if (FLAGS_ch_a_delay_sec) {
+            sleep(FLAGS_ch_a_delay_sec);
+         }
+         // -------------------------------------------------------------------------------------
          while (keep_running) {
             jumpmuTry()
             {

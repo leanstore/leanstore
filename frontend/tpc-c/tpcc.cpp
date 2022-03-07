@@ -32,6 +32,7 @@ DEFINE_uint64(tpcc_analytical_weight, 0, "");
 DEFINE_uint64(ch_a_threads, 0, "CH analytical threads");
 DEFINE_uint64(ch_a_rounds, 1, "");
 DEFINE_uint64(ch_a_query, 2, "");
+DEFINE_uint64(ch_a_delay_sec, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -138,6 +139,11 @@ int main(int argc, char** argv)
          const leanstore::TX_MODE tx_mode = FLAGS_olap_mode ? leanstore::TX_MODE::OLAP : leanstore::TX_MODE::OLTP;
          cr::Worker::my().startTX(tx_mode, isolation_level);
          cr::Worker::my().commitTX();
+         // -------------------------------------------------------------------------------------
+         if (FLAGS_ch_a_delay_sec) {
+            sleep(FLAGS_ch_a_delay_sec);
+         }
+         // -------------------------------------------------------------------------------------
          while (keep_running) {
             jumpmuTry()
             {
