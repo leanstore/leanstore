@@ -37,10 +37,18 @@ target_compile_definitions(rocksdb_ycsb PUBLIC ROCKSDB_ADAPTER)
 add_executable(wiredtiger_tpcc tpc-c/wiredtiger_tpcc.cpp)
 target_link_libraries(wiredtiger_tpcc leanstore wiredtiger Threads::Threads dl z libbz2.a lz4 snappy)
 target_include_directories(wiredtiger_tpcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
-target_compile_definitions(wiredtiger_tpcc PUBLIC ROCKSDB_ADAPTER)
 
 add_executable(wiredtiger_ycsb ycsb/wiredtiger_ycsb.cpp)
 target_link_libraries(wiredtiger_ycsb leanstore wiredtiger Threads::Threads dl z libbz2.a lz4 snappy)
 target_include_directories(wiredtiger_ycsb PRIVATE ${SHARED_INCLUDE_DIRECTORY})
-target_compile_definitions(wiredtiger_ycsb PUBLIC ROCKSDB_ADAPTER)
 # prefer https://source.wiredtiger.com/10.0.0/build-posix.html over sudo apt-get install wiredtiger libwiredtiger-dev
+
+
+add_executable(lmdb_tpcc tpc-c/lmdb_tpcc.cpp)
+target_link_libraries(lmdb_tpcc leanstore lmdb Threads::Threads)
+target_include_directories(lmdb_tpcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(lmdb_ycsb ycsb/lmdb_ycsb.cpp)
+target_link_libraries(lmdb_ycsb leanstore lmdb Threads::Threads)
+target_include_directories(lmdb_ycsb PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+# sudo apt-get install liblmdb-dev

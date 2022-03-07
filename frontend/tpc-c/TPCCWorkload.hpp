@@ -966,6 +966,44 @@ class TPCCWorkload
       }
    }
    // -------------------------------------------------------------------------------------
+   // <tx_num, read_only>
+   std::tuple<s32, bool> getRandomTXInfo()
+   {
+      u64 rnd = leanstore::utils::RandomGenerator::getRand(0, 10000);
+      if (rnd < 4300) {
+         return {0, false};
+      }
+      rnd -= 4300;
+      if (rnd < 400) {
+         return {1, true};
+      }
+      rnd -= 400;
+      if (rnd < 400) {
+         return {2, false};
+      }
+      rnd -= 400;
+      if (rnd < 400) {
+         return {3, true};
+      }
+      rnd -= 400;
+      return {4, false};
+   }
+   // -------------------------------------------------------------------------------------
+   void execTX(Integer w_id, s32 tx_number)
+   {
+      if (tx_number == 0) {
+         paymentRnd(w_id);
+      } else if (tx_number == 1) {
+         orderStatusRnd(w_id);
+      } else if (tx_number == 2) {
+         deliveryRnd(w_id);
+      } else if (tx_number == 3) {
+         stockLevelRnd(w_id);
+      } else if (tx_number == 4) {
+         newOrderRnd(w_id);
+      }
+   }
+   // -------------------------------------------------------------------------------------
    int tx(Integer w_id)
    {
       if (FLAGS_tmp5) {
