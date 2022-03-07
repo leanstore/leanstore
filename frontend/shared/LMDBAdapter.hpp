@@ -22,6 +22,7 @@ struct LMDB {
    LMDB() : env(lmdb::env::create())
    {
       env.set_max_dbs(100);
+      // FLAGS_dram_gib is misued here to set the maximum map size for LMDB
       env.set_mapsize(FLAGS_dram_gib * 1024UL * 1024UL * 1024UL);
       env.open(FLAGS_ssd_path.c_str(), MDB_NOSYNC);
    }
