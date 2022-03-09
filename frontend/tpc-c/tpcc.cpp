@@ -141,7 +141,9 @@ int main(int argc, char** argv)
          cr::Worker::my().commitTX();
          // -------------------------------------------------------------------------------------
          if (FLAGS_ch_a_delay_sec) {
+            cr::Worker::my().switchToReadCommittedMode();
             sleep(FLAGS_ch_a_delay_sec);
+            cr::Worker::my().switchToSnapshotIsolationMode();
          }
          // -------------------------------------------------------------------------------------
          while (keep_running) {
