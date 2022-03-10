@@ -69,9 +69,6 @@ struct WorkerCounters {
    atomic<u64> dt_append[max_dt_id] = {0};
    atomic<u64> dt_append_opt[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
-   // Concurrency control counters
-   atomic<u64> cc_snapshot_restart = 0;
-   // -------------------------------------------------------------------------------------
    atomic<u64> cc_read_versions_visited[max_dt_id] = {0};
    atomic<u64> cc_read_versions_visited_not_found[max_dt_id] = {0};
    atomic<u64> cc_read_chains_not_found[max_dt_id] = {0};

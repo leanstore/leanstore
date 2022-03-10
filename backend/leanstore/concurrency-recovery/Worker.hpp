@@ -2,6 +2,8 @@
 #include "Transaction.hpp"
 #include "VersionsSpaceInterface.hpp"
 #include "WALEntry.hpp"
+#include "leanstore/profiling/counters/CRCounters.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include "leanstore/utils/RingBufferST.hpp"
 // -------------------------------------------------------------------------------------
@@ -119,16 +121,22 @@ struct Worker {
    void addUnlockTask(DTID dt_id, u64 payload_length, std::function<void(u8* dst)> callback);
    void executeUnlockTasks();
    // -------------------------------------------------------------------------------------
-   u64 insertVersion(DTID dt_id, bool is_remove, u64 payload_length, std::function<void(u8*)> cb)
+   inline u64 insertVersion(DTID dt_id, bool is_remove, u64 payload_length, std::function<void(u8*)> cb)
    {
+      utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
       const u64 new_command_id = (command_id++) | ((is_remove) ? TYPE_MSB(COMMANDID) : 0);
       versions_space.insertVersion(worker_id, active_tx.TTS(), new_command_id, dt_id, is_remove, payload_length, cb);
       return new_command_id;
    }
-   bool retrieveVersion(WORKERID its_worker_id, TXID its_tx_id, COMMANDID its_command_id, std::function<void(const u8*, u64 payload_length)> cb)
+   inline bool retrieveVersion(WORKERID its_worker_id,
+                               TXID its_tx_id,
+                               COMMANDID its_command_id,
+                               std::function<void(const u8*, u64 payload_length)> cb)
    {
+      utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
       const bool is_remove = its_command_id & TYPE_MSB(COMMANDID);
-      return versions_space.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
+      const bool found = versions_space.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
+      return found;
    }
    // -------------------------------------------------------------------------------------
    // Not used atm:

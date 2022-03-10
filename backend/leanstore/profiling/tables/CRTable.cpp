@@ -35,7 +35,7 @@ void CRTable::open()
    columns.emplace("olap_tx_abort", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::olap_tx_abort); });
    columns.emplace("rfa_committed_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::rfa_committed_tx); });
    // -------------------------------------------------------------------------------------
-   columns.emplace("cc_snapshot_restart", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_snapshot_restart); });
+   columns.emplace("cc_snapshot_restart", [](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_snapshot_restart); });
    // -------------------------------------------------------------------------------------
    columns.emplace("wal_read_gib", [&](Column& col) {
       col << (sum(WorkerCounters::worker_counters, &WorkerCounters::wal_read_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0;
@@ -52,6 +52,12 @@ void CRTable::open()
    columns.emplace("cc_cross_workers_visibility_check",
                    [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_cross_workers_visibility_check); });
    columns.emplace("cc_versions_space_removed", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_versions_space_removed); });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("cc_ms_gc", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_gc); });
+   columns.emplace("cc_ms_fat_tuple", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_fat_tuple); });
+   columns.emplace("cc_ms_snapshotting", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_snapshotting); });
+   columns.emplace("cc_ms_history_tree", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_history_tree); });
+   columns.emplace("cc_ms_refresh_global_state", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_refresh_global_state); });
 }
 // -------------------------------------------------------------------------------------
 void CRTable::next()

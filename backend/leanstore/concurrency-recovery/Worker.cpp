@@ -2,12 +2,12 @@
 
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
-#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/DTRegistry.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <stdio.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
@@ -154,6 +154,7 @@ void Worker::submitDTEntry(u64 total_size)
 void Worker::refreshGlobalState()
 {
    if (utils::RandomGenerator::getRandU64(0, workers_count) == 0 && global_mutex.try_lock()) {
+      utils::Timer timer(CRCounters::myCounters().cc_ms_refresh_global_state);
       TXID local_newest_olap = std::numeric_limits<u64>::min();
       TXID local_oldest_oltp = std::numeric_limits<u64>::max();
       TXID local_oldest_tx = std::numeric_limits<u64>::max();
@@ -208,7 +209,7 @@ void Worker::refreshGlobalState()
       // -------------------------------------------------------------------------------------
       global_mutex.unlock();
    }
-}  // namespace cr
+}
 // -------------------------------------------------------------------------------------
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
 {
@@ -305,6 +306,7 @@ void Worker::garbageCollection()
    }
    // -------------------------------------------------------------------------------------
    // TODO: smooth purge, we should not let the system hang on this, as a quick fix, it should be enough if we purge in small batches
+   utils::Timer timer(CRCounters::myCounters().cc_ms_gc);
 synclwm : {
    u64 lwm_version = local_lwm_latch.load();
    while ((lwm_version = local_lwm_latch.load()) & 1)
@@ -330,7 +332,6 @@ synclwm : {
       // -------------------------------------------------------------------------------------
       {
          TXID erase_till = 0;
-         // TODO: What about TXID between OLAP and OLTP
          u8 key[sizeof(TXID)];
          utils::fold(key, global_oldest_all_start_ts);
          commit_to_start_map->prefixLookupForPrev(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_till); });
@@ -343,7 +344,8 @@ synclwm : {
          }
       }
    }
-   {
+   if (FLAGS_olap_mode && local_all_lwm != local_oltp_lwm) {
+      //  TXID between OLAP and OLTP
       TXID erase_till = 0, erase_from = 0;
       u8 key[sizeof(TXID)];
       utils::fold(key, global_newest_olap_start_ts);
@@ -357,19 +359,21 @@ synclwm : {
          utils::fold(end_key, erase_till - 1);
          commit_to_start_map->rangeRemove(start_key, sizeof(TXID), end_key, sizeof(TXID), false);
       }
+      // -------------------------------------------------------------------------------------
+      if (local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
+         // MOVE deletes to the graveyard
+         const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
+         versions_space.visitRemoveVersions(worker_id, from_tx_id, local_oltp_lwm - 1,
+                                            [&](const TXID tx_id, const DTID dt_id, const u8* version_payload,
+                                                [[maybe_unused]] u64 version_payload_length, const bool called_before) {
+                                               cleaned_untill_oltp_lwm = std::max(cleaned_untill_oltp_lwm, tx_id + 1);
+                                               leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
+                                                                                                       called_before);
+                                               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
+                                            });
+      }
    }
-   if (FLAGS_olap_mode && local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
-      // MOVE deletes to the graveyard
-      const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
-      versions_space.visitRemoveVersions(
-          worker_id, from_tx_id, local_oltp_lwm - 1,
-          [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length, const bool called_before) {
-             cleaned_untill_oltp_lwm = std::max(cleaned_untill_oltp_lwm, tx_id + 1);
-             leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id, called_before);
-             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
-          });
-   }
-}  // namespace cr
+}
 // -------------------------------------------------------------------------------------
 void Worker::commitTX()
 {
