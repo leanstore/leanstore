@@ -403,12 +403,22 @@ void LeanStore::deserializeFlags()
 // -------------------------------------------------------------------------------------
 LeanStore::~LeanStore()
 {
-   if (FLAGS_btree_print_height) {
+   if (FLAGS_btree_print_height || FLAGS_btree_print_tuples_count) {
       for (auto& iter : btrees_ll) {
-         cout << "BTreeLL: " << iter.first << ", dt_id = " << iter.second.dt_id << ", height= " << iter.second.height << endl;
+         cout << "BTreeLL: " << iter.first << ", dt_id= " << iter.second.dt_id << ", height= " << iter.second.height;
+         if (FLAGS_btree_print_tuples_count) {
+            cr_manager->scheduleJobSync(0, [&]() { cout << ", #tuples= " << iter.second.countEntries() << endl; });
+         } else {
+            cout << endl;
+         }
       }
       for (auto& iter : btrees_vi) {
-         cout << "BTreeVI: " << iter.first << ", dt_id = " << iter.second.dt_id << ", height= " << iter.second.height << endl;
+         cout << "BTreeVI: " << iter.first << ", dt_id= " << iter.second.dt_id << ", height= " << iter.second.height;
+         if (FLAGS_btree_print_tuples_count) {
+            cr_manager->scheduleJobSync(0, [&]() { cout << ", #tuples= " << iter.second.countEntries() << endl; });
+         } else {
+            cout << endl;
+         }
       }
    }
    // -------------------------------------------------------------------------------------

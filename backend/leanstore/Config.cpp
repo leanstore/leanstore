@@ -56,6 +56,7 @@ DEFINE_double(tmp6, 0.0, "");
 DEFINE_double(tmp7, 0.0, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(btree_print_height, false, "Print BTree height in destructor");
+DEFINE_bool(btree_print_tuples_count, false, "Print # tuples in each BTree in destructor");
 DEFINE_bool(nc_reallocation, false, "Reallocate hot pages in non-clustered btree index");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(bulk_insert, false, "");
