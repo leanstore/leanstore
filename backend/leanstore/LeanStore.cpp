@@ -101,11 +101,11 @@ LeanStore::LeanStore()
       versions_space->update_btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
       versions_space->remove_btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
       for (u64 w_i = 0; w_i < FLAGS_worker_threads; w_i++) {
-         std::string name = "versions_space_" + std::to_string(w_i);
+         std::string name = "history_tree_" + std::to_string(w_i);
          versions_space->update_btrees[w_i] = &registerBTreeLL(name + "_updates", {.enable_wal = false, .use_bulk_insert = true});
          versions_space->remove_btrees[w_i] = &registerBTreeLL(name + "_removes", {.enable_wal = false, .use_bulk_insert = true});
          cr_manager->workers[w_i]->commit_to_start_map =
-             &registerBTreeLL("commit_start_" + std::to_string(w_i), {.enable_wal = false, .use_bulk_insert = true});
+             &registerBTreeLL("commit_tree_" + std::to_string(w_i), {.enable_wal = false, .use_bulk_insert = true});
       }
    });
    // -------------------------------------------------------------------------------------
@@ -404,7 +404,14 @@ void LeanStore::deserializeFlags()
 LeanStore::~LeanStore()
 {
    if (FLAGS_btree_print_height || FLAGS_btree_print_tuples_count) {
+      cr_manager->joinAll();
       for (auto& iter : btrees_ll) {
+         if (!FLAGS_wal && iter.first.rfind("commit_tree") == 0) {
+            continue;
+         }
+         if (!FLAGS_vi && iter.first.rfind("history_tree") == 0) {
+            continue;
+         }
          cout << "BTreeLL: " << iter.first << ", dt_id= " << iter.second.dt_id << ", height= " << iter.second.height;
          if (FLAGS_btree_print_tuples_count) {
             cr_manager->scheduleJobSync(0, [&]() { cout << ", #tuples= " << iter.second.countEntries() << endl; });
