@@ -44,16 +44,16 @@ void VersionsSpace::insertVersion(WORKERID session_id,
    if (same_thread) {
       session = (is_remove) ? &remove_sessions[session_id] : &update_sessions[session_id];
    }
-   if (session != nullptr && session->init) {
+   if (session != nullptr && session->rightmost_init) {
       jumpmuTry()
       {
-         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)), session->bf, session->version);
+         BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)), session->rightmost_bf, session->rightmost_version);
          // -------------------------------------------------------------------------------------
          OP_RESULT ret = iterator.enoughSpaceInCurrentNode(key, payload_length);
          if (ret == OP_RESULT::OK && iterator.keyInCurrentBoundaries(key)) {
             if (session->last_tx_id == tx_id) {
-               iterator.leaf->insertDoNotCopyPayload(key.data(), key.length(), payload_length, session->pos);
-               iterator.cur = session->pos;
+               iterator.leaf->insertDoNotCopyPayload(key.data(), key.length(), payload_length, session->rightmost_pos);
+               iterator.cur = session->rightmost_pos;
             } else {
                iterator.insertInCurrentNode(key, payload_length);
             }
@@ -92,11 +92,11 @@ void VersionsSpace::insertVersion(WORKERID session_id,
          iterator.markAsDirty();
          // -------------------------------------------------------------------------------------
          if (session != nullptr) {
-            session->bf = iterator.leaf.bf;
-            session->version = iterator.leaf.guard.version + 1;
-            session->pos = iterator.cur + 1;
+            session->rightmost_bf = iterator.leaf.bf;
+            session->rightmost_version = iterator.leaf.guard.version + 1;
+            session->rightmost_pos = iterator.cur + 1;
             session->last_tx_id = tx_id;
-            session->init = true;
+            session->rightmost_init = true;
          }
          // -------------------------------------------------------------------------------------
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_versions_space_inserted[dt_id]++; }
@@ -200,7 +200,31 @@ void VersionsSpace::purgeVersions(WORKERID worker_id,
    btree = update_btrees[worker_id];
    utils::fold(key_buffer, from_tx_id);
    // -------------------------------------------------------------------------------------
-   while (true) {
+   Session* volatile session = &update_sessions[worker_id];  // Attention: no cross worker gc in sync
+   volatile bool should_try = true;
+   if (from_tx_id == 0) {
+      jumpmuTry()
+      {
+         if (session->leftmost_init) {
+            BufferFrame* bf = session->leftmost_bf;
+            Guard bf_guard(bf->header.latch, session->leftmost_version);
+            bf_guard.recheck();
+            HybridPageGuard<BTreeNode> leaf(std::move(bf_guard), bf);
+            // -------------------------------------------------------------------------------------
+            if (leaf->lower_fence.length == 0) {
+               u8 last_key[leaf->getFullKeyLen(leaf->count - 1)];
+               leaf->copyFullKey(leaf->count - 1, last_key);
+               TXID last_key_tx_id;
+               utils::unfold(last_key, last_key_tx_id);
+               if (last_key_tx_id > to_tx_id) {
+                  should_try = false;
+               }
+            }
+         }
+      }
+      jumpmuCatch() {}
+   }
+   while (should_try) {
       jumpmuTry()
       {
          leanstore::storage::btree::BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(const_cast<BTreeLL*>(btree)));
@@ -241,6 +265,9 @@ void VersionsSpace::purgeVersions(WORKERID worker_id,
             did_purge_full_page = false;
             jumpmu_continue;
          } else {
+            session->leftmost_bf = iterator.leaf.bf;
+            session->leftmost_version = iterator.leaf.guard.version + 1;
+            session->leftmost_init = true;
             jumpmu_break;
          }
       }

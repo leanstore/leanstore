@@ -2,6 +2,7 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <atomic>
 #include <chrono>
 #include <cmath>
 // -------------------------------------------------------------------------------------
@@ -104,6 +105,17 @@ inline u64 unfold(const u8* input, s64& x)
    x = __builtin_bswap64(*reinterpret_cast<const u64*>(input)) ^ (1ul << 63);
    return sizeof(x);
 }
+// -------------------------------------------------------------------------------------
+struct Timer {
+   std::atomic<u64>& ms_counter;
+   std::chrono::high_resolution_clock::time_point time_begin;
+   Timer(atomic<u64>& ms_counter) : ms_counter(ms_counter) { time_begin = std::chrono::high_resolution_clock::now(); }
+   ~Timer()
+   {
+      const u64 duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - time_begin).count();
+      ms_counter += duration;
+   }
+};
 // -------------------------------------------------------------------------------------
 }  // namespace utils
 }  // namespace leanstore

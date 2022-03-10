@@ -27,6 +27,14 @@ struct CRCounters {
    atomic<u64> cc_prepare_igc = 0;
    atomic<u64> cc_cross_workers_visibility_check = 0;
    atomic<u64> cc_versions_space_removed = {0};
+   atomic<u64> cc_snapshot_restart = 0;
+   // -------------------------------------------------------------------------------------
+   // Time
+   atomic<u64> cc_ms_gc = 0;
+   atomic<u64> cc_ms_fat_tuple = 0;
+   atomic<u64> cc_ms_snapshotting = 0;
+   atomic<u64> cc_ms_history_tree = 0;
+   atomic<u64> cc_ms_refresh_global_state = 0;
    // -------------------------------------------------------------------------------------
    CRCounters() {}
    // -------------------------------------------------------------------------------------

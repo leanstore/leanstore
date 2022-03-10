@@ -33,11 +33,11 @@ class VersionsSpace : public VersionsSpaceInterface
 {
   private:
    struct alignas(64) Session {
-      BufferFrame* bf;
-      u64 version;
-      s64 pos = -1;
+      BufferFrame *rightmost_bf, *leftmost_bf;
+      u64 rightmost_version, leftmost_version;
+      s64 rightmost_pos = -1;
       TXID last_tx_id;
-      bool init = false;
+      bool rightmost_init = false, leftmost_init = false;
    };
    Session update_sessions[leanstore::cr::STATIC_MAX_WORKERS];
    Session remove_sessions[leanstore::cr::STATIC_MAX_WORKERS];

@@ -51,6 +51,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    if (deltas_count == 0) {
       return;
    }
+   utils::Timer timer(CRCounters::myCounters().cc_ms_gc);
    // -------------------------------------------------------------------------------------
    auto append_ll = [](FatTupleDifferentAttributes& fat_tuple, u8* delta, u16 delta_length) {
       assert(fat_tuple.total_space >= (fat_tuple.used_space + delta_length + sizeof(u16)));

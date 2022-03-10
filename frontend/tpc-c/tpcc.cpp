@@ -32,7 +32,8 @@ DEFINE_uint64(tpcc_analytical_weight, 0, "");
 DEFINE_uint64(ch_a_threads, 0, "CH analytical threads");
 DEFINE_uint64(ch_a_rounds, 1, "");
 DEFINE_uint64(ch_a_query, 2, "");
-DEFINE_uint64(ch_a_delay_sec, 0, "");
+DEFINE_uint64(ch_a_start_delay_sec, 0, "");
+DEFINE_uint64(ch_a_process_delay_sec, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -81,6 +82,8 @@ int main(int argc, char** argv)
    db.registerConfigEntry("ch_a_threads", FLAGS_ch_a_threads);
    db.registerConfigEntry("ch_a_rounds", FLAGS_ch_a_rounds);
    db.registerConfigEntry("ch_a_query", FLAGS_ch_a_query);
+   db.registerConfigEntry("ch_a_start_delay_sec", FLAGS_ch_a_start_delay_sec);
+   db.registerConfigEntry("ch_a_process_delay_sec", FLAGS_ch_a_process_delay_sec);
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
    // -------------------------------------------------------------------------------------
    leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
@@ -140,9 +143,9 @@ int main(int argc, char** argv)
          cr::Worker::my().startTX(tx_mode, isolation_level);
          cr::Worker::my().commitTX();
          // -------------------------------------------------------------------------------------
-         if (FLAGS_ch_a_delay_sec) {
+         if (FLAGS_ch_a_start_delay_sec) {
             cr::Worker::my().switchToReadCommittedMode();
-            sleep(FLAGS_ch_a_delay_sec);
+            sleep(FLAGS_ch_a_start_delay_sec);
             cr::Worker::my().switchToSnapshotIsolationMode();
          }
          // -------------------------------------------------------------------------------------
@@ -150,6 +153,9 @@ int main(int argc, char** argv)
             jumpmuTry()
             {
                cr::Worker::my().startTX(tx_mode, isolation_level);
+               if (FLAGS_ch_a_process_delay_sec) {
+                  sleep(FLAGS_ch_a_process_delay_sec);
+               }
                for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
                   tpcc.analyticalQuery(FLAGS_ch_a_query);
                }
