@@ -7,6 +7,7 @@
 // -------------------------------------------------------------------------------------
 #include <stdio.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
@@ -46,7 +47,6 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, VersionsS
       local_snapshot_cache = make_unique<u64[]>(workers_count);
       local_snapshot_cache_ts = make_unique<u64[]>(workers_count);
       local_workers_start_ts = make_unique<u64[]>(workers_count + 1);
-      local_workers_sorted_start_ts = make_unique<u64[]>(workers_count + 1);
       global_workers_current_snapshot[worker_id] = 0;
    }
 }
@@ -154,6 +154,21 @@ void Worker::submitDTEntry(u64 total_size)
 // Also for interval garbage collection
 void Worker::refreshGlobalState()
 {
+   if (!FLAGS_todo) {
+      // Why bother
+      return;
+   }
+   if (FLAGS_imitate_wt) {
+      local_all_lwm = std::numeric_limits<u64>::max();
+      for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
+         u64 its_in_flight_tx_id = all_workers[w_i]->local_min_in_progress.load();
+         local_all_lwm = std::min(local_all_lwm, its_in_flight_tx_id & CLEAN_BITS_MASK);
+      }
+      if (local_all_lwm)
+         local_all_lwm--;
+      return;
+   }
+   // -------------------------------------------------------------------------------------
    if (utils::RandomGenerator::getRandU64(0, workers_count) == 0 && global_mutex.try_lock()) {
       utils::Timer timer(CRCounters::myCounters().cc_ms_refresh_global_state);
       TXID local_newest_olap = std::numeric_limits<u64>::min();
@@ -192,10 +207,13 @@ void Worker::refreshGlobalState()
          utils::fold(key, global_oldest_all_start_ts);
          all_workers[w_i]->commit_to_start_map->prefixLookupForPrev(
              key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_all_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
-         utils::fold(key, global_oldest_oltp_start_ts);
-         all_workers[w_i]->commit_to_start_map->prefixLookupForPrev(
-             key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_oltp_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
-         ensure(its_all_lwm_buffer <= its_oltp_lwm_buffer);
+         // -------------------------------------------------------------------------------------
+         if (FLAGS_olap_mode) {
+            utils::fold(key, global_oldest_oltp_start_ts);
+            all_workers[w_i]->commit_to_start_map->prefixLookupForPrev(
+                key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_oltp_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
+            ensure(its_all_lwm_buffer <= its_oltp_lwm_buffer);
+         }
          // -------------------------------------------------------------------------------------
          global_all_lwm_buffer = std::min<TXID>(its_all_lwm_buffer, global_all_lwm_buffer);
          global_oltp_lwm_buffer = std::min<TXID>(its_oltp_lwm_buffer, global_oltp_lwm_buffer);
@@ -245,6 +263,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
       }
       // -------------------------------------------------------------------------------------
       active_tx.state = Transaction::STATE::STARTED;
+      active_tx.has_wrote = false;
       active_tx.min_observed_gsn_when_started = clock_gsn;
       active_tx.current_tx_mode = next_tx_type;
       active_tx.current_tx_isolation_level = next_tx_isolation_level;
@@ -258,6 +277,22 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          global_workers_current_snapshot[worker_id].store(active_tx.tx_id | LATCH_BIT, std::memory_order_release);
          active_tx.tx_id = global_logical_clock.fetch_add(1);
          global_workers_current_snapshot[worker_id].store(active_tx.tx_id | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
+         local_global_all_lwm_cache = global_all_lwm.load();
+         // -------------------------------------------------------------------------------------
+         if (FLAGS_imitate_wt) {
+            TXID tmp = std::numeric_limits<TXID>::max();
+            for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
+               u64 its_in_flight_tx_id = global_workers_current_snapshot[w_i].load();
+               // -------------------------------------------------------------------------------------
+               while (its_in_flight_tx_id & LATCH_BIT) {
+                  its_in_flight_tx_id = global_workers_current_snapshot[w_i].load();
+               }
+               local_workers_start_ts[w_i] = its_in_flight_tx_id;
+               tmp = std::min<TXID>(tmp, its_in_flight_tx_id);
+            }
+            local_min_in_progress.store(tmp, std::memory_order_release);
+            return;
+         }
          // -------------------------------------------------------------------------------------
          if (prev_tx.isReadCommitted() || prev_tx.isReadUncommitted()) {
             switchToSnapshotIsolationMode();
@@ -303,6 +338,17 @@ void Worker::shutdown()
 void Worker::garbageCollection()
 {
    if (!FLAGS_todo) {
+      return;
+   }
+   // -------------------------------------------------------------------------------------
+   if (FLAGS_imitate_wt) {
+      versions_space.purgeVersions(
+          worker_id, 0, local_all_lwm - 1,
+          [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length, const bool called_before) {
+             leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id, called_before);
+             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
+          },
+          0);
       return;
    }
    // -------------------------------------------------------------------------------------
@@ -407,12 +453,16 @@ void Worker::commitTX()
          CRCounters::myCounters().rfa_committed_tx += 1;
       }
       // -------------------------------------------------------------------------------------
-      if (!activeTX().isReadOnly()) {
-         commit_to_start_map->append([&](u8* key) { utils::fold(key, global_logical_clock.fetch_add(1)); }, sizeof(TXID),
-                                     [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID), map_leaf_handler);
-      }
-      if (activeTX().isSerializable()) {
-         executeUnlockTasks();
+      if (FLAGS_imitate_wt) {
+         global_workers_current_snapshot[worker_id].store(global_logical_clock.fetch_add(1), std::memory_order_release);
+      } else {
+         if (activeTX().hasWrote()) {
+            commit_to_start_map->append([&](u8* key) { utils::fold(key, global_logical_clock.fetch_add(1)); }, sizeof(TXID),
+                                        [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID), map_leaf_handler);
+         }
+         if (activeTX().isSerializable()) {
+            executeUnlockTasks();
+         }
       }
       // Only committing snapshot/ changing between SI and lower modes
       if (activeTX().atLeastSI()) {
@@ -483,11 +533,20 @@ TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID tx_ts)
    return commit_ts;
 }
 // -------------------------------------------------------------------------------------
-// TODO: description
 // It is also used to check whether the tuple is write-locked, hence we need the to_write intention flag
-// There are/will be two types of write locks: ones that are released with commit hwm and ones that are manually released after commit.
 bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
 {
+   if (FLAGS_imitate_wt) {
+      if (tx_ts == active_tx.TTS())
+         return true;
+      if (tx_ts > active_tx.TTS()) {
+         return false;
+      }
+      const bool is_not_in_progress = (std::find(local_workers_start_ts.get(), local_workers_start_ts.get() + workers_count, tx_ts) ==
+                                       local_workers_start_ts.get() + workers_count);
+      return is_not_in_progress;
+   }
+   // -------------------------------------------------------------------------------------
    const bool is_commit_ts = tx_ts & MSB;
    const TXID committed_ts = (tx_ts & MSB) ? (tx_ts & MSB_MASK) : 0;
    const TXID start_ts = tx_ts & MSB_MASK;
@@ -511,9 +570,14 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
          if (is_commit_ts) {
             return active_tx.TTS() > committed_ts;
          }
+         if (start_ts < local_global_all_lwm_cache) {
+            return true;
+         }
          // -------------------------------------------------------------------------------------
          if (local_snapshot_cache_ts[other_worker_id] == active_tx.TTS()) {  // Use the cache
             return local_snapshot_cache[other_worker_id] >= start_ts;
+         } else if (local_snapshot_cache[other_worker_id] >= start_ts) {
+            return true;
          }
          TXID largest_visible_tx_id = 0;
          u8 key[sizeof(TXID)];

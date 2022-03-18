@@ -127,7 +127,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                                          function<void(u8* value, u16 value_size)> callback,
                                          UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
-   assert(!cr::activeTX().isReadOnly());
+   cr::activeTX().markAsWrite();
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    Slice key(o_key, o_key_length);
    OP_RESULT ret;
@@ -288,7 +288,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_length)
 {
-   assert(!cr::activeTX().isReadOnly());
+   cr::activeTX().markAsWrite();
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    Slice key(o_key, o_key_length);
    const u16 payload_length = value_length + sizeof(ChainedTuple);
@@ -342,7 +342,7 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
 OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
 {
    // TODO: remove fat tuple
-   assert(!cr::activeTX().isReadOnly());
+   cr::activeTX().markAsWrite();
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    Slice key(o_key, o_key_length);
    // -------------------------------------------------------------------------------------
@@ -655,7 +655,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_ts == version_tx_id && primary_version.is_removed) {
-            if (FLAGS_tmp4 || primary_version.tx_ts < cr::Worker::my().local_all_lwm) {
+            if (FLAGS_imitate_wt || primary_version.tx_ts < cr::Worker::my().local_all_lwm) {
                ret = iterator.removeCurrent();
                iterator.markAsDirty();
                ensure(ret == OP_RESULT::OK);
