@@ -146,6 +146,7 @@ void Worker::submitWALMetaEntry()
 void Worker::submitDTEntry(u64 total_size)
 {
    DEBUG_BLOCK() { active_dt_entry->computeCRC(); }
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().wal_write_bytes += total_size; }
    wal_wt_cursor += total_size;
    publishMaxGSNOffset();
 }
