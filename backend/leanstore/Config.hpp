@@ -77,6 +77,7 @@ DECLARE_bool(2pl);
 DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
 DECLARE_bool(todo);
+DECLARE_bool(imitate_wt);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(vi);
 DECLARE_bool(vi_delta);

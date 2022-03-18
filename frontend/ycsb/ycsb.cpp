@@ -20,7 +20,7 @@ DEFINE_uint32(ycsb_read_ratio, 100, "");
 DEFINE_uint64(ycsb_tuple_count, 0, "");
 DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
 DEFINE_uint32(ycsb_warmup_rounds, 0, "");
-DEFINE_bool(ycsb_single_statement_tx, true, "");
+DEFINE_bool(ycsb_single_statement_tx, false, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
 DEFINE_uint32(ycsb_sleepy_thread, 0, "");
 // -------------------------------------------------------------------------------------

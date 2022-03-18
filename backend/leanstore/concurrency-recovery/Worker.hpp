@@ -44,13 +44,13 @@ struct Worker {
    static unique_ptr<atomic<u64>[]> global_workers_current_snapshot;
    // -------------------------------------------------------------------------------------
    // LWM: start timestamp of the transaction that has its effect visible by all in its class
-   static atomic<u64> global_oldest_oltp_start_ts, global_oltp_lwm;
-   static atomic<u64> global_oldest_all_start_ts, global_all_lwm;
-   static atomic<u64> global_newest_olap_start_ts;
-   atomic<u64> local_lwm_latch = 0;
-   atomic<u64> oltp_lwm_receiver;
-   atomic<u64> all_lwm_receiver;
-   u64 local_all_lwm, local_oltp_lwm;
+   static atomic<TXID> global_oldest_oltp_start_ts, global_oltp_lwm;
+   static atomic<TXID> global_oldest_all_start_ts, global_all_lwm;
+   static atomic<TXID> global_newest_olap_start_ts;
+   atomic<TXID> local_lwm_latch = 0;
+   atomic<TXID> oltp_lwm_receiver;
+   atomic<TXID> all_lwm_receiver;
+   TXID local_all_lwm, local_oltp_lwm;
    // -------------------------------------------------------------------------------------
    // All the local tracking data
    std::unique_ptr<u8[]> map_leaf_handler;
@@ -60,11 +60,13 @@ struct Worker {
    Transaction active_tx;
    WALMetaEntry* active_mt_entry;
    WALDTEntry* active_dt_entry;
-   // Snapshot Acquisition Time (SAT) = TXID = CommitMark - 1
-   unique_ptr<u64[]> local_snapshot_cache;  // = Readview
-   unique_ptr<u64[]> local_snapshot_cache_ts;
-   unique_ptr<u64[]> local_workers_start_ts;
-   unique_ptr<u64[]> local_workers_sorted_start_ts;
+   TXID local_global_all_lwm_cache = 0;
+   unique_ptr<TXID[]> local_snapshot_cache;  // = Readview
+   unique_ptr<TXID[]> local_snapshot_cache_ts;
+   unique_ptr<TXID[]> local_workers_start_ts;
+   // -------------------------------------------------------------------------------------
+   // Imitate WT
+   atomic<u64> local_min_in_progress = 0;
    // -------------------------------------------------------------------------------------
    // Clean up state
    u64 cleaned_untill_oltp_lwm = 0;

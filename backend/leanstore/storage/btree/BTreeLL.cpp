@@ -141,6 +141,7 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_length)
 {
+   cr::activeTX().markAsWrite();
    if (config.enable_wal) {
       cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
@@ -342,6 +343,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
                                          function<void(u8* payload, u16 payload_size)> callback,
                                          UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
+   cr::activeTX().markAsWrite();
    if (config.enable_wal) {
       cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
@@ -386,6 +388,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
 {
+   cr::activeTX().markAsWrite();
    if (config.enable_wal) {
       cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
    }

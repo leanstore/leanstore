@@ -39,10 +39,12 @@ struct Transaction {
    bool can_use_single_version_mode = false;
    bool safe_snapshot = false;
    bool is_read_only = false;
+   bool has_wrote = false;
    // -------------------------------------------------------------------------------------
    bool isOLAP() { return current_tx_mode == TX_MODE::OLAP; }
    bool isOLTP() { return current_tx_mode == TX_MODE::OLTP; }
    bool isReadOnly() { return is_read_only; }
+   bool hasWrote() { return has_wrote; }
    bool isSingleStatement() { return current_tx_mode == TX_MODE::SINGLE_STATEMENT; }
    bool isDurable() { return is_durable; }
    // bool isSerializable() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::SERIALIZABLE; }
@@ -55,6 +57,12 @@ struct Transaction {
    bool isSafeSnapshot() { return safe_snapshot; }
    // -------------------------------------------------------------------------------------
    inline u64 TTS() { return tx_id; }
+   // -------------------------------------------------------------------------------------
+   void markAsWrite()
+   {
+      assert(isReadOnly() == false);
+      has_wrote = true;
+   }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace cr
