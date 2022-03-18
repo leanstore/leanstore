@@ -47,7 +47,6 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    // Check arguments
    ensure(FLAGS_ch_a_threads < FLAGS_worker_threads);
-   ensure(!FLAGS_tpcc_warehouse_affinity || FLAGS_tpcc_warehouse_count >= FLAGS_worker_threads);
    // -------------------------------------------------------------------------------------
    LeanStore db;
    LeanStoreAdapter<warehouse_t> warehouse;
@@ -134,7 +133,7 @@ int main(int argc, char** argv)
    db.startProfilingThread();
    u64 tx_per_thread[FLAGS_worker_threads];
    // -------------------------------------------------------------------------------------
-   for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
+   for (u64 t_i = FLAGS_worker_threads - FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
          tpcc.prepare();
@@ -149,13 +148,13 @@ int main(int argc, char** argv)
             cr::Worker::my().switchToSnapshotIsolationMode();
          }
          // -------------------------------------------------------------------------------------
+         if (FLAGS_ch_a_process_delay_sec) {
+            sleep(FLAGS_ch_a_process_delay_sec);
+         }
+         cr::Worker::my().startTX(tx_mode, isolation_level);
          while (keep_running) {
             jumpmuTry()
             {
-               cr::Worker::my().startTX(tx_mode, isolation_level);
-               if (FLAGS_ch_a_process_delay_sec) {
-                  sleep(FLAGS_ch_a_process_delay_sec);
-               }
                for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
                   tpcc.analyticalQuery(FLAGS_ch_a_query);
                }
@@ -172,7 +171,7 @@ int main(int argc, char** argv)
       });
    }
    // -------------------------------------------------------------------------------------
-   for (u64 t_i = FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
+   for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_ch_a_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
          tpcc.prepare();
