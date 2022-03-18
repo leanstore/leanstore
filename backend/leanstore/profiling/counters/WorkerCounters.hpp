@@ -106,6 +106,7 @@ struct WorkerCounters {
    atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {{0}};
    // -------------------------------------------------------------------------------------
    // WAL
+   atomic<u64> wal_write_bytes = 0;
    atomic<u64> wal_read_bytes = 0;
    atomic<u64> wal_buffer_hit = 0;
    atomic<u64> wal_buffer_miss = 0;

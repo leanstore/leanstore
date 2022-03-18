@@ -148,6 +148,7 @@ void CRManager::groupCommiter()
          }
       }
       // -------------------------------------------------------------------------------------
+      // Phase 2
       if (std::get<0>(workers[0]->fetchMaxGSNOffset()) > workers[0]->group_commit_data.gsn_to_flush) {  // No new logs have been added since then
          max_safe_gsn = std::min<LID>(workers[0]->group_commit_data.gsn_to_flush, max_safe_gsn);
       }
