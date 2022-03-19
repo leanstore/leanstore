@@ -50,6 +50,7 @@ struct Worker {
    atomic<TXID> local_lwm_latch = 0;
    atomic<TXID> oltp_lwm_receiver;
    atomic<TXID> all_lwm_receiver;
+   atomic<TXID> local_latest_write_tx = 0, local_latest_lwm_for_tx = 0;
    TXID local_all_lwm, local_oltp_lwm;
    // -------------------------------------------------------------------------------------
    // All the local tracking data

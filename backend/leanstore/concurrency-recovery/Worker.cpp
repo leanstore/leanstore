@@ -202,21 +202,29 @@ void Worker::refreshGlobalState()
       TXID global_all_lwm_buffer = std::numeric_limits<TXID>::max();
       TXID global_oltp_lwm_buffer = std::numeric_limits<TXID>::max();
       for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
+         if (all_workers[w_i]->local_latest_lwm_for_tx == all_workers[w_i]->local_latest_write_tx) {
+            continue;
+         } else {
+            all_workers[w_i]->local_latest_lwm_for_tx.store(all_workers[w_i]->local_latest_write_tx, std::memory_order_release);
+         }
+         // -------------------------------------------------------------------------------------
          TXID its_all_lwm_buffer = 0, its_oltp_lwm_buffer = 0;
          u8 key[sizeof(TXID)];
          utils::fold(key, global_oldest_all_start_ts);
          all_workers[w_i]->commit_to_start_map->prefixLookupForPrev(
              key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_all_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
          // -------------------------------------------------------------------------------------
-         if (FLAGS_olap_mode) {
+         if (FLAGS_olap_mode && global_oldest_all_start_ts != global_oldest_oltp_start_ts) {
             utils::fold(key, global_oldest_oltp_start_ts);
             all_workers[w_i]->commit_to_start_map->prefixLookupForPrev(
                 key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_oltp_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
             ensure(its_all_lwm_buffer <= its_oltp_lwm_buffer);
+            global_oltp_lwm_buffer = std::min<TXID>(its_oltp_lwm_buffer, global_oltp_lwm_buffer);
+         } else {
+            its_oltp_lwm_buffer = its_all_lwm_buffer;
          }
          // -------------------------------------------------------------------------------------
          global_all_lwm_buffer = std::min<TXID>(its_all_lwm_buffer, global_all_lwm_buffer);
-         global_oltp_lwm_buffer = std::min<TXID>(its_oltp_lwm_buffer, global_oltp_lwm_buffer);
          // -------------------------------------------------------------------------------------
          all_workers[w_i]->local_lwm_latch.store(all_workers[w_i]->local_lwm_latch.load() + 1, std::memory_order_release);  // Latch
          all_workers[w_i]->all_lwm_receiver.store(its_all_lwm_buffer, std::memory_order_release);
@@ -363,10 +371,10 @@ synclwm : {
    if (lwm_version != local_lwm_latch.load()) {
       goto synclwm;
    }
-   ensure(local_all_lwm <= local_oltp_lwm);
+   ensure(!FLAGS_olap_mode || local_all_lwm <= local_oltp_lwm);
 }
    // ATTENTION: atm, with out extra sync, the two lwm can not
-   if (local_all_lwm > 0) {
+   if (local_all_lwm > cleaned_untill_oltp_lwm) {
       // PURGE!
       versions_space.purgeVersions(
           worker_id, 0, local_all_lwm - 1,
@@ -457,8 +465,14 @@ void Worker::commitTX()
          global_workers_current_snapshot[worker_id].store(global_logical_clock.fetch_add(1), std::memory_order_release);
       } else {
          if (activeTX().hasWrote()) {
-            commit_to_start_map->append([&](u8* key) { utils::fold(key, global_logical_clock.fetch_add(1)); }, sizeof(TXID),
-                                        [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID), map_leaf_handler);
+            TXID commit_ts;
+            commit_to_start_map->append(
+                [&](u8* key) {
+                   commit_ts = global_logical_clock.fetch_add(1);
+                   utils::fold(key, commit_ts);
+                },
+                sizeof(TXID), [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID), map_leaf_handler);
+            local_latest_write_tx.store(commit_ts, std::memory_order_release);
          }
          if (activeTX().isSerializable()) {
             executeUnlockTasks();
