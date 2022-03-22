@@ -353,7 +353,7 @@ void Worker::garbageCollection()
       return;
    }
    // -------------------------------------------------------------------------------------
-   if (FLAGS_imitate_wt) {
+   if (FLAGS_imitate_wt && local_all_lwm) {
       versions_space.purgeVersions(
           worker_id, 0, local_all_lwm - 1,
           [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length, const bool called_before) {
@@ -510,8 +510,7 @@ void Worker::abortTX()
       if (activeTX().isSerializable()) {
          executeUnlockTasks();
       }
-      versions_space.purgeVersions(worker_id, active_tx.TTS(), active_tx.TTS(), [&](const TXID, const DTID, const u8*, u64, const bool) {});  //
-      // TODO:
+      versions_space.purgeVersions(worker_id, active_tx.TTS(), active_tx.TTS(), [&](const TXID, const DTID, const u8*, u64, const bool) {});
       // -------------------------------------------------------------------------------------
       WALMetaEntry& entry = reserveWALMetaEntry();
       entry.type = WALEntry::TYPE::TX_ABORT;
@@ -555,7 +554,7 @@ TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID tx_ts)
 bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
 {
    if (FLAGS_imitate_wt) {
-      if (tx_ts == active_tx.TTS())
+     if (tx_ts == active_tx.TTS() || tx_ts < local_min_in_progress)
          return true;
       if (tx_ts > active_tx.TTS()) {
          return false;

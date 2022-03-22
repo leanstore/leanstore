@@ -793,6 +793,10 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple([[maybe_unused]] Sli
          next_command_id = version.command_id;
       });
       if (!found) {
+         cerr << std::find(cr::Worker::my().local_workers_start_ts.get(),
+                           cr::Worker::my().local_workers_start_ts.get() + cr::Worker::my().workers_count, next_tx_id) -
+                     cr::Worker::my().local_workers_start_ts.get()
+              << endl;
          explainWhen(next_command_id != ChainedTuple::INVALID_COMMANDID);
          return {OP_RESULT::NOT_FOUND, chain_length};
       }
