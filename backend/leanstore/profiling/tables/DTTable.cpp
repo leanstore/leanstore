@@ -119,6 +119,8 @@ void DTTable::open()
    columns.emplace("cc_todo_olap_executed",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_todo_olap_executed, dt_id); });
    // -------------------------------------------------------------------------------------
+   columns.emplace("cc_fat_tuple_triggered",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_fat_tuple_triggered, dt_id); });
    columns.emplace("cc_fat_tuple_convert",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_fat_tuple_convert, dt_id); });
    columns.emplace("cc_fat_tuple_decompose",

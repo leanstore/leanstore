@@ -201,6 +201,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          convert_to_fat_tuple &= (tuple_head.updates_counter >= FLAGS_worker_threads);
       }
       if (convert_to_fat_tuple) {
+         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_triggered[dt_id]++; }
          tried_converting_to_fat_tuple = true;
          tuple_head.updates_counter = 0;
          const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator);
