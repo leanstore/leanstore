@@ -201,8 +201,10 @@ void Worker::refreshGlobalState()
       // -------------------------------------------------------------------------------------
       TXID global_all_lwm_buffer = std::numeric_limits<TXID>::max();
       TXID global_oltp_lwm_buffer = std::numeric_limits<TXID>::max();
+      bool skipped_a_worker = false;
       for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
          if (all_workers[w_i]->local_latest_lwm_for_tx == all_workers[w_i]->local_latest_write_tx) {
+            skipped_a_worker = true;
             continue;
          } else {
             all_workers[w_i]->local_latest_lwm_for_tx.store(all_workers[w_i]->local_latest_write_tx, std::memory_order_release);
@@ -231,8 +233,10 @@ void Worker::refreshGlobalState()
          all_workers[w_i]->oltp_lwm_receiver.store(its_oltp_lwm_buffer, std::memory_order_release);
          all_workers[w_i]->local_lwm_latch.store(all_workers[w_i]->local_lwm_latch.load() + 1, std::memory_order_release);  // Release
       }
-      global_all_lwm.store(global_all_lwm_buffer, std::memory_order_release);
-      global_oltp_lwm.store(global_oltp_lwm_buffer, std::memory_order_release);
+      if (!skipped_a_worker) {
+         global_all_lwm.store(global_all_lwm_buffer, std::memory_order_release);
+         global_oltp_lwm.store(global_oltp_lwm_buffer, std::memory_order_release);
+      }
       // -------------------------------------------------------------------------------------
       global_mutex.unlock();
    }
