@@ -99,6 +99,7 @@ struct WorkerCounters {
    atomic<u64> cc_todo_oltp_executed[max_dt_id] = {0};
    atomic<u64> cc_todo_olap_executed[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
+   atomic<u64> cc_fat_tuple_triggered[max_dt_id] = {0};
    atomic<u64> cc_fat_tuple_convert[max_dt_id] = {0};
    atomic<u64> cc_fat_tuple_decompose[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------

@@ -20,6 +20,7 @@
 #include <linux/fs.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
+#include <sys/resource.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -115,6 +116,11 @@ LeanStore::LeanStore()
 void LeanStore::startProfilingThread()
 {
    std::thread profiling_thread([&]() {
+      utils::pinThisThread(((FLAGS_pin_threads) ? FLAGS_worker_threads : 0) + FLAGS_wal + FLAGS_pp_threads);
+      if (FLAGS_root) {
+         posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
+      }
+      // -------------------------------------------------------------------------------------
       profiling::BMTable bm_table(*buffer_manager.get());
       profiling::DTTable dt_table(*buffer_manager.get());
       profiling::CPUTable cpu_table;

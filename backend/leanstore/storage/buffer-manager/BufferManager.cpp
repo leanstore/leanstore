@@ -82,7 +82,7 @@ void BufferManager::startBackgroundThreads()
                 if (FLAGS_pin_threads) {
                    utils::pinThisThread(FLAGS_worker_threads + FLAGS_wal + t_i);
                 } else {
-                   utils::pinThisThread(t_i);
+                   utils::pinThisThread(FLAGS_wal + t_i);
                 }
                 CPUCounters::registerThread("pp_" + std::to_string(t_i));
                 // https://linux.die.net/man/2/setpriority
