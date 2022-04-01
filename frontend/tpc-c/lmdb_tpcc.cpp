@@ -59,36 +59,17 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    lm_db.startTX();
    std::vector<thread> threads;
-   std::atomic<u32> g_w_id = 1;
    tpcc.loadItem();
    tpcc.loadWarehouse();
+   for (u32 w_id = 1; w_id <= FLAGS_tpcc_warehouse_count; w_id++) {
+      tpcc.loadStock(w_id);
+      tpcc.loadDistrinct(w_id);
+      for (Integer d_id = 1; d_id <= 10; d_id++) {
+         tpcc.loadCustomer(w_id, d_id);
+         tpcc.loadOrders(w_id, d_id);
+      }
+   }
    lm_db.commitTX();
-   for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-      threads.emplace_back([&]() {
-         while (true) {
-            const u32 w_id = g_w_id++;
-            if (w_id > FLAGS_tpcc_warehouse_count) {
-               return;
-            }
-            jumpmuTry()
-            {
-               lm_db.startTX();
-               tpcc.loadStock(w_id);
-               tpcc.loadDistrinct(w_id);
-               for (Integer d_id = 1; d_id <= 10; d_id++) {
-                  tpcc.loadCustomer(w_id, d_id);
-                  tpcc.loadOrders(w_id, d_id);
-               }
-               lm_db.commitTX();
-            }
-            jumpmuCatch() { UNREACHABLE(); }
-         }
-      });
-   }
-   for (auto& thread : threads) {
-      thread.join();
-   }
-   threads.clear();
    // -------------------------------------------------------------------------------------
    atomic<u64> running_threads_counter = 0;
    atomic<u64> keep_running = true;
