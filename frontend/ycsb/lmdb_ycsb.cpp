@@ -55,14 +55,14 @@ int main(int argc, char** argv)
    cout << "Inserting " << ycsb_tuple_count << " values" << endl;
    begin = chrono::high_resolution_clock::now();
    // LMDB is single-writer
+   lm_db.startTX();
    for (u64 i = 0; i < ycsb_tuple_count; i++) {
       YCSBPayload payload;
       leanstore::utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
       YCSBKey& key = i;
-      lm_db.startTX();
       table.insert({key}, {payload});
-      lm_db.commitTX();
    }
+   lm_db.commitTX();
    end = chrono::high_resolution_clock::now();
    cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
    cout << calculateMTPS(begin, end, ycsb_tuple_count) << " M tps" << endl;
