@@ -65,7 +65,15 @@ class LeanStore
    storage::btree::BTreeVW& registerBTreeVW(string name, const storage::btree::BTreeLL::Config config);
    storage::btree::BTreeVW& retrieveBTreeVW(string name) { return btrees_vw[name]; }
    storage::btree::BTreeVI& registerBTreeVI(string name, const storage::btree::BTreeLL::Config config);
-   storage::btree::BTreeVI& retrieveBTreeVI(string name) { return btrees_vi[name]; }
+   storage::btree::BTreeVI& retrieveBTreeVI(string name)
+   {
+      auto& btree_vi = btrees_vi[name];
+      if (btree_vi.graveyard == nullptr) {
+         auto& graveyard_btree = registerBTreeLL("_" + name + "_graveyard", {.enable_wal = false, .use_bulk_insert = false});
+         btree_vi.graveyard = &graveyard_btree;
+      }
+      return btree_vi;
+   }
    // -------------------------------------------------------------------------------------
    storage::BufferManager& getBufferManager() { return *buffer_manager; }
    cr::CRManager& getCRManager() { return *cr_manager; }

@@ -68,6 +68,7 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, funct
       }
       // -------------------------------------------------------------------------------------
       if (ret != OP_RESULT::ABORT_TX && ret != OP_RESULT::OK) {  // For debugging
+         raise(SIGTRAP);
          cout << endl;
          cout << u64(std::get<1>(reconstruct)) << " , " << dt_id << endl;
       }

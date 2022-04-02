@@ -288,7 +288,11 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          // Also means multi statement
          global_workers_current_snapshot[worker_id].store(active_tx.tx_id | LATCH_BIT, std::memory_order_release);
          active_tx.tx_id = global_logical_clock.fetch_add(1);
-         global_workers_current_snapshot[worker_id].store(active_tx.tx_id | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
+         if (FLAGS_olap_mode) {
+            global_workers_current_snapshot[worker_id].store(active_tx.tx_id | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
+         } else {
+            global_workers_current_snapshot[worker_id].store(active_tx.tx_id, std::memory_order_release);
+         }
          local_global_all_lwm_cache = global_all_lwm.load();
          // -------------------------------------------------------------------------------------
          if (FLAGS_imitate_wt) {
@@ -554,7 +558,7 @@ TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID tx_ts)
 bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
 {
    if (FLAGS_imitate_wt) {
-     if (tx_ts == active_tx.TTS() || tx_ts < local_min_in_progress)
+      if (tx_ts == active_tx.TTS() || tx_ts < local_min_in_progress)
          return true;
       if (tx_ts > active_tx.TTS()) {
          return false;

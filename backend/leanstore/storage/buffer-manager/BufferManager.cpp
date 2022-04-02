@@ -115,7 +115,7 @@ std::unordered_map<std::string, std::string> BufferManager::serialize()
 // -------------------------------------------------------------------------------------
 void BufferManager::deserialize(std::unordered_map<std::string, std::string> map)
 {
-   PID max_pid = std::stod(map["max_pid"]);
+   PID max_pid = std::stol(map["max_pid"]);
    max_pid = (max_pid + (partitions_count - 1)) & ~(partitions_count - 1);
    for (u64 p_i = 0; p_i < partitions_count; p_i++) {
       getPartition(p_i).next_pid = max_pid + p_i;

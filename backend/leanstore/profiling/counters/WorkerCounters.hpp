@@ -64,6 +64,7 @@ struct WorkerCounters {
    atomic<u64> dt_inner_page[max_dt_id] = {0};
    atomic<u64> dt_scan_asc[max_dt_id] = {0};
    atomic<u64> dt_scan_desc[max_dt_id] = {0};
+   atomic<u64> dt_scan_callback[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    atomic<u64> dt_range_removed[max_dt_id] = {0};
    atomic<u64> dt_append[max_dt_id] = {0};

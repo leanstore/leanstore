@@ -40,7 +40,7 @@ CRManager::CRManager(VersionsSpaceInterface& versions_space, s32 ssd_fd, u64 end
          Worker::tls_ptr = workers[t_i];
          // -------------------------------------------------------------------------------------
          running_threads++;
-         while (running_threads != (FLAGS_worker_threads + FLAGS_wal))
+         while (running_threads != (workers_count + FLAGS_wal))
             ;
          auto& meta = worker_threads_meta[t_i];
          while (keep_running) {
@@ -134,6 +134,19 @@ void CRManager::joinOne(u64 t_i, std::function<bool(WorkerThread&)> condition)
    auto& meta = worker_threads_meta[t_i];
    std::unique_lock guard(meta.mutex);
    meta.cv.wait(guard, [&]() { return condition(meta); });
+}
+// -------------------------------------------------------------------------------------
+std::unordered_map<std::string, std::string> CRManager::serialize()
+{
+   std::unordered_map<std::string, std::string> map;
+   map["global_logical_clock"] = std::to_string(Worker::global_logical_clock.load());
+   return map;
+}
+// -------------------------------------------------------------------------------------
+void CRManager::deserialize(std::unordered_map<std::string, std::string> map)
+{
+   Worker::global_logical_clock = std::stol(map["global_logical_clock"]);
+   Worker::global_all_lwm = std::stol(map["global_logical_clock"]);
 }
 // -------------------------------------------------------------------------------------
 CRManager::~CRManager()

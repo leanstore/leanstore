@@ -34,6 +34,7 @@ DEFINE_uint64(ch_a_rounds, 1, "");
 DEFINE_uint64(ch_a_query, 2, "");
 DEFINE_uint64(ch_a_start_delay_sec, 0, "");
 DEFINE_uint64(ch_a_process_delay_sec, 0, "");
+DEFINE_bool(ch_a_infinite, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -138,7 +139,7 @@ int main(int argc, char** argv)
          running_threads_counter++;
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         const leanstore::TX_MODE tx_mode = FLAGS_olap_mode ? leanstore::TX_MODE::OLAP : leanstore::TX_MODE::OLTP;
+         const leanstore::TX_MODE tx_mode = leanstore::TX_MODE::OLAP;
          cr::Worker::my().startTX(tx_mode, isolation_level);
          cr::Worker::my().commitTX();
          // -------------------------------------------------------------------------------------
@@ -148,21 +149,34 @@ int main(int argc, char** argv)
             cr::Worker::my().switchToSnapshotIsolationMode();
          }
          // -------------------------------------------------------------------------------------
-         if (FLAGS_ch_a_process_delay_sec) {
-            sleep(FLAGS_ch_a_process_delay_sec);
-         }
-         cr::Worker::my().startTX(tx_mode, isolation_level);
          while (keep_running) {
             jumpmuTry()
             {
-               for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
-                  tpcc.analyticalQuery(FLAGS_ch_a_query);
+               cr::Worker::my().startTX(tx_mode, isolation_level);
+               {
+                  if (FLAGS_ch_a_process_delay_sec) {
+                     sleep(FLAGS_ch_a_process_delay_sec);
+                  }
+                  JMUW<utils::Timer> timer(CRCounters::myCounters().cc_ms_olap_tx);
+                  if (FLAGS_ch_a_rounds) {
+                     for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
+                        tpcc.analyticalQuery(FLAGS_ch_a_query);
+                     }
+                  } else {
+                     while (keep_running) {
+                        tpcc.analyticalQuery(FLAGS_ch_a_query);
+                     }
+                  }
+                  cr::Worker::my().commitTX();
                }
-               cr::Worker::my().commitTX();
                WorkerCounters::myCounters().olap_tx++;
                tx_acc++;
             }
             jumpmuCatch() { WorkerCounters::myCounters().olap_tx_abort++; }
+            if (FLAGS_tmp5 == 1) {
+               sleep(2);
+               break;
+            }
          }
          cr::Worker::my().shutdown();
          // -------------------------------------------------------------------------------------
@@ -176,26 +190,41 @@ int main(int argc, char** argv)
          running_threads_counter++;
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         while (keep_running) {
-            jumpmuTry()
-            {
-               cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, isolation_level);
-               u32 w_id;
-               if (FLAGS_tpcc_warehouse_affinity) {
-                  w_id = t_i + 1;
-               } else {
-                  w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
-               }
-               tpcc.tx(w_id);
-               if (FLAGS_tpcc_abort_pct && tpcc.urand(0, 100) <= FLAGS_tpcc_abort_pct) {
-                  cr::Worker::my().abortTX();
-               } else {
+         if (FLAGS_tmp4 && t_i == 0) {
+            while (keep_running) {
+               jumpmuTry()
+               {
+                  cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION);
+                  UpdateDescriptorGenerator1(warehouse_update_descriptor, warehouse_t, w_ytd);
+                  warehouse.update1(
+                      {1}, [&](warehouse_t& rec) { rec.w_ytd += 1; }, warehouse_update_descriptor);
                   cr::Worker::my().commitTX();
+                  WorkerCounters::myCounters().tx++;
                }
-               WorkerCounters::myCounters().tx++;
-               tx_acc++;
+               jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
             }
-            jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
+         } else {
+            while (keep_running) {
+               jumpmuTry()
+               {
+                  cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, isolation_level);
+                  u32 w_id;
+                  if (FLAGS_tpcc_warehouse_affinity) {
+                     w_id = t_i + 1;
+                  } else {
+                     w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
+                  }
+                  tpcc.tx(w_id);
+                  if (FLAGS_tpcc_abort_pct && tpcc.urand(0, 100) <= FLAGS_tpcc_abort_pct) {
+                     cr::Worker::my().abortTX();
+                  } else {
+                     cr::Worker::my().commitTX();
+                  }
+                  WorkerCounters::myCounters().tx++;
+                  tx_acc++;
+               }
+               jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
+            }
          }
          cr::Worker::my().shutdown();
          // -------------------------------------------------------------------------------------
@@ -226,14 +255,14 @@ int main(int argc, char** argv)
    cout << endl;
    {
       u64 total = 0;
-      for (u64 t_i = FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
+      for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_ch_a_threads; t_i++) {
          total += tx_per_thread[t_i];
          cout << tx_per_thread[t_i] << ",";
       }
       cout << endl;
       cout << "TPC-C = " << total << endl;
       total = 0;
-      for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
+      for (u64 t_i = FLAGS_worker_threads - FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
          total += tx_per_thread[t_i];
          cout << tx_per_thread[t_i] << ",";
       }

@@ -85,6 +85,10 @@ class CRManager
     *
     */
    void joinAll();
+   // -------------------------------------------------------------------------------------
+   // State Serialization
+   std::unordered_map<std::string, std::string> serialize();
+   void deserialize(std::unordered_map<std::string, std::string> map);
 
   private:
    void groupCommiter();
