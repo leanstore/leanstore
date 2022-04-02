@@ -102,11 +102,11 @@ LeanStore::LeanStore()
       versions_space->update_btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
       versions_space->remove_btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
       for (u64 w_i = 0; w_i < FLAGS_worker_threads; w_i++) {
-         std::string name = "history_tree_" + std::to_string(w_i);
+         std::string name = "_history_tree_" + std::to_string(w_i);
          versions_space->update_btrees[w_i] = &registerBTreeLL(name + "_updates", {.enable_wal = false, .use_bulk_insert = true});
          versions_space->remove_btrees[w_i] = &registerBTreeLL(name + "_removes", {.enable_wal = false, .use_bulk_insert = true});
          cr_manager->workers[w_i]->commit_to_start_map =
-             &registerBTreeLL("commit_tree_" + std::to_string(w_i), {.enable_wal = false, .use_bulk_insert = true});
+             &registerBTreeLL("_commit_tree_" + std::to_string(w_i), {.enable_wal = false, .use_bulk_insert = true});
       }
    });
    // -------------------------------------------------------------------------------------
@@ -257,7 +257,7 @@ storage::btree::BTreeVI& LeanStore::registerBTreeVI(string name, storage::btree:
    assert(btrees_vi.find(name) == btrees_vi.end());
    auto& btree = btrees_vi[name];
    DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(2, reinterpret_cast<void*>(&btree), name);
-   auto& graveyard_btree = registerBTreeLL(name + "_graveyard", config);
+   auto& graveyard_btree = registerBTreeLL("_" + name + "_graveyard", {.enable_wal = false, .use_bulk_insert = false});
    btree.create(dtid, config, &graveyard_btree);
    return btree;
 }
@@ -281,6 +281,16 @@ void LeanStore::serializeState()
    rs::Document::AllocatorType& allocator = d.GetAllocator();
    d.SetObject();
    // -------------------------------------------------------------------------------------
+   std::unordered_map<std::string, std::string> serialized_cr_map = cr_manager->serialize();
+   rs::Value cr_serialized(rs::kObjectType);
+   for (const auto& [key, value] : serialized_cr_map) {
+      rs::Value k, v;
+      k.SetString(key.c_str(), key.length(), allocator);
+      v.SetString(value.c_str(), value.length(), allocator);
+      cr_serialized.AddMember(k, v, allocator);
+   }
+   d.AddMember("cr_manager", cr_serialized, allocator);
+   // -------------------------------------------------------------------------------------
    std::unordered_map<std::string, std::string> serialized_bm_map = buffer_manager->serialize();
    rs::Value bm_serialized(rs::kObjectType);
    for (const auto& [key, value] : serialized_bm_map) {
@@ -293,6 +303,9 @@ void LeanStore::serializeState()
    // -------------------------------------------------------------------------------------
    rs::Value dts(rs::kArrayType);
    for (auto& dt : DTRegistry::global_dt_registry.dt_instances_ht) {
+      if (std::get<2>(dt.second).substr(0, 1) == "_") {
+         continue;
+      }
       rs::Value dt_json_object(rs::kObjectType);
       const DTID dt_id = dt.first;
       rs::Value name;
@@ -349,6 +362,13 @@ void LeanStore::deserializeState()
    rs::IStreamWrapper isw(json_file);
    rs::Document d;
    d.ParseStream(isw);
+   // -------------------------------------------------------------------------------------
+   const rs::Value& cr = d["cr_manager"];
+   std::unordered_map<std::string, std::string> serialized_cr_map;
+   for (rs::Value::ConstMemberIterator itr = cr.MemberBegin(); itr != cr.MemberEnd(); ++itr) {
+      serialized_cr_map[itr->name.GetString()] = itr->value.GetString();
+   }
+   cr_manager->deserialize(serialized_cr_map);
    // -------------------------------------------------------------------------------------
    const rs::Value& bm = d["buffer_manager"];
    std::unordered_map<std::string, std::string> serialized_bm_map;
@@ -412,10 +432,7 @@ LeanStore::~LeanStore()
    if (FLAGS_btree_print_height || FLAGS_btree_print_tuples_count) {
       cr_manager->joinAll();
       for (auto& iter : btrees_ll) {
-         if (!FLAGS_wal && iter.first.rfind("commit_tree") == 0) {
-            continue;
-         }
-         if (!FLAGS_vi && iter.first.rfind("history_tree") == 0) {
+         if (iter.first.substr(0, 1) == "_") {
             continue;
          }
          cout << "BTreeLL: " << iter.first << ", dt_id= " << iter.second.dt_id << ", height= " << iter.second.height;

@@ -365,6 +365,7 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    bool abort_conversion = false;
    while (!abort_conversion) {
       if (cr::Worker::my().isVisibleForAll(next_worker_id, next_tx_id)) {  // Pruning versions space might get delayed
+         abort_conversion = true;
          break;
       }
       // -------------------------------------------------------------------------------------

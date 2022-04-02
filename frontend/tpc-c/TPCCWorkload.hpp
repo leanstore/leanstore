@@ -1036,6 +1036,15 @@ class TPCCWorkload
       return 4;
    }
    // -------------------------------------------------------------------------------------
+   template <typename Relation>
+   void dummyScan(AdapterType<Relation>& adapter)
+   {
+      typename Relation::Key key;
+      std::memset(&key, 0, sizeof(typename Relation::Key));
+      adapter.scan(
+          key, [&](const typename Relation::Key&, const Relation&) { return true; }, [&]() {});
+   }
+   // -------------------------------------------------------------------------------------
    void analyticalQuery(s32 query_no = 0)
    {
       // TODO: implement CH analytical queries
@@ -1106,9 +1115,18 @@ class TPCCWorkload
                 return true;
              },
              [&]() { cout << "undo neworder scan" << endl; });
-      } else if (query_no == 4) {
-         orderline.scan(
-             {0, 0, 0, 0}, [&](const orderline_t::Key&, const orderline_t&) { return true; }, [&]() {});
+      } else if (query_no == 44) {
+         // dummyScan(customer);
+         // dummyScan(customerwdl);
+         // dummyScan(item);
+         // dummyScan(stock);
+         dummyScan(district);
+         dummyScan(warehouse);
+         // -------------------------------------------------------------------------------------
+         // dummyScan(neworder);
+         // dummyScan(order);
+         // dummyScan(order_wdc);
+         // dummyScan(orderline);
       } else if (query_no == 99) {
          sleep(1);
       } else {

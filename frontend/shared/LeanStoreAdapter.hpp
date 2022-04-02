@@ -23,12 +23,16 @@ struct LeanStoreAdapter : Adapter<Record> {
       if (FLAGS_vw) {
          btree = &db.registerBTreeVW(name, {.enable_wal = FLAGS_wal, .use_bulk_insert = false});
       } else if (FLAGS_vi) {
-         btree = &db.registerBTreeVI(name, {.enable_wal = FLAGS_wal, .use_bulk_insert = false});
-      } else {
-         if (!FLAGS_recover) {
-            btree = &db.registerBTreeLL(name, {.enable_wal = FLAGS_wal, .use_bulk_insert = false});
+         if (FLAGS_recover) {
+            btree = &db.retrieveBTreeVI(name);
          } else {
+            btree = &db.registerBTreeVI(name, {.enable_wal = FLAGS_wal, .use_bulk_insert = false});
+         }
+      } else {
+         if (FLAGS_recover) {
             btree = &db.retrieveBTreeLL(name);
+         } else {
+            btree = &db.registerBTreeLL(name, {.enable_wal = FLAGS_wal, .use_bulk_insert = false});
          }
       }
    }

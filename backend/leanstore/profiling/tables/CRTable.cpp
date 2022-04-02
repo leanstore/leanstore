@@ -54,6 +54,8 @@ void CRTable::open()
                    [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_cross_workers_visibility_check); });
    columns.emplace("cc_versions_space_removed", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_versions_space_removed); });
    // -------------------------------------------------------------------------------------
+   columns.emplace("cc_ms_oltp_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_oltp_tx); });
+   columns.emplace("cc_ms_olap_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_olap_tx); });
    columns.emplace("cc_ms_gc", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_gc); });
    columns.emplace("cc_ms_fat_tuple", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_fat_tuple); });
    columns.emplace("cc_ms_snapshotting", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_snapshotting); });

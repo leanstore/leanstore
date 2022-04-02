@@ -42,6 +42,7 @@ void DTTable::open()
    columns.emplace("dt_inner_page", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_inner_page, dt_id); });
    columns.emplace("dt_scan_asc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_scan_asc, dt_id); });
    columns.emplace("dt_scan_desc", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_scan_desc, dt_id); });
+   columns.emplace("dt_scan_callback", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_scan_callback, dt_id); });
    // -------------------------------------------------------------------------------------
    columns.emplace("dt_append", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_append, dt_id); });
    columns.emplace("dt_append_opt", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_append_opt, dt_id); });

@@ -30,6 +30,8 @@ struct CRCounters {
    atomic<u64> cc_snapshot_restart = 0;
    // -------------------------------------------------------------------------------------
    // Time
+   atomic<u64> cc_ms_oltp_tx = 0;
+   atomic<u64> cc_ms_olap_tx = 0;
    atomic<u64> cc_ms_gc = 0;
    atomic<u64> cc_ms_fat_tuple = 0;
    atomic<u64> cc_ms_snapshotting = 0;
