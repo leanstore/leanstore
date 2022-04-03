@@ -6,6 +6,7 @@ DEFINE_uint32(cool_pct, 40, "Start cooling pages when <= x% are free");
 DEFINE_uint32(free_pct, 1, "pct");
 DEFINE_uint32(partition_bits, 6, "bits per partition");
 DEFINE_uint32(pp_threads, 1, "number of page provider threads");
+DEFINE_bool(worker_page_eviction, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_string(csv_path, "./log", "");
 DEFINE_bool(csv_truncate, false, "");

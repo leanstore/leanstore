@@ -169,37 +169,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          PPCounters::myCounters().phase_1_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_1_end - phase_1_begin).count());
       }
       // -------------------------------------------------------------------------------------
-      struct FreedBfsBatch {
-         BufferFrame *freed_bfs_batch_head = nullptr, *freed_bfs_batch_tail = nullptr;
-         u64 freed_bfs_counter = 0;
-         // -------------------------------------------------------------------------------------
-         void reset()
-         {
-            freed_bfs_batch_head = nullptr;
-            freed_bfs_batch_tail = nullptr;
-            freed_bfs_counter = 0;
-         }
-         // -------------------------------------------------------------------------------------
-         void push(Partition& partition)
-         {
-            partition.dram_free_list.batchPush(freed_bfs_batch_head, freed_bfs_batch_tail, freed_bfs_counter);
-            reset();
-         }
-         // -------------------------------------------------------------------------------------
-         u64 size() { return freed_bfs_counter; }
-         // -------------------------------------------------------------------------------------
-         void add(BufferFrame& bf)
-         {
-            bf.header.next_free_bf = freed_bfs_batch_head;
-            if (freed_bfs_batch_head == nullptr) {
-               freed_bfs_batch_tail = &bf;
-            }
-            freed_bfs_batch_head = &bf;
-            freed_bfs_counter++;
-            // -------------------------------------------------------------------------------------
-         }
-      };
-      // -------------------------------------------------------------------------------------
       // phase_2_3:
       for (volatile u64 p_i = p_begin; p_i < p_end; p_i++) {
          Partition& partition = getPartition(p_i);

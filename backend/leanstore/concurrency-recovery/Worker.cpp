@@ -558,6 +558,9 @@ TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID tx_ts)
 bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
 {
    if (FLAGS_imitate_wt) {
+      if (FLAGS_recover) {
+         return true;  // TODO: temp hack
+      }
       if (tx_ts == active_tx.TTS() || tx_ts < local_min_in_progress)
          return true;
       if (tx_ts > active_tx.TTS()) {
