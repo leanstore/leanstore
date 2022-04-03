@@ -16,6 +16,7 @@ DECLARE_uint32(partition_bits);
 DECLARE_uint32(write_buffer_size);
 DECLARE_uint32(falloc);
 DECLARE_uint32(pp_threads);
+DECLARE_bool(worker_page_eviction);
 DECLARE_bool(trunc);
 DECLARE_bool(root);
 DECLARE_bool(print_debug);

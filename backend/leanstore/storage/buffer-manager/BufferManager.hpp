@@ -29,6 +29,37 @@ class BMTable;  // Forward declaration
 namespace storage
 {
 // -------------------------------------------------------------------------------------
+struct FreedBfsBatch {
+   BufferFrame *freed_bfs_batch_head = nullptr, *freed_bfs_batch_tail = nullptr;
+   u64 freed_bfs_counter = 0;
+   // -------------------------------------------------------------------------------------
+   void reset()
+   {
+      freed_bfs_batch_head = nullptr;
+      freed_bfs_batch_tail = nullptr;
+      freed_bfs_counter = 0;
+   }
+   // -------------------------------------------------------------------------------------
+   void push(Partition& partition)
+   {
+      partition.dram_free_list.batchPush(freed_bfs_batch_head, freed_bfs_batch_tail, freed_bfs_counter);
+      reset();
+   }
+   // -------------------------------------------------------------------------------------
+   u64 size() { return freed_bfs_counter; }
+   // -------------------------------------------------------------------------------------
+   void add(BufferFrame& bf)
+   {
+      bf.header.next_free_bf = freed_bfs_batch_head;
+      if (freed_bfs_batch_head == nullptr) {
+         freed_bfs_batch_tail = &bf;
+      }
+      freed_bfs_batch_head = &bf;
+      freed_bfs_counter++;
+      // -------------------------------------------------------------------------------------
+   }
+};
+// -------------------------------------------------------------------------------------
 // Notes on Synchronization in Buffer Manager
 // Terminology: PPT: Page Provider Thread, WT: Worker Thread. P: Parent, C: Child, M: Cooling stage mutex
 // Latching order for all PPT operations (unswizzle, evict): M -> P -> C
@@ -67,6 +98,9 @@ class BufferManager
    BufferFrame& randomBufferFrame();
    Partition& getPartition(PID);
    u64 getPartitionID(PID);
+   // -------------------------------------------------------------------------------------
+   // Temporary hack: let workers evict the last page they used
+   static thread_local BufferFrame* last_read_bf;
 
   public:
    // -------------------------------------------------------------------------------------
@@ -86,6 +120,7 @@ class BufferManager
    }
    BufferFrame& resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value);
    void coolPage(BufferFrame& bf);
+   void evictLastPage();
    void reclaimPage(BufferFrame& bf);
    // -------------------------------------------------------------------------------------
    /*

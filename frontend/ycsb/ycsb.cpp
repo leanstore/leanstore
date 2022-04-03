@@ -20,9 +20,11 @@ DEFINE_uint32(ycsb_read_ratio, 100, "");
 DEFINE_uint64(ycsb_tuple_count, 0, "");
 DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
 DEFINE_uint32(ycsb_warmup_rounds, 0, "");
+DEFINE_uint32(ycsb_insert_threads, 0, "");
 DEFINE_uint32(ycsb_threads, 0, "");
 DEFINE_bool(ycsb_single_statement_tx, false, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
+DEFINE_bool(ycsb_warmup, true, "");
 DEFINE_uint32(ycsb_sleepy_thread, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
@@ -61,28 +63,30 @@ int main(int argc, char** argv)
    const u64 n = ycsb_tuple_count;
    if (FLAGS_recover) {
       // Warmup
-      cout << "Warmup: Scanning..." << endl;
-      {
-         begin = chrono::high_resolution_clock::now();
-         utils::Parallelize::range(FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
-            crm.scheduleJobAsync(t_i, [&, begin, end]() {
-               for (u64 i = begin; i < end; i++) {
-                  YCSBPayload result;
-                  table.lookup1({i}, [&](const KVTable& record) { result = record.my_payload; });
-               }
+      if (FLAGS_ycsb_warmup) {
+         cout << "Warmup: Scanning..." << endl;
+         {
+            begin = chrono::high_resolution_clock::now();
+            utils::Parallelize::range(FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
+               crm.scheduleJobAsync(t_i, [&, begin, end]() {
+                  for (u64 i = begin; i < end; i++) {
+                     YCSBPayload result;
+                     table.lookup1({i}, [&](const KVTable& record) { result = record.my_payload; });
+                  }
+               });
             });
-         });
-         crm.joinAll();
-         end = chrono::high_resolution_clock::now();
+            crm.joinAll();
+            end = chrono::high_resolution_clock::now();
+         }
+         // -------------------------------------------------------------------------------------
+         cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
+         cout << calculateMTPS(begin, end, n) << " M tps" << endl;
+         cout << "-------------------------------------------------------------------------------------" << endl;
       }
-      // -------------------------------------------------------------------------------------
-      cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-      cout << calculateMTPS(begin, end, n) << " M tps" << endl;
-      cout << "-------------------------------------------------------------------------------------" << endl;
    } else {
       cout << "Inserting " << ycsb_tuple_count << " values" << endl;
       begin = chrono::high_resolution_clock::now();
-      utils::Parallelize::range(FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
+      utils::Parallelize::range(FLAGS_ycsb_insert_threads ? FLAGS_ycsb_insert_threads : FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
          crm.scheduleJobAsync(t_i, [&, begin, end]() {
             for (u64 i = begin; i < end; i++) {
                YCSBPayload payload;
@@ -131,6 +135,7 @@ int main(int argc, char** argv)
                   cr::Worker::my().startTX(tx_type, isolation_level);
                   table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
                   cr::Worker::my().commitTX();
+                  leanstore::storage::BMC::global_bf->evictLastPage();
                } else {
                   UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
                   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));
