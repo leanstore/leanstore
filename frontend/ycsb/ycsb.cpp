@@ -52,6 +52,7 @@ int main(int argc, char** argv)
    crm.scheduleJobSync(0, [&]() { table = LeanStoreAdapter<KVTable>(db, "YCSB"); });
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    db.registerConfigEntry("ycsb_threads", FLAGS_ycsb_threads);
+   db.registerConfigEntry("ycsb_single_statement_tx", FLAGS_ycsb_single_statement_tx);
    // -------------------------------------------------------------------------------------
    leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
    TX_MODE tx_type = FLAGS_ycsb_single_statement_tx ? TX_MODE::SINGLE_STATEMENT : TX_MODE::OLTP;

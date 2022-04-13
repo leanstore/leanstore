@@ -246,7 +246,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
 {
    Transaction prev_tx = active_tx;
    // For single-statement transactions, snapshot isolation and serialization are the same as read committed
-   if (next_tx_type == TX_MODE::SINGLE_STATEMENT) {
+   if (next_tx_type == TX_MODE::SINGLE_STATEMENT && 0) {  // TODO: check consequences on refreshGlobalState & GC
       if (next_tx_isolation_level > TX_ISOLATION_LEVEL::READ_COMMITTED) {
          next_tx_isolation_level = TX_ISOLATION_LEVEL::READ_COMMITTED;
       }
@@ -574,6 +574,9 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
    const bool is_commit_ts = tx_ts & MSB;
    const TXID committed_ts = (tx_ts & MSB) ? (tx_ts & MSB_MASK) : 0;
    const TXID start_ts = tx_ts & MSB_MASK;
+   if (is_commit_ts && activeTX().isSingleStatement()) {
+      return true;
+   }
    if (!to_write && activeTX().isReadUncommitted()) {
       return true;
    }

@@ -142,7 +142,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
       // -------------------------------------------------------------------------------------
       // TODO: Optimize
       // Merge from newest to oldest, i.e., from end of array into beginning
-      if (FLAGS_tmp5) {
+      if (FLAGS_tmp5 && 0) {
          // Hack
          auto& delta = getDelta(zone_begin);
          append_ll(new_fat_tuple, reinterpret_cast<u8*>(&delta), delta.totalLength());
@@ -335,6 +335,31 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTupl
    }
 }
 // -------------------------------------------------------------------------------------
+void BTreeVI::FatTupleDifferentAttributes::resize(const u32 new_length)
+{
+   u8 tmp_page[new_length + sizeof(FatTupleDifferentAttributes)];
+   auto& new_fat_tuple = *new (tmp_page) FatTupleDifferentAttributes(new_length);
+   new_fat_tuple.worker_id = worker_id;
+   new_fat_tuple.tx_ts = tx_ts;
+   new_fat_tuple.command_id = command_id;
+   new_fat_tuple.used_space += value_length;
+   new_fat_tuple.value_length = value_length;
+   std::memcpy(new_fat_tuple.payload, payload, value_length);  // Copy value
+   auto append_ll = [](FatTupleDifferentAttributes& fat_tuple, u8* delta, u16 delta_length) {
+      assert(fat_tuple.total_space >= (fat_tuple.used_space + delta_length + sizeof(u16)));
+      const u16 d_i = fat_tuple.deltas_count++;
+      fat_tuple.used_space += delta_length + sizeof(u16);
+      fat_tuple.data_offset -= delta_length;
+      fat_tuple.getDeltaOffsets()[d_i] = fat_tuple.data_offset;
+      std::memcpy(fat_tuple.payload + fat_tuple.data_offset, delta, delta_length);
+   };
+   for (u64 d_i = 0; d_i < deltas_count; d_i++) {
+      append_ll(new_fat_tuple, reinterpret_cast<u8*>(&getDelta(d_i)), getDelta(d_i).totalLength());
+   }
+   std::memcpy(this, tmp_page, new_length + sizeof(FatTupleDifferentAttributes));
+   assert(total_space >= used_space);
+}
+// -------------------------------------------------------------------------------------
 bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator)
 {
    u16 number_of_deltas_to_replace = 0;
@@ -423,6 +448,9 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
       // TODO: corner cases, more careful about space usage
       // -------------------------------------------------------------------------------------
       ensure(fat_tuple->total_space >= fat_tuple->used_space);
+      // cerr << fat_tuple->total_space << "," << fat_tuple->used_space << endl;
+      // fat_tuple->total_space = fat_tuple->used_space;
+      // fat_tuple->resize(fat_tuple->used_space);
       const u16 fat_tuple_length = sizeof(FatTupleDifferentAttributes) + fat_tuple->total_space;
       if (iterator.value().length() < fat_tuple_length) {
          ensure(reinterpret_cast<const Tuple*>(iterator.value().data())->tuple_format == TupleFormat::CHAINED);

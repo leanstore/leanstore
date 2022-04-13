@@ -1006,10 +1006,6 @@ class TPCCWorkload
    // -------------------------------------------------------------------------------------
    int tx(Integer w_id)
    {
-      if (FLAGS_tmp5) {
-         newOrderRnd(w_id);
-         return 4;
-      }
       // micro-optimized version of weighted distribution
       u64 rnd = leanstore::utils::RandomGenerator::getRand(0, 10000);
       if (rnd < 4300) {

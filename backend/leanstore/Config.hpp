@@ -92,6 +92,7 @@ DECLARE_bool(vi_fupdate_fat_tuple);
 DECLARE_uint64(vi_fat_tuple_threshold);
 DECLARE_uint64(vi_pgc_batch_size);
 DECLARE_bool(vi_fat_tuple);
+DECLARE_string(vi_fat_tuple_dts);
 DECLARE_bool(vi_dangling_pointer);
 DECLARE_bool(vi_fat_tuple_decompose);
 // -------------------------------------------------------------------------------------
