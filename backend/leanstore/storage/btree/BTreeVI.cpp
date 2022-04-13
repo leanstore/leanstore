@@ -196,7 +196,14 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                                   !tried_converting_to_fat_tuple && tuple_head.can_convert_to_fat_tuple &&
                                   !(tuple_head.worker_id == cr::Worker::my().workerID() && tuple_head.tx_ts == cr::activeTX().TTS());
       if (convert_to_fat_tuple) {
-         convert_to_fat_tuple &= !cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts);
+         if (FLAGS_tmp2) {
+            const u32 tuple_size = primary_payload.length() - sizeof(ChainedTuple);
+            if (tuple_size != 112 && tuple_size != 120) {
+               convert_to_fat_tuple = false;
+            } else {
+               convert_to_fat_tuple &= !cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts);
+            }
+         }
       }
       if (convert_to_fat_tuple) {
          convert_to_fat_tuple &= (tuple_head.updates_counter >= FLAGS_worker_threads);

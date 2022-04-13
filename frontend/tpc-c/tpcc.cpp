@@ -35,6 +35,7 @@ DEFINE_uint64(ch_a_query, 2, "");
 DEFINE_uint64(ch_a_start_delay_sec, 0, "");
 DEFINE_uint64(ch_a_process_delay_sec, 0, "");
 DEFINE_bool(ch_a_infinite, false, "");
+DEFINE_bool(ch_a_once, false, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -173,7 +174,8 @@ int main(int argc, char** argv)
                tx_acc++;
             }
             jumpmuCatch() { WorkerCounters::myCounters().olap_tx_abort++; }
-            if (FLAGS_tmp5 == 1) {
+            if (FLAGS_ch_a_once) {
+               cr::Worker::my().shutdown();
                sleep(2);
                break;
             }

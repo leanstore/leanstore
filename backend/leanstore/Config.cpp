@@ -95,6 +95,7 @@ DEFINE_bool(vi_fupdate_chained, false, "");
 DEFINE_bool(vi_fupdate_fat_tuple, false, "");
 DEFINE_uint64(vi_pgc_batch_size, 2, "");
 DEFINE_bool(vi_fat_tuple, true, "");
+DEFINE_string(vi_fat_tuple_dts, "", "");
 DEFINE_bool(vi_fat_tuple_decompose, true, "");
 DEFINE_uint64(vi_fat_tuple_threshold, 4, "Minimum length of chain length before converting the tuple format to FatTuple");
 DEFINE_bool(vi_dangling_pointer, true, "");

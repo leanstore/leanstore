@@ -9,6 +9,7 @@
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <set>
 // -------------------------------------------------------------------------------------
 using namespace leanstore::storage;
 // -------------------------------------------------------------------------------------
@@ -171,6 +172,7 @@ class BTreeVI : public BTreeLL
       std::tuple<OP_RESULT, u16> reconstructTuple(std::function<void(Slice value)> callback) const;
       // -------------------------------------------------------------------------------------
       void convertToChained(DTID dt_id);
+      void resize(u32 new_length);
    };
    static_assert(sizeof(ChainedTuple) <= sizeof(FatTupleDifferentAttributes), "");
    // -------------------------------------------------------------------------------------
@@ -495,6 +497,9 @@ class BTreeVI : public BTreeLL
    }
    std::tuple<OP_RESULT, u16> reconstructChainedTuple(Slice key, Slice payload, std::function<void(Slice value)> callback);
    static inline u64 maxFatTupleLength() { return EFFECTIVE_PAGE_SIZE - 1000; }
+   // -------------------------------------------------------------------------------------
+   // HACKS
+   std::set<DTID> fat_tuple_allowed_lists;
 };  // namespace btree
 // -------------------------------------------------------------------------------------
 }  // namespace btree
