@@ -191,6 +191,11 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // -------------------------------------------------------------------------------------
       auto& tuple_head = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       tuple_head.can_convert_to_fat_tuple = !tried_converting_to_fat_tuple;
+      if (!cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts)) {
+         tuple_head.updates_counter++;
+      } else {
+         tuple_head.updates_counter = 0;
+      }
       bool convert_to_fat_tuple = FLAGS_vi_fat_tuple && tuple_head.command_id != Tuple::INVALID_COMMANDID &&
                                   cr::Worker::global_oldest_oltp_start_ts != cr::Worker::global_oldest_all_start_ts &&
                                   !tried_converting_to_fat_tuple && tuple_head.can_convert_to_fat_tuple &&
@@ -206,7 +211,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          }
       }
       if (convert_to_fat_tuple) {
-         convert_to_fat_tuple &= (tuple_head.updates_counter >= FLAGS_worker_threads);
+         convert_to_fat_tuple &= (tuple_head.updates_counter >= 1000);
       }
       if (convert_to_fat_tuple) {
          COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_triggered[dt_id]++; }
@@ -268,7 +273,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       tuple_head.worker_id = cr::Worker::my().workerID();
       tuple_head.tx_ts = cr::activeTX().TTS();
       tuple_head.command_id = command_id;
-      tuple_head.updates_counter++;
       // -------------------------------------------------------------------------------------
       if (cr::activeTX().isSerializable()) {
          if (FLAGS_2pl) {
