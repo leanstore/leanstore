@@ -32,39 +32,40 @@ namespace leanstore
 namespace storage
 {
 // -------------------------------------------------------------------------------------
-BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
+BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
+      dram_pool_size(FLAGS_dram_gib * 1024 * 1024 * 1024  /sizeof(BufferFrame)),
+      partitions_count(1<<FLAGS_partition_bits), partitions_mask(partitions_count -1),
+      free_bfs_limit(std::ceil((FLAGS_free_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count)))
 {
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
    {
-      dram_pool_size = FLAGS_dram_gib * 1024 * 1024 * 1024 / sizeof(BufferFrame);
-      const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
-      void* big_memory_chunk = mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-      if (big_memory_chunk == MAP_FAILED) {
-         perror("Failed to allocate memory for the buffer pool");
-         SetupFailed("Check the buffer pool size");
-      } else {
-         bfs = reinterpret_cast<BufferFrame*>(big_memory_chunk);
+      {
+         const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
+         void* big_memory_chunk = mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+         if (big_memory_chunk == MAP_FAILED) {
+            perror("Failed to allocate memory for the buffer pool");
+            SetupFailed("Check the buffer pool size");
+         } else {
+            bfs = reinterpret_cast<BufferFrame*>(big_memory_chunk);
+            madvise(bfs, dram_total_size, MADV_HUGEPAGE);
+            madvise(bfs, dram_total_size, MADV_DONTFORK);  // O_DIRECT does not work with forking.
+            utils::Parallelize::parallelRange(dram_total_size,
+                                              [&](u64 begin, u64 end) { memset(reinterpret_cast<u8*>(bfs) + begin, 0, end - begin); });
+         }
       }
-      madvise(bfs, dram_total_size, MADV_HUGEPAGE);
-      madvise(bfs, dram_total_size,
-              MADV_DONTFORK);  // O_DIRECT does not work with forking.
       // -------------------------------------------------------------------------------------
       // Initialize partitions
-      partitions_count = (1 << FLAGS_partition_bits);
-      partitions_mask = partitions_count - 1;
-      const u64 free_bfs_limit = std::ceil((FLAGS_free_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
       const u64 cooling_bfs_upper_bound = std::ceil((FLAGS_cool_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
       for (u64 p_i = 0; p_i < partitions_count; p_i++) {
          partitions.push_back(std::make_unique<Partition>(p_i, partitions_count, free_bfs_limit, cooling_bfs_upper_bound));
       }
-      // -------------------------------------------------------------------------------------
-      utils::Parallelize::parallelRange(dram_total_size, [&](u64 begin, u64 end) { memset(reinterpret_cast<u8*>(bfs) + begin, 0, end - begin); });
-      utils::Parallelize::parallelRange(dram_pool_size, [&](u64 bf_b, u64 bf_e) {
-         u64 p_i = 0;
-         for (u64 bf_i = bf_b; bf_i < bf_e; bf_i++) {
-            getPartition(p_i).dram_free_list.push(*new (bfs + bf_i) BufferFrame());
-            p_i = (p_i + 1) % partitions_count;
+      utils::Parallelize::parallelRange(partitions_count, [&](u64 p_b, u64 p_e) {
+         for(u64 p_i = p_b; p_i < p_e; p_i++){
+            Partition& part = getPartition(p_i);
+            for(u64 bf_i = p_i; bf_i < dram_pool_size; bf_i+=partitions_count){
+               part.dram_free_list.push(*new (bfs + bf_i) BufferFrame());
+            }
          }
       });
       // -------------------------------------------------------------------------------------
@@ -266,7 +267,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
    // -------------------------------------------------------------------------------------
    auto frame_handler = partition.io_ht.lookup(pid);
    if (!frame_handler) {
-      BufferFrame& bf = randomPartition().dram_free_list.tryPop(g_guard);  // EXP
+      BufferFrame& bf = randomPartition().dram_free_list.pop(&g_guard);  // EXP
       IOFrame& io_frame = partition.io_ht.insert(pid);
       assert(bf.header.state == BufferFrame::STATE::FREE);
       bf.header.latch.assertNotExclusivelyLatched();

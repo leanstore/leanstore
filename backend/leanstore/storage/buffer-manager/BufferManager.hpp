@@ -50,12 +50,14 @@ class BufferManager
    // -------------------------------------------------------------------------------------
    // Free  Pages
    const u8 safety_pages = 10;               // we reserve these extra pages to prevent segfaults
-   u64 dram_pool_size;                       // total number of dram buffer frames
+   const u64 dram_pool_size;                       // total number of dram buffer frames
    atomic<u64> ssd_freed_pages_counter = 0;  // used to track how many pages did we really allocate
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
-   u64 partitions_count;
-   u64 partitions_mask;
+   const u64 partitions_count;
+   const u64 partitions_mask;
+   const u64 free_bfs_limit;
+
    std::vector<std::unique_ptr<Partition>> partitions;
 
   private:
@@ -77,16 +79,6 @@ class BufferManager
    ~BufferManager();
    // -------------------------------------------------------------------------------------
    BufferFrame& allocatePage();
-   inline BufferFrame& tryFastResolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
-   {
-      if (swip_value.isHOT()) {
-         BufferFrame& bf = swip_value.asBufferFrame();
-         swip_guard.recheck();
-         return bf;
-      } else {
-         return resolveSwip(swip_guard, swip_value);
-      }
-   }
    BufferFrame& resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value);
    void coolPage(BufferFrame& bf);
    void reclaimPage(BufferFrame& bf);

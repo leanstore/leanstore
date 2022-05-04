@@ -19,6 +19,7 @@ namespace cr
 {
 // -------------------------------------------------------------------------------------
 thread_local Worker* Worker::tls_ptr = nullptr;
+atomic<bool> Worker::init_done = false;
 atomic<u64> Worker::global_snapshot_clock = 0;
 std::mutex Worker::global_mutex;
 std::unique_ptr<atomic<u64>[]> Worker::global_so_starts;

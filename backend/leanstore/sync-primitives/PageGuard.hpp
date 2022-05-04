@@ -54,7 +54,7 @@ class HybridPageGuard
    // I: Lock coupling
    template <typename T2>
    HybridPageGuard(HybridPageGuard<T2>& p_guard, Swip<T>& swip, const LATCH_FALLBACK_MODE if_contended = LATCH_FALLBACK_MODE::SPIN)
-       : bf(&BMC::global_bf->tryFastResolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
+       : bf(&BMC::global_bf->resolveSwip(p_guard.guard, swip.template cast<BufferFrame>())), guard(bf->header.latch)
    {
       if (if_contended == LATCH_FALLBACK_MODE::SPIN) {
          guard.toOptimisticSpin();

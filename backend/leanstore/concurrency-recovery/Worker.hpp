@@ -50,6 +50,7 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    static unique_ptr<atomic<u64>[]> global_so_starts;
    static unique_ptr<atomic<u64>[]> global_tts;
+   static atomic<bool> init_done;
    // -------------------------------------------------------------------------------------
    const u64 SO_LATCHED = std::numeric_limits<u64>::max();
    bool force_si_refresh = false;

@@ -73,6 +73,7 @@ CRManager::CRManager(s32 ssd_fd, u64 end_of_block_device) : ssd_fd(ssd_fd), end_
       });
       group_commiter.detach();
    }
+   Worker::init_done = true;
 }
 // -------------------------------------------------------------------------------------
 CRManager::~CRManager()
