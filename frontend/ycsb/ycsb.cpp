@@ -62,6 +62,31 @@ int main(int argc, char** argv)
                                     : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
    // Insert values
    const u64 n = ycsb_tuple_count;
+   // -------------------------------------------------------------------------------------
+   if(FLAGS_tmp4){
+      // -------------------------------------------------------------------------------------
+      std::ofstream csv;
+      csv.open("zipf.csv", ios::trunc);
+      csv.seekp(0, ios::end);
+      csv << std::setprecision(2) << std::fixed;
+      std::unordered_map<u64, u64> ht;
+      auto zipf_random = std::make_unique<utils::ScrambledZipfGenerator>(0, ycsb_tuple_count, FLAGS_zipf_factor);
+      for (u64 t_i = 0; t_i < (FLAGS_tmp4 ? FLAGS_tmp4 : 1e6); t_i++) {
+         u64 key = zipf_random->rand();
+         if (ht.find(key) == ht.end()) {
+            ht[key] = 0;
+         } else {
+            ht[key]++;
+         }
+      }
+      csv << "key,count" << endl;
+      for (auto& [key, value] : ht) {
+         csv << key << "," << value << endl;
+      }
+      cout << ht.size() << endl;
+      return 0;
+   }
+   // -------------------------------------------------------------------------------------
    if (FLAGS_recover) {
       // Warmup
       if (FLAGS_ycsb_warmup) {
