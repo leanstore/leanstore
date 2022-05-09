@@ -60,6 +60,7 @@ class LeanStore
    cr::CRManager& getCRManager() { return *cr_manager; }
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
+   static void printStats();
    // -------------------------------------------------------------------------------------
    static void addStringFlag(string name, fLS::clstring* flag) { LeanStore::persistFlagsString().push_back(std::make_tuple(name, flag)); }
    static void addS64Flag(string name, s64* flag) { LeanStore::persistFlagsS64().push_back(std::make_tuple(name, flag)); }

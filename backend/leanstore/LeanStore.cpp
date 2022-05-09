@@ -213,8 +213,14 @@ void LeanStore::startProfilingThread()
    });
    bg_threads_counter++;
    profiling_thread.detach();
+   printStats();
 }
 // -------------------------------------------------------------------------------------
+void LeanStore::printStats()
+{
+   cout << "total misses: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::read_operations_counter) <<endl;
+   cout << "total hits: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::hot_hit_counter) + utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::cold_hit_counter) <<endl;
+}
 storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name)
 {
    assert(btrees_ll.find(name) == btrees_ll.end());

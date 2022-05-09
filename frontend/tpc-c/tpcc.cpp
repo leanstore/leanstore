@@ -202,6 +202,7 @@ int main(int argc, char** argv)
    }
    cout << endl;
    {
+      db.printStats();
       u64 total = 0;
       for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_tpcc_ch; t_i++) {
          total += tx_per_thread[t_i];
