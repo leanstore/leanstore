@@ -319,7 +319,7 @@ struct BTreeNode : public BTreeNodeHeader {
    u32 mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right);
    u32 spaceUsedBySlot(u16 slot_id);
    // -------------------------------------------------------------------------------------
-   bool merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
+   bool merge(u16 left_pos, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
    // store key/value pair at slotId
    void storeKeyValue(u16 slotId, const u8* key, u16 key_len, const u8* payload, u16 payload_len);
    // ATTENTION: dstSlot then srcSlot !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

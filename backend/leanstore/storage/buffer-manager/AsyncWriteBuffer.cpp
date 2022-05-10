@@ -32,11 +32,7 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size) : 
 // -------------------------------------------------------------------------------------
 bool AsyncWriteBuffer::full()
 {
-   if (pending_requests >= batch_max_size - 2) {
-      return true;
-   } else {
-      return false;
-   }
+   return pending_requests > batch_max_size - 3;
 }
 // -------------------------------------------------------------------------------------
 void AsyncWriteBuffer::add(BufferFrame& bf, PID pid)

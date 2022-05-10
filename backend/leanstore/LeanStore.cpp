@@ -50,7 +50,7 @@ LeanStore::LeanStore()
    // -------------------------------------------------------------------------------------
    // Set the default logger to file logger
    // Init SSD pool
-   int flags = O_RDWR | O_DIRECT;
+   int flags = O_RDWR | O_DIRECT | O_CREAT;
    if (FLAGS_trunc) {
       flags |= O_TRUNC | O_CREAT;
    }

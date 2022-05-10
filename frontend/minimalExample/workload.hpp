@@ -147,8 +147,8 @@ void scanUnscaled()
 
 bool checkOneScaled(Integer i)
 {
-   Integer start = getScale(0);
-   Integer end = getScale(scale);
+   [[maybe_unused]] Integer start = getScale(0);
+   [[maybe_unused]] Integer end = getScale(scale);
    assert(i >= start);
    assert(i < end);
    bool success = true;

@@ -226,7 +226,7 @@ void BufferManager::reclaimPage(BufferFrame& bf)
    Partition& partition = getPartition(bf.header.pid);
    partition.freePage(bf.header.pid);
    // -------------------------------------------------------------------------------------
-   if (bf.header.isWB) {
+   if (bf.header.isInWriteBuffer) {
       // DO NOTHING ! we have a garbage collector ;-)
       bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
       bf.header.latch.mutex.unlock();
@@ -292,7 +292,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       assert(bf.page.magic_debugging_number == pid);
       // -------------------------------------------------------------------------------------
       // ATTENTION: Fill the BF
-      assert(!bf.header.isWB);
+      assert(!bf.header.isInWriteBuffer);
       bf.header.lastWrittenGSN = bf.page.GSN;
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;

@@ -32,7 +32,7 @@ struct BufferFrame {
       // TODO: for logging
       u64 lastWrittenGSN = 0;
       STATE state = STATE::FREE;  // INIT:
-      bool isWB = false;
+      bool isInWriteBuffer = false;
       bool keep_in_memory = false;
       PID pid = 9999;         // INIT:
       HybridLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
@@ -67,11 +67,11 @@ struct BufferFrame {
    {
       header.debug = header.pid;
       // -------------------------------------------------------------------------------------
-      assert(!header.isWB);
+      assert(!header.isInWriteBuffer);
       header.latch.assertExclusivelyLatched();
       header.lastWrittenGSN = 0;
       header.state = STATE::FREE;  // INIT:
-      header.isWB = false;
+      header.isInWriteBuffer = false;
       header.pid = 9999;
       header.next_free_bf = nullptr;
       header.contention_tracker.reset();

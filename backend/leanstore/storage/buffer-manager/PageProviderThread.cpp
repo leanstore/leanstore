@@ -30,7 +30,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    using Time = decltype(std::chrono::high_resolution_clock::now());
    // -------------------------------------------------------------------------------------
    // TODO: register as special worker [hackaround atm]
-   bool test;
    while (!cr::Worker::init_done);
    cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0, ssd_fd);
    // -------------------------------------------------------------------------------------
@@ -65,7 +64,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                // -------------------------------------------------------------------------------------
                // Performance crticial: we should cross cool (unswizzle), otherwise write performance will drop
                [[maybe_unused]] const u64 partition_i = getPartitionID(r_buffer->header.pid);
-               const bool is_cooling_candidate = (!r_buffer->header.keep_in_memory && !r_buffer->header.isWB &&
+               const bool is_cooling_candidate = (!r_buffer->header.keep_in_memory && !r_buffer->header.isInWriteBuffer &&
                                                   !(r_buffer->header.latch.isExclusivelyLatched())
                                                   // && (partition_i) >= p_begin && (partition_i) <= p_end
                                                   && r_buffer->header.state == BufferFrame::STATE::HOT);
@@ -133,7 +132,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                      // -------------------------------------------------------------------------------------
                      assert(r_buffer->header.pid == pid);
                      assert(r_buffer->header.state == BufferFrame::STATE::HOT);
-                     assert(r_buffer->header.isWB == false);
+                     assert(r_buffer->header.isInWriteBuffer == false);
                      assert(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
                      assert(parent_handler.swip.bf == r_buffer);
                      // -------------------------------------------------------------------------------------
@@ -212,7 +211,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             partition.cooling_queue.erase(bf_itr);
             partition.cooling_bfs_counter--;
             // -------------------------------------------------------------------------------------
-            assert(!bf.header.isWB);
+            assert(!bf.header.isInWriteBuffer);
             // Reclaim buffer frame
             assert(bf.header.state == BufferFrame::STATE::COOL);
             parent_handler.swip.evict(bf.header.pid);
@@ -257,7 +256,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                         partition.cooling_bfs_counter--;
                         jumpmu::jump();
                      }
-                     if (!bf.header.isWB) {
+                     if (!bf.header.isInWriteBuffer) {
                         // Prevent evicting a page that already has an IO Frame with (possibly) threads working on it.
                         {
                            JMUW<std::unique_lock<std::mutex>> io_guard(partition.io_mutex);
@@ -272,8 +271,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                            if (!async_write_buffer.full()) {
                               {
                                  BMExclusiveGuard ex_guard(o_guard);
-                                 assert(!bf.header.isWB);
-                                 bf.header.isWB = true;
+                                 assert(!bf.header.isInWriteBuffer);
+                                 bf.header.isInWriteBuffer = true;
                               }
                               {
                                  BMSharedGuard s_guard(o_guard);
@@ -327,7 +326,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                          {
                             Guard guard(written_bf.header.latch);
                             guard.toExclusive();
-                            assert(written_bf.header.isWB);
+                            assert(written_bf.header.isInWriteBuffer);
                             assert(written_bf.header.lastWrittenGSN < written_lsn);
                             // -------------------------------------------------------------------------------------
                             if (FLAGS_out_of_place) {
@@ -335,7 +334,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                                written_bf.header.pid = out_of_place_pid;
                             }
                             written_bf.header.lastWrittenGSN = written_lsn;
-                            written_bf.header.isWB = false;
+                            written_bf.header.isInWriteBuffer = false;
                             PPCounters::myCounters().flushed_pages_counter++;
                             // -------------------------------------------------------------------------------------
                             guard.unlock();
@@ -363,7 +362,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                         partition.cooling_bfs_counter--;
                         jumpmu::jump();
                      }
-                     if (!bf.header.isWB && !bf.isDirty()) {
+                     if (!bf.header.isInWriteBuffer && !bf.isDirty()) {
                         evict_bf(bf, o_guard, bf_itr);
                      }
                      // -------------------------------------------------------------------------------------

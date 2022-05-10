@@ -115,7 +115,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
       height++;
       return;
    } else {
-      // Parent is not root
+      // Parent is not meta
       const u16 space_needed_for_separator = p_guard->spaceNeeded(sep_info.length, sizeof(SwipType));
       if (p_guard->hasEnoughSpaceFor(space_needed_for_separator)) {  // Is there enough space in the parent
                                                                      // for the separator?
