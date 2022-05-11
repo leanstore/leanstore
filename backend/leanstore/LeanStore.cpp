@@ -313,14 +313,16 @@ void LeanStore::serializeFlags(rapidjson::Document& d)
    rs::Value flags_serialized(rs::kObjectType);
    rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
    for (auto flags : persistFlagsString()) {
-      rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
-      auto& value = rapidjson::Value().SetString((*std::get<1>(flags)).c_str(), (*std::get<1>(flags)).length(), allocator);
+      string f_name = std::get<0>(flags);
+      string f_value = *std::get<1>(flags);
+      rapidjson::Value name(f_name.c_str(), f_name.length(), allocator);
+      rapidjson::Value value(f_value.c_str(), f_value.length(), allocator);
       flags_serialized.AddMember(name, value, allocator);
    }
    for (auto flags : persistFlagsS64()) {
       rapidjson::Value name(std::get<0>(flags).c_str(), std::get<0>(flags).length(), allocator);
       string value_string = std::to_string(*std::get<1>(flags));
-      auto& value = rapidjson::Value().SetString(value_string.c_str(), value_string.length(), allocator);
+      rapidjson::Value value(value_string.c_str(), value_string.length(), allocator);
       flags_serialized.AddMember(name, value, allocator);
    }
    d.AddMember("flags", flags_serialized, allocator);

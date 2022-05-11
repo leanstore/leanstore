@@ -62,13 +62,13 @@ class LeanStore
    void startProfilingThread();
    static void printStats();
    // -------------------------------------------------------------------------------------
-   static void addStringFlag(string name, fLS::clstring* flag) { LeanStore::persistFlagsString().push_back(std::make_tuple(name, flag)); }
+   static void addStringFlag(string name, string* flag) { LeanStore::persistFlagsString().push_back(std::make_tuple(name, flag)); }
    static void addS64Flag(string name, s64* flag) { LeanStore::persistFlagsS64().push_back(std::make_tuple(name, flag)); }
    // -------------------------------------------------------------------------------------
   private:
-   static std::list<std::tuple<string, fLS::clstring*>>& persistFlagsString()
+   static std::list<std::tuple<string, string*>>& persistFlagsString()
    {
-      static std::list<std::tuple<string, fLS::clstring*>> list = {};
+      static std::list<std::tuple<string, string*>> list = {};
       return list;
    };
    static std::list<std::tuple<string, s64*>>& persistFlagsS64()

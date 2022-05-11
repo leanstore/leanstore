@@ -49,7 +49,7 @@ int main(int argc, char** argv)
    gflags::SetUsageMessage("Leanstore Minimal Example");
    gflags::ParseCommandLineFlags(&argc, &argv, true);
    assert(FLAGS_scale > 0);
-   LeanStore::addS64Flag("min_SCALE", &FLAGS_scale);  
+   LeanStore::addS64Flag("min_SCALE", &FLAGS_scale);
    {
       LeanStore db;
       setup(db);
