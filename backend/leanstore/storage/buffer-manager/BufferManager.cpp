@@ -396,7 +396,10 @@ void BufferManager::readPageSync(u64 pid, u8* destination)
       bytes_left -= bytes_read;
    } while (bytes_left > 0);
    // -------------------------------------------------------------------------------------
-   COUNTERS_BLOCK() { WorkerCounters::myCounters().read_operations_counter++; }
+   COUNTERS_BLOCK() {
+      WorkerCounters::myCounters().read_operations_counter++; 
+      WorkerCounters::myCounters().missed_hit_counter++; 
+      }
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()
