@@ -124,19 +124,19 @@ int main(int argc, char** argv)
    auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
    db.startProfilingThread();
    u64 tx_per_thread[FLAGS_worker_threads];
-   for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_tpcc_ch; t_i++) {
-      crm.scheduleJobAsync(t_i, [&, t_i]() {
+   if(FLAGS_run_until_tx && FLAGS_worker_threads == 1){
+      crm.scheduleJobSync(0, [&]() {
          running_threads_counter++;
          cr::Worker::my().refreshSnapshot();
          tpcc.prepare();
          volatile u64 tx_acc = 0;
-         while (keep_running) {
+         while (tx_acc < FLAGS_run_until_tx) {
             jumpmuTry()
             {
                cr::Worker::my().startTX();
                u32 w_id;
                if (FLAGS_tpcc_warehouse_affinity) {
-                  w_id = t_i + 1;
+                  w_id = 1;
                } else {
                   w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
                }
@@ -149,56 +149,107 @@ int main(int argc, char** argv)
                WorkerCounters::myCounters().tx++;
                tx_acc++;
             }
-            jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
-         }
-         cr::Worker::my().shutdown();
-         // -------------------------------------------------------------------------------------
-         tx_per_thread[t_i] = tx_acc;
-         running_threads_counter--;
-      });
-   }
-   for (u64 t_i = FLAGS_worker_threads - FLAGS_tpcc_ch; t_i < FLAGS_worker_threads; t_i++) {
-      crm.scheduleJobAsync(t_i, [&, t_i]() {
-         running_threads_counter++;
-         cr::Worker::my().refreshSnapshot();
-         tpcc.prepare();
-         volatile u64 tx_acc = 0;
-         while (keep_running) {
-            jumpmuTry()
+            jumpmuCatch()
             {
-               cr::Worker::my().startTX();
-               for (u64 i = 0; i < FLAGS_tpcc_ch_rounds; i++) {
-                  tpcc.analyticalQuery();
-               }
-               cr::Worker::my().commitTX();
-               tx_acc++;
+               WorkerCounters::myCounters().tx_abort++;
             }
-            jumpmuCatch() { ensure(false); }
          }
          cr::Worker::my().shutdown();
          // -------------------------------------------------------------------------------------
-         tx_per_thread[t_i] = tx_acc;
+         tx_per_thread[0] = tx_acc;
          running_threads_counter--;
       });
-   }
-   {
-      if (FLAGS_run_until_tx) {
-         while (true) {
-            if (db.getGlobalStats().accumulated_tx_counter >= FLAGS_run_until_tx) {
-               cout << FLAGS_run_until_tx << " has been reached";
-               break;
-            }
-            usleep(500);
-         }
-      } else {
-         // Shutdown threads
-         sleep(FLAGS_run_for_seconds);
-      }
+
+      // Start exactly one thread and let it run for x transactions
       keep_running = false;
       while (running_threads_counter) {
          MYPAUSE();
       }
       crm.joinAll();
+   }
+   else {
+      for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_tpcc_ch; t_i++) {
+         crm.scheduleJobAsync(t_i, [&, t_i]() {
+            running_threads_counter++;
+            cr::Worker::my().refreshSnapshot();
+            tpcc.prepare();
+            volatile u64 tx_acc = 0;
+            while (keep_running) {
+               jumpmuTry()
+               {
+                  cr::Worker::my().startTX();
+                  u32 w_id;
+                  if (FLAGS_tpcc_warehouse_affinity) {
+                     w_id = t_i + 1;
+                  } else {
+                     w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
+                  }
+                  tpcc.tx(w_id);
+                  if (FLAGS_tpcc_abort_pct && tpcc.urand(0, 100) <= FLAGS_tpcc_abort_pct) {
+                     cr::Worker::my().abortTX();
+                  } else {
+                     cr::Worker::my().commitTX();
+                  }
+                  WorkerCounters::myCounters().tx++;
+                  tx_acc++;
+               }
+               jumpmuCatch()
+               {
+                  WorkerCounters::myCounters().tx_abort++;
+               }
+            }
+            cr::Worker::my().shutdown();
+            // -------------------------------------------------------------------------------------
+            tx_per_thread[t_i] = tx_acc;
+            running_threads_counter--;
+         });
+      }
+      for (u64 t_i = FLAGS_worker_threads - FLAGS_tpcc_ch; t_i < FLAGS_worker_threads; t_i++) {
+         crm.scheduleJobAsync(t_i, [&, t_i]() {
+            running_threads_counter++;
+            cr::Worker::my().refreshSnapshot();
+            tpcc.prepare();
+            volatile u64 tx_acc = 0;
+            while (keep_running) {
+               jumpmuTry()
+               {
+                  cr::Worker::my().startTX();
+                  for (u64 i = 0; i < FLAGS_tpcc_ch_rounds; i++) {
+                     tpcc.analyticalQuery();
+                  }
+                  cr::Worker::my().commitTX();
+                  tx_acc++;
+               }
+               jumpmuCatch()
+               {
+                  ensure(false);
+               }
+            }
+            cr::Worker::my().shutdown();
+            // -------------------------------------------------------------------------------------
+            tx_per_thread[t_i] = tx_acc;
+            running_threads_counter--;
+         });
+      }
+      {
+         if (FLAGS_run_until_tx) {
+            while (true) {
+               if (db.getGlobalStats().accumulated_tx_counter >= FLAGS_run_until_tx) {
+                  cout << FLAGS_run_until_tx << " has been reached";
+                  break;
+               }
+               usleep(500);
+            }
+         } else {
+            // Shutdown threads
+            sleep(FLAGS_run_for_seconds);
+         }
+         keep_running = false;
+         while (running_threads_counter) {
+            MYPAUSE();
+         }
+         crm.joinAll();
+      }
    }
    cout << endl;
    {
