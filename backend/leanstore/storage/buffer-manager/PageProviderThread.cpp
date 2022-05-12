@@ -254,7 +254,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                      if (bf.header.state != BufferFrame::STATE::COOL || getPartitionID(bf.header.pid) != p_i) {
                         partition.cooling_queue.erase(bf_itr);
                         partition.cooling_bfs_counter--;
-                        jumpmu::jump();
+                        bf_itr = next_bf_tr;
+                        jumpmu_continue;
                      }
                      if (!bf.header.isInWriteBuffer) {
                         // Prevent evicting a page that already has an IO Frame with (possibly) threads working on it.
@@ -263,7 +264,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                            if (partition.io_ht.lookup(bf.header.pid)) {
                               partition.cooling_queue.erase(bf_itr);
                               partition.cooling_bfs_counter--;
-                              jumpmu::jump();
+                              bf_itr = next_bf_tr;
+                              jumpmu_continue;
                            }
                         }
                         pages_left_to_iterate_partition--;
@@ -360,7 +362,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                      if (bf.header.state != BufferFrame::STATE::COOL || getPartitionID(bf.header.pid) != p_i) {
                         partition.cooling_queue.erase(bf_itr);
                         partition.cooling_bfs_counter--;
-                        jumpmu::jump();
+                        bf_itr = next_bf_tr;
+                        jumpmu_continue;
                      }
                      if (!bf.header.isInWriteBuffer && !bf.isDirty()) {
                         evict_bf(bf, o_guard, bf_itr);
