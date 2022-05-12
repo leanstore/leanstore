@@ -19,6 +19,7 @@ struct WorkerCounters {
                                            // -------------------------------------------------------------------------------------
    atomic<u64> worker_id = -1;
    // -------------------------------------------------------------------------------------
+   atomic<u64> jumps = 0;
    atomic<u64> hot_hit_counter = 0;  // TODO: give it a try ?
    atomic<u64> cold_hit_counter = 0;
    atomic<u64> missed_hit_counter = 0;
