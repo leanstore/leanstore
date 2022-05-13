@@ -218,6 +218,7 @@ void LeanStore::startProfilingThread()
 // -------------------------------------------------------------------------------------
 void LeanStore::printStats()
 {
+   cout << "total newPages: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::new_pages_counter) <<endl;
    cout << "total misses: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::missed_hit_counter) <<endl;
    cout << "total hits: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::hot_hit_counter) + utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::cold_hit_counter) <<endl;
    cout << "total jumps: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::jumps) <<endl;

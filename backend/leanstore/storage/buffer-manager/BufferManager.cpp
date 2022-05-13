@@ -199,7 +199,10 @@ BufferFrame& BufferManager::allocatePage()
    }
    free_bf.header.latch.assertExclusivelyLatched();
    // -------------------------------------------------------------------------------------
-   COUNTERS_BLOCK() { WorkerCounters::myCounters().allocate_operations_counter++; }
+   COUNTERS_BLOCK() {
+      WorkerCounters::myCounters().allocate_operations_counter++;
+      WorkerCounters::myCounters().new_pages_counter++;
+   }
    // -------------------------------------------------------------------------------------
    return free_bf;
 }
