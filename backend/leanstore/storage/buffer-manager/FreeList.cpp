@@ -39,6 +39,9 @@ struct BufferFrame& FreeList::pop(JMUW<std::unique_lock<std::mutex>>* lock)
             (*lock)->unlock();
             jumpmu::jump();
          }
+         if(trys > 10000000000){
+            jumpmu::jump();
+         }
          trys ++;
          continue;
       }
