@@ -226,7 +226,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                freed_bfs_batch.push(partition);
             }
             // -------------------------------------------------------------------------------------
-            COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; }
+            COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; PPCounters::myCounters().total_evictions++; }
          };
          if (phase_2_3_condition(partition)) {
             const s64 pages_to_iterate_partition = partition.free_bfs_limit - partition.dram_free_list.counter;

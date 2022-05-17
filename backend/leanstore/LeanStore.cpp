@@ -152,6 +152,9 @@ void LeanStore::doProfiling()
       print_tx_console(bm_table, cpu_table, cr_table, seconds, tx);
       seconds ++;
    }
+   if(seconds > 0){
+      results_table.total_seconds =seconds -1;
+   }
    for (u64 t_i = 0; t_i < untimedTables.size(); t_i++) {
       printTable(untimedTables[t_i], untimedCsvs[t_i], 0, false);
    }
