@@ -1,5 +1,7 @@
 #pragma once
 #include "Config.hpp"
+#include "leanstore/profiling/tables/CPUTable.hpp"
+#include "leanstore/profiling/tables/CRTable.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
 #include "rapidjson/document.h"
 #include "storage/btree/BTreeLL.hpp"
@@ -60,7 +62,7 @@ class LeanStore
    cr::CRManager& getCRManager() { return *cr_manager; }
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
-   static void printStats();
+   static void printStats(bool reset = true);
    // -------------------------------------------------------------------------------------
    static void addStringFlag(string name, string* flag) { LeanStore::persistFlagsString().push_back(std::make_tuple(name, flag)); }
    static void addS64Flag(string name, s64* flag) { LeanStore::persistFlagsS64().push_back(std::make_tuple(name, flag)); }
@@ -80,6 +82,14 @@ class LeanStore
    void deserializeFlags();
    void serializeState();
    void deserializeState();
+   void doProfiling();
+   void printTable(profiling::ProfilingTable* table, basic_ofstream<char>& csv, u64 seconds, bool print_seconds = true) const;
+   void print_tx_console(profiling::BMTable& bm_table,
+                        leanstore::profiling::CPUTable& cpu_table,
+                        leanstore::profiling::CRTable& cr_table,
+                        u64 seconds,
+                        const u64 tx) const;
+   void prepareCSV(profiling::ProfilingTable* table, ofstream& csv, bool print_seconds = true) const;
 };
 
 // -------------------------------------------------------------------------------------

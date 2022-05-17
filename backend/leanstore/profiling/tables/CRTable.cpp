@@ -7,7 +7,7 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-using leanstore::utils::threadlocal::sum;
+using leanstore::utils::threadlocal::sum_reset;
 namespace leanstore
 {
 namespace profiling
@@ -21,23 +21,23 @@ std::string CRTable::getName()
 void CRTable::open()
 {
    columns.emplace("key", [&](Column& out) { out << 0; });
-   columns.emplace("wal_reserve_blocked", [&](Column& col) { col << (sum(CRCounters::cr_counters, &CRCounters::wal_reserve_blocked)); });
-   columns.emplace("wal_reserve_immediate", [&](Column& col) { col << (sum(CRCounters::cr_counters, &CRCounters::wal_reserve_immediate)); });
+   columns.emplace("wal_reserve_blocked", [&](Column& col) { col << (sum_reset(CRCounters::cr_counters, &CRCounters::wal_reserve_blocked)); });
+   columns.emplace("wal_reserve_immediate", [&](Column& col) { col << (sum_reset(CRCounters::cr_counters, &CRCounters::wal_reserve_immediate)); });
    columns.emplace("gct_phase_1_pct", [&](Column& col) { col << 100.0 * p1 / total; });
    columns.emplace("gct_phase_2_pct", [&](Column& col) { col << 100.0 * p2 / total; });
    columns.emplace("gct_write_pct", [&](Column& col) { col << 100.0 * write / total; });
-   columns.emplace("gct_committed_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::gct_committed_tx); });
-   columns.emplace("gct_rounds", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::gct_rounds); });
-   columns.emplace("tx", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx); });
-   columns.emplace("tx_abort", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx_abort); });
+   columns.emplace("gct_committed_tx", [&](Column& col) { col << sum_reset(CRCounters::cr_counters, &CRCounters::gct_committed_tx); });
+   columns.emplace("gct_rounds", [&](Column& col) { col << sum_reset(CRCounters::cr_counters, &CRCounters::gct_rounds); });
+   columns.emplace("tx", [](Column& col) { col << sum_reset(WorkerCounters::worker_counters, &WorkerCounters::tx); });
+   columns.emplace("tx_abort", [](Column& col) { col << sum_reset(WorkerCounters::worker_counters, &WorkerCounters::tx_abort); });
    // -------------------------------------------------------------------------------------
-   columns.emplace("cc_snapshot_restart", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::cc_snapshot_restart); });
+   columns.emplace("cc_snapshot_restart", [](Column& col) { col << sum_reset(WorkerCounters::worker_counters, &WorkerCounters::cc_snapshot_restart); });
    // -------------------------------------------------------------------------------------
    columns.emplace("wal_read_gib", [&](Column& col) {
-      col << (sum(WorkerCounters::worker_counters, &WorkerCounters::wal_read_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0;
+      col << (sum_reset(WorkerCounters::worker_counters, &WorkerCounters::wal_read_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0;
    });
    columns.emplace("wal_write_gib",
-                   [&](Column& col) { col << (sum(CRCounters::cr_counters, &CRCounters::gct_write_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0; });
+                   [&](Column& col) { col << (sum_reset(CRCounters::cr_counters, &CRCounters::gct_write_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0; });
    columns.emplace("wal_miss_pct", [&](Column& col) { col << wal_miss_pct; });
    columns.emplace("wal_hit_pct", [&](Column& col) { col << wal_hit_pct; });
    columns.emplace("wal_miss", [&](Column& col) { col << wal_miss; });
@@ -47,15 +47,15 @@ void CRTable::open()
 // -------------------------------------------------------------------------------------
 void CRTable::next()
 {
-   wal_hits = sum(WorkerCounters::worker_counters, &WorkerCounters::wal_buffer_hit);
-   wal_miss = sum(WorkerCounters::worker_counters, &WorkerCounters::wal_buffer_miss);
+   wal_hits = sum_reset(WorkerCounters::worker_counters, &WorkerCounters::wal_buffer_hit);
+   wal_miss = sum_reset(WorkerCounters::worker_counters, &WorkerCounters::wal_buffer_miss);
    wal_total = wal_hits + wal_miss;
    wal_hit_pct = wal_hits * 1.0 / wal_total;
    wal_miss_pct = wal_miss * 1.0 / wal_total;
    // -------------------------------------------------------------------------------------
-   p1 = sum(CRCounters::cr_counters, &CRCounters::gct_phase_1_ms);
-   p2 = sum(CRCounters::cr_counters, &CRCounters::gct_phase_2_ms);
-   write = sum(CRCounters::cr_counters, &CRCounters::gct_write_ms);
+   p1 = sum_reset(CRCounters::cr_counters, &CRCounters::gct_phase_1_ms);
+   p2 = sum_reset(CRCounters::cr_counters, &CRCounters::gct_phase_2_ms);
+   write = sum_reset(CRCounters::cr_counters, &CRCounters::gct_write_ms);
    total = p1 + p2 + write;
    clear();
    for (auto& c : columns) {

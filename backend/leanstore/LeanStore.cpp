@@ -27,7 +27,7 @@
 #include <sstream>
 // -------------------------------------------------------------------------------------
 using namespace tabulate;
-using leanstore::utils::threadlocal::sum;
+using leanstore::utils::threadlocal::sum_reset;
 namespace rs = rapidjson;
 namespace leanstore
 {
@@ -106,122 +106,154 @@ LeanStore::~LeanStore()
 // -------------------------------------------------------------------------------------
 void LeanStore::startProfilingThread()
 {
-   std::thread profiling_thread([&]() {
-      profiling::BMTable bm_table(*buffer_manager.get());
-      profiling::DTTable dt_table(*buffer_manager.get());
-      profiling::CPUTable cpu_table;
-      profiling::CRTable cr_table;
-      std::vector<profiling::ProfilingTable*> tables = {&configs_table, &bm_table, &dt_table, &cpu_table, &cr_table};
-      // -------------------------------------------------------------------------------------
-      std::vector<std::ofstream> csvs;
-      std::ofstream::openmode open_flags;
-      if (FLAGS_csv_truncate) {
-         open_flags = ios::trunc;
-      } else {
-         open_flags = ios::app;
-      }
-      for (u64 t_i = 0; t_i < tables.size(); t_i++) {
-         tables[t_i]->open();
-         // -------------------------------------------------------------------------------------
-         csvs.emplace_back();
-         auto& csv = csvs.back();
-         csv.open(FLAGS_csv_path + "_" + tables[t_i]->getName() + ".csv", open_flags);
-         csv.seekp(0, ios::end);
-         csv << std::setprecision(2) << std::fixed;
-         if (csv.tellp() == 0) {
-            csv << "t,c_hash";
-            for (auto& c : tables[t_i]->getColumns()) {
-               csv << "," << c.first;
-            }
-            csv << endl;
-         }
-      }
-      // -------------------------------------------------------------------------------------
-      config_hash = configs_table.hash();
-      // -------------------------------------------------------------------------------------
-      u64 seconds = 0;
-      while (bg_threads_keep_running) {
-         for (u64 t_i = 0; t_i < tables.size(); t_i++) {
-            tables[t_i]->next();
-            if (tables[t_i]->size() == 0)
-               continue;
-            // -------------------------------------------------------------------------------------
-            // CSV
-            auto& csv = csvs[t_i];
-            for (u64 r_i = 0; r_i < tables[t_i]->size(); r_i++) {
-               csv << seconds << "," << config_hash;
-               for (auto& c : tables[t_i]->getColumns()) {
-                  csv << "," << c.second.values[r_i];
-               }
-               csv << endl;
-            }
-            // -------------------------------------------------------------------------------------
-            // TODO: Websocket, CLI
-         }
-         // -------------------------------------------------------------------------------------
-         const u64 tx = std::stoi(cr_table.get("0", "tx"));
-         // Global Stats
-         global_stats.accumulated_tx_counter += tx;
-         // -------------------------------------------------------------------------------------
-         // Console
-         // -------------------------------------------------------------------------------------
-         const double instr_per_tx = cpu_table.workers_agg_events["instr"] / tx;
-         const double cycles_per_tx = cpu_table.workers_agg_events["cycle"] / tx;
-         const double l1_per_tx = cpu_table.workers_agg_events["L1-miss"] / tx;
-         const double lc_per_tx = cpu_table.workers_agg_events["LLC-miss"] / tx;
-         // using RowType = std::vector<variant<std::string, const char*, Table>>;
-         if (FLAGS_print_tx_console) {
-            tabulate::Table table;
-            table.add_row({"t", "TX P", "TX A", "TX C", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC", "WAL T", "WAL R G",
-                           "WAL W G", "GCT Rounds"});
-            table.add_row({std::to_string(seconds), cr_table.get("0", "tx"), cr_table.get("0", "tx_abort"), cr_table.get("0", "gct_committed_tx"),
-                           bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), std::to_string(instr_per_tx), std::to_string(cycles_per_tx),
-                           std::to_string(cpu_table.workers_agg_events["CPU"]), std::to_string(l1_per_tx), std::to_string(lc_per_tx),
-                           cr_table.get("0", "wal_total"), cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"),
-                           cr_table.get("0", "gct_rounds")});
-            // -------------------------------------------------------------------------------------
-            table.format().width(10);
-            table.column(0).format().width(5);
-            table.column(1).format().width(10);
-            // -------------------------------------------------------------------------------------
-            auto print_table = [](tabulate::Table& table, std::function<bool(u64)> predicate) {
-               std::stringstream ss;
-               table.print(ss);
-               string str = ss.str();
-               u64 line_n = 0;
-               for (u64 i = 0; i < str.size(); i++) {
-                  if (str[i] == '\n') {
-                     line_n++;
-                  }
-                  if (predicate(line_n)) {
-                     cout << str[i];
-                  }
-               }
-            };
-            if (seconds == 0) {
-               print_table(table, [](u64 line_n) { return (line_n < 3) || (line_n == 4); });
-            } else {
-               print_table(table, [](u64 line_n) { return line_n == 4; });
-            }
-            // -------------------------------------------------------------------------------------
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            seconds += 1;
-            std::locale::global(std::locale::classic());
-         }
-      }
-      bg_threads_counter--;
-   });
+   std::thread profiling_thread([&]() { doProfiling(); });
    bg_threads_counter++;
    profiling_thread.detach();
-   printStats();
+   printStats(true);
+}
+void LeanStore::doProfiling()
+{
+   // Needed Datastructures
+   profiling::BMTable bm_table(*buffer_manager.get());
+   profiling::DTTable dt_table(*buffer_manager.get());
+   profiling::CPUTable cpu_table;
+   profiling::CRTable cr_table;
+   vector<profiling::ProfilingTable*> timedTables = {&bm_table, &dt_table, &cpu_table, &cr_table};
+   // -------------------------------------------------------------------------------------
+   vector<ofstream> csvs;
+   ofstream config_csv;
+   for (u64 t_i = 0; t_i < timedTables.size(); t_i++) {
+      csvs.emplace_back();
+      prepareCSV(timedTables[t_i], csvs.back());
+   }
+   prepareCSV(&configs_table, config_csv, false);
+   // -------------------------------------------------------------------------------------
+   config_hash = configs_table.hash();
+   // -------------------------------------------------------------------------------------
+      u64 seconds = 0;
+   while (bg_threads_keep_running) {
+      for (u64 t_i = 0; t_i < timedTables.size(); t_i++) {
+         printTable(timedTables[t_i], csvs[t_i], seconds);
+         // TODO: Websocket, CLI
+      }
+      // -------------------------------------------------------------------------------------
+      const u64 tx = stoi(cr_table.get("0", "tx"));
+      // Global Stats
+      global_stats.accumulated_tx_counter += tx;
+      // -------------------------------------------------------------------------------------
+      // Console
+      // -------------------------------------------------------------------------------------
+      print_tx_console(bm_table, cpu_table, cr_table, seconds, tx);
+      seconds ++;
+   }
+   printTable(&configs_table, config_csv, 0, false);
+   bg_threads_counter--;
+}
+void LeanStore::prepareCSV(profiling::ProfilingTable* table, ofstream& csv, bool print_seconds) const
+{
+   table->open();
+   // -------------------------------------------------------------------------------------
+   csv.open(FLAGS_csv_path + "_" + table->getName() + ".csv", FLAGS_csv_truncate ? ios::trunc : ios::app);
+   csv.seekp(0, ios::end);
+   csv << setprecision(2) << fixed;
+   if (csv.tellp() == 0) {
+      if(print_seconds){
+         csv << "t,";
+      }
+      csv << "c_hash";
+      for (auto& c : table->getColumns()) {
+         csv << "," << c.first;
+      }
+      csv << endl;
+   }
+}
+void LeanStore::print_tx_console(profiling::BMTable& bm_table,
+                                profiling::CPUTable& cpu_table,
+                                profiling::CRTable& cr_table,
+                                u64 seconds,
+                                const u64 tx) const
+{
+   if (FLAGS_print_tx_console) {
+      const double instr_per_tx = cpu_table.workers_agg_events["instr"] / tx;
+      const double cycles_per_tx = cpu_table.workers_agg_events["cycle"] / tx;
+      const double l1_per_tx = cpu_table.workers_agg_events["L1-miss"] / tx;
+      const double lc_per_tx = cpu_table.workers_agg_events["LLC-miss"] / tx;
+      Table table;
+      table.add_row({"t", "TX P", "TX A", "TX C", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC", "WAL T", "WAL R G",
+                     "WAL W G", "GCT Rounds"});
+      table.add_row({to_string(seconds), cr_table.get("0", "tx"), cr_table.get("0", "tx_abort"), cr_table.get("0", "gct_committed_tx"),
+                     bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), to_string(instr_per_tx), to_string(cycles_per_tx),
+                     to_string(cpu_table.workers_agg_events["CPU"]), to_string(l1_per_tx), to_string(lc_per_tx),
+                     cr_table.get("0", "wal_total"), cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"),
+                     cr_table.get("0", "gct_rounds")});
+      // -------------------------------------------------------------------------------------
+      table.format().width(10);
+      table.column(0).format().width(5);
+      table.column(1).format().width(10);
+      // -------------------------------------------------------------------------------------
+      auto print_table = [](Table& table, function<bool(u64)> predicate) {
+         stringstream ss;
+         table.print(ss);
+         string str = ss.str();
+         u64 line_n = 0;
+         for (u64 i = 0; i < str.size(); i++) {
+            if (str[i] == '\n') {
+               line_n++;
+            }
+            if (predicate(line_n)) {
+               cout << str[i];
+            }
+         }
+      };
+      if (seconds == 0) {
+         print_table(table, [](u64 line_n) { return (line_n < 3) || (line_n == 4); });
+      } else {
+         print_table(table, [](u64 line_n) { return line_n == 4; });
+      }
+      // -------------------------------------------------------------------------------------
+      this_thread::sleep_for(chrono::milliseconds(1000));
+      locale::global(locale::classic());
+   }
+}
+void LeanStore::printTable(profiling::ProfilingTable* table, basic_ofstream<char>& csv, u64 seconds, bool print_seconds) const
+{
+   table->next();
+   if (table->size() == 0)
+      return;
+   // -------------------------------------------------------------------------------------
+   // CSV
+   for (u64 r_i = 0; r_i < table->size(); r_i++) {
+      if(print_seconds)
+         csv << seconds << ",";
+      csv << config_hash;
+      for (auto& c : table->getColumns()) {
+         csv << "," << c.second.values[r_i];
+      }
+      csv << endl;
+   }
 }
 // -------------------------------------------------------------------------------------
-void LeanStore::printStats()
+void LeanStore::printStats(bool reset)
 {
-   cout << "total newPages: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::new_pages_counter) <<endl;
-   cout << "total misses: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::missed_hit_counter) <<endl;
-   cout << "total hits: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::hot_hit_counter) + utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::cold_hit_counter) <<endl;
-   cout << "total jumps: " << utils::threadlocal::sum(WorkerCounters::worker_counters, &WorkerCounters::jumps) <<endl;
+   if (reset) {
+      cout << "total newPages: " << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::new_pages_counter) << endl;
+      cout << "total misses: " << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::missed_hit_counter) << endl;
+      cout << "total hits: "
+           << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::hot_hit_counter) +
+                  utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::cold_hit_counter)
+           << endl;
+      cout << "total jumps: " << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::jumps) << endl;
+   }else{
+      cout << "no reset" << endl;
+      cout << "total newPages: " << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::new_pages_counter) << endl;
+      cout << "total misses: " << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::missed_hit_counter) << endl;
+      cout << "total hits: "
+           << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::hot_hit_counter) +
+                  utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::cold_hit_counter)
+           << endl;
+      cout << "total jumps: " << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::jumps) << endl;
+
+   }
 }
 storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name)
 {
