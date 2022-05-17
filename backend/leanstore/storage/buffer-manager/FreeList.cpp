@@ -31,15 +31,14 @@ void FreeList::push(BufferFrame& bf)
 struct BufferFrame& FreeList::pop(JMUW<std::unique_lock<std::mutex>>* lock)
 {
    BufferFrame *free_bf, *next;
-   u64 trys = 0;
+   u16 trys = 0;
    do {
       free_bf = head;
       if (free_bf == nullptr) {
-         if(trys > 10000000 && lock != nullptr){
-            (*lock)->unlock();
-            jumpmu::jump();
-         }
-         if(trys > 10000000000){
+         if(trys > 100){
+            if(lock != nullptr) {
+               (*lock)->unlock();
+            }
             jumpmu::jump();
          }
          trys ++;
