@@ -23,14 +23,6 @@ void ConfigsTable::add(string name, string value)
 // -------------------------------------------------------------------------------------
 void ConfigsTable::open()
 {
-   columns.emplace("total_newPages", [&](Column& col) {
-      col << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::new_pages_counter);
-   });
-   columns.emplace("total_misses", [&](Column& col) { col << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::missed_hit_counter); });
-   columns.emplace("total_hits", [&](Column& col) { col << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::hot_hit_counter) +
-                                                               utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::cold_hit_counter); });
-   columns.emplace("total_jumps", [&](Column& col) { col << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::jumps); });
-   // -------------------------------------------------------------------------------------
    columns.emplace("cmd_name", [&](Column& col) { col << gflags::GetArgv0(); });
    columns.emplace("c_tag", [&](Column& col) { col << FLAGS_tag; });
    columns.emplace("c_worker_threads", [&](Column& col) { col << FLAGS_worker_threads; });
@@ -85,10 +77,7 @@ u64 ConfigsTable::hash()
 // -------------------------------------------------------------------------------------
 void ConfigsTable::next()
 {
-   clear();
-   for (auto& c : columns) {
-      c.second.generator(c.second);
-   }
+   // Ignore
 }
 // -------------------------------------------------------------------------------------
 }  // namespace profiling

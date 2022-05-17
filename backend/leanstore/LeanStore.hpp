@@ -3,6 +3,7 @@
 #include "leanstore/profiling/tables/CPUTable.hpp"
 #include "leanstore/profiling/tables/CRTable.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
+#include "leanstore/profiling/tables/ResultsTable.hpp"
 #include "rapidjson/document.h"
 #include "storage/btree/BTreeLL.hpp"
 #include "storage/btree/BTreeVI.hpp"

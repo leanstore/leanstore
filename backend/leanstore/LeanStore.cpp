@@ -118,22 +118,28 @@ void LeanStore::doProfiling()
    profiling::DTTable dt_table(*buffer_manager.get());
    profiling::CPUTable cpu_table;
    profiling::CRTable cr_table;
+   profiling::ResultsTable results_table;
    vector<profiling::ProfilingTable*> timedTables = {&bm_table, &dt_table, &cpu_table, &cr_table};
+   vector<profiling::ProfilingTable*> untimedTables = {&results_table, &configs_table};
    // -------------------------------------------------------------------------------------
-   vector<ofstream> csvs;
+   vector<ofstream> timedCsvs, untimedCsvs;
    ofstream config_csv;
    for (u64 t_i = 0; t_i < timedTables.size(); t_i++) {
-      csvs.emplace_back();
-      prepareCSV(timedTables[t_i], csvs.back());
+      timedCsvs.emplace_back();
+      prepareCSV(timedTables[t_i], timedCsvs.back());
    }
-   prepareCSV(&configs_table, config_csv, false);
+   for (u64 t_i = 0; t_i < untimedTables.size(); t_i++) {
+      untimedCsvs.emplace_back();
+      prepareCSV(untimedTables[t_i], untimedCsvs.back(), false);
+   }
    // -------------------------------------------------------------------------------------
    config_hash = configs_table.hash();
    // -------------------------------------------------------------------------------------
-      u64 seconds = 0;
+   // Timd tables: every second
+   u64 seconds = 0;
    while (bg_threads_keep_running) {
       for (u64 t_i = 0; t_i < timedTables.size(); t_i++) {
-         printTable(timedTables[t_i], csvs[t_i], seconds);
+         printTable(timedTables[t_i], timedCsvs[t_i], seconds);
          // TODO: Websocket, CLI
       }
       // -------------------------------------------------------------------------------------
@@ -146,7 +152,9 @@ void LeanStore::doProfiling()
       print_tx_console(bm_table, cpu_table, cr_table, seconds, tx);
       seconds ++;
    }
-   printTable(&configs_table, config_csv, 0, false);
+   for (u64 t_i = 0; t_i < untimedTables.size(); t_i++) {
+      printTable(untimedTables[t_i], untimedCsvs[t_i], 0, false);
+   }
    bg_threads_counter--;
 }
 void LeanStore::prepareCSV(profiling::ProfilingTable* table, ofstream& csv, bool print_seconds) const
