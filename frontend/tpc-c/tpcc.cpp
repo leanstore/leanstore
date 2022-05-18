@@ -147,6 +147,7 @@ int main(int argc, char** argv)
                   cr::Worker::my().commitTX();
                }
                WorkerCounters::myCounters().tx++;
+               WorkerCounters::myCounters().tx_counter++;
                tx_acc++;
             }
             jumpmuCatch()
@@ -253,7 +254,6 @@ int main(int argc, char** argv)
    }
    cout << endl;
    {
-      db.printStats(false);
       u64 total = 0;
       for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_tpcc_ch; t_i++) {
          total += tx_per_thread[t_i];

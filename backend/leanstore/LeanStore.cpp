@@ -152,6 +152,7 @@ void LeanStore::doProfiling()
       print_tx_console(bm_table, cpu_table, cr_table, seconds, tx);
       seconds ++;
    }
+   printStats(false);
    if(seconds > 0){
       results_table.total_seconds =seconds -1;
    }
@@ -254,6 +255,7 @@ void LeanStore::printStats(bool reset)
                   utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::cold_hit_counter)
            << endl;
       cout << "total jumps: " << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::jumps) << endl;
+      cout << "total tx: " << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::tx_counter) << endl;
    }else{
       cout << "no reset" << endl;
       cout << "total newPages: " << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::new_pages_counter) << endl;
@@ -263,6 +265,7 @@ void LeanStore::printStats(bool reset)
                   utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::cold_hit_counter)
            << endl;
       cout << "total jumps: " << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::jumps) << endl;
+      cout << "total tx: " << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::tx_counter) << endl;
 
    }
 }

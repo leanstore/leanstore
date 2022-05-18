@@ -164,6 +164,7 @@ void executeOneTx(volatile u64& tx_acc)
    cr::Worker::my().startTX();
    runOneQuery();
    WorkerCounters::myCounters().tx++;
+   WorkerCounters::myCounters().tx_counter++;
    tx_acc++;
 }
 

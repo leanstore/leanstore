@@ -24,6 +24,7 @@ struct WorkerCounters {
    atomic<u64> cold_hit_counter = 0;
    atomic<u64> missed_hit_counter = 0;
    atomic<u64> new_pages_counter = 0;
+   atomic<u64> tx_counter = 0;
    // -------------------------------------------------------------------------------------
    atomic<u64> read_operations_counter = 0;
    atomic<u64> allocate_operations_counter = 0;
