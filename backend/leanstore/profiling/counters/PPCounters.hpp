@@ -21,7 +21,7 @@ struct PPCounters {
    // -------------------------------------------------------------------------------------
    atomic<u64> evicted_pages = 0, total_evictions = 0, pp_thread_rounds = 0;
    // -------------------------------------------------------------------------------------
-   atomic<u64> touched_bfs_counter = 0;
+   atomic<u64> touched_bfs_counter = 0, total_touches = 0;
    atomic<u64> flushed_pages_counter = 0;
    atomic<u64> unswizzled_pages_counter = 0;
    // -------------------------------------------------------------------------------------

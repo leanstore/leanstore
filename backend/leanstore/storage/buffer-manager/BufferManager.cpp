@@ -172,6 +172,7 @@ Partition& BufferManager::randomPartition()
 BufferFrame& BufferManager::randomBufferFrame()
 {
    auto rand_buffer_i = utils::RandomGenerator::getRand<u64>(0, dram_pool_size);
+   COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; PPCounters::myCounters().total_touches++;}
    return bfs[rand_buffer_i];
 }
 // -------------------------------------------------------------------------------------

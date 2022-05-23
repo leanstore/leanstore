@@ -71,8 +71,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                repickIf(!is_cooling_candidate);
                r_guard.recheck();
                // -------------------------------------------------------------------------------------
-               COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
-               // -------------------------------------------------------------------------------------
                bool picked_a_child_instead = false, all_children_evicted = true;
                [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
                COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
