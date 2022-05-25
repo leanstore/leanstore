@@ -558,7 +558,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
    // Only point-gc and for removed tuples
    const auto& version = *reinterpret_cast<const RemoveVersion*>(entry_ptr);
-   if (FLAGS_vi_dangling_pointer && version.tx_id < cr::Worker::my().local_all_lwm) {
+   if (FLAGS_vi_dangling_pointer && version.tx_id < cr::Worker::my().cc.local_all_lwm) {
       assert(version.dangling_pointer.bf != nullptr);
       // Optimistic fast path
       jumpmuTry()
@@ -622,13 +622,13 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_ts == version_tx_id && primary_version.is_removed) {
-            if (primary_version.tx_ts < cr::Worker::my().local_all_lwm) {
+            if (primary_version.tx_ts < cr::Worker::my().cc.local_all_lwm) {
                ret = iterator.removeCurrent();
                iterator.markAsDirty();
                ensure(ret == OP_RESULT::OK);
                iterator.mergeIfNeeded();
                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_removed[btree.dt_id]++; }
-            } else if (primary_version.tx_ts < cr::Worker::my().local_oltp_lwm) {
+            } else if (primary_version.tx_ts < cr::Worker::my().cc.local_oltp_lwm) {
                // Move to graveyard
                {
                   BTreeExclusiveIterator g_iterator(*static_cast<BTreeGeneric*>(btree.graveyard));
@@ -759,9 +759,9 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple([[maybe_unused]] Sli
          next_command_id = version.command_id;
       });
       if (!found) {
-         cerr << std::find(cr::Worker::my().local_workers_start_ts.get(),
-                           cr::Worker::my().local_workers_start_ts.get() + cr::Worker::my().workers_count, next_tx_id) -
-                     cr::Worker::my().local_workers_start_ts.get()
+         cerr << std::find(cr::Worker::my().cc.local_workers_start_ts.get(),
+                           cr::Worker::my().cc.local_workers_start_ts.get() + cr::Worker::my().workers_count, next_tx_id) -
+                     cr::Worker::my().cc.local_workers_start_ts.get()
               << endl;
          explainWhen(next_command_id != ChainedTuple::INVALID_COMMANDID);
          return {OP_RESULT::NOT_FOUND, chain_length};

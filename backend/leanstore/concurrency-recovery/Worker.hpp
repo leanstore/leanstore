@@ -1,6 +1,6 @@
 #pragma once
-#include "Transaction.hpp"
 #include "HistoryTreeInterface.hpp"
+#include "Transaction.hpp"
 #include "WALEntry.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -31,53 +31,23 @@ struct alignas(512) WALChunk {
    Slot slot[STATIC_MAX_WORKERS];
 };
 // -------------------------------------------------------------------------------------
+// Stages: pre-committed (SI passed) -> hardened (its own WALs are written and fsync) -> committed/signaled (all dependencies are flushed too and the
+// user got the OK)
 struct Worker {
-   // Static
+   // Static members
    static thread_local Worker* tls_ptr;
-   // -------------------------------------------------------------------------------------
-   static atomic<u64> global_logical_clock;
-   // -------------------------------------------------------------------------------------
    // Logging
    static atomic<u64> global_gsn_flushed;       // The minimum of all workers maximum flushed GSN
-   static atomic<u64> global_sync_to_this_gsn;  // Artifically increment the workers GSN to this point at the next round to prevent GSN from skewing
-                                                // and undermining RFA
-   WALMetaEntry* active_mt_entry;
-   WALDTEntry* active_dt_entry;
-   // -------------------------------------------------------------------------------------
-   static std::shared_mutex global_mutex;
-   static unique_ptr<atomic<u64>[]> global_workers_current_snapshot;
+   static atomic<u64> global_sync_to_this_gsn;  // Artifically increment the workers GSN to this point at the next round to prevent GSN from
+                                                // skewing and undermining RFA
+   static atomic<u64> global_logical_clock;
    // -------------------------------------------------------------------------------------
    // Concurrency Control
-   // LWM: start timestamp of the transaction that has its effect visible by all in its class
+   static unique_ptr<atomic<u64>[]> global_workers_current_snapshot;
    static atomic<TXID> global_oldest_oltp_start_ts, global_oltp_lwm;
    static atomic<TXID> global_oldest_all_start_ts, global_all_lwm;
    static atomic<TXID> global_newest_olap_start_ts;
-   atomic<TXID> local_lwm_latch = 0;
-   atomic<TXID> oltp_lwm_receiver;
-   atomic<TXID> all_lwm_receiver;
-   atomic<TXID> local_latest_write_tx = 0, local_latest_lwm_for_tx = 0;
-   TXID local_all_lwm, local_oltp_lwm;
-   // -------------------------------------------------------------------------------------
-   // Commit Tree
-   leanstore::KVInterface* commit_tree;
-   std::unique_ptr<u8[]> commit_tree_handler;
-   // -------------------------------------------------------------------------------------
-   u64 command_id = 0;
-   Transaction active_tx;
-   TXID local_global_all_lwm_cache = 0;
-   unique_ptr<TXID[]> local_snapshot_cache;  // = Readview
-   unique_ptr<TXID[]> local_snapshot_cache_ts;
-   unique_ptr<TXID[]> local_workers_start_ts;
-   // -------------------------------------------------------------------------------------
-   // Clean up state
-   u64 cleaned_untill_oltp_lwm = 0;
-   // -------------------------------------------------------------------------------------
-   const u64 worker_id;
-   Worker** all_workers;
-   const u64 workers_count;
-   HistoryTreeInterface& history_tree;
-   const s32 ssd_fd;
-   const bool is_page_provider = false;
+   static std::shared_mutex global_mutex;
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
@@ -89,13 +59,83 @@ struct Worker {
    static constexpr u64 CLEAN_BITS_MASK = ~(LATCH_BIT | OLAP_BIT | RC_BIT);
    // TXID : [LATCH_BIT | RC_BIT | OLAP_BIT | id];
    // LWM : [LATCH_BIT | RC_BIT | OLTP_OLAP_SAME_BIT | id];
+   static constexpr s64 WORKER_WAL_SIZE = 1024 * 1024 * 10;
+   static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
-   Worker(u64 worker_id,
-          Worker** all_workers,
-          u64 workers_count,
-          HistoryTreeInterface& versions_space,
-          s32 fd,
-          const bool is_page_provider = false);
+   // Worker Local
+   struct {
+      WALMetaEntry* active_mt_entry;
+      WALDTEntry* active_dt_entry;
+      // Shared between Group Committer and Worker
+      std::mutex precommitted_queue_mutex;
+      std::vector<Transaction> precommitted_queue;
+      u8 pad1[64];
+      std::atomic<u64> ready_to_commit_queue_size = 0;
+      u8 pad2[64];
+      // -------------------------------------------------------------------------------------
+      // -------------------------------------------------------------------------------------
+      u8 pad3[64];
+      // The following three atomics are used to publish state changes from worker to GCT
+      atomic<u64> wal_gct_max_gsn_0 = 0;
+      atomic<u64> wal_gct_max_gsn_1 = 0;
+      atomic<u64> wal_gct = 0;  // W->GCT
+      u8 pad4[64];
+      // Protect W+GCT shared data (worker <-> group commit thread)
+      // -------------------------------------------------------------------------------------
+      // Accessible only by the group commit thread
+      struct GroupCommitData {
+         u64 ready_to_commit_cut = 0;  // Exclusive ) == size
+         u64 max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
+         LID gsn_to_flush;        // Will flush up to this GSN when the current round is over
+         u64 wt_cursor_to_flush;  // Will flush up to this GSN when the current round is over
+         LID first_lsn_in_chunk;
+         bool skip = false;
+      };
+      GroupCommitData group_commit_data;
+      // -------------------------------------------------------------------------------------
+      u64 wal_wt_cursor = 0;
+      u64 wal_buffer_round = 0, wal_next_to_clean = 0;
+      // -------------------------------------------------------------------------------------
+      // -------------------------------------------------------------------------------------
+      atomic<u64> wal_gct_cursor = 0;               // GCT->W
+      alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
+      LID wal_lsn_counter = 0;
+      LID clock_gsn;
+      LID rfa_gsn_flushed;
+      bool needs_remote_flush = false;
+      // -------------------------------------------------------------------------------------
+   } logging;
+   // -------------------------------------------------------------------------------------
+   // Concurrency Control
+   // LWM: start timestamp of the transaction that has its effect visible by all in its class
+   struct {
+      atomic<TXID> local_lwm_latch = 0;
+      atomic<TXID> oltp_lwm_receiver;
+      atomic<TXID> all_lwm_receiver;
+      atomic<TXID> local_latest_write_tx = 0, local_latest_lwm_for_tx = 0;
+      TXID local_all_lwm, local_oltp_lwm;
+      leanstore::KVInterface* commit_tree;
+      std::unique_ptr<u8[]> commit_tree_handler;
+      TXID local_global_all_lwm_cache = 0;
+      unique_ptr<TXID[]> local_snapshot_cache;  // = Readview
+      unique_ptr<TXID[]> local_snapshot_cache_ts;
+      unique_ptr<TXID[]> local_workers_start_ts;
+      // -------------------------------------------------------------------------------------
+      // Clean up state
+      u64 cleaned_untill_oltp_lwm = 0;
+   } cc;
+   // -------------------------------------------------------------------------------------
+   u64 command_id = 0;
+   Transaction active_tx;
+   // -------------------------------------------------------------------------------------
+   const u64 worker_id;
+   Worker** all_workers;
+   const u64 workers_count;
+   HistoryTreeInterface& history_tree;
+   const s32 ssd_fd;
+   const bool is_page_provider = false;
+   // -------------------------------------------------------------------------------------
+   Worker(u64 worker_id, Worker** all_workers, u64 workers_count, HistoryTreeInterface& versions_space, s32 fd, const bool is_page_provider = false);
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
    // -------------------------------------------------------------------------------------
@@ -119,76 +159,36 @@ struct Worker {
       return found;
    }
    // -------------------------------------------------------------------------------------
-   // Protect W+GCT shared data (worker <-> group commit thread)
-   // -------------------------------------------------------------------------------------
-   // Accessible only by the group commit thread
-   struct GroupCommitData {
-      u64 ready_to_commit_cut = 0;  // Exclusive ) == size
-      u64 max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
-      LID gsn_to_flush;        // Will flush up to this GSN when the current round is over
-      u64 wt_cursor_to_flush;  // Will flush up to this GSN when the current round is over
-      LID first_lsn_in_chunk;
-      bool skip = false;
-   };
-   GroupCommitData group_commit_data;
-   // -------------------------------------------------------------------------------------
-   // Shared between Group Committer and Worker
-   std::mutex worker_group_commiter_mutex;
-   std::vector<Transaction> ready_to_commit_queue;
-   u8 pad1[64];
-   std::atomic<u64> ready_to_commit_queue_size = 0;
-   u8 pad2[64];
-   // -------------------------------------------------------------------------------------
-   static constexpr s64 WORKER_WAL_SIZE = 1024 * 1024 * 10;
-   static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
-   // -------------------------------------------------------------------------------------
-   u8 pad3[64];
-   // The following three atomics are used to publish state changes from worker to GCT
-   atomic<u64> wal_gct_max_gsn_0 = 0;
-   atomic<u64> wal_gct_max_gsn_1 = 0;
-   atomic<u64> wal_gct = 0;  // W->GCT
-   u8 pad4[64];
    void publishOffset()
    {
-      const u64 msb = wal_gct & MSB;
-      wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
+      const u64 msb = logging.wal_gct & MSB;
+      logging.wal_gct.store(logging.wal_wt_cursor | msb, std::memory_order_release);
    }
    void publishMaxGSNOffset()
    {
-      const bool was_second_slot = wal_gct & MSB;
+      const bool was_second_slot = logging.wal_gct & MSB;
       u64 msb;
       if (was_second_slot) {
-         wal_gct_max_gsn_0.store(clock_gsn, std::memory_order_release);
+         logging.wal_gct_max_gsn_0.store(logging.clock_gsn, std::memory_order_release);
          msb = 0;
       } else {
-         wal_gct_max_gsn_1.store(clock_gsn, std::memory_order_release);
+         logging.wal_gct_max_gsn_1.store(logging.clock_gsn, std::memory_order_release);
          msb = MSB;
       }
-      wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
+      logging.wal_gct.store(logging.wal_wt_cursor | msb, std::memory_order_release);
    }
    std::tuple<LID, u64> fetchMaxGSNOffset()
    {
-      const u64 worker_atomic = wal_gct.load();
+      const u64 worker_atomic = logging.wal_gct.load();
       LID gsn;
       if (worker_atomic & (MSB)) {
-         gsn = wal_gct_max_gsn_1.load();
+         gsn = logging.wal_gct_max_gsn_1.load();
       } else {
-         gsn = wal_gct_max_gsn_0.load();
+         gsn = logging.wal_gct_max_gsn_0.load();
       }
       const u64 max_gsn = worker_atomic & (~(MSB));
       return {gsn, max_gsn};
    }
-   // -------------------------------------------------------------------------------------
-   u64 wal_wt_cursor = 0;
-   u64 wal_buffer_round = 0, wal_next_to_clean = 0;
-   // -------------------------------------------------------------------------------------
-   // -------------------------------------------------------------------------------------
-   atomic<u64> wal_gct_cursor = 0;               // GCT->W
-   alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
-   LID wal_lsn_counter = 0;
-   LID clock_gsn;
-   LID rfa_gsn_flushed;
-   bool needs_remote_flush = false;
    // -------------------------------------------------------------------------------------
    u32 walFreeSpace();
    u32 walContiguousFreeSpace();
@@ -227,19 +227,19 @@ struct Worker {
    template <typename T>
    WALEntryHandler<T> reserveDTEntry(u64 requested_size, PID pid, LID gsn, DTID dt_id)
    {
-      const auto lsn = wal_lsn_counter++;
+      const auto lsn = logging.wal_lsn_counter++;
       const u64 total_size = sizeof(WALDTEntry) + requested_size;
       ensure(walContiguousFreeSpace() >= total_size);
-      active_dt_entry = new (wal_buffer + wal_wt_cursor) WALDTEntry();
-      active_dt_entry->lsn.store(lsn, std::memory_order_release);
-      active_dt_entry->magic_debugging_number = 99;
-      active_dt_entry->type = WALEntry::TYPE::DT_SPECIFIC;
-      active_dt_entry->size = total_size;
+      logging.active_dt_entry = new (logging.wal_buffer + logging.wal_wt_cursor) WALDTEntry();
+      logging.active_dt_entry->lsn.store(lsn, std::memory_order_release);
+      logging.active_dt_entry->magic_debugging_number = 99;
+      logging.active_dt_entry->type = WALEntry::TYPE::DT_SPECIFIC;
+      logging.active_dt_entry->size = total_size;
       // -------------------------------------------------------------------------------------
-      active_dt_entry->pid = pid;
-      active_dt_entry->gsn = gsn;
-      active_dt_entry->dt_id = dt_id;
-      return {active_dt_entry->payload, total_size, active_dt_entry->lsn, wal_wt_cursor};
+      logging.active_dt_entry->pid = pid;
+      logging.active_dt_entry->gsn = gsn;
+      logging.active_dt_entry->dt_id = dt_id;
+      return {logging.active_dt_entry->payload, total_size, logging.active_dt_entry->lsn, logging.wal_wt_cursor};
    }
    void submitDTEntry(u64 total_size);
    // -------------------------------------------------------------------------------------
@@ -257,8 +257,8 @@ struct Worker {
    void garbageCollection();
    void shutdown();
    // -------------------------------------------------------------------------------------
-   inline LID getCurrentGSN() { return clock_gsn; }
-   inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
+   inline LID getCurrentGSN() { return logging.clock_gsn; }
+   inline void setCurrentGSN(LID gsn) { logging.clock_gsn = gsn; }
    // -------------------------------------------------------------------------------------
    void refreshGlobalState();
    void switchToReadCommittedMode();

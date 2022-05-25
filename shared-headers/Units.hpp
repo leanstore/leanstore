@@ -56,6 +56,7 @@ using BytesArray = std::unique_ptr<u8[]>;
 template <int s>
 struct getTheSizeOf;
 // -------------------------------------------------------------------------------------
+constexpr u64 LSB = u64(1);
 constexpr u64 MSB = u64(1) << 63;
 constexpr u64 MSB_MASK = ~(MSB);
 constexpr u64 MSB2 = u64(1) << 62;

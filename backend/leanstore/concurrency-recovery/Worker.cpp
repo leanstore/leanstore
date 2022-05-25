@@ -32,21 +32,21 @@ atomic<u64> Worker::global_all_lwm = 0;
 atomic<u64> Worker::global_oltp_lwm = 0;
 atomic<u64> Worker::global_newest_olap_start_ts = 0;
 // -------------------------------------------------------------------------------------
-Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, HistoryTreeInterface& versions_space, s32 fd, const bool is_page_provider)
+Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, HistoryTreeInterface& history_tree, s32 fd, const bool is_page_provider)
     : worker_id(worker_id),
       all_workers(all_workers),
       workers_count(workers_count),
-      history_tree(versions_space),
+      history_tree(history_tree),
       ssd_fd(fd),
       is_page_provider(is_page_provider)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
-   std::memset(wal_buffer, 0, WORKER_WAL_SIZE);
+   std::memset(logging.wal_buffer, 0, WORKER_WAL_SIZE);
    if (!is_page_provider) {
-      local_snapshot_cache = make_unique<u64[]>(workers_count);
-      local_snapshot_cache_ts = make_unique<u64[]>(workers_count);
-      local_workers_start_ts = make_unique<u64[]>(workers_count + 1);
+      cc.local_snapshot_cache = make_unique<u64[]>(workers_count);
+      cc.local_snapshot_cache_ts = make_unique<u64[]>(workers_count);
+      cc.local_workers_start_ts = make_unique<u64[]>(workers_count + 1);
       global_workers_current_snapshot[worker_id] = 0;
    }
 }
@@ -55,70 +55,70 @@ Worker::~Worker() = default;
 u32 Worker::walFreeSpace()
 {
    // A , B , C : a - b + c % c
-   const auto gct_cursor = wal_gct_cursor.load();
-   if (gct_cursor == wal_wt_cursor) {
+   const auto gct_cursor = logging.wal_gct_cursor.load();
+   if (gct_cursor == logging.wal_wt_cursor) {
       return WORKER_WAL_SIZE;
-   } else if (gct_cursor < wal_wt_cursor) {
-      return gct_cursor + (WORKER_WAL_SIZE - wal_wt_cursor);
+   } else if (gct_cursor < logging.wal_wt_cursor) {
+      return gct_cursor + (WORKER_WAL_SIZE - logging.wal_wt_cursor);
    } else {
-      return gct_cursor - wal_wt_cursor;
+      return gct_cursor - logging.wal_wt_cursor;
    }
 }
 // -------------------------------------------------------------------------------------
 u32 Worker::walContiguousFreeSpace()
 {
-   const auto gct_cursor = wal_gct_cursor.load();
-   return (gct_cursor > wal_wt_cursor) ? gct_cursor - wal_wt_cursor : WORKER_WAL_SIZE - wal_wt_cursor;
+   const auto gct_cursor = logging.wal_gct_cursor.load();
+   return (gct_cursor > logging.wal_wt_cursor) ? gct_cursor - logging.wal_wt_cursor : WORKER_WAL_SIZE - logging.wal_wt_cursor;
 }
 // -------------------------------------------------------------------------------------
 void Worker::walEnsureEnoughSpace(u32 requested_size)
 {
    if (FLAGS_wal) {
       u32 wait_untill_free_bytes = requested_size + CR_ENTRY_SIZE;
-      if ((WORKER_WAL_SIZE - wal_wt_cursor) < static_cast<u32>(requested_size + CR_ENTRY_SIZE)) {
-         wait_untill_free_bytes += WORKER_WAL_SIZE - wal_wt_cursor;  // we have to skip this round
+      if ((WORKER_WAL_SIZE - logging.wal_wt_cursor) < static_cast<u32>(requested_size + CR_ENTRY_SIZE)) {
+         wait_untill_free_bytes += WORKER_WAL_SIZE - logging.wal_wt_cursor;  // we have to skip this round
       }
       // Spin until we have enough space
       while (walFreeSpace() < wait_untill_free_bytes) {
       }
       if (walContiguousFreeSpace() < requested_size + CR_ENTRY_SIZE) {  // always keep place for CR entry
-         WALMetaEntry& entry = *reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
+         WALMetaEntry& entry = *reinterpret_cast<WALMetaEntry*>(logging.wal_buffer + logging.wal_wt_cursor);
          entry.size = sizeof(WALMetaEntry);
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
-         entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
+         entry.size = WORKER_WAL_SIZE - logging.wal_wt_cursor;
          DEBUG_BLOCK() { entry.computeCRC(); }
          // -------------------------------------------------------------------------------------
-         wal_wt_cursor = 0;
+         logging.wal_wt_cursor = 0;
          publishOffset();
-         wal_next_to_clean = 0;
-         wal_buffer_round++;  // Carriage Return
+         logging.wal_next_to_clean = 0;
+         logging.wal_buffer_round++;  // Carriage Return
       }
       ensure(walContiguousFreeSpace() >= requested_size);
-      ensure(wal_wt_cursor + requested_size + CR_ENTRY_SIZE <= WORKER_WAL_SIZE);
+      ensure(logging.wal_wt_cursor + requested_size + CR_ENTRY_SIZE <= WORKER_WAL_SIZE);
    }
 }
 // -------------------------------------------------------------------------------------
 WALMetaEntry& Worker::reserveWALMetaEntry()
 {
    walEnsureEnoughSpace(sizeof(WALMetaEntry));
-   active_mt_entry = reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
-   active_mt_entry->lsn.store(wal_lsn_counter++, std::memory_order_release);
-   active_mt_entry->size = sizeof(WALMetaEntry);
-   return *active_mt_entry;
+   logging.active_mt_entry = reinterpret_cast<WALMetaEntry*>(logging.wal_buffer + logging.wal_wt_cursor);
+   logging.active_mt_entry->lsn.store(logging.wal_lsn_counter++, std::memory_order_release);
+   logging.active_mt_entry->size = sizeof(WALMetaEntry);
+   return *logging.active_mt_entry;
 }
 // -------------------------------------------------------------------------------------
 void Worker::submitWALMetaEntry()
 {
-   DEBUG_BLOCK() { active_mt_entry->computeCRC(); }
-   wal_wt_cursor += sizeof(WALMetaEntry);
+   DEBUG_BLOCK() { logging.active_mt_entry->computeCRC(); }
+   logging.wal_wt_cursor += sizeof(WALMetaEntry);
    publishOffset();
 }
 // -------------------------------------------------------------------------------------
 void Worker::submitDTEntry(u64 total_size)
 {
-   DEBUG_BLOCK() { active_dt_entry->computeCRC(); }
+   DEBUG_BLOCK() { logging.active_dt_entry->computeCRC(); }
    COUNTERS_BLOCK() { WorkerCounters::myCounters().wal_write_bytes += total_size; }
-   wal_wt_cursor += total_size;
+   logging.wal_wt_cursor += total_size;
    publishMaxGSNOffset();
 }
 // -------------------------------------------------------------------------------------
@@ -163,22 +163,22 @@ void Worker::refreshGlobalState()
       TXID global_oltp_lwm_buffer = std::numeric_limits<TXID>::max();
       bool skipped_a_worker = false;
       for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
-         if (all_workers[w_i]->local_latest_lwm_for_tx == all_workers[w_i]->local_latest_write_tx) {
+         if (all_workers[w_i]->cc.local_latest_lwm_for_tx == all_workers[w_i]->cc.local_latest_write_tx) {
             skipped_a_worker = true;
             continue;
          } else {
-            all_workers[w_i]->local_latest_lwm_for_tx.store(all_workers[w_i]->local_latest_write_tx, std::memory_order_release);
+            all_workers[w_i]->cc.local_latest_lwm_for_tx.store(all_workers[w_i]->cc.local_latest_write_tx, std::memory_order_release);
          }
          // -------------------------------------------------------------------------------------
          TXID its_all_lwm_buffer = 0, its_oltp_lwm_buffer = 0;
          u8 key[sizeof(TXID)];
          utils::fold(key, global_oldest_all_start_ts);
-         all_workers[w_i]->commit_tree->prefixLookupForPrev(
+         all_workers[w_i]->cc.commit_tree->prefixLookupForPrev(
              key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_all_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
          // -------------------------------------------------------------------------------------
          if (FLAGS_olap_mode && global_oldest_all_start_ts != global_oldest_oltp_start_ts) {
             utils::fold(key, global_oldest_oltp_start_ts);
-            all_workers[w_i]->commit_tree->prefixLookupForPrev(
+            all_workers[w_i]->cc.commit_tree->prefixLookupForPrev(
                 key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_oltp_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
             ensure(its_all_lwm_buffer <= its_oltp_lwm_buffer);
             global_oltp_lwm_buffer = std::min<TXID>(its_oltp_lwm_buffer, global_oltp_lwm_buffer);
@@ -188,10 +188,10 @@ void Worker::refreshGlobalState()
          // -------------------------------------------------------------------------------------
          global_all_lwm_buffer = std::min<TXID>(its_all_lwm_buffer, global_all_lwm_buffer);
          // -------------------------------------------------------------------------------------
-         all_workers[w_i]->local_lwm_latch.store(all_workers[w_i]->local_lwm_latch.load() + 1, std::memory_order_release);  // Latch
-         all_workers[w_i]->all_lwm_receiver.store(its_all_lwm_buffer, std::memory_order_release);
-         all_workers[w_i]->oltp_lwm_receiver.store(its_oltp_lwm_buffer, std::memory_order_release);
-         all_workers[w_i]->local_lwm_latch.store(all_workers[w_i]->local_lwm_latch.load() + 1, std::memory_order_release);  // Release
+         all_workers[w_i]->cc.local_lwm_latch.store(all_workers[w_i]->cc.local_lwm_latch.load() + 1, std::memory_order_release);  // Latch
+         all_workers[w_i]->cc.all_lwm_receiver.store(its_all_lwm_buffer, std::memory_order_release);
+         all_workers[w_i]->cc.oltp_lwm_receiver.store(its_oltp_lwm_buffer, std::memory_order_release);
+         all_workers[w_i]->cc.local_lwm_latch.store(all_workers[w_i]->cc.local_lwm_latch.load() + 1, std::memory_order_release);  // Release
       }
       if (!skipped_a_worker) {
          global_all_lwm.store(global_all_lwm_buffer, std::memory_order_release);
@@ -213,7 +213,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
    }
    // -------------------------------------------------------------------------------------
    if (FLAGS_wal) {
-      current_tx_wal_start = wal_wt_cursor;
+      current_tx_wal_start = logging.wal_wt_cursor;
       if (!read_only) {
          WALMetaEntry& entry = reserveWALMetaEntry();
          entry.type = WALEntry::TYPE::TX_START;
@@ -228,15 +228,15 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
             setCurrentGSN(sync_point);
             publishMaxGSNOffset();
          }
-         rfa_gsn_flushed = Worker::global_gsn_flushed.load();
-         needs_remote_flush = false;
+         logging.rfa_gsn_flushed = Worker::global_gsn_flushed.load();
+         logging.needs_remote_flush = false;
       } else {
-         needs_remote_flush = true;
+         logging.needs_remote_flush = true;
       }
       // -------------------------------------------------------------------------------------
       active_tx.state = Transaction::STATE::STARTED;
       active_tx.has_wrote = false;
-      active_tx.min_observed_gsn_when_started = clock_gsn;
+      active_tx.min_observed_gsn_when_started = logging.clock_gsn;
       active_tx.current_tx_mode = next_tx_type;
       active_tx.current_tx_isolation_level = next_tx_isolation_level;
       active_tx.is_read_only = read_only;
@@ -253,7 +253,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          } else {
             global_workers_current_snapshot[worker_id].store(active_tx.tx_id, std::memory_order_release);
          }
-         local_global_all_lwm_cache = global_all_lwm.load();
+         cc.local_global_all_lwm_cache = global_all_lwm.load();
          // -------------------------------------------------------------------------------------
          if (prev_tx.isReadCommitted() || prev_tx.isReadUncommitted()) {
             switchToSnapshotIsolationMode();
@@ -305,69 +305,69 @@ void Worker::garbageCollection()
    // TODO: smooth purge, we should not let the system hang on this, as a quick fix, it should be enough if we purge in small batches
    utils::Timer timer(CRCounters::myCounters().cc_ms_gc);
 synclwm : {
-   u64 lwm_version = local_lwm_latch.load();
-   while ((lwm_version = local_lwm_latch.load()) & 1)
+   u64 lwm_version = cc.local_lwm_latch.load();
+   while ((lwm_version = cc.local_lwm_latch.load()) & 1)
       ;
-   local_all_lwm = all_lwm_receiver.load();
-   local_oltp_lwm = oltp_lwm_receiver.load();
-   if (lwm_version != local_lwm_latch.load()) {
+   cc.local_all_lwm = cc.all_lwm_receiver.load();
+   cc.local_oltp_lwm = cc.oltp_lwm_receiver.load();
+   if (lwm_version != cc.local_lwm_latch.load()) {
       goto synclwm;
    }
-   ensure(!FLAGS_olap_mode || local_all_lwm <= local_oltp_lwm);
+   ensure(!FLAGS_olap_mode || cc.local_all_lwm <= cc.local_oltp_lwm);
 }
    // ATTENTION: atm, with out extra sync, the two lwm can not
-   if (local_all_lwm > cleaned_untill_oltp_lwm) {
+   if (cc.local_all_lwm > cc.cleaned_untill_oltp_lwm) {
       // PURGE!
       history_tree.purgeVersions(
-          worker_id, 0, local_all_lwm - 1,
+          worker_id, 0, cc.local_all_lwm - 1,
           [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length, const bool called_before) {
              leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id, called_before);
              COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
           },
           0);
-      cleaned_untill_oltp_lwm = std::max(local_all_lwm, cleaned_untill_oltp_lwm);
+      cc.cleaned_untill_oltp_lwm = std::max(cc.local_all_lwm, cc.cleaned_untill_oltp_lwm);
       // -------------------------------------------------------------------------------------
       {
          TXID erase_till = 0;
          u8 key[sizeof(TXID)];
          utils::fold(key, global_oldest_all_start_ts);
-         commit_tree->prefixLookupForPrev(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_till); });
+         cc.commit_tree->prefixLookupForPrev(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_till); });
          if (erase_till) {
             u8 start_key[sizeof(TXID)];
             utils::fold(start_key, u64(0));
             u8 end_key[sizeof(TXID)];
             utils::fold(end_key, erase_till - 1);
-            commit_tree->rangeRemove(start_key, sizeof(TXID), end_key, sizeof(TXID));
+            cc.commit_tree->rangeRemove(start_key, sizeof(TXID), end_key, sizeof(TXID));
          }
       }
    }
-   if (FLAGS_olap_mode && local_all_lwm != local_oltp_lwm) {
+   if (FLAGS_olap_mode && cc.local_all_lwm != cc.local_oltp_lwm) {
       //  TXID between OLAP and OLTP
       TXID erase_till = 0, erase_from = 0;
       u8 key[sizeof(TXID)];
       utils::fold(key, global_newest_olap_start_ts);
-      commit_tree->prefixLookup(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_from); });
+      cc.commit_tree->prefixLookup(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_from); });
       utils::fold(key, global_oldest_oltp_start_ts);
-      commit_tree->prefixLookupForPrev(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_till); });
+      cc.commit_tree->prefixLookupForPrev(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_till); });
       if (erase_till) {
          u8 start_key[sizeof(TXID)];
          utils::fold(start_key, erase_from + 1);
          u8 end_key[sizeof(TXID)];
          utils::fold(end_key, erase_till - 1);
-         commit_tree->rangeRemove(start_key, sizeof(TXID), end_key, sizeof(TXID), false);
+         cc.commit_tree->rangeRemove(start_key, sizeof(TXID), end_key, sizeof(TXID), false);
       }
       // -------------------------------------------------------------------------------------
-      if (local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
+      if (cc.local_oltp_lwm > 0 && cc.local_oltp_lwm > cc.cleaned_untill_oltp_lwm) {
          // MOVE deletes to the graveyard
-         const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
-         history_tree.visitRemoveVersions(worker_id, from_tx_id, local_oltp_lwm - 1,
-                                            [&](const TXID tx_id, const DTID dt_id, const u8* version_payload,
-                                                [[maybe_unused]] u64 version_payload_length, const bool called_before) {
-                                               cleaned_untill_oltp_lwm = std::max(cleaned_untill_oltp_lwm, tx_id + 1);
-                                               leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
-                                                                                                       called_before);
-                                               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
-                                            });
+         const u64 from_tx_id = cc.cleaned_untill_oltp_lwm > 0 ? cc.cleaned_untill_oltp_lwm : 0;
+         history_tree.visitRemoveVersions(worker_id, from_tx_id, cc.local_oltp_lwm - 1,
+                                          [&](const TXID tx_id, const DTID dt_id, const u8* version_payload,
+                                              [[maybe_unused]] u64 version_payload_length, const bool called_before) {
+                                             cc.cleaned_untill_oltp_lwm = std::max(cc.cleaned_untill_oltp_lwm, tx_id + 1);
+                                             leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, worker_id, tx_id,
+                                                                                                     called_before);
+                                             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
+                                          });
       }
    }
 }
@@ -388,16 +388,16 @@ void Worker::commitTX()
          submitWALMetaEntry();
       }
       // -------------------------------------------------------------------------------------
-      active_tx.max_observed_gsn = clock_gsn;
+      active_tx.max_observed_gsn = logging.clock_gsn;
       active_tx.state = Transaction::STATE::READY_TO_COMMIT;
       // We don't have pmem, so we can only avoid remote flushes for real if the tx is a single lookup
       if (!FLAGS_wal_rfa_pmem_simulate) {
-         needs_remote_flush |= !activeTX().isReadOnly();
+         logging.needs_remote_flush |= !activeTX().isReadOnly();
       }
-      if (needs_remote_flush) {  // RFA
-         std::unique_lock<std::mutex> g(worker_group_commiter_mutex);
-         ready_to_commit_queue.push_back(active_tx);
-         ready_to_commit_queue_size += 1;
+      if (logging.needs_remote_flush) {  // RFA
+         std::unique_lock<std::mutex> g(logging.precommitted_queue_mutex);
+         logging.precommitted_queue.push_back(active_tx);
+         logging.ready_to_commit_queue_size += 1;
       } else {
          active_tx.state = Transaction::STATE::COMMITTED;
          CRCounters::myCounters().rfa_committed_tx += 1;
@@ -405,13 +405,13 @@ void Worker::commitTX()
       // -------------------------------------------------------------------------------------
       if (activeTX().hasWrote()) {
          TXID commit_ts;
-         commit_tree->append(
+         cc.commit_tree->append(
              [&](u8* key) {
                 commit_ts = global_logical_clock.fetch_add(1);
                 utils::fold(key, commit_ts);
              },
-             sizeof(TXID), [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID), commit_tree_handler);
-         local_latest_write_tx.store(commit_ts, std::memory_order_release);
+             sizeof(TXID), [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.TTS(); }, sizeof(TXID), cc.commit_tree_handler);
+         cc.local_latest_write_tx.store(commit_ts, std::memory_order_release);
       }
       // Only committing snapshot/ changing between SI and lower modes
       if (activeTX().atLeastSI()) {
@@ -450,7 +450,7 @@ void Worker::abortTX()
 // -------------------------------------------------------------------------------------
 Worker::VISIBILITY Worker::isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts)
 {
-   return local_workers_start_ts[whom_worker_id] > commit_ts ? VISIBILITY::VISIBLE_ALREADY : VISIBILITY::VISIBLE_NEXT_ROUND;
+   return cc.local_workers_start_ts[whom_worker_id] > commit_ts ? VISIBILITY::VISIBLE_ALREADY : VISIBILITY::VISIBLE_NEXT_ROUND;
 }
 // -------------------------------------------------------------------------------------
 // UNDETERMINED is not possible atm because we spin on start_ts
@@ -472,8 +472,8 @@ TXID Worker::getCommitTimestamp(WORKERID worker_id, TXID tx_ts)
    TXID commit_ts = std::numeric_limits<TXID>::max();  // TODO: align with GC
    u8 key[sizeof(TXID)];
    utils::fold(key, start_ts);
-   all_workers[worker_id]->commit_tree->prefixLookup(key, sizeof(TXID),
-                                                             [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, commit_ts); });
+   all_workers[worker_id]->cc.commit_tree->prefixLookup(key, sizeof(TXID),
+                                                        [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, commit_ts); });
    ensure(commit_ts > start_ts);
    return commit_ts;
 }
@@ -500,30 +500,30 @@ bool Worker::isVisibleForMe(WORKERID other_worker_id, u64 tx_ts, bool to_write)
          u8 key[sizeof(TXID)];
          utils::fold(key, std::numeric_limits<TXID>::max());
          TXID committed_till = 0;
-         all_workers[other_worker_id]->commit_tree->prefixLookupForPrev(
+         all_workers[other_worker_id]->cc.commit_tree->prefixLookupForPrev(
              key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { committed_till = *reinterpret_cast<const TXID*>(s_value); });
          return committed_till >= tx_ts;
       } else if (activeTX().atLeastSI()) {
          if (is_commit_ts) {
             return active_tx.TTS() > committed_ts;
          }
-         if (start_ts < local_global_all_lwm_cache) {
+         if (start_ts < cc.local_global_all_lwm_cache) {
             return true;
          }
          // -------------------------------------------------------------------------------------
-         if (local_snapshot_cache_ts[other_worker_id] == active_tx.TTS()) {  // Use the cache
-            return local_snapshot_cache[other_worker_id] >= start_ts;
-         } else if (local_snapshot_cache[other_worker_id] >= start_ts) {
+         if (cc.local_snapshot_cache_ts[other_worker_id] == active_tx.TTS()) {  // Use the cache
+            return cc.local_snapshot_cache[other_worker_id] >= start_ts;
+         } else if (cc.local_snapshot_cache[other_worker_id] >= start_ts) {
             return true;
          }
          TXID largest_visible_tx_id = 0;
          u8 key[sizeof(TXID)];
          utils::fold(key, active_tx.TTS());
-         OP_RESULT ret = all_workers[other_worker_id]->commit_tree->prefixLookupForPrev(
+         OP_RESULT ret = all_workers[other_worker_id]->cc.commit_tree->prefixLookupForPrev(
              key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { largest_visible_tx_id = *reinterpret_cast<const TXID*>(s_value); });
          if (ret == OP_RESULT::OK) {
-            local_snapshot_cache[other_worker_id] = largest_visible_tx_id;
-            local_snapshot_cache_ts[other_worker_id] = active_tx.TTS();
+            cc.local_snapshot_cache[other_worker_id] = largest_visible_tx_id;
+            cc.local_snapshot_cache_ts[other_worker_id] = active_tx.TTS();
             return largest_visible_tx_id >= start_ts;
          }
          return false;
@@ -548,8 +548,8 @@ bool Worker::isVisibleForAll(WORKERID, TXID ts)
 void Worker::iterateOverCurrentTXEntries(std::function<void(const WALEntry& entry)> callback)
 {
    u64 cursor = current_tx_wal_start;
-   while (cursor != wal_wt_cursor) {
-      const WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_buffer + cursor);
+   while (cursor != logging.wal_wt_cursor) {
+      const WALEntry& entry = *reinterpret_cast<WALEntry*>(logging.wal_buffer + cursor);
       DEBUG_BLOCK()
       {
          if (entry.type != WALEntry::TYPE::CARRIAGE_RETURN)

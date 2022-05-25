@@ -79,65 +79,65 @@ void CRManager::groupCommiter()
       for (u32 w_i = 0; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
          {
-            worker.group_commit_data.ready_to_commit_cut = worker.ready_to_commit_queue_size;
+            worker.logging.group_commit_data.ready_to_commit_cut = worker.logging.ready_to_commit_queue_size;
             auto max_gsn_offset_tuple = worker.fetchMaxGSNOffset();
-            worker.group_commit_data.gsn_to_flush = std::get<0>(max_gsn_offset_tuple);
-            worker.group_commit_data.wt_cursor_to_flush = std::get<1>(max_gsn_offset_tuple);
+            worker.logging.group_commit_data.gsn_to_flush = std::get<0>(max_gsn_offset_tuple);
+            worker.logging.group_commit_data.wt_cursor_to_flush = std::get<1>(max_gsn_offset_tuple);
             {
-               auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.wal_buffer + worker.wal_gct_cursor);
-               worker.group_commit_data.first_lsn_in_chunk = wal_entry.lsn;
+               auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.logging.wal_buffer + worker.logging.wal_gct_cursor);
+               worker.logging.group_commit_data.first_lsn_in_chunk = wal_entry.lsn;
             }
             // -------------------------------------------------------------------------------------
-            max_safe_gsn = std::min<LID>(max_safe_gsn, worker.group_commit_data.gsn_to_flush);
-            max_all_workers_gsn = std::max<LID>(max_all_workers_gsn, worker.group_commit_data.gsn_to_flush);
-            min_all_workers_gsn = std::min<LID>(min_all_workers_gsn, worker.group_commit_data.gsn_to_flush);
+            max_safe_gsn = std::min<LID>(max_safe_gsn, worker.logging.group_commit_data.gsn_to_flush);
+            max_all_workers_gsn = std::max<LID>(max_all_workers_gsn, worker.logging.group_commit_data.gsn_to_flush);
+            min_all_workers_gsn = std::min<LID>(min_all_workers_gsn, worker.logging.group_commit_data.gsn_to_flush);
          }
          {
-            if (worker.group_commit_data.wt_cursor_to_flush > worker.wal_gct_cursor) {
-               const u64 lower_offset = utils::downAlign(worker.wal_gct_cursor);
-               const u64 upper_offset = utils::upAlign(worker.group_commit_data.wt_cursor_to_flush);
-               const u64 size = worker.group_commit_data.wt_cursor_to_flush - worker.wal_gct_cursor;
+            if (worker.logging.group_commit_data.wt_cursor_to_flush > worker.logging.wal_gct_cursor) {
+               const u64 lower_offset = utils::downAlign(worker.logging.wal_gct_cursor);
+               const u64 upper_offset = utils::upAlign(worker.logging.group_commit_data.wt_cursor_to_flush);
+               const u64 size = worker.logging.group_commit_data.wt_cursor_to_flush - worker.logging.wal_gct_cursor;
                const u64 size_aligned = upper_offset - lower_offset;
                // -------------------------------------------------------------------------------------
                if (!FLAGS_wal_io_hack) {
                   ssd_offset -= size_aligned;
-                  add_pwrite(worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
+                  add_pwrite(worker.logging.wal_buffer + lower_offset, size_aligned, ssd_offset);
                }
                // -------------------------------------------------------------------------------------
                COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
-               chunk.slot[w_i].offset = ssd_offset + (worker.wal_gct_cursor - lower_offset);
+               chunk.slot[w_i].offset = ssd_offset + (worker.logging.wal_gct_cursor - lower_offset);
                chunk.slot[w_i].length = size;
                ensure(chunk.slot[w_i].offset < end_of_block_device);
                chunk.total_size += size_aligned;
                ensure(chunk.slot[w_i].offset >= ssd_offset);
-            } else if (worker.group_commit_data.wt_cursor_to_flush < worker.wal_gct_cursor) {
+            } else if (worker.logging.group_commit_data.wt_cursor_to_flush < worker.logging.wal_gct_cursor) {
                {
                   // XXXXXX---------------
                   const u64 lower_offset = 0;
-                  const u64 upper_offset = utils::upAlign(worker.group_commit_data.wt_cursor_to_flush);
-                  const u64 size = worker.group_commit_data.wt_cursor_to_flush;
+                  const u64 upper_offset = utils::upAlign(worker.logging.group_commit_data.wt_cursor_to_flush);
+                  const u64 size = worker.logging.group_commit_data.wt_cursor_to_flush;
                   const u64 size_aligned = upper_offset - lower_offset;
                   // -------------------------------------------------------------------------------------
                   if (!FLAGS_wal_io_hack) {
                      ssd_offset -= size_aligned;
-                     add_pwrite(worker.wal_buffer, size_aligned, ssd_offset);
+                     add_pwrite(worker.logging.wal_buffer, size_aligned, ssd_offset);
                   }
                   COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                   chunk.slot[w_i].length = size;
                }
                {
                   // ------------XXXXXXXXX
-                  const u64 lower_offset = utils::downAlign(worker.wal_gct_cursor);
+                  const u64 lower_offset = utils::downAlign(worker.logging.wal_gct_cursor);
                   const u64 upper_offset = Worker::WORKER_WAL_SIZE;
-                  const u64 size = Worker::WORKER_WAL_SIZE - worker.wal_gct_cursor;
+                  const u64 size = Worker::WORKER_WAL_SIZE - worker.logging.wal_gct_cursor;
                   const u64 size_aligned = upper_offset - lower_offset;
                   // -------------------------------------------------------------------------------------
                   if (!FLAGS_wal_io_hack) {
                      ssd_offset -= size_aligned;
-                     add_pwrite(worker.wal_buffer + lower_offset, size_aligned, ssd_offset);
+                     add_pwrite(worker.logging.wal_buffer + lower_offset, size_aligned, ssd_offset);
                   }
                   COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
-                  chunk.slot[w_i].offset = ssd_offset + (worker.wal_gct_cursor - lower_offset);
+                  chunk.slot[w_i].offset = ssd_offset + (worker.logging.wal_gct_cursor - lower_offset);
                   chunk.slot[w_i].length += size;
                }
                ensure(chunk.slot[w_i].offset >= ssd_offset);
@@ -149,14 +149,16 @@ void CRManager::groupCommiter()
       }
       // -------------------------------------------------------------------------------------
       // Phase 2
-      if (std::get<0>(workers[0]->fetchMaxGSNOffset()) > workers[0]->group_commit_data.gsn_to_flush) {  // No new logs have been added since then
-         max_safe_gsn = std::min<LID>(workers[0]->group_commit_data.gsn_to_flush, max_safe_gsn);
+      if (std::get<0>(workers[0]->fetchMaxGSNOffset()) >
+          workers[0]->logging.group_commit_data.gsn_to_flush) {  // No new logs have been added since then
+         max_safe_gsn = std::min<LID>(workers[0]->logging.group_commit_data.gsn_to_flush, max_safe_gsn);
       }
       for (u32 w_i = 1; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
-         worker.group_commit_data.max_safe_gsn_to_commit = std::min<LID>(worker.group_commit_data.max_safe_gsn_to_commit, max_safe_gsn);
-         if (std::get<0>(worker.fetchMaxGSNOffset()) > worker.group_commit_data.gsn_to_flush) {
-            max_safe_gsn = std::min<LID>(max_safe_gsn, worker.group_commit_data.gsn_to_flush);
+         worker.logging.group_commit_data.max_safe_gsn_to_commit =
+             std::min<LID>(worker.logging.group_commit_data.max_safe_gsn_to_commit, max_safe_gsn);
+         if (std::get<0>(worker.fetchMaxGSNOffset()) > worker.logging.group_commit_data.gsn_to_flush) {
+            max_safe_gsn = std::min<LID>(max_safe_gsn, worker.logging.group_commit_data.gsn_to_flush);
          }
       }
       // -------------------------------------------------------------------------------------
@@ -214,22 +216,22 @@ void CRManager::groupCommiter()
          Worker& worker = *workers[w_i];
          {
             u64 tx_i = 0;
-            worker.wal_gct_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_release);
-            worker.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
-            if (worker.group_commit_data.ready_to_commit_cut) {
-               std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
+            worker.logging.wal_gct_cursor.store(worker.logging.group_commit_data.wt_cursor_to_flush, std::memory_order_release);
+            worker.logging.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
+            if (worker.logging.group_commit_data.ready_to_commit_cut) {
+               std::unique_lock<std::mutex> g(worker.logging.precommitted_queue_mutex);
                // -------------------------------------------------------------------------------------
-               while (tx_i < worker.group_commit_data.ready_to_commit_cut) {
-                  if (worker.ready_to_commit_queue[tx_i].max_observed_gsn < worker.group_commit_data.max_safe_gsn_to_commit) {
-                     worker.ready_to_commit_queue[tx_i].state = Transaction::STATE::COMMITTED;
+               while (tx_i < worker.logging.group_commit_data.ready_to_commit_cut) {
+                  if (worker.logging.precommitted_queue[tx_i].max_observed_gsn < worker.logging.group_commit_data.max_safe_gsn_to_commit) {
+                     worker.logging.precommitted_queue[tx_i].state = Transaction::STATE::COMMITTED;
                      committed_tx++;
                      tx_i++;
                   } else {
                      break;
                   }
                }
-               worker.ready_to_commit_queue.erase(worker.ready_to_commit_queue.begin(), worker.ready_to_commit_queue.begin() + tx_i);
-               worker.ready_to_commit_queue_size -= tx_i;
+               worker.logging.precommitted_queue.erase(worker.logging.precommitted_queue.begin(), worker.logging.precommitted_queue.begin() + tx_i);
+               worker.logging.ready_to_commit_queue_size -= tx_i;
             }
          }
       }
