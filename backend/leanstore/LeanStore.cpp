@@ -256,6 +256,8 @@ void LeanStore::printStats(bool reset)
            << endl;
       cout << "total jumps: " << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::jumps) << endl;
       cout << "total tx: " << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::tx_counter) << endl;
+      cout << "total writes: " << utils::threadlocal::sum_reset(PPCounters::pp_counters, &PPCounters::total_writes) << endl;
+      cout << "total evictions: " << utils::threadlocal::sum_reset(PPCounters::pp_counters, &PPCounters::total_evictions) << endl;
    }else{
       cout << "no reset" << endl;
       cout << "total newPages: " << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::new_pages_counter) << endl;
@@ -266,6 +268,8 @@ void LeanStore::printStats(bool reset)
            << endl;
       cout << "total jumps: " << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::jumps) << endl;
       cout << "total tx: " << utils::threadlocal::sum_no_reset(WorkerCounters::worker_counters, &WorkerCounters::tx_counter) << endl;
+      cout << "total writes: " << utils::threadlocal::sum_no_reset(PPCounters::pp_counters, &PPCounters::total_writes) << endl;
+      cout << "total evictions: " << utils::threadlocal::sum_no_reset(PPCounters::pp_counters, &PPCounters::total_evictions) << endl;
 
    }
 }

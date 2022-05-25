@@ -3,6 +3,7 @@
 #include "Exceptions.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
+#include "leanstore/profiling/counters/PPCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include <signal.h>
 
@@ -72,6 +73,7 @@ u64 AsyncWriteBuffer::pollEventsSync()
          ensure(false);
       }
       pending_requests = 0;
+      leanstore::PPCounters::myCounters().total_evictions += done_requests;
       return done_requests;
    }
    return 0;

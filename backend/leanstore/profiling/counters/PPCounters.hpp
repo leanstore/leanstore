@@ -24,6 +24,7 @@ struct PPCounters {
    atomic<u64> touched_bfs_counter = 0, total_touches = 0;
    atomic<u64> flushed_pages_counter = 0;
    atomic<u64> unswizzled_pages_counter = 0;
+   atomic<u64> total_writes = 0;
    // -------------------------------------------------------------------------------------
    static tbb::enumerable_thread_specific<PPCounters> pp_counters;
    static tbb::enumerable_thread_specific<PPCounters>::reference myCounters() { return pp_counters.local(); }

@@ -28,6 +28,7 @@ void ResultsTable::open()
    columns.emplace("total_jumps", [&](Column& col) { col << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::jumps); });
    columns.emplace("total_evictions", [&](Column& col) { col << utils::threadlocal::sum_reset(PPCounters::pp_counters, &PPCounters::total_evictions); });
    columns.emplace("total_touches", [&](Column& col) { col << utils::threadlocal::sum_reset(PPCounters::pp_counters, &PPCounters::total_touches); });
+   columns.emplace("total_writes", [&](Column& col) { col << utils::threadlocal::sum_reset(PPCounters::pp_counters, &PPCounters::total_writes); });
    columns.emplace("total_transactions", [&](Column& col) { col << utils::threadlocal::sum_reset(WorkerCounters::worker_counters, &WorkerCounters::tx_counter); });
    columns.emplace("total_time", [&](Column& col) { col << total_seconds; });
    // -------------------------------------------------------------------------------------
