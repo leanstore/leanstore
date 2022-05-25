@@ -73,7 +73,7 @@ u64 AsyncWriteBuffer::pollEventsSync()
          ensure(false);
       }
       pending_requests = 0;
-      leanstore::PPCounters::myCounters().total_evictions += done_requests;
+      leanstore::PPCounters::myCounters().total_writes += done_requests;
       return done_requests;
    }
    return 0;
