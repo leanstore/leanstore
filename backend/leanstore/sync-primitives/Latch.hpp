@@ -5,16 +5,7 @@
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-#ifdef __x86_64__
-#include <emmintrin.h>
-#define MYPAUSE() _mm_pause()
-#endif
-#ifdef __aarch64__
-#include <arm_acle.h>
-#define MYPAUSE() asm("YIELD");
-#endif
 #include <unistd.h>
-
 #include <atomic>
 #include <shared_mutex>
 // -------------------------------------------------------------------------------------
@@ -22,16 +13,6 @@ namespace leanstore
 {
 namespace storage
 {
-#define MAX_BACKOFF FLAGS_backoff  // FLAGS_x
-#define BACKOFF_STRATEGIES()                                              \
-   if (FLAGS_backoff) {                                                   \
-      for (u64 i = utils::RandomGenerator::getRandU64(0, mask); i; --i) { \
-         MYPAUSE();                                                       \
-      }                                                                   \
-      mask = mask < MAX_BACKOFF ? mask << 1 : MAX_BACKOFF;                \
-   }
-
-// -------------------------------------------------------------------------------------
 struct RestartException {
   public:
    RestartException() {}

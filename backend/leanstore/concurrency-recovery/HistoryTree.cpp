@@ -1,4 +1,4 @@
-#include "VersionsSpace.hpp"
+#include "HistoryTree.hpp"
 
 #include "Units.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
@@ -19,7 +19,7 @@ namespace cr
 {
 using namespace leanstore::storage::btree;
 // -------------------------------------------------------------------------------------
-void VersionsSpace::insertVersion(WORKERID session_id,
+void HistoryTree::insertVersion(WORKERID session_id,
                                   TXID tx_id,
                                   COMMANDID command_id,
                                   DTID dt_id,
@@ -106,7 +106,7 @@ void VersionsSpace::insertVersion(WORKERID session_id,
    }
 }
 // -------------------------------------------------------------------------------------
-bool VersionsSpace::retrieveVersion(WORKERID worker_id,
+bool HistoryTree::retrieveVersion(WORKERID worker_id,
                                     TXID tx_id,
                                     COMMANDID command_id,
                                     const bool is_remove,
@@ -138,7 +138,7 @@ bool VersionsSpace::retrieveVersion(WORKERID worker_id,
    return false;
 }
 // -------------------------------------------------------------------------------------
-void VersionsSpace::purgeVersions(WORKERID worker_id,
+void HistoryTree::purgeVersions(WORKERID worker_id,
                                   TXID from_tx_id,
                                   TXID to_tx_id,
                                   RemoveVersionCallback cb,
@@ -277,7 +277,7 @@ void VersionsSpace::purgeVersions(WORKERID worker_id,
 }
 // -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer
-void VersionsSpace::visitRemoveVersions(WORKERID worker_id,
+void HistoryTree::visitRemoveVersions(WORKERID worker_id,
                                         TXID from_tx_id,
                                         TXID to_tx_id,
                                         std::function<void(const TXID, const DTID, const u8*, u64, const bool visited_before)> cb)

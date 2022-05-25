@@ -63,7 +63,7 @@ int main(int argc, char** argv)
    // Insert values
    const u64 n = ycsb_tuple_count;
    // -------------------------------------------------------------------------------------
-   if(FLAGS_tmp4){
+   if (FLAGS_tmp4) {
       // -------------------------------------------------------------------------------------
       std::ofstream csv;
       csv.open("zipf.csv", ios::trunc);
@@ -201,7 +201,6 @@ int main(int argc, char** argv)
       sleep(FLAGS_run_for_seconds);
       keep_running = false;
       while (running_threads_counter) {
-         MYPAUSE();
       }
       crm.joinAll();
    }

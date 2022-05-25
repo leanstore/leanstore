@@ -47,7 +47,7 @@ LeanStore::LeanStore()
    }
    // -------------------------------------------------------------------------------------
    // Check if configurations make sense
-   if ((FLAGS_vi || FLAGS_vw) && !FLAGS_wal) {
+   if ((FLAGS_vi) && !FLAGS_wal) {
       SetupFailed("You have to enable WAL");
    }
    if (FLAGS_isolation_level == "si" && (!FLAGS_mv | !FLAGS_vi)) {
@@ -81,7 +81,6 @@ LeanStore::LeanStore()
    BMC::global_bf = buffer_manager.get();
    // -------------------------------------------------------------------------------------
    DTRegistry::global_dt_registry.registerDatastructureType(0, storage::btree::BTreeLL::getMeta());
-   DTRegistry::global_dt_registry.registerDatastructureType(1, storage::btree::BTreeVW::getMeta());
    DTRegistry::global_dt_registry.registerDatastructureType(2, storage::btree::BTreeVI::getMeta());
    // -------------------------------------------------------------------------------------
    if (FLAGS_recover) {
@@ -95,17 +94,17 @@ LeanStore::LeanStore()
       end_of_block_device = FLAGS_wal_offset_gib * 1024 * 1024 * 1024;
    }
    // -------------------------------------------------------------------------------------
-   versions_space = std::make_unique<cr::VersionsSpace>();
-   cr_manager = make_unique<cr::CRManager>(*versions_space.get(), ssd_fd, end_of_block_device);
+   history_tree = std::make_unique<cr::HistoryTree>();
+   cr_manager = make_unique<cr::CRManager>(*history_tree.get(), ssd_fd, end_of_block_device);
    cr::CRManager::global = cr_manager.get();
    cr_manager->scheduleJobSync(0, [&]() {
-      versions_space->update_btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
-      versions_space->remove_btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
+      history_tree->update_btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
+      history_tree->remove_btrees = std::make_unique<leanstore::storage::btree::BTreeLL*[]>(FLAGS_worker_threads);
       for (u64 w_i = 0; w_i < FLAGS_worker_threads; w_i++) {
          std::string name = "_history_tree_" + std::to_string(w_i);
-         versions_space->update_btrees[w_i] = &registerBTreeLL(name + "_updates", {.enable_wal = false, .use_bulk_insert = true});
-         versions_space->remove_btrees[w_i] = &registerBTreeLL(name + "_removes", {.enable_wal = false, .use_bulk_insert = true});
-         cr_manager->workers[w_i]->commit_to_start_map =
+         history_tree->update_btrees[w_i] = &registerBTreeLL(name + "_updates", {.enable_wal = false, .use_bulk_insert = true});
+         history_tree->remove_btrees[w_i] = &registerBTreeLL(name + "_removes", {.enable_wal = false, .use_bulk_insert = true});
+         cr_manager->workers[w_i]->commit_tree =
              &registerBTreeLL("_commit_tree_" + std::to_string(w_i), {.enable_wal = false, .use_bulk_insert = true});
       }
    });
@@ -242,15 +241,6 @@ storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name, storage::btree:
    return btree;
 }
 
-// -------------------------------------------------------------------------------------
-storage::btree::BTreeVW& LeanStore::registerBTreeVW(string name, storage::btree::BTreeLL::Config config)
-{
-   assert(btrees_vw.find(name) == btrees_vw.end());
-   auto& btree = btrees_vw[name];
-   DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(1, reinterpret_cast<void*>(&btree), name);
-   btree.create(dtid, config);
-   return btree;
-}
 // -------------------------------------------------------------------------------------
 storage::btree::BTreeVI& LeanStore::registerBTreeVI(string name, storage::btree::BTreeLL::Config config)
 {
@@ -393,9 +383,6 @@ void LeanStore::deserializeState()
       if (dt_type == 0) {
          auto& btree = btrees_ll[dt_name];
          DTRegistry::global_dt_registry.registerDatastructureInstance(0, reinterpret_cast<void*>(&btree), dt_name, dt_id);
-      } else if (dt_type == 1) {
-         auto& btree = btrees_vw[dt_name];
-         DTRegistry::global_dt_registry.registerDatastructureInstance(1, reinterpret_cast<void*>(&btree), dt_name, dt_id);
       } else if (dt_type == 2) {
          auto& btree = btrees_vi[dt_name];
          DTRegistry::global_dt_registry.registerDatastructureInstance(2, reinterpret_cast<void*>(&btree), dt_name, dt_id);
@@ -454,7 +441,6 @@ LeanStore::~LeanStore()
    // -------------------------------------------------------------------------------------
    bg_threads_keep_running = false;
    while (bg_threads_counter) {
-      MYPAUSE();
    }
    if (FLAGS_persist) {
       serializeState();

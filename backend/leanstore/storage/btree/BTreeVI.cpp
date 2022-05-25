@@ -24,9 +24,6 @@ namespace btree
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, u16)> payload_callback)
 {
-   if (cr::activeTX().isSerializable()) {
-      return lookupPessimistic(o_key, o_key_length, payload_callback);
-   }
    const OP_RESULT ret = lookupOptimistic(o_key, o_key_length, payload_callback);
    if (ret == OP_RESULT::OTHER) {
       return lookupPessimistic(o_key, o_key_length, payload_callback);
@@ -41,8 +38,7 @@ OP_RESULT BTreeVI::lookupPessimistic(u8* key_buffer, const u16 key_length, funct
    Slice key(key_buffer, key_length);
    jumpmuTry()
    {
-      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this),
-                                   cr::activeTX().isSerializable() ? LATCH_FALLBACK_MODE::EXCLUSIVE : LATCH_FALLBACK_MODE::SHARED);
+      BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this), LATCH_FALLBACK_MODE::SHARED);
       auto ret = iterator.seekExact(key);
       explainIfNot(ret == OP_RESULT::OK);
       if (ret != OP_RESULT::OK) {
@@ -158,17 +154,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       if (tuple.isWriteLocked() || !isVisibleForMe(tuple.worker_id, tuple.tx_ts, true)) {
          jumpmu_return OP_RESULT::ABORT_TX;
       }
-      if (cr::activeTX().isSerializable()) {
-         if (FLAGS_2pl) {
-            if (tuple.read_lock_counter > 0 && tuple.read_lock_counter != (1ull << cr::Worker::my().workerID())) {
-               jumpmu_return OP_RESULT::ABORT_TX;
-            }
-         } else {
-            if (tuple.read_ts > cr::activeTX().TTS()) {
-               jumpmu_return OP_RESULT::ABORT_TX;
-            }
-         }
-      }
       tuple.writeLock();
       COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
       // -------------------------------------------------------------------------------------
@@ -205,7 +190,8 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             }
          }
       }
-      if (convert_to_fat_tuple && (cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts) || utils::RandomGenerator::getRandU64(0, 100000))) {
+      if (convert_to_fat_tuple &&
+          (cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts) || utils::RandomGenerator::getRandU64(0, 100000))) {
          convert_to_fat_tuple = false;
       }
       if (convert_to_fat_tuple) {
@@ -268,15 +254,6 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       tuple_head.worker_id = cr::Worker::my().workerID();
       tuple_head.tx_ts = cr::activeTX().TTS();
       tuple_head.command_id = command_id;
-      // -------------------------------------------------------------------------------------
-      if (cr::activeTX().isSerializable()) {
-         if (FLAGS_2pl) {
-            // Nothing, the WorkerID + Commit HWM are the write lock
-            tuple_head.read_lock_counter = (1ull << cr::Worker::my().workerID());
-         } else {
-            tuple_head.read_ts = cr::activeTX().TTS();
-         }
-      }
       // -------------------------------------------------------------------------------------
       tuple_head.unlock();
       iterator.markAsDirty();
@@ -384,17 +361,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       if (chain_head.isWriteLocked() || !isVisibleForMe(chain_head.worker_id, chain_head.tx_ts, true)) {
          jumpmu_return OP_RESULT::ABORT_TX;
       }
-      if (cr::activeTX().isSerializable()) {
-         if (FLAGS_2pl) {
-            if (chain_head.read_lock_counter > 0 && chain_head.read_lock_counter != (1ull << cr::Worker::my().workerID())) {
-               jumpmu_return OP_RESULT::ABORT_TX;
-            }
-         } else {
-            if (chain_head.read_ts > cr::activeTX().TTS()) {
-               jumpmu_return OP_RESULT::ABORT_TX;
-            }
-         }
-      }
       ensure(!cr::activeTX().atLeastSI() || chain_head.is_removed == false);
       if (chain_head.is_removed) {
          jumpmu_return OP_RESULT::NOT_FOUND;
@@ -435,13 +401,6 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       chain_head.worker_id = cr::Worker::my().workerID();
       chain_head.tx_ts = cr::activeTX().TTS();
       chain_head.command_id = command_id;
-      if (cr::activeTX().isSerializable()) {
-         if (FLAGS_2pl) {
-            chain_head.read_lock_counter = (1ull << cr::Worker::my().workerID());
-         } else {
-            chain_head.read_ts = cr::activeTX().TTS();
-         }
-      }
       // -------------------------------------------------------------------------------------
       chain_head.unlock();
       iterator.markAsDirty();
@@ -663,7 +622,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_ts == version_tx_id && primary_version.is_removed) {
-            if (FLAGS_imitate_wt || primary_version.tx_ts < cr::Worker::my().local_all_lwm) {
+            if (primary_version.tx_ts < cr::Worker::my().local_all_lwm) {
                ret = iterator.removeCurrent();
                iterator.markAsDirty();
                ensure(ret == OP_RESULT::OK);

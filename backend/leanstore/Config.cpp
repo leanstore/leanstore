@@ -27,7 +27,6 @@ DEFINE_bool(smt, true, "Simultaneous multithreading");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(root, false, "does this process have root rights ?");
 // -------------------------------------------------------------------------------------
-DEFINE_uint64(backoff_strategy, 0, "");
 // -------------------------------------------------------------------------------------
 DEFINE_string(zipf_path, "/bulk/zipf", "");
 DEFINE_double(zipf_factor, 0.0, "");
@@ -45,8 +44,6 @@ DEFINE_uint64(xmerge_k, 5, "");
 DEFINE_double(xmerge_target_pct, 80, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(optimistic_scan, true, "Jump to next leaf directly if the pointer in the parent has not changed");
-// -------------------------------------------------------------------------------------
-DEFINE_uint64(backoff, 512, "");
 // -------------------------------------------------------------------------------------
 DEFINE_double(tmp1, 0.0, "for ad-hoc experiments");
 DEFINE_double(tmp2, 0.0, "");
@@ -79,9 +76,7 @@ DEFINE_bool(wal_fsync, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_string(isolation_level, "si", "options: ru (READ_UNCOMMITTED), rc (READ_COMMITTED), si (SNAPSHOT_ISOLATION), ser (SERIALIZABLE)");
 DEFINE_bool(mv, true, "Multi-version");
-DEFINE_bool(2pl, false, "");
 DEFINE_uint64(si_refresh_rate, 0, "");
-DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(todo, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(vi, true, "BTree with SI using in-place version");
@@ -101,7 +96,6 @@ DEFINE_uint64(vi_fat_tuple_threshold, 4, "Minimum length of chain length before 
 DEFINE_bool(vi_dangling_pointer, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(olap_mode, true, "Use OLAP mode for long running transactions");
-DEFINE_bool(imitate_wt, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(pgc, true, "Precise garbage collection/recycling");
 DEFINE_uint64(pgc_variant, 0, "0 naive, 1 bit faster, 2 ...");

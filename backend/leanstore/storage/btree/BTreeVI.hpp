@@ -282,8 +282,7 @@ class BTreeVI : public BTreeLL
       // -------------------------------------------------------------------------------------
       jumpmuTry()
       {
-         BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this),
-                                      cr::activeTX().isSerializable() ? LATCH_FALLBACK_MODE::EXCLUSIVE : LATCH_FALLBACK_MODE::SHARED);
+         BTreeSharedIterator iterator(*static_cast<BTreeGeneric*>(this), LATCH_FALLBACK_MODE::SHARED);
          // -------------------------------------------------------------------------------------
          Slice key(o_key, o_key_length);
          OP_RESULT ret;
@@ -301,11 +300,6 @@ class BTreeVI : public BTreeLL
                keep_scanning = callback(s_key.data(), s_key.length(), value.data(), value.length());
                counter++;
             });
-            if (cr::activeTX().isSerializable()) {
-               if (std::get<0>(reconstruct) == OP_RESULT::ABORT_TX) {
-                  jumpmu_return OP_RESULT::ABORT_TX;
-               }
-            }
             const u16 chain_length = std::get<1>(reconstruct);
             COUNTERS_BLOCK()
             {
@@ -458,25 +452,8 @@ class BTreeVI : public BTreeLL
                      jumpmu_return{OP_RESULT::NOT_FOUND, 1};
                   }
                   callback(Slice(primary_version.payload, payload.length()));
-                  if (cr::activeTX().isSerializable()) {
-                     if (!cr::activeTX().isSafeSnapshot()) {
-                        if (FLAGS_2pl) {
-                           const_cast<ChainedTuple&>(primary_version).read_lock_counter |= 1ull << cr::Worker::my().worker_id;
-                           cr::Worker::my().addUnlockTask(dt_id, sizeof(UnlockEntry) + key.length(), [&](u8* entry) {
-                              auto& unlock_entry = *new (entry) UnlockEntry();
-                              unlock_entry.key_length = key.length();
-                              std::memcpy(unlock_entry.key, key.data(), key.length());
-                           });
-                        } else {
-                           const_cast<ChainedTuple&>(primary_version).read_ts = std::max<u128>(primary_version.read_ts, cr::activeTX().TTS());
-                        }
-                     }
-                  }
                   jumpmu_return{OP_RESULT::OK, 1};
                } else {
-                  if (cr::activeTX().isSerializable() && !cr::activeTX().isSafeSnapshot()) {
-                     jumpmu_return{OP_RESULT::ABORT_TX, 1};
-                  }
                   if (primary_version.isFinal()) {
                      jumpmu_return{OP_RESULT::NOT_FOUND, 1};
                   } else {

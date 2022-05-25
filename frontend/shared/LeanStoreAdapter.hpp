@@ -20,9 +20,7 @@ struct LeanStoreAdapter : Adapter<Record> {
    }
    LeanStoreAdapter(LeanStore& db, string name) : name(name)
    {
-      if (FLAGS_vw) {
-         btree = &db.registerBTreeVW(name, {.enable_wal = FLAGS_wal, .use_bulk_insert = false});
-      } else if (FLAGS_vi) {
+      if (FLAGS_vi) {
          if (FLAGS_recover) {
             btree = &db.retrieveBTreeVI(name);
          } else {

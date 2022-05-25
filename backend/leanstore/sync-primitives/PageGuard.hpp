@@ -123,7 +123,7 @@ class HybridPageGuard
    // WAL
    inline void syncGSN()
    {
-      // TODO: don't sync on temporary table pages like VersionsSpace
+      // TODO: don't sync on temporary table pages like HistoryTree
       if (FLAGS_wal) {
          if (FLAGS_wal_rfa) {
             if (bf->page.GSN > cr::Worker::my().rfa_gsn_flushed && bf->header.last_writer_worker_id != cr::Worker::my().worker_id) {

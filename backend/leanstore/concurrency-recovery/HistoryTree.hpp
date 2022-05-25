@@ -1,7 +1,7 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "Units.hpp"
-#include "VersionsSpaceInterface.hpp"
+#include "HistoryTreeInterface.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/KVInterface.hpp"
 #include "leanstore/storage/btree/BTreeLL.hpp"
@@ -29,7 +29,7 @@ struct __attribute__((packed)) VersionMeta {
 };
 // -------------------------------------------------------------------------------------
 using BTreeLL = leanstore::storage::btree::BTreeLL;
-class VersionsSpace : public VersionsSpaceInterface
+class HistoryTree : public HistoryTreeInterface
 {
   private:
    struct alignas(64) Session {

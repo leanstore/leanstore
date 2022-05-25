@@ -1,5 +1,5 @@
-#include "../shared/LeanStoreAdapter.hpp"
 #include "../shared/GenericSchema.hpp"
+#include "../shared/LeanStoreAdapter.hpp"
 #include "Units.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
@@ -112,7 +112,6 @@ int main(int argc, char** argv)
       sleep(FLAGS_run_for_seconds);
       keep_running = false;
       while (running_threads_counter) {
-         MYPAUSE();
       }
       crm.joinAll();
    }

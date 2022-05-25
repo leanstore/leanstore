@@ -1,7 +1,7 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "Units.hpp"
-#include "VersionsSpaceInterface.hpp"
+#include "HistoryTreeInterface.hpp"
 #include "Worker.hpp"
 #include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
@@ -45,9 +45,9 @@ class CRManager
    // -------------------------------------------------------------------------------------
    const s32 ssd_fd;
    const u64 end_of_block_device;
-   VersionsSpaceInterface& versions_space;
+   HistoryTreeInterface& versions_space;
    // -------------------------------------------------------------------------------------
-   CRManager(VersionsSpaceInterface&, s32 ssd_fd, u64 end_of_block_device);
+   CRManager(HistoryTreeInterface&, s32 ssd_fd, u64 end_of_block_device);
    ~CRManager();
    // -------------------------------------------------------------------------------------
    void registerMeAsSpecialWorker();

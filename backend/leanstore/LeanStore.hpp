@@ -1,10 +1,9 @@
 #pragma once
 #include "Config.hpp"
-#include "leanstore/concurrency-recovery/VersionsSpace.hpp"
+#include "leanstore/concurrency-recovery/HistoryTree.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
 #include "leanstore/storage/btree/BTreeLL.hpp"
 #include "leanstore/storage/btree/BTreeVI.hpp"
-#include "leanstore/storage/btree/BTreeVW.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 #include "rapidjson/document.h"
 // -------------------------------------------------------------------------------------
@@ -24,7 +23,6 @@ class LeanStore
   public:
    // Poor man catalog
    std::unordered_map<string, storage::btree::BTreeLL> btrees_ll;
-   std::unordered_map<string, storage::btree::BTreeVW> btrees_vw;
    std::unordered_map<string, storage::btree::BTreeVI> btrees_vi;
    // -------------------------------------------------------------------------------------
    s32 ssd_fd;
@@ -38,7 +36,7 @@ class LeanStore
    u64 config_hash = 0;
    GlobalStats global_stats;
    // -------------------------------------------------------------------------------------
-   std::unique_ptr<cr::VersionsSpace> versions_space;
+   std::unique_ptr<cr::HistoryTree> history_tree;
    // -------------------------------------------------------------------------------------
   private:
    static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;
@@ -62,8 +60,6 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    storage::btree::BTreeLL& registerBTreeLL(string name, const storage::btree::BTreeLL::Config config);
    storage::btree::BTreeLL& retrieveBTreeLL(string name) { return btrees_ll[name]; }
-   storage::btree::BTreeVW& registerBTreeVW(string name, const storage::btree::BTreeLL::Config config);
-   storage::btree::BTreeVW& retrieveBTreeVW(string name) { return btrees_vw[name]; }
    storage::btree::BTreeVI& registerBTreeVI(string name, const storage::btree::BTreeLL::Config config);
    storage::btree::BTreeVI& retrieveBTreeVI(string name)
    {

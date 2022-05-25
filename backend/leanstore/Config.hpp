@@ -41,10 +41,6 @@ DECLARE_double(target_gib);
 DECLARE_uint64(run_for_seconds);
 DECLARE_uint64(warmup_for_seconds);
 // -------------------------------------------------------------------------------------
-DECLARE_uint64(backoff_strategy);
-// -------------------------------------------------------------------------------------
-DECLARE_uint64(backoff);
-// -------------------------------------------------------------------------------------
 DECLARE_double(tmp1);
 DECLARE_double(tmp2);
 DECLARE_double(tmp3);
@@ -74,11 +70,8 @@ DECLARE_bool(wal_fsync);
 // -------------------------------------------------------------------------------------
 DECLARE_string(isolation_level);
 DECLARE_bool(mv);
-DECLARE_bool(2pl);
 DECLARE_uint64(si_refresh_rate);
-DECLARE_bool(vw);
 DECLARE_bool(todo);
-DECLARE_bool(imitate_wt);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(vi);
 DECLARE_bool(vi_delta);

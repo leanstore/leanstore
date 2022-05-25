@@ -250,7 +250,6 @@ int main(int argc, char** argv)
       }
       keep_running = false;
       while (running_threads_counter) {
-         MYPAUSE();
       }
       crm.joinAll();
    }

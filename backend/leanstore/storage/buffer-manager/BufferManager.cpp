@@ -473,7 +473,6 @@ void BufferManager::stopBackgroundThreads()
 {
    bg_threads_keep_running = false;
    while (bg_threads_counter) {
-      MYPAUSE();
    }
 }
 // -------------------------------------------------------------------------------------

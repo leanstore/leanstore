@@ -21,7 +21,7 @@ namespace cr
 {
 // -------------------------------------------------------------------------------------
 using RemoveVersionCallback = std::function<void(const TXID, const DTID, const u8*, u64, const bool visited_before)>;
-class VersionsSpaceInterface
+class HistoryTreeInterface
 {
   public:
    virtual void insertVersion(WORKERID worker_id,

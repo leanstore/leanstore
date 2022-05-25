@@ -107,7 +107,6 @@ int main(int argc, char** argv)
       sleep(FLAGS_run_for_seconds);
       keep_running = false;
       while (running_threads_counter) {
-         MYPAUSE();
       }
       crm.joinAll();
    }

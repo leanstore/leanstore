@@ -260,10 +260,6 @@ cont : {
       cb(fat_tuple->getValue(), fat_tuple->value_length);
       BTreeLL::generateXORDiff(update_descriptor, wal_entry->payload + o_key_length + update_descriptor.size(), fat_tuple->getValue());
       wal_entry.submit();
-      // -------------------------------------------------------------------------------------
-      if (cr::activeTX().isSerializable()) {
-         fat_tuple->read_ts = cr::activeTX().TTS();
-      }
    } else {
       fat_tuple->garbageCollection();
       if (fat_tuple->hasSpaceFor(update_descriptor)) {
@@ -476,7 +472,7 @@ void BTreeVI::FatTupleDifferentAttributes::convertToChained(DTID dt_id)
    for (s64 v_i = deltas_count - 1; v_i >= 0; v_i--) {
       auto& delta = getDelta(v_i);
       const u32 version_payload_length = delta.getDescriptor().totalLength() + sizeof(BTreeVI::UpdateVersion);
-      cr::Worker::my().versions_space.insertVersion(
+      cr::Worker::my().history_tree.insertVersion(
           prev_worker_id, prev_tx_id, prev_command_id, dt_id, false, version_payload_length,
           [&](u8* version_payload) {
              auto& secondary_version = *new (version_payload) UpdateVersion(delta.worker_id, delta.tx_ts, delta.command_id, true);

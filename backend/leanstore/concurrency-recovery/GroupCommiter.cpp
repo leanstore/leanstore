@@ -216,9 +216,6 @@ void CRManager::groupCommiter()
             u64 tx_i = 0;
             worker.wal_gct_cursor.store(worker.group_commit_data.wt_cursor_to_flush, std::memory_order_release);
             worker.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
-            if (chunk.slot[w_i].offset) {
-               worker.wal_finder.insertJumpPoint(worker.group_commit_data.first_lsn_in_chunk, chunk.slot[w_i]);
-            }
             if (worker.group_commit_data.ready_to_commit_cut) {
                std::unique_lock<std::mutex> g(worker.worker_group_commiter_mutex);
                // -------------------------------------------------------------------------------------

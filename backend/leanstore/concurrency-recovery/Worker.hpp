@@ -1,6 +1,6 @@
 #pragma once
 #include "Transaction.hpp"
-#include "VersionsSpaceInterface.hpp"
+#include "HistoryTreeInterface.hpp"
 #include "WALEntry.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -36,13 +36,18 @@ struct Worker {
    static thread_local Worker* tls_ptr;
    // -------------------------------------------------------------------------------------
    static atomic<u64> global_logical_clock;
+   // -------------------------------------------------------------------------------------
+   // Logging
    static atomic<u64> global_gsn_flushed;       // The minimum of all workers maximum flushed GSN
    static atomic<u64> global_sync_to_this_gsn;  // Artifically increment the workers GSN to this point at the next round to prevent GSN from skewing
                                                 // and undermining RFA
-   static std::shared_mutex global_mutex;
+   WALMetaEntry* active_mt_entry;
+   WALDTEntry* active_dt_entry;
    // -------------------------------------------------------------------------------------
+   static std::shared_mutex global_mutex;
    static unique_ptr<atomic<u64>[]> global_workers_current_snapshot;
    // -------------------------------------------------------------------------------------
+   // Concurrency Control
    // LWM: start timestamp of the transaction that has its effect visible by all in its class
    static atomic<TXID> global_oldest_oltp_start_ts, global_oltp_lwm;
    static atomic<TXID> global_oldest_all_start_ts, global_all_lwm;
@@ -53,21 +58,16 @@ struct Worker {
    atomic<TXID> local_latest_write_tx = 0, local_latest_lwm_for_tx = 0;
    TXID local_all_lwm, local_oltp_lwm;
    // -------------------------------------------------------------------------------------
-   // All the local tracking data
-   std::unique_ptr<u8[]> map_leaf_handler;
-   leanstore::KVInterface* commit_to_start_map;
+   // Commit Tree
+   leanstore::KVInterface* commit_tree;
+   std::unique_ptr<u8[]> commit_tree_handler;
    // -------------------------------------------------------------------------------------
    u64 command_id = 0;
    Transaction active_tx;
-   WALMetaEntry* active_mt_entry;
-   WALDTEntry* active_dt_entry;
    TXID local_global_all_lwm_cache = 0;
    unique_ptr<TXID[]> local_snapshot_cache;  // = Readview
    unique_ptr<TXID[]> local_snapshot_cache_ts;
    unique_ptr<TXID[]> local_workers_start_ts;
-   // -------------------------------------------------------------------------------------
-   // Imitate WT
-   atomic<u64> local_min_in_progress = 0;
    // -------------------------------------------------------------------------------------
    // Clean up state
    u64 cleaned_untill_oltp_lwm = 0;
@@ -75,10 +75,9 @@ struct Worker {
    const u64 worker_id;
    Worker** all_workers;
    const u64 workers_count;
-   VersionsSpaceInterface& versions_space;
+   HistoryTreeInterface& history_tree;
    const s32 ssd_fd;
    const bool is_page_provider = false;
-   // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
    static constexpr u64 WORKERS_BITS = 8;
    static constexpr u64 WORKERS_INCREMENT = 1ull << WORKERS_BITS;
@@ -94,7 +93,7 @@ struct Worker {
    Worker(u64 worker_id,
           Worker** all_workers,
           u64 workers_count,
-          VersionsSpaceInterface& versions_space,
+          HistoryTreeInterface& versions_space,
           s32 fd,
           const bool is_page_provider = false);
    static inline Worker& my() { return *Worker::tls_ptr; }
@@ -102,33 +101,11 @@ struct Worker {
    // -------------------------------------------------------------------------------------
    // Shared with all workers
    // -------------------------------------------------------------------------------------
-   struct TODOEntry {  // In-memory
-      WORKERID worker_id;
-      TXID tx_id;
-      TXID commit_tts;
-      TXID or_before_tx_id;
-      DTID dt_id;  // max value -> purge the whole tx
-      u64 payload_length;
-      // -------------------------------------------------------------------------------------
-      u8 payload[];
-   };
-   // -------------------------------------------------------------------------------------
-   // 2PL unlock datastructures
-   struct UnlockTask {
-      DTID dt_id;
-      u64 payload_length;
-      u8 payload[];
-      UnlockTask(DTID dt_id, u64 payload_length) : dt_id(dt_id), payload_length(payload_length) {}
-   };
-   std::vector<std::unique_ptr<u8[]>> unlock_tasks_after_commit;
-   void addUnlockTask(DTID dt_id, u64 payload_length, std::function<void(u8* dst)> callback);
-   void executeUnlockTasks();
-   // -------------------------------------------------------------------------------------
    inline u64 insertVersion(DTID dt_id, bool is_remove, u64 payload_length, std::function<void(u8*)> cb)
    {
       utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
       const u64 new_command_id = (command_id++) | ((is_remove) ? TYPE_MSB(COMMANDID) : 0);
-      versions_space.insertVersion(worker_id, active_tx.TTS(), new_command_id, dt_id, is_remove, payload_length, cb);
+      history_tree.insertVersion(worker_id, active_tx.TTS(), new_command_id, dt_id, is_remove, payload_length, cb);
       return new_command_id;
    }
    inline bool retrieveVersion(WORKERID its_worker_id,
@@ -138,26 +115,9 @@ struct Worker {
    {
       utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
       const bool is_remove = its_command_id & TYPE_MSB(COMMANDID);
-      const bool found = versions_space.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
+      const bool found = history_tree.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
       return found;
    }
-   // -------------------------------------------------------------------------------------
-   // Not used atm:
-   // Optimization: remove relations from snapshot as soon as we are finished with them (esp. in long read-only tx)
-   static constexpr u64 MAX_RELATIONS_COUNT = 128;
-   struct RelationsList {
-      std::atomic<u64> count = 0;
-      std::atomic<DTID> dt_ids[MAX_RELATIONS_COUNT];
-      void add(DTID dt_id)
-      {
-         const u64 current_index = count.load();
-         assert((current_index + 1) < MAX_RELATIONS_COUNT);
-         dt_ids[current_index].store(dt_id, std::memory_order_release);
-         count.store(current_index + 1, std::memory_order_release);
-      }
-      void reset() { count.store(0, std::memory_order_release); }
-   };
-   RelationsList relations_cut_from_snapshot;
    // -------------------------------------------------------------------------------------
    // Protect W+GCT shared data (worker <-> group commit thread)
    // -------------------------------------------------------------------------------------
@@ -178,14 +138,6 @@ struct Worker {
    u8 pad1[64];
    std::atomic<u64> ready_to_commit_queue_size = 0;
    u8 pad2[64];
-   struct WALFinder {
-      std::mutex m;
-      std::map<LID, WALChunk::Slot> ht;  // LSN->SSD Offset
-      void insertJumpPoint(LID lsn, WALChunk::Slot slot);
-      WALChunk::Slot getJumpPoint(LID lsn);
-      ~WALFinder();
-   };
-   WALFinder wal_finder;
    // -------------------------------------------------------------------------------------
    static constexpr s64 WORKER_WAL_SIZE = 1024 * 1024 * 10;
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
@@ -242,7 +194,6 @@ struct Worker {
    u32 walContiguousFreeSpace();
    void walEnsureEnoughSpace(u32 requested_size);
    u8* walReserve(u32 requested_size);
-   void invalidateEntriesUntil(u64 until);
    // -------------------------------------------------------------------------------------
    // Iterate over current TX entries
    u64 current_tx_wal_start;
@@ -279,8 +230,6 @@ struct Worker {
       const auto lsn = wal_lsn_counter++;
       const u64 total_size = sizeof(WALDTEntry) + requested_size;
       ensure(walContiguousFreeSpace() >= total_size);
-      // Sync
-      invalidateEntriesUntil(wal_wt_cursor + total_size);
       active_dt_entry = new (wal_buffer + wal_wt_cursor) WALDTEntry();
       active_dt_entry->lsn.store(lsn, std::memory_order_release);
       active_dt_entry->magic_debugging_number = 99;
@@ -321,10 +270,6 @@ struct Worker {
    VISIBILITY isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, u64 tts);
    VISIBILITY isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts);
    TXID getCommitTimestamp(WORKERID worker_id, TXID start_ts);
-   // -------------------------------------------------------------------------------------
-   void getWALEntry(WORKERID worker_id, LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
-   void getWALEntry(LID lsn, u32 in_memory_offset, std::function<void(WALEntry*)> callback);
-   void getWALDTEntryPayload(WORKERID worker_id, LID lsn, u32 in_memory_offset, std::function<void(u8*)> callback);
 };
 // -------------------------------------------------------------------------------------
 // Shortcuts
