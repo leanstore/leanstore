@@ -125,7 +125,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
                                          UpdateSameSizeInPlaceDescriptor& update_descriptor)
 {
    cr::activeTX().markAsWrite();
-   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   cr::Worker::my().logging.walEnsureEnoughSpace(PAGE_SIZE * 1);
    Slice key(o_key, o_key_length);
    OP_RESULT ret;
    volatile bool tried_converting_to_fat_tuple = false;
@@ -186,12 +186,12 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             if (tuple_size != 112 && tuple_size != 120) {
                convert_to_fat_tuple = false;
             } else {
-               convert_to_fat_tuple &= !cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts);
+               convert_to_fat_tuple &= !cr::Worker::my().cc.isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts);
             }
          }
       }
       if (convert_to_fat_tuple &&
-          (cr::Worker::my().isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts) || utils::RandomGenerator::getRandU64(0, 100000))) {
+          (cr::Worker::my().cc.isVisibleForAll(tuple_head.worker_id, tuple_head.tx_ts) || utils::RandomGenerator::getRandU64(0, 100000))) {
          convert_to_fat_tuple = false;
       }
       if (convert_to_fat_tuple) {
@@ -226,7 +226,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       // -------------------------------------------------------------------------------------
       // Write the ChainedTupleDelta
       if (!update_without_versioning) {
-         command_id = cr::Worker::my().insertVersion(dt_id, false, version_payload_length, [&](u8* version_payload) {
+         command_id = cr::Worker::my().cc.insertVersion(dt_id, false, version_payload_length, [&](u8* version_payload) {
             auto& secondary_version = *new (version_payload) UpdateVersion(tuple_head.worker_id, tuple_head.tx_ts, tuple_head.command_id, true);
             std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
             BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
@@ -274,7 +274,7 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
 OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_length)
 {
    cr::activeTX().markAsWrite();
-   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   cr::Worker::my().logging.walEnsureEnoughSpace(PAGE_SIZE * 1);
    Slice key(o_key, o_key_length);
    const u16 payload_length = value_length + sizeof(ChainedTuple);
    // -------------------------------------------------------------------------------------
@@ -328,7 +328,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
 {
    // TODO: remove fat tuple
    cr::activeTX().markAsWrite();
-   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   cr::Worker::my().logging.walEnsureEnoughSpace(PAGE_SIZE * 1);
    Slice key(o_key, o_key_length);
    // -------------------------------------------------------------------------------------
    jumpmuTry()
@@ -374,7 +374,7 @@ OP_RESULT BTreeVI::remove(u8* o_key, u16 o_key_length)
       dangling_pointer.head_slot = iterator.cur;
       const u16 value_length = iterator.value().length() - sizeof(ChainedTuple);
       const u16 version_payload_length = sizeof(RemoveVersion) + value_length + o_key_length;
-      const COMMANDID command_id = cr::Worker::my().insertVersion(dt_id, true, version_payload_length, [&](u8* secondary_payload) {
+      const COMMANDID command_id = cr::Worker::my().cc.insertVersion(dt_id, true, version_payload_length, [&](u8* secondary_payload) {
          auto& secondary_version =
              *new (secondary_payload) RemoveVersion(chain_head.worker_id, chain_head.tx_ts, chain_head.command_id, o_key_length, value_length);
          secondary_version.dangling_pointer = dangling_pointer;
@@ -732,7 +732,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple([[maybe_unused]] Sli
    COMMANDID next_command_id = chain_head.command_id;
    // -------------------------------------------------------------------------------------
    while (true) {
-      bool found = cr::Worker::my().retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version_payload, u64 version_length) {
+      bool found = cr::Worker::my().cc.retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version_payload, u64 version_length) {
          const auto& version = *reinterpret_cast<const Version*>(version_payload);
          if (version.type == Version::TYPE::UPDATE) {
             const auto& update_version = *reinterpret_cast<const UpdateVersion*>(version_payload);

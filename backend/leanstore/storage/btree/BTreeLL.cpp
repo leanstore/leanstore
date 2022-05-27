@@ -143,7 +143,7 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
 {
    cr::activeTX().markAsWrite();
    if (config.enable_wal) {
-      cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+      cr::Worker::my().logging.walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
    const Slice key(o_key, o_key_length);
    const Slice value(o_value, o_value_length);
@@ -345,7 +345,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
 {
    cr::activeTX().markAsWrite();
    if (config.enable_wal) {
-      cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+      cr::Worker::my().logging.walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
    Slice key(o_key, o_key_length);
    jumpmuTry()
@@ -390,7 +390,7 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
 {
    cr::activeTX().markAsWrite();
    if (config.enable_wal) {
-      cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+      cr::Worker::my().logging.walEnsureEnoughSpace(PAGE_SIZE * 1);
    }
    const Slice key(o_key, o_key_length);
    jumpmuTry()

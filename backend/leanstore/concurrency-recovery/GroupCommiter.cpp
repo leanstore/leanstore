@@ -80,7 +80,7 @@ void CRManager::groupCommiter()
          Worker& worker = *workers[w_i];
          {
             worker.logging.group_commit_data.ready_to_commit_cut = worker.logging.ready_to_commit_queue_size;
-            auto max_gsn_offset_tuple = worker.fetchMaxGSNOffset();
+            auto max_gsn_offset_tuple = worker.logging.fetchMaxGSNOffset();
             worker.logging.group_commit_data.gsn_to_flush = std::get<0>(max_gsn_offset_tuple);
             worker.logging.group_commit_data.wt_cursor_to_flush = std::get<1>(max_gsn_offset_tuple);
             {
@@ -149,7 +149,7 @@ void CRManager::groupCommiter()
       }
       // -------------------------------------------------------------------------------------
       // Phase 2
-      if (std::get<0>(workers[0]->fetchMaxGSNOffset()) >
+      if (std::get<0>(workers[0]->logging.fetchMaxGSNOffset()) >
           workers[0]->logging.group_commit_data.gsn_to_flush) {  // No new logs have been added since then
          max_safe_gsn = std::min<LID>(workers[0]->logging.group_commit_data.gsn_to_flush, max_safe_gsn);
       }
@@ -157,7 +157,7 @@ void CRManager::groupCommiter()
          Worker& worker = *workers[w_i];
          worker.logging.group_commit_data.max_safe_gsn_to_commit =
              std::min<LID>(worker.logging.group_commit_data.max_safe_gsn_to_commit, max_safe_gsn);
-         if (std::get<0>(worker.fetchMaxGSNOffset()) > worker.logging.group_commit_data.gsn_to_flush) {
+         if (std::get<0>(worker.logging.fetchMaxGSNOffset()) > worker.logging.group_commit_data.gsn_to_flush) {
             max_safe_gsn = std::min<LID>(max_safe_gsn, worker.logging.group_commit_data.gsn_to_flush);
          }
       }

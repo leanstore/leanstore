@@ -63,7 +63,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    };
    // -------------------------------------------------------------------------------------
    // Delete for all visible deltas, atm using cheap visibility check
-   if (cr::Worker::my().isVisibleForAll(worker_id, tx_ts)) {
+   if (cr::Worker::my().cc.isVisibleForAll(worker_id, tx_ts)) {
       deltas_count = 0;
       data_offset = total_space;
       used_space = value_length;
@@ -73,7 +73,7 @@ void BTreeVI::FatTupleDifferentAttributes::garbageCollection()
    u16 deltas_visible_by_all_counter = 0;
    for (s32 d_i = deltas_count - 1; d_i >= 1; d_i--) {
       auto& delta = getDelta(d_i);
-      if (cr::Worker::my().isVisibleForAll(delta.worker_id, delta.tx_ts)) {
+      if (cr::Worker::my().cc.isVisibleForAll(delta.worker_id, delta.tx_ts)) {
          deltas_visible_by_all_counter = d_i - 1;
          break;
       }
@@ -302,7 +302,7 @@ cont : {
 // -------------------------------------------------------------------------------------
 std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTuple(std::function<void(Slice value)> cb) const
 {
-   if (cr::Worker::my().isVisibleForMe(worker_id, tx_ts)) {
+   if (cr::Worker::my().cc.isVisibleForMe(worker_id, tx_ts)) {
       // Latest version is visible
       cb(Slice(getValueConstant(), value_length));
       return {OP_RESULT::OK, 1};
@@ -315,7 +315,7 @@ std::tuple<OP_RESULT, u16> BTreeVI::FatTupleDifferentAttributes::reconstructTupl
          auto& delta = getDeltaConstant(d_i);
          BTreeLL::applyDiff(delta.getConstantDescriptor(), materialized_value,
                             delta.payload + delta.getConstantDescriptor().size());  // Apply diff
-         if (cr::Worker::my().isVisibleForMe(delta.worker_id, delta.tx_ts)) {
+         if (cr::Worker::my().cc.isVisibleForMe(delta.worker_id, delta.tx_ts)) {
             cb(Slice(materialized_value, value_length));
             return {OP_RESULT::OK, chain_length};
          } else {
@@ -385,12 +385,12 @@ bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator
    // TODO: check for used_space overflow
    bool abort_conversion = false;
    while (!abort_conversion) {
-      if (cr::Worker::my().isVisibleForAll(next_worker_id, next_tx_id)) {  // Pruning versions space might get delayed
+      if (cr::Worker::my().cc.isVisibleForAll(next_worker_id, next_tx_id)) {  // Pruning versions space might get delayed
          abort_conversion = true;
          break;
       }
       // -------------------------------------------------------------------------------------
-      if (!cr::Worker::my().retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version, [[maybe_unused]] u64 payload_length) {
+      if (!cr::Worker::my().cc.retrieveVersion(next_worker_id, next_tx_id, next_command_id, [&](const u8* version, [[maybe_unused]] u64 payload_length) {
              number_of_deltas_to_replace++;
              const auto& chain_delta = *reinterpret_cast<const UpdateVersion*>(version);
              ensure(chain_delta.type == Version::TYPE::UPDATE);
@@ -472,7 +472,7 @@ void BTreeVI::FatTupleDifferentAttributes::convertToChained(DTID dt_id)
    for (s64 v_i = deltas_count - 1; v_i >= 0; v_i--) {
       auto& delta = getDelta(v_i);
       const u32 version_payload_length = delta.getDescriptor().totalLength() + sizeof(BTreeVI::UpdateVersion);
-      cr::Worker::my().history_tree.insertVersion(
+      cr::Worker::my().cc.history_tree.insertVersion(
           prev_worker_id, prev_tx_id, prev_command_id, dt_id, false, version_payload_length,
           [&](u8* version_payload) {
              auto& secondary_version = *new (version_payload) UpdateVersion(delta.worker_id, delta.tx_ts, delta.command_id, true);

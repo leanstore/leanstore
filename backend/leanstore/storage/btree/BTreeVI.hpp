@@ -435,7 +435,7 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    inline bool isVisibleForMe(WORKERID worker_id, u64 worker_commit_mark, bool to_write = true)
    {
-      return cr::Worker::my().isVisibleForMe(worker_id, worker_commit_mark, to_write);
+      return cr::Worker::my().cc.isVisibleForMe(worker_id, worker_commit_mark, to_write);
    }
    static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard) { return guard->has_garbage; }
    u64 convertToFatTupleThreshold() { return FLAGS_worker_threads; }

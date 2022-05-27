@@ -118,7 +118,7 @@ class HybridPageGuard
       assert(bf != nullptr);
       // TODO: this is a temporary hack, we should write WAL entries for every page we write and enable this check ensure(!FLAGS_wal);
       bf->page.GSN++;
-      cr::Worker::my().setCurrentGSN(std::max<LID>(cr::Worker::my().getCurrentGSN(), bf->page.GSN));
+      cr::Worker::my().logging.setCurrentGSN(std::max<LID>(cr::Worker::my().logging.getCurrentGSN(), bf->page.GSN));
    }
    // WAL
    inline void syncGSN()
@@ -130,25 +130,25 @@ class HybridPageGuard
                cr::Worker::my().logging.needs_remote_flush = true;
             }
          }
-         cr::Worker::my().setCurrentGSN(std::max<LID>(cr::Worker::my().getCurrentGSN(), bf->page.GSN));
+         cr::Worker::my().logging.setCurrentGSN(std::max<LID>(cr::Worker::my().logging.getCurrentGSN(), bf->page.GSN));
       }
    }
    template <typename WT>
-   cr::Worker::WALEntryHandler<WT> reserveWALEntry(u64 extra_size)
+   cr::Worker::Logging::WALEntryHandler<WT> reserveWALEntry(u64 extra_size)
    {
       assert(FLAGS_wal);
       assert(guard.state == GUARD_STATE::EXCLUSIVE);
-      const LID new_gsn = std::max<LID>(bf->page.GSN, cr::Worker::my().getCurrentGSN()) + 1;
+      const LID new_gsn = std::max<LID>(bf->page.GSN, cr::Worker::my().logging.getCurrentGSN()) + 1;
       bf->header.last_writer_worker_id = cr::Worker::my().worker_id;  // RFA
       bf->page.GSN = new_gsn;
-      cr::Worker::my().setCurrentGSN(new_gsn);
+      cr::Worker::my().logging.setCurrentGSN(new_gsn);
       // -------------------------------------------------------------------------------------
       const auto pid = bf->header.pid;
       const auto dt_id = bf->page.dt_id;
-      auto handler = cr::Worker::my().reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, new_gsn, dt_id);
+      auto handler = cr::Worker::my().logging.reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, new_gsn, dt_id);
       return handler;
    }
-   inline void submitWALEntry(u64 total_size) { cr::Worker::my().submitDTEntry(total_size); }
+   inline void submitWALEntry(u64 total_size) { cr::Worker::my().logging.submitDTEntry(total_size); }
    // -------------------------------------------------------------------------------------
    inline bool hasFacedContention() { return guard.faced_contention; }
    inline void unlock() { guard.unlock(); }
@@ -208,7 +208,7 @@ class ExclusivePageGuard
    ExclusivePageGuard(HybridPageGuard<T>&& o_guard) : ref_guard(o_guard) { ref_guard.guard.toExclusive(); }
    // -------------------------------------------------------------------------------------
    template <typename WT>
-   cr::Worker::WALEntryHandler<WT> reserveWALEntry(u64 extra_size)
+   cr::Worker::Logging::WALEntryHandler<WT> reserveWALEntry(u64 extra_size)
    {
       return ref_guard.template reserveWALEntry<WT>(extra_size);
    }

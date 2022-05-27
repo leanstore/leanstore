@@ -63,7 +63,7 @@ struct Worker {
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    // Worker Local
-   struct {
+   struct Logging {
       WALMetaEntry* active_mt_entry;
       WALDTEntry* active_dt_entry;
       // Shared between Group Committer and Worker
@@ -83,19 +83,17 @@ struct Worker {
       // Protect W+GCT shared data (worker <-> group commit thread)
       // -------------------------------------------------------------------------------------
       // Accessible only by the group commit thread
-      struct GroupCommitData {
+      struct {
          u64 ready_to_commit_cut = 0;  // Exclusive ) == size
          u64 max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
          LID gsn_to_flush;        // Will flush up to this GSN when the current round is over
          u64 wt_cursor_to_flush;  // Will flush up to this GSN when the current round is over
          LID first_lsn_in_chunk;
          bool skip = false;
-      };
-      GroupCommitData group_commit_data;
+      } group_commit_data;
       // -------------------------------------------------------------------------------------
       u64 wal_wt_cursor = 0;
       u64 wal_buffer_round = 0, wal_next_to_clean = 0;
-      // -------------------------------------------------------------------------------------
       // -------------------------------------------------------------------------------------
       atomic<u64> wal_gct_cursor = 0;               // GCT->W
       alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
@@ -104,11 +102,95 @@ struct Worker {
       LID rfa_gsn_flushed;
       bool needs_remote_flush = false;
       // -------------------------------------------------------------------------------------
+      // -------------------------------------------------------------------------------------
+      template <typename T>
+      class WALEntryHandler
+      {
+        public:
+         u8* entry;
+         u64 total_size;
+         u64 lsn;
+         u32 in_memory_offset;
+         inline T* operator->() { return reinterpret_cast<T*>(entry); }
+         inline T& operator*() { return *reinterpret_cast<T*>(entry); }
+         WALEntryHandler() = default;
+         WALEntryHandler(u8* entry, u64 size, u64 lsn, u64 in_memory_offset)
+             : entry(entry), total_size(size), lsn(lsn), in_memory_offset(in_memory_offset)
+         {
+         }
+         void submit() { cr::Worker::my().logging.submitDTEntry(total_size); }
+      };
+      // -------------------------------------------------------------------------------------
+      template <typename T>
+      WALEntryHandler<T> reserveDTEntry(u64 requested_size, PID pid, LID gsn, DTID dt_id)
+      {
+         const auto lsn = wal_lsn_counter++;
+         const u64 total_size = sizeof(WALDTEntry) + requested_size;
+         ensure(walContiguousFreeSpace() >= total_size);
+         active_dt_entry = new (wal_buffer + wal_wt_cursor) WALDTEntry();
+         active_dt_entry->lsn.store(lsn, std::memory_order_release);
+         active_dt_entry->magic_debugging_number = 99;
+         active_dt_entry->type = WALEntry::TYPE::DT_SPECIFIC;
+         active_dt_entry->size = total_size;
+         // -------------------------------------------------------------------------------------
+         active_dt_entry->pid = pid;
+         active_dt_entry->gsn = gsn;
+         active_dt_entry->dt_id = dt_id;
+         return {active_dt_entry->payload, total_size, active_dt_entry->lsn, wal_wt_cursor};
+      }
+      void submitDTEntry(u64 total_size);
+      // -------------------------------------------------------------------------------------
+      void publishOffset()
+      {
+         const u64 msb = wal_gct & MSB;
+         wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
+      }
+      void publishMaxGSNOffset()
+      {
+         const bool was_second_slot = wal_gct & MSB;
+         u64 msb;
+         if (was_second_slot) {
+            wal_gct_max_gsn_0.store(clock_gsn, std::memory_order_release);
+            msb = 0;
+         } else {
+            wal_gct_max_gsn_1.store(clock_gsn, std::memory_order_release);
+            msb = MSB;
+         }
+         wal_gct.store(wal_wt_cursor | msb, std::memory_order_release);
+      }
+      std::tuple<LID, u64> fetchMaxGSNOffset()
+      {
+         const u64 worker_atomic = wal_gct.load();
+         LID gsn;
+         if (worker_atomic & (MSB)) {
+            gsn = wal_gct_max_gsn_1.load();
+         } else {
+            gsn = wal_gct_max_gsn_0.load();
+         }
+         const u64 max_gsn = worker_atomic & (~(MSB));
+         return {gsn, max_gsn};
+      }
+      // -------------------------------------------------------------------------------------
+      u32 walFreeSpace();
+      u32 walContiguousFreeSpace();
+      void walEnsureEnoughSpace(u32 requested_size);
+      u8* walReserve(u32 requested_size);
+      // -------------------------------------------------------------------------------------
+      // Iterate over current TX entries
+      u64 current_tx_wal_start;
+      void iterateOverCurrentTXEntries(std::function<void(const WALEntry& entry)> callback);
+      // -------------------------------------------------------------------------------------
+      // Without Payload, by submit no need to update clock (gsn)
+      WALMetaEntry& reserveWALMetaEntry();
+      void submitWALMetaEntry();
+      inline LID getCurrentGSN() { return clock_gsn; }
+      inline void setCurrentGSN(LID gsn) { clock_gsn = gsn; }
+      // -------------------------------------------------------------------------------------
    } logging;
    // -------------------------------------------------------------------------------------
    // Concurrency Control
    // LWM: start timestamp of the transaction that has its effect visible by all in its class
-   struct {
+   struct ConcurrencyControl {
       atomic<TXID> local_lwm_latch = 0;
       atomic<TXID> oltp_lwm_receiver;
       atomic<TXID> all_lwm_receiver;
@@ -123,6 +205,41 @@ struct Worker {
       // -------------------------------------------------------------------------------------
       // Clean up state
       u64 cleaned_untill_oltp_lwm = 0;
+      // -------------------------------------------------------------------------------------
+      HistoryTreeInterface& history_tree;
+      // -------------------------------------------------------------------------------------
+      void garbageCollection();
+      void refreshGlobalState();
+      void switchToReadCommittedMode();
+      void switchToSnapshotIsolationMode();
+      // -------------------------------------------------------------------------------------
+      enum class VISIBILITY : u8 { VISIBLE_ALREADY, VISIBLE_NEXT_ROUND, UNDETERMINED };
+      bool isVisibleForAll(WORKERID worker_id, TXID start_ts);
+      bool isVisibleForMe(WORKERID worker_id, u64 tts, bool to_write = true);
+      VISIBILITY isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, u64 tts);
+      VISIBILITY isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts);
+      TXID getCommitTimestamp(WORKERID worker_id, TXID start_ts);
+      // -------------------------------------------------------------------------------------
+      ConcurrencyControl& other(WORKERID other_worker_id) { return my().all_workers[other_worker_id]->cc; }
+      // -------------------------------------------------------------------------------------
+      inline u64 insertVersion(DTID dt_id, bool is_remove, u64 payload_length, std::function<void(u8*)> cb)
+      {
+         utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
+         const u64 new_command_id = (my().command_id++) | ((is_remove) ? TYPE_MSB(COMMANDID) : 0);
+         history_tree.insertVersion(my().worker_id, my().active_tx.TTS(), new_command_id, dt_id, is_remove, payload_length, cb);
+         return new_command_id;
+      }
+      inline bool retrieveVersion(WORKERID its_worker_id,
+                                  TXID its_tx_id,
+                                  COMMANDID its_command_id,
+                                  std::function<void(const u8*, u64 payload_length)> cb)
+      {
+         utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
+         const bool is_remove = its_command_id & TYPE_MSB(COMMANDID);
+         const bool found = history_tree.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
+         return found;
+      }  // -------------------------------------------------------------------------------------
+      ConcurrencyControl(HistoryTreeInterface& ht) : history_tree(ht) {}
    } cc;
    // -------------------------------------------------------------------------------------
    u64 command_id = 0;
@@ -131,7 +248,6 @@ struct Worker {
    const u64 worker_id;
    Worker** all_workers;
    const u64 workers_count;
-   HistoryTreeInterface& history_tree;
    const s32 ssd_fd;
    const bool is_page_provider = false;
    // -------------------------------------------------------------------------------------
@@ -140,111 +256,10 @@ struct Worker {
    ~Worker();
    // -------------------------------------------------------------------------------------
    // Shared with all workers
-   // -------------------------------------------------------------------------------------
-   inline u64 insertVersion(DTID dt_id, bool is_remove, u64 payload_length, std::function<void(u8*)> cb)
-   {
-      utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
-      const u64 new_command_id = (command_id++) | ((is_remove) ? TYPE_MSB(COMMANDID) : 0);
-      history_tree.insertVersion(worker_id, active_tx.TTS(), new_command_id, dt_id, is_remove, payload_length, cb);
-      return new_command_id;
-   }
-   inline bool retrieveVersion(WORKERID its_worker_id,
-                               TXID its_tx_id,
-                               COMMANDID its_command_id,
-                               std::function<void(const u8*, u64 payload_length)> cb)
-   {
-      utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
-      const bool is_remove = its_command_id & TYPE_MSB(COMMANDID);
-      const bool found = history_tree.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
-      return found;
-   }
-   // -------------------------------------------------------------------------------------
-   void publishOffset()
-   {
-      const u64 msb = logging.wal_gct & MSB;
-      logging.wal_gct.store(logging.wal_wt_cursor | msb, std::memory_order_release);
-   }
-   void publishMaxGSNOffset()
-   {
-      const bool was_second_slot = logging.wal_gct & MSB;
-      u64 msb;
-      if (was_second_slot) {
-         logging.wal_gct_max_gsn_0.store(logging.clock_gsn, std::memory_order_release);
-         msb = 0;
-      } else {
-         logging.wal_gct_max_gsn_1.store(logging.clock_gsn, std::memory_order_release);
-         msb = MSB;
-      }
-      logging.wal_gct.store(logging.wal_wt_cursor | msb, std::memory_order_release);
-   }
-   std::tuple<LID, u64> fetchMaxGSNOffset()
-   {
-      const u64 worker_atomic = logging.wal_gct.load();
-      LID gsn;
-      if (worker_atomic & (MSB)) {
-         gsn = logging.wal_gct_max_gsn_1.load();
-      } else {
-         gsn = logging.wal_gct_max_gsn_0.load();
-      }
-      const u64 max_gsn = worker_atomic & (~(MSB));
-      return {gsn, max_gsn};
-   }
-   // -------------------------------------------------------------------------------------
-   u32 walFreeSpace();
-   u32 walContiguousFreeSpace();
-   void walEnsureEnoughSpace(u32 requested_size);
-   u8* walReserve(u32 requested_size);
-   // -------------------------------------------------------------------------------------
-   // Iterate over current TX entries
-   u64 current_tx_wal_start;
-   void iterateOverCurrentTXEntries(std::function<void(const WALEntry& entry)> callback);
-   // -------------------------------------------------------------------------------------
-  private:
-   // Without Payload, by submit no need to update clock (gsn)
-   WALMetaEntry& reserveWALMetaEntry();
-   void submitWALMetaEntry();
 
   public:
    // -------------------------------------------------------------------------------------
-   template <typename T>
-   class WALEntryHandler
-   {
-     public:
-      u8* entry;
-      u64 total_size;
-      u64 lsn;
-      u32 in_memory_offset;
-      inline T* operator->() { return reinterpret_cast<T*>(entry); }
-      inline T& operator*() { return *reinterpret_cast<T*>(entry); }
-      WALEntryHandler() = default;
-      WALEntryHandler(u8* entry, u64 size, u64 lsn, u64 in_memory_offset)
-          : entry(entry), total_size(size), lsn(lsn), in_memory_offset(in_memory_offset)
-      {
-      }
-      void submit() { cr::Worker::my().submitDTEntry(total_size); }
-   };
-   // -------------------------------------------------------------------------------------
-   template <typename T>
-   WALEntryHandler<T> reserveDTEntry(u64 requested_size, PID pid, LID gsn, DTID dt_id)
-   {
-      const auto lsn = logging.wal_lsn_counter++;
-      const u64 total_size = sizeof(WALDTEntry) + requested_size;
-      ensure(walContiguousFreeSpace() >= total_size);
-      logging.active_dt_entry = new (logging.wal_buffer + logging.wal_wt_cursor) WALDTEntry();
-      logging.active_dt_entry->lsn.store(lsn, std::memory_order_release);
-      logging.active_dt_entry->magic_debugging_number = 99;
-      logging.active_dt_entry->type = WALEntry::TYPE::DT_SPECIFIC;
-      logging.active_dt_entry->size = total_size;
-      // -------------------------------------------------------------------------------------
-      logging.active_dt_entry->pid = pid;
-      logging.active_dt_entry->gsn = gsn;
-      logging.active_dt_entry->dt_id = dt_id;
-      return {logging.active_dt_entry->payload, total_size, logging.active_dt_entry->lsn, logging.wal_wt_cursor};
-   }
-   void submitDTEntry(u64 total_size);
-   // -------------------------------------------------------------------------------------
    inline WORKERID workerID() { return worker_id; }
-   inline u64 snapshotAcquistionTime() { return active_tx.TTS(); }  // SAT
 
   public:
    // -------------------------------------------------------------------------------------
@@ -254,22 +269,7 @@ struct Worker {
                 bool read_only = false);
    void commitTX();
    void abortTX();
-   void garbageCollection();
    void shutdown();
-   // -------------------------------------------------------------------------------------
-   inline LID getCurrentGSN() { return logging.clock_gsn; }
-   inline void setCurrentGSN(LID gsn) { logging.clock_gsn = gsn; }
-   // -------------------------------------------------------------------------------------
-   void refreshGlobalState();
-   void switchToReadCommittedMode();
-   void switchToSnapshotIsolationMode();
-   // -------------------------------------------------------------------------------------
-   enum class VISIBILITY : u8 { VISIBLE_ALREADY, VISIBLE_NEXT_ROUND, UNDETERMINED };
-   bool isVisibleForAll(WORKERID worker_id, TXID start_ts);
-   bool isVisibleForMe(WORKERID worker_id, u64 tts, bool to_write = true);
-   VISIBILITY isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, u64 tts);
-   VISIBILITY isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts);
-   TXID getCommitTimestamp(WORKERID worker_id, TXID start_ts);
 };
 // -------------------------------------------------------------------------------------
 // Shortcuts

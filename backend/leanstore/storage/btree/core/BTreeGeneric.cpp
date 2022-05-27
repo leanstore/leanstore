@@ -40,7 +40,7 @@ void BTreeGeneric::create(DTID dtid, Config config)
 // -------------------------------------------------------------------------------------
 void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
-   cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
+   cr::Worker::my().logging.walEnsureEnoughSpace(PAGE_SIZE * 1);
    auto parent_handler = findParentEager(*this, to_split);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
