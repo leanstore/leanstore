@@ -31,7 +31,7 @@ T sum_no_reset(tbb::enumerable_thread_specific<CountersClass>& counters, Counter
 }
 // -------------------------------------------------------------------------------------
 template <class CountersClass, class CounterType, typename T = u64>
-T sum_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType CountersClass::*c, u8 index)
+T sum_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType CountersClass::*c, u64 index)
 {
    T local_c = 0;
    for (typename tbb::enumerable_thread_specific<CountersClass>::iterator i = counters.begin(); i != counters.end(); ++i) {
@@ -41,7 +41,7 @@ T sum_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterTyp
 }
 // -------------------------------------------------------------------------------------
 template <class CountersClass, class CounterType, typename T = u64>
-T sum_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType CountersClass::*c, u8 row, u8 col)
+T sum_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType CountersClass::*c, u64 row, u64 col)
 {
    T local_c = 0;
    for (typename tbb::enumerable_thread_specific<CountersClass>::iterator i = counters.begin(); i != counters.end(); ++i) {
@@ -51,7 +51,7 @@ T sum_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterTyp
 }
 // -------------------------------------------------------------------------------------
 template <class CountersClass, class CounterType, typename T = u64>
-T max_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType CountersClass::*c, u8 row)
+T max_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType CountersClass::*c, u64 row)
 {
    T local_c = 0;
    for (typename tbb::enumerable_thread_specific<CountersClass>::iterator i = counters.begin(); i != counters.end(); ++i) {

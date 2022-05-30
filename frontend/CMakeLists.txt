@@ -16,7 +16,7 @@ target_link_libraries(min leanstore Threads::Threads)
 target_include_directories(min PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
 add_executable(rocksdb_tpcc tpc-c/rocksdb_tpcc.cpp)
-target_link_libraries(rocksdb_tpcc leanstore rocksdb Threads::Threads dl z libbz2.a lz4 snappy)
+target_link_libraries(rocksdb_tpcc leanstore rocksdb Threads::Threads dl z libbz2.a lz4 snappy zstd uring)
 target_include_directories(rocksdb_tpcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 target_compile_definitions(rocksdb_tpcc PUBLIC ROCKSDB_ADAPTER)
 # sudo apt-get install libsnappy-dev  zlib1g-dev libbz2-dev liblz4-dev libzstd-dev librocksdb-dev

@@ -83,6 +83,10 @@ class CRManager
     *
     */
    void joinAll();
+   /**
+    * @brief @return true if all Workers are complete.
+    */
+   bool allJoinable();
 
   private:
    /**

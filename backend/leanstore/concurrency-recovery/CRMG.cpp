@@ -122,6 +122,17 @@ void CRManager::joinAll()
    }
 }
 // -------------------------------------------------------------------------------------
+bool CRManager::allJoinable()
+{
+   for (u32 t_i = 0; t_i < workers_count; t_i++) {
+      auto& meta = worker_threads_meta[t_i];
+      if (!meta.wt_ready || meta.job_set) {
+         return false;
+      }
+   }
+   return true;
+}
+// -------------------------------------------------------------------------------------
 void CRManager::setJob(u64 t_i, std::function<void()> job)
 {
    ensure(t_i < workers_count);

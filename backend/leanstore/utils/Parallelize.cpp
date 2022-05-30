@@ -16,6 +16,22 @@ namespace leanstore
 {
 namespace utils
 {
+void Parallelize::range(u64 threads_count, u64 n, std::function<void(u64 t_i, u64 begin, u64 end)> callback)
+{
+   const u64 block_size = std::ceil(n * 1.0 / threads_count);
+   u64 start = 0;
+   u64 t_i =0;
+   while(start < n){
+      u64 end = start + block_size;
+      if (end >= n){
+         end = n;
+      }
+      callback(t_i, start, end);
+      start = end;
+      t_i ++;
+   }
+}
+
 void Parallelize::parallelRange(u64 n, std::function<void(u64 begin, u64 end)> callback)
 {
    const u64 hw_threads = std::thread::hardware_concurrency();
