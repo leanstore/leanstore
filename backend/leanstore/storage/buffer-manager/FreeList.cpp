@@ -15,7 +15,9 @@ void FreeList::batchPush(BufferFrame* batch_head, BufferFrame* batch_tail, u64 b
    do {
       batch_tail->header.next_free_bf = head.load();
    }while (!head.compare_exchange_strong(batch_tail->header.next_free_bf, batch_head));
-   counter += batch_counter;
+   for(u64 i =0; i< batch_counter; i++){
+      counter ++;
+   }
 }
 // -------------------------------------------------------------------------------------
 void FreeList::push(BufferFrame& bf)
@@ -35,7 +37,8 @@ struct BufferFrame& FreeList::pop(JMUW<std::unique_lock<std::mutex>>* lock)
    do {
       free_bf = head;
       if (free_bf == nullptr) {
-         if(trys > 100){
+         if(trys > 1000){
+            // cout << "dry2" <<endl;
             if(lock != nullptr) {
                (*lock)->unlock();
             }

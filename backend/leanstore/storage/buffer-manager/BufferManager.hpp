@@ -8,6 +8,7 @@
 #include "Swip.hpp"
 // -------------------------------------------------------------------------------------
 #include "PerfEvent.hpp"
+#include "AsyncWriteBuffer.hpp"
 // -------------------------------------------------------------------------------------
 #include <libaio.h>
 #include <sys/mman.h>
@@ -56,7 +57,8 @@ class BufferManager
    // For cooling and inflight io
    const u64 partitions_count;
    const u64 partitions_mask;
-   const u64 free_bfs_limit;
+   const u64 max_partition_size;
+   static FreeList free_list;
 
    std::vector<std::unique_ptr<Partition>> partitions;
 
@@ -64,8 +66,8 @@ class BufferManager
    // -------------------------------------------------------------------------------------
    // Threads managements
    void pageProviderThread(u64 p_begin, u64 p_end);  // [p_begin, p_end)
-   atomic<u64> bg_threads_counter = 0;
-   atomic<bool> bg_threads_keep_running = true;
+   atomic<u64> bg_threads_counter = {0};
+   atomic<bool> bg_threads_keep_running = {true};
    // -------------------------------------------------------------------------------------
    // Misc
    Partition& randomPartition();
@@ -105,6 +107,55 @@ class BufferManager
    DTRegistry& getDTRegistry() { return DTRegistry::global_dt_registry; }
    u64 consumedPages();
    BufferFrame& getContainingBufferFrame(const u8*);  // get the buffer frame containing the given ptr address
+   struct FreedBfsBatch {
+      BufferFrame *freed_bfs_batch_head = nullptr, *freed_bfs_batch_tail = nullptr;
+      u64 freed_bfs_counter = 0;
+      // -------------------------------------------------------------------------------------
+      void reset()
+      {
+         freed_bfs_batch_head = nullptr;
+         freed_bfs_batch_tail = nullptr;
+         freed_bfs_counter = 0;
+      }
+      // Publish Free Pages to partition
+      void push()
+      {
+         free_list.batchPush(freed_bfs_batch_head, freed_bfs_batch_tail, freed_bfs_counter);
+         reset();
+      }
+      // -------------------------------------------------------------------------------------
+      u64 size() { return freed_bfs_counter; }
+      // Add empty bufferframes to list;
+      void add(BufferFrame& bf)
+      {
+         bf.header.next_free_bf = freed_bfs_batch_head;
+         if (freed_bfs_batch_head == nullptr) {
+            freed_bfs_batch_tail = &bf;
+         }
+         freed_bfs_batch_head = &bf;
+         freed_bfs_counter++;
+         // -------------------------------------------------------------------------------------
+      }
+   };
+
+   void nonDirtyEvict(Partition& partition,
+                      std::_List_iterator<BufferFrame*>& bf_itr,
+                      BufferFrame& bf,
+                      BMOptimisticGuard& guard,
+                      FreedBfsBatch& evictedOnes);
+   void cool_pages();
+   void second_phase(AsyncWriteBuffer& async_write_buffer,
+                     volatile u64 p_i,
+                     const s64 pages_to_iterate_partition,
+                     Partition& partition,
+                     FreedBfsBatch& freed_bfs_batch);
+   using Time = decltype(std::chrono::high_resolution_clock::now());
+   void third_phase(AsyncWriteBuffer& async_write_buffer,
+                    volatile u64 p_i,
+                    Partition& partition,
+                    const s64 pages_to_iterate_partition,
+                    FreedBfsBatch& freed_bfs_batch,
+                    Time& phase_3_end);
 };                                                    // namespace storage
 // -------------------------------------------------------------------------------------
 class BMC

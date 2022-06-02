@@ -31,11 +31,12 @@ namespace leanstore
 {
 namespace storage
 {
+FreeList BufferManager::free_list = FreeList();
 // -------------------------------------------------------------------------------------
 BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
       dram_pool_size(FLAGS_dram_gib * 1024 * 1024 * 1024  /sizeof(BufferFrame)),
       partitions_count(1<<FLAGS_partition_bits), partitions_mask(partitions_count -1),
-      free_bfs_limit(std::ceil((FLAGS_free_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count)))
+      max_partition_size(std::ceil(((100 - FLAGS_free_pct) * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count)))
 {
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
@@ -58,15 +59,14 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
       // Initialize partitions
       const u64 cooling_bfs_upper_bound = std::ceil((FLAGS_cool_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
       for (u64 p_i = 0; p_i < partitions_count; p_i++) {
-         partitions.push_back(std::make_unique<Partition>(p_i, partitions_count, free_bfs_limit, cooling_bfs_upper_bound));
+         partitions.push_back(std::make_unique<Partition>(p_i, partitions_count, max_partition_size, cooling_bfs_upper_bound));
       }
-      utils::Parallelize::parallelRange(partitions_count, [&](u64 p_b, u64 p_e) {
-         for(u64 p_i = p_b; p_i < p_e; p_i++){
-            Partition& part = getPartition(p_i);
-            for(u64 bf_i = p_i; bf_i < dram_pool_size; bf_i+=partitions_count){
-               part.dram_free_list.push(*new (bfs + bf_i) BufferFrame());
-            }
+      utils::Parallelize::parallelRange(dram_pool_size, [&](u64 begin, u64 end) {
+         FreedBfsBatch batch;
+         for(u64 bf_i = begin; bf_i < end; bf_i++){
+            batch.add(*new (bfs + bf_i) BufferFrame());
          }
+         batch.push();
       });
       // -------------------------------------------------------------------------------------
    }
@@ -180,8 +180,8 @@ BufferFrame& BufferManager::randomBufferFrame()
 BufferFrame& BufferManager::allocatePage()
 {
    // Pick a pratition randomly
+   BufferFrame& free_bf = free_list.pop();
    Partition& partition = randomPartition();
-   BufferFrame& free_bf = partition.dram_free_list.pop();
    PID free_pid = partition.nextPID();
    assert(free_bf.header.state == BufferFrame::STATE::FREE);
    // -------------------------------------------------------------------------------------
@@ -236,11 +236,11 @@ void BufferManager::reclaimPage(BufferFrame& bf)
       bf.header.latch.mutex.unlock();
       cout << "garbage collector, yeah" << endl;
    } else {
-      Partition& partition = getPartition(bf.header.pid);
+      getPartition(bf.header.pid).partition_size--;
       bf.reset();
       bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
       bf.header.latch.mutex.unlock();
-      partition.dram_free_list.push(bf);
+      free_list.push(bf);
    }
 }
 // -------------------------------------------------------------------------------------
@@ -273,7 +273,8 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
    // -------------------------------------------------------------------------------------
    auto frame_handler = partition.io_ht.lookup(pid);
    if (!frame_handler) {
-      BufferFrame& bf = randomPartition().dram_free_list.pop(&g_guard);  // EXP
+      BufferFrame& bf = free_list.pop(&g_guard);  // EXP
+      partition.partition_size++;
       IOFrame& io_frame = partition.io_ht.insert(pid);
       assert(bf.header.state == BufferFrame::STATE::FREE);
       bf.header.latch.assertNotExclusivelyLatched();

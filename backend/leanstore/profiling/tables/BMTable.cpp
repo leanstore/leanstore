@@ -68,10 +68,9 @@ void BMTable::next()
    local_phase_3_ms = sum_reset(PPCounters::pp_counters, &PPCounters::phase_3_ms);
    local_poll_ms = sum_reset(PPCounters::pp_counters, &PPCounters::poll_ms);
    // -------------------------------------------------------------------------------------
-   local_total_free = 0;
+   local_total_free = bm.free_list.counter.load();
    local_total_cool = 0;
    for (u64 p_i = 0; p_i < bm.partitions_count; p_i++) {
-      local_total_free += bm.getPartition(p_i).dram_free_list.counter.load();
       local_total_cool += bm.getPartition(p_i).cooling_bfs_counter.load();
    }
    total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;

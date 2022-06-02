@@ -1,5 +1,6 @@
 #pragma once
 #include "BufferFrame.hpp"
+#include "Partition.hpp"
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -39,9 +40,11 @@ class AsyncWriteBuffer
    // Caller takes care of sync
    bool full();
    void add(BufferFrame& bf, PID pid);
-   u64 submit();
-   u64 pollEventsSync();
-   void getWrittenBfs(std::function<void(BufferFrame&, u64, PID)> callback, u64 n_events);
+   u32 flush(Partition& partition);
+  private:
+   bool empty();
+   u64 submitAndWait();
+   void handleWritten(u32 n_events, Partition& partition);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace storage

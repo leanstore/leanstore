@@ -36,6 +36,11 @@ bool AsyncWriteBuffer::full()
    return pending_requests > batch_max_size - 3;
 }
 // -------------------------------------------------------------------------------------
+bool AsyncWriteBuffer::empty()
+{
+   return pending_requests == 0;
+}
+// -------------------------------------------------------------------------------------
 void AsyncWriteBuffer::add(BufferFrame& bf, PID pid)
 {
    assert(!full());
@@ -53,24 +58,17 @@ void AsyncWriteBuffer::add(BufferFrame& bf, PID pid)
    iocbs_ptr[slot] = &iocbs[slot];
 }
 // -------------------------------------------------------------------------------------
-u64 AsyncWriteBuffer::submit()
+u64 AsyncWriteBuffer::submitAndWait()
 {
    if (pending_requests > 0) {
       int ret_code = io_submit(aio_context, pending_requests, iocbs_ptr.get());
       ensure(ret_code == s32(pending_requests));
-      return pending_requests;
-   }
-   return 0;
-}
-// -------------------------------------------------------------------------------------
-u64 AsyncWriteBuffer::pollEventsSync()
-{
-   if (pending_requests > 0) {
+
       const int done_requests = io_getevents(aio_context, pending_requests, pending_requests, events.get(), NULL);
       if (u32(done_requests) != pending_requests) {
-         cerr << done_requests << endl;
+         cerr << "Error in number of Requests: " << done_requests << endl;
          raise(SIGTRAP);
-         ensure(false);
+         assert(false);
       }
       pending_requests = 0;
       leanstore::PPCounters::myCounters().total_writes += done_requests;
@@ -79,16 +77,49 @@ u64 AsyncWriteBuffer::pollEventsSync()
    return 0;
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame&, u64, PID)> callback, u64 n_events)
+void AsyncWriteBuffer::handleWritten(u32 n_events, Partition& partition)
 {
-   for (u64 i = 0; i < n_events; i++) {
+   for (volatile u64 i = 0; i < n_events; i++) {
       const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
       // -------------------------------------------------------------------------------------
-      ensure(events[i].res == page_size);
-      explain(events[i].res2 == 0);
+      assert(events[i].res == page_size);
+      explainIfNot(events[i].res2 == 0);
       auto written_lsn = write_buffer[slot].GSN;
-      callback(*write_buffer_commands[slot].bf, written_lsn, write_buffer_commands[slot].pid);
+      BufferFrame& written_bf = *write_buffer_commands[slot].bf;
+      PID out_of_place_pid = write_buffer_commands[slot].pid;
+      while (true) {
+         jumpmuTry()
+         {
+            Guard guard(written_bf.header.latch);
+            guard.toExclusive();
+            assert(written_bf.header.isInWriteBuffer);
+            assert(written_bf.header.lastWrittenGSN < written_lsn);
+            // -------------------------------------------------------------------------------------
+            if (FLAGS_out_of_place) {
+               partition.freePage(written_bf.header.pid);
+               written_bf.header.pid = out_of_place_pid;
+            }
+            written_bf.header.lastWrittenGSN = written_lsn;
+            written_bf.header.isInWriteBuffer = false;
+            PPCounters::myCounters().flushed_pages_counter++;
+            // -------------------------------------------------------------------------------------
+            guard.unlock();
+            jumpmu_break;
+         }
+         jumpmuCatch() {}
+      }
    }
+}
+// if async_write_buffer has pages: get & handle evicted.
+u32 AsyncWriteBuffer::flush(Partition& partition)
+{
+   if(!empty()) {
+      const u32 n_events = submitAndWait();
+      handleWritten(n_events, partition);
+      return n_events;
+//      cout << "Pages Flushed " << n_events << endl;
+   }
+   return 0;
 }
 // -------------------------------------------------------------------------------------
 }  // namespace storage

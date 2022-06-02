@@ -46,7 +46,7 @@ int main(int argc, char** argv)
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    // -------------------------------------------------------------------------------------
    if(FLAGS_ycsb_tuple_count == 0){
-      FLAGS_ycsb_tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 3.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
+      FLAGS_ycsb_tuple_count = FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.4 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
    }
    // Insert values
    if (!FLAGS_recover) {
@@ -80,6 +80,7 @@ int main(int argc, char** argv)
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
+   cout << "building zipf generator" <<endl;
    auto zipf_random = std::make_unique<utils::ScrambledZipfGenerator>(0, FLAGS_ycsb_tuple_count, FLAGS_zipf_factor);
    cout << setprecision(4);
    // -------------------------------------------------------------------------------------
@@ -111,6 +112,7 @@ int main(int argc, char** argv)
                   cr::Worker::my().commitTX();
                }
                WorkerCounters::myCounters().tx++;
+               WorkerCounters::myCounters().tx_counter++;
             }
             jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
          }

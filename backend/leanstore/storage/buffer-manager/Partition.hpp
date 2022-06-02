@@ -70,9 +70,9 @@ struct Partition {
    std::list<BufferFrame*> cooling_queue;
    // -------------------------------------------------------------------------------------
    atomic<u64> cooling_bfs_counter = 0;
-   const u64 free_bfs_limit;
+   const u64 max_partition_size;
+   atomic<u64> partition_size = 0;
    const u64 cooling_bfs_limit;
-   FreeList dram_free_list;
    // -------------------------------------------------------------------------------------
    // SSD Pages
    const u64 pid_distance;
@@ -82,6 +82,7 @@ struct Partition {
    inline PID nextPID()
    {
       std::unique_lock<std::mutex> g_guard(pids_mutex);
+      partition_size++;
       if (freed_pids.size()) {
          const u64 pid = freed_pids.back();
          freed_pids.pop_back();
@@ -105,7 +106,7 @@ struct Partition {
       return freed_pids.size();
    }
    // -------------------------------------------------------------------------------------
-   Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 cooling_bfs_limit);
+   Partition(u64 first_pid, u64 pid_distance, u64 max_partition_size, u64 cooling_bfs_limit);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace storage
