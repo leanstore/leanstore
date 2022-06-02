@@ -75,7 +75,6 @@ struct Worker {
          // TODO:
       };
       utils::OptimisticSpinStruct<WorkerToLW> wt_to_lw;
-      WorkerToLW wt_to_lw_copy;
       utils::OptimisticSpinStruct<WorkerToLW> lw_to_lc;
       // New: RFA: check for user tx dependency on tuple insert, update, lookup. Deletes are treated as system transaction
       void checkLogDepdency(WORKERID other_worker_id, TXID other_user_tx_id)

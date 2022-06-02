@@ -1,7 +1,7 @@
 #pragma once
 #include "Exceptions.hpp"
-#include "Units.hpp"
 #include "HistoryTreeInterface.hpp"
+#include "Units.hpp"
 #include "Worker.hpp"
 #include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
@@ -91,7 +91,9 @@ class CRManager
    void deserialize(std::unordered_map<std::string, std::string> map);
 
   private:
+   static std::atomic<u64> fsync_counter;
    void groupCommiter();
+   void groupCommiter1();
    // -------------------------------------------------------------------------------------
    /**
     * @brief Set the Job to specific worker.

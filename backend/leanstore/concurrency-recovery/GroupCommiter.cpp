@@ -59,7 +59,9 @@ void CRManager::groupCommiter()
    LID max_all_workers_gsn;  // Sync all workers to this point
    TXID min_all_workers_hardened_commit_ts;
    std::vector<u64> ready_to_commit_rfa_cut;  // Exclusive ) ==
+   std::vector<Worker::Logging::WorkerToLW> wt_to_lw_copy;
    ready_to_commit_rfa_cut.resize(workers_count, 0);
+   wt_to_lw_copy.resize(workers_count);
    // -------------------------------------------------------------------------------------
    while (keep_running) {
       io_slot = 0;
@@ -79,17 +81,17 @@ void CRManager::groupCommiter()
                std::unique_lock<std::mutex> g(worker.logging.precommitted_queue_mutex);
                ready_to_commit_rfa_cut[w_i] = worker.logging.precommitted_queue_rfa.size();
             }
-            worker.logging.wt_to_lw_copy = worker.logging.wt_to_lw.getSync();
+            wt_to_lw_copy[w_i] = worker.logging.wt_to_lw.getSync();
             // -------------------------------------------------------------------------------------
-            max_all_workers_gsn = std::max<LID>(max_all_workers_gsn, worker.logging.wt_to_lw_copy.last_gsn);
-            min_all_workers_gsn = std::min<LID>(min_all_workers_gsn, worker.logging.wt_to_lw_copy.last_gsn);
+            max_all_workers_gsn = std::max<LID>(max_all_workers_gsn, wt_to_lw_copy[w_i].last_gsn);
+            min_all_workers_gsn = std::min<LID>(min_all_workers_gsn, wt_to_lw_copy[w_i].last_gsn);
             min_all_workers_hardened_commit_ts =
-                std::min<TXID>(min_all_workers_hardened_commit_ts, worker.logging.wt_to_lw_copy.precommitted_tx_commit_ts);
+                std::min<TXID>(min_all_workers_hardened_commit_ts, wt_to_lw_copy[w_i].precommitted_tx_commit_ts);
          }
          if (1) {
-            if (worker.logging.wt_to_lw_copy.wal_written_offset > worker.logging.wal_gct_cursor) {
+            if (wt_to_lw_copy[w_i].wal_written_offset > worker.logging.wal_gct_cursor) {
                const u64 lower_offset = utils::downAlign(worker.logging.wal_gct_cursor);
-               const u64 upper_offset = utils::upAlign(worker.logging.wt_to_lw_copy.wal_written_offset);
+               const u64 upper_offset = utils::upAlign(wt_to_lw_copy[w_i].wal_written_offset);
                const u64 size_aligned = upper_offset - lower_offset;
                // -------------------------------------------------------------------------------------
                if (FLAGS_wal_pwrite) {
@@ -99,7 +101,7 @@ void CRManager::groupCommiter()
                   // -------------------------------------------------------------------------------------
                   COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                }
-            } else if (worker.logging.wt_to_lw_copy.wal_written_offset < worker.logging.wal_gct_cursor) {
+            } else if (wt_to_lw_copy[w_i].wal_written_offset < worker.logging.wal_gct_cursor) {
                {
                   // ------------XXXXXXXXX
                   const u64 lower_offset = utils::downAlign(worker.logging.wal_gct_cursor);
@@ -116,7 +118,7 @@ void CRManager::groupCommiter()
                {
                   // XXXXXX---------------
                   const u64 lower_offset = 0;
-                  const u64 upper_offset = utils::upAlign(worker.logging.wt_to_lw_copy.wal_written_offset);
+                  const u64 upper_offset = utils::upAlign(wt_to_lw_copy[w_i].wal_written_offset);
                   const u64 size_aligned = upper_offset - lower_offset;
                   // -------------------------------------------------------------------------------------
                   if (FLAGS_wal_pwrite) {
@@ -179,11 +181,11 @@ void CRManager::groupCommiter()
       u64 committed_tx = 0;
       for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
-         worker.logging.hardened_commit_ts.store(worker.logging.wt_to_lw_copy.precommitted_tx_commit_ts, std::memory_order_release);
+         worker.logging.hardened_commit_ts.store(wt_to_lw_copy[w_i].precommitted_tx_commit_ts, std::memory_order_release);
          TXID signaled_up_to = std::numeric_limits<TXID>::max();
          // TODO: prevent contention on mutex
          {
-            worker.logging.wal_gct_cursor.store(worker.logging.wt_to_lw_copy.wal_written_offset, std::memory_order_release);
+            worker.logging.wal_gct_cursor.store(wt_to_lw_copy[w_i].wal_written_offset, std::memory_order_release);
             std::unique_lock<std::mutex> g(worker.logging.precommitted_queue_mutex);
             // -------------------------------------------------------------------------------------
             u64 tx_i = 0;
