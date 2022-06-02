@@ -161,7 +161,7 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
          std::memcpy(wal_entry->payload + key.length(), value.data(), value.length());
          wal_entry.submit();
       } else {
-         iterator.leaf.incrementGSN();
+         iterator.markAsDirty();
       }
       jumpmu_return OP_RESULT::OK;
    }
@@ -376,7 +376,7 @@ OP_RESULT BTreeLL::updateSameSizeInPlace(u8* o_key,
          wal_entry.submit();
       } else {
          callback(current_value.data(), current_value.length());
-         iterator.leaf.incrementGSN();
+         iterator.markAsDirty();
       }
       iterator.contentionSplit();
       jumpmu_return OP_RESULT::OK;
@@ -410,7 +410,7 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
          std::memcpy(wal_entry->payload + o_key_length, value.data(), value.length());
          wal_entry.submit();
       } else {
-         iterator.leaf.incrementGSN();
+         iterator.markAsDirty();
       }
       ret = iterator.removeCurrent();
       ensure(ret == OP_RESULT::OK);

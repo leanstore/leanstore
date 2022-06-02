@@ -18,8 +18,8 @@ const u64 PAGE_SIZE = 4 * 1024;
 struct BufferFrame {
    enum class STATE : u8 { FREE = 0, HOT = 1, COOL = 2, LOADED = 3 };
    struct Header {
-      u8 last_writer_worker_id = std::numeric_limits<u8>::max();  // for RFA
-      u64 last_written_gsn = 0;
+      WORKERID last_writer_worker_id = std::numeric_limits<u8>::max();  // for RFA
+      LID last_written_plsn = 0;
       STATE state = STATE::FREE;  // INIT:
       bool is_being_written_back = false;
       bool keep_in_memory = false;
@@ -45,16 +45,16 @@ struct BufferFrame {
       struct OptimisticParentPointer {
          BufferFrame* parent_bf = nullptr;
          PID parent_pid;
-         LID parent_gsn = 0;
+         LID parent_plsn = 0;
          BufferFrame** swip_ptr = nullptr;
          s64 pos_in_parent = -1;
          void update(BufferFrame* new_parent_bf, PID new_parent_pid, LID new_parent_gsn, BufferFrame** new_swip_ptr, s64 new_pos_in_parent)
          {
-            if (parent_bf != new_parent_bf || parent_pid != new_parent_pid || parent_gsn != new_parent_gsn || swip_ptr != new_swip_ptr ||
+            if (parent_bf != new_parent_bf || parent_pid != new_parent_pid || parent_plsn != new_parent_gsn || swip_ptr != new_swip_ptr ||
                 pos_in_parent != new_pos_in_parent) {
                parent_bf = new_parent_bf;
                parent_pid = new_parent_pid;
-               parent_gsn = new_parent_gsn;
+               parent_plsn = new_parent_gsn;
                swip_ptr = new_swip_ptr;
                pos_in_parent = new_pos_in_parent;
             }
@@ -65,10 +65,11 @@ struct BufferFrame {
       u64 debug;
    };
    struct alignas(512) Page {
+      LID PLSN = 0;
       LID GSN = 0;
-      DTID dt_id = 9999;                                                                // INIT: datastructure id
-      u64 magic_debugging_number;                                                       // ATTENTION
-      u8 dt[PAGE_SIZE - sizeof(GSN) - sizeof(dt_id) - sizeof(magic_debugging_number)];  // Datastruture BE CAREFUL HERE !!!!!
+      DTID dt_id = 9999;                                                                               // INIT: datastructure id
+      u64 magic_debugging_number;                                                                      // ATTENTION
+      u8 dt[PAGE_SIZE - sizeof(PLSN) - sizeof(GSN) - sizeof(dt_id) - sizeof(magic_debugging_number)];  // Datastruture BE CAREFUL HERE !!!!!
       // -------------------------------------------------------------------------------------
       operator u8*() { return reinterpret_cast<u8*>(this); }
       // -------------------------------------------------------------------------------------
@@ -80,7 +81,7 @@ struct BufferFrame {
    // -------------------------------------------------------------------------------------
    bool operator==(const BufferFrame& other) { return this == &other; }
    // -------------------------------------------------------------------------------------
-   inline bool isDirty() const { return header.last_written_gsn != page.GSN; }
+   inline bool isDirty() const { return page.PLSN == header.last_written_plsn; }
    inline bool isFree() const { return header.state == STATE::FREE; }
    // -------------------------------------------------------------------------------------
    // Pre: bf is exclusively locked
@@ -91,7 +92,7 @@ struct BufferFrame {
       assert(!header.is_being_written_back);
       header.latch.assertExclusivelyLatched();
       header.last_writer_worker_id = std::numeric_limits<u8>::max();
-      header.last_written_gsn = 0;
+      header.last_written_plsn = 0;
       header.state = STATE::FREE;  // INIT:
       header.is_being_written_back = false;
       header.pid = 9999;

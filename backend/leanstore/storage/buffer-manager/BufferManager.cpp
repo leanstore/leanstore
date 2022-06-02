@@ -190,7 +190,7 @@ BufferFrame& BufferManager::allocatePage()
    free_bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT);
    free_bf.header.pid = free_pid;
    free_bf.header.state = BufferFrame::STATE::HOT;
-   free_bf.header.last_written_gsn = free_bf.page.GSN = 0;
+   free_bf.header.last_written_plsn = free_bf.page.PLSN = free_bf.page.GSN = 0;
    free_bf.header.latch.assertExclusivelyLatched();
    // -------------------------------------------------------------------------------------
    COUNTERS_BLOCK() { WorkerCounters::myCounters().allocate_operations_counter++; }
@@ -343,7 +343,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       // -------------------------------------------------------------------------------------
       // ATTENTION: Fill the BF
       assert(!bf.header.is_being_written_back);
-      bf.header.last_written_gsn = bf.page.GSN;
+      bf.header.last_written_plsn = bf.page.PLSN;
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
       // -------------------------------------------------------------------------------------

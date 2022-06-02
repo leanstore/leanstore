@@ -9,6 +9,8 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
+atomic<u64> Worker::ConcurrencyControl::global_clock = WORKERS_INCREMENT;
+// -------------------------------------------------------------------------------------
 // Also for interval garbage collection
 void Worker::ConcurrencyControl::refreshGlobalState()
 {
@@ -25,7 +27,7 @@ void Worker::ConcurrencyControl::refreshGlobalState()
       for (WORKERID w_i = 0; w_i < my().workers_count; w_i++) {
          u64 its_in_flight_tx_id = global_workers_current_snapshot[w_i].load();
          // -------------------------------------------------------------------------------------
-         while ((its_in_flight_tx_id & LATCH_BIT) && ((its_in_flight_tx_id & CLEAN_BITS_MASK) < activeTX().TTS())) {
+         while ((its_in_flight_tx_id & LATCH_BIT) && ((its_in_flight_tx_id & CLEAN_BITS_MASK) < activeTX().startTS())) {
             its_in_flight_tx_id = global_workers_current_snapshot[w_i].load();
          }
          // -------------------------------------------------------------------------------------
@@ -93,7 +95,7 @@ void Worker::ConcurrencyControl::switchToSnapshotIsolationMode()
 {
    {
       std::unique_lock guard(global_mutex);
-      global_workers_current_snapshot[my().worker_id].store(global_logical_clock.load(), std::memory_order_release);
+      global_workers_current_snapshot[my().worker_id].store(global_clock.load(), std::memory_order_release);
    }
    refreshGlobalState();
 }
@@ -241,26 +243,26 @@ bool Worker::ConcurrencyControl::isVisibleForMe(WORKERID other_worker_id, u64 tx
          return committed_till >= tx_ts;
       } else if (activeTX().atLeastSI()) {
          if (is_commit_ts) {
-            return my().active_tx.TTS() > committed_ts;
+            return my().active_tx.startTS() > committed_ts;
          }
          if (start_ts < local_global_all_lwm_cache) {
             return true;
          }
          // -------------------------------------------------------------------------------------
-         if (local_snapshot_cache_ts[other_worker_id] == activeTX().TTS()) {  // Use the cache
+         if (local_snapshot_cache_ts[other_worker_id] == activeTX().startTS()) {  // Use the cache
             return local_snapshot_cache[other_worker_id] >= start_ts;
          } else if (local_snapshot_cache[other_worker_id] >= start_ts) {
             return true;
          }
          TXID largest_visible_tx_id = 0;
          u8 key[sizeof(TXID)];
-         utils::fold(key, my().active_tx.TTS());
+         utils::fold(key, my().active_tx.startTS());
          OP_RESULT ret = other(other_worker_id).commit_tree->prefixLookupForPrev(key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) {
             largest_visible_tx_id = *reinterpret_cast<const TXID*>(s_value);
          });
          if (ret == OP_RESULT::OK) {
             local_snapshot_cache[other_worker_id] = largest_visible_tx_id;
-            local_snapshot_cache_ts[other_worker_id] = my().active_tx.TTS();
+            local_snapshot_cache_ts[other_worker_id] = my().active_tx.startTS();
             return largest_visible_tx_id >= start_ts;
          }
          return false;

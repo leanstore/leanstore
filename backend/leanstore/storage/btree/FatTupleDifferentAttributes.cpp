@@ -250,7 +250,7 @@ cont : {
       wal_entry->before_command_id = fat_tuple->command_id;
       // -------------------------------------------------------------------------------------
       fat_tuple->worker_id = cr::Worker::my().workerID();
-      fat_tuple->tx_ts = cr::activeTX().TTS();
+      fat_tuple->tx_ts = cr::activeTX().startTS();
       fat_tuple->command_id = cr::Worker::my().command_id++;  // A version is not inserted in versions space however. Needed for decompose
       // -------------------------------------------------------------------------------------
       std::memcpy(wal_entry->payload, o_key, o_key_length);

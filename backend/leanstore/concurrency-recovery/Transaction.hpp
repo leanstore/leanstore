@@ -31,7 +31,8 @@ struct Transaction {
    enum class TYPE : u8 { USER, SYSTEM };
    enum class STATE { IDLE, STARTED, READY_TO_COMMIT, COMMITTED, ABORTED };
    STATE state = STATE::IDLE;
-   TXID tx_id = 0;  // = start timestamp
+   TXID start_ts = 0;  // = TXID
+   TXID commit_ts = 0;
    LID min_observed_gsn_when_started, max_observed_gsn;
    TX_MODE current_tx_mode = TX_MODE::OLTP;
    TX_ISOLATION_LEVEL current_tx_isolation_level = TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION;
@@ -53,7 +54,8 @@ struct Transaction {
    bool isReadUncommitted() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::READ_UNCOMMITTED; }
    bool canUseSingleVersion() { return can_use_single_version_mode; }
    // -------------------------------------------------------------------------------------
-   inline u64 TTS() { return tx_id; }
+   inline u64 startTS() { return start_ts; }
+   inline u64 commitTS() { return commit_ts; }
    // -------------------------------------------------------------------------------------
    void markAsWrite()
    {

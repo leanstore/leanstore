@@ -90,7 +90,7 @@ void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame&, u64, PID)>
       // -------------------------------------------------------------------------------------
       ensure(events[i].res == page_size);
       explainIfNot(events[i].res2 == 0);
-      auto written_lsn = write_buffer[slot].GSN;
+      auto written_lsn = write_buffer[slot].PLSN;
       callback(*write_buffer_commands[slot].bf, written_lsn, write_buffer_commands[slot].pid);
    }
 }

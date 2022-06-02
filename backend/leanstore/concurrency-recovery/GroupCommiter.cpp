@@ -18,10 +18,6 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
-struct alignas(512) SSDMeta {
-   u64 last_written_chunk;
-};
-// -------------------------------------------------------------------------------------
 void CRManager::groupCommiter()
 {
    using Time = decltype(std::chrono::high_resolution_clock::now());
@@ -33,10 +29,8 @@ void CRManager::groupCommiter()
    CPUCounters::registerThread(thread_name, false);
    // -------------------------------------------------------------------------------------
    WALChunk chunk;
-   SSDMeta meta;
    [[maybe_unused]] u64 round_i = 0;  // For debugging
-   const u64 meta_offset = end_of_block_device - sizeof(SSDMeta);
-   u64 ssd_offset = end_of_block_device - sizeof(SSDMeta);
+   u64 ssd_offset = end_of_block_device;
    // -------------------------------------------------------------------------------------
    // Async IO
    const u64 batch_max_size = (workers_count * 2) + 2;  // 2x because of potential wrapping around
@@ -59,9 +53,11 @@ void CRManager::groupCommiter()
       io_slot++;
    };
    // -------------------------------------------------------------------------------------
-   LID max_safe_gsn;
    LID min_all_workers_gsn;  // For Remote Flush Avoidance
    LID max_all_workers_gsn;  // Sync all workers to this point
+   TXID min_all_workers_hardened_commit_ts;
+   std::vector<u64> ready_to_commit_rfa_cut;  // Exclusive ) ==
+   ready_to_commit_rfa_cut.resize(workers_count, 0);
    // -------------------------------------------------------------------------------------
    while (keep_running) {
       io_slot = 0;
@@ -69,34 +65,31 @@ void CRManager::groupCommiter()
       CRCounters::myCounters().gct_rounds++;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
       // -------------------------------------------------------------------------------------
-      max_safe_gsn = std::numeric_limits<LID>::max();  // At the end of the first phase, this has the max safe to gsn for the first worker. From there
-                                                       // on, we push the gsn back b/c of the logs that the next workers got to close the circle
       min_all_workers_gsn = std::numeric_limits<LID>::max();
       max_all_workers_gsn = 0;
+      min_all_workers_hardened_commit_ts = std::numeric_limits<TXID>::max();
       chunk.total_size = sizeof(WALChunk);
       // -------------------------------------------------------------------------------------
       // Phase 1
       for (u32 w_i = 0; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
          {
-            worker.logging.group_commit_data.ready_to_commit_cut = worker.logging.ready_to_commit_queue_size;
-            auto max_gsn_offset_tuple = worker.logging.fetchMaxGSNOffset();
-            worker.logging.group_commit_data.gsn_to_flush = std::get<0>(max_gsn_offset_tuple);
-            worker.logging.group_commit_data.wt_cursor_to_flush = std::get<1>(max_gsn_offset_tuple);
             {
-               auto& wal_entry = *reinterpret_cast<WALEntry*>(worker.logging.wal_buffer + worker.logging.wal_gct_cursor);
-               worker.logging.group_commit_data.first_lsn_in_chunk = wal_entry.lsn;
+               std::unique_lock<std::mutex> g(worker.logging.precommitted_queue_mutex);
+               ready_to_commit_rfa_cut[w_i] = worker.logging.precommitted_queue_rfa.size();
             }
+            worker.logging.wt_to_lw_copy = worker.logging.wt_to_lw.getSync();
             // -------------------------------------------------------------------------------------
-            max_safe_gsn = std::min<LID>(max_safe_gsn, worker.logging.group_commit_data.gsn_to_flush);
-            max_all_workers_gsn = std::max<LID>(max_all_workers_gsn, worker.logging.group_commit_data.gsn_to_flush);
-            min_all_workers_gsn = std::min<LID>(min_all_workers_gsn, worker.logging.group_commit_data.gsn_to_flush);
+            max_all_workers_gsn = std::max<LID>(max_all_workers_gsn, worker.logging.wt_to_lw_copy.last_gsn);
+            min_all_workers_gsn = std::min<LID>(min_all_workers_gsn, worker.logging.wt_to_lw_copy.last_gsn);
+            min_all_workers_hardened_commit_ts =
+                std::min<TXID>(min_all_workers_hardened_commit_ts, worker.logging.wt_to_lw_copy.precommitted_tx_commit_ts);
          }
-         {
-            if (worker.logging.group_commit_data.wt_cursor_to_flush > worker.logging.wal_gct_cursor) {
+         if (1) {
+            if (worker.logging.wt_to_lw_copy.wal_written_offset > worker.logging.wal_gct_cursor) {
                const u64 lower_offset = utils::downAlign(worker.logging.wal_gct_cursor);
-               const u64 upper_offset = utils::upAlign(worker.logging.group_commit_data.wt_cursor_to_flush);
-               const u64 size = worker.logging.group_commit_data.wt_cursor_to_flush - worker.logging.wal_gct_cursor;
+               const u64 upper_offset = utils::upAlign(worker.logging.wt_to_lw_copy.wal_written_offset);
+               const u64 size = worker.logging.wt_to_lw_copy.wal_written_offset - worker.logging.wal_gct_cursor;
                const u64 size_aligned = upper_offset - lower_offset;
                // -------------------------------------------------------------------------------------
                if (!FLAGS_wal_io_hack) {
@@ -107,15 +100,15 @@ void CRManager::groupCommiter()
                COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                chunk.slot[w_i].offset = ssd_offset + (worker.logging.wal_gct_cursor - lower_offset);
                chunk.slot[w_i].length = size;
-               ensure(chunk.slot[w_i].offset < end_of_block_device);
+               // ensure(chunk.slot[w_i].offset < end_of_block_device);
                chunk.total_size += size_aligned;
-               ensure(chunk.slot[w_i].offset >= ssd_offset);
-            } else if (worker.logging.group_commit_data.wt_cursor_to_flush < worker.logging.wal_gct_cursor) {
+               // ensure(chunk.slot[w_i].offset >= ssd_offset);
+            } else if (worker.logging.wt_to_lw_copy.wal_written_offset < worker.logging.wal_gct_cursor) {
                {
                   // XXXXXX---------------
                   const u64 lower_offset = 0;
-                  const u64 upper_offset = utils::upAlign(worker.logging.group_commit_data.wt_cursor_to_flush);
-                  const u64 size = worker.logging.group_commit_data.wt_cursor_to_flush;
+                  const u64 upper_offset = utils::upAlign(worker.logging.wt_to_lw_copy.wal_written_offset);
+                  const u64 size = worker.logging.wt_to_lw_copy.wal_written_offset;
                   const u64 size_aligned = upper_offset - lower_offset;
                   // -------------------------------------------------------------------------------------
                   if (!FLAGS_wal_io_hack) {
@@ -140,7 +133,7 @@ void CRManager::groupCommiter()
                   chunk.slot[w_i].offset = ssd_offset + (worker.logging.wal_gct_cursor - lower_offset);
                   chunk.slot[w_i].length += size;
                }
-               ensure(chunk.slot[w_i].offset >= ssd_offset);
+               // ensure(chunk.slot[w_i].offset >= ssd_offset);
             } else {
                chunk.slot[w_i].offset = 0;
                chunk.slot[w_i].length = 0;
@@ -149,19 +142,6 @@ void CRManager::groupCommiter()
       }
       // -------------------------------------------------------------------------------------
       // Phase 2
-      if (std::get<0>(workers[0]->logging.fetchMaxGSNOffset()) >
-          workers[0]->logging.group_commit_data.gsn_to_flush) {  // No new logs have been added since then
-         max_safe_gsn = std::min<LID>(workers[0]->logging.group_commit_data.gsn_to_flush, max_safe_gsn);
-      }
-      for (u32 w_i = 1; w_i < workers_count; w_i++) {
-         Worker& worker = *workers[w_i];
-         worker.logging.group_commit_data.max_safe_gsn_to_commit =
-             std::min<LID>(worker.logging.group_commit_data.max_safe_gsn_to_commit, max_safe_gsn);
-         if (std::get<0>(worker.logging.fetchMaxGSNOffset()) > worker.logging.group_commit_data.gsn_to_flush) {
-            max_safe_gsn = std::min<LID>(max_safe_gsn, worker.logging.group_commit_data.gsn_to_flush);
-         }
-      }
-      // -------------------------------------------------------------------------------------
       COUNTERS_BLOCK()
       {
          phase_1_end = std::chrono::high_resolution_clock::now();
@@ -173,7 +153,6 @@ void CRManager::groupCommiter()
          ensure(ssd_offset % 512 == 0);
          ssd_offset -= sizeof(WALChunk);
          if (!FLAGS_wal_io_hack) {
-            add_pwrite(reinterpret_cast<u8*>(&chunk), sizeof(WALChunk), ssd_offset);
             {
                s32 ret_code = io_submit(aio_context, io_slot, iocbs_ptr.get());
                ensure(ret_code == s32(io_slot));
@@ -193,15 +172,6 @@ void CRManager::groupCommiter()
                fdatasync(ssd_fd);
             }
          }
-         // -------------------------------------------------------------------------------------
-         meta.last_written_chunk = ssd_offset;
-         if (!FLAGS_wal_io_hack) {
-            const u64 ret = pwrite(ssd_fd, &meta, sizeof(SSDMeta), meta_offset);
-            ensure(ret == sizeof(SSDMeta));
-         }
-         if (!FLAGS_wal_io_hack && FLAGS_wal_fsync) {
-            fdatasync(ssd_fd);
-         }
       }
       // -------------------------------------------------------------------------------------
       COUNTERS_BLOCK()
@@ -212,27 +182,40 @@ void CRManager::groupCommiter()
       // -------------------------------------------------------------------------------------
       // Phase 2, commit
       u64 committed_tx = 0;
-      for (s32 w_i = 0; w_i < s32(workers_count); w_i++) {
+      for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
          Worker& worker = *workers[w_i];
+         worker.logging.hardened_commit_ts.store(worker.logging.wt_to_lw_copy.precommitted_tx_commit_ts, std::memory_order_release);
+         TXID signaled_up_to = std::numeric_limits<TXID>::max();
+         // TODO: prevent contention on mutex
          {
+            worker.logging.wal_gct_cursor.store(worker.logging.wt_to_lw_copy.wal_written_offset, std::memory_order_release);
+            std::unique_lock<std::mutex> g(worker.logging.precommitted_queue_mutex);
+            // -------------------------------------------------------------------------------------
             u64 tx_i = 0;
-            worker.logging.wal_gct_cursor.store(worker.logging.group_commit_data.wt_cursor_to_flush, std::memory_order_release);
-            worker.logging.group_commit_data.max_safe_gsn_to_commit = std::numeric_limits<u64>::max();
-            if (worker.logging.group_commit_data.ready_to_commit_cut) {
-               std::unique_lock<std::mutex> g(worker.logging.precommitted_queue_mutex);
-               // -------------------------------------------------------------------------------------
-               while (tx_i < worker.logging.group_commit_data.ready_to_commit_cut) {
-                  if (worker.logging.precommitted_queue[tx_i].max_observed_gsn < worker.logging.group_commit_data.max_safe_gsn_to_commit) {
-                     worker.logging.precommitted_queue[tx_i].state = Transaction::STATE::COMMITTED;
-                     committed_tx++;
-                     tx_i++;
-                  } else {
-                     break;
-                  }
-               }
-               worker.logging.precommitted_queue.erase(worker.logging.precommitted_queue.begin(), worker.logging.precommitted_queue.begin() + tx_i);
-               worker.logging.ready_to_commit_queue_size -= tx_i;
+            for (tx_i = 0;
+                 tx_i < worker.logging.precommitted_queue.size() && worker.logging.precommitted_queue[tx_i].max_observed_gsn <= min_all_workers_gsn &&
+                 worker.logging.precommitted_queue[tx_i].start_ts <= min_all_workers_hardened_commit_ts;
+                 tx_i++) {
+               worker.logging.precommitted_queue[tx_i].state = Transaction::STATE::COMMITTED;
             }
+            if (tx_i > 0) {
+               signaled_up_to = std::min<TXID>(signaled_up_to, worker.logging.precommitted_queue[tx_i - 1].commitTS());
+               worker.logging.precommitted_queue.erase(worker.logging.precommitted_queue.begin(), worker.logging.precommitted_queue.begin() + tx_i);
+               committed_tx += tx_i;
+            }
+            // -------------------------------------------------------------------------------------
+            for (tx_i = 0; tx_i < ready_to_commit_rfa_cut[w_i]; tx_i++) {
+               worker.logging.precommitted_queue_rfa[tx_i].state = Transaction::STATE::COMMITTED;
+            }
+            if (tx_i > 0) {
+               signaled_up_to = std::min<TXID>(signaled_up_to, worker.logging.precommitted_queue_rfa[tx_i - 1].commitTS());
+               worker.logging.precommitted_queue_rfa.erase(worker.logging.precommitted_queue_rfa.begin(),
+                                                           worker.logging.precommitted_queue_rfa.begin() + tx_i);
+               committed_tx += tx_i;
+            }
+         }
+         if (signaled_up_to < std::numeric_limits<TXID>::max() && signaled_up_to > 0) {
+            worker.logging.signaled_commit_ts.store(signaled_up_to, std::memory_order_release);
          }
       }
       CRCounters::myCounters().gct_committed_tx += committed_tx;
@@ -244,9 +227,9 @@ void CRManager::groupCommiter()
          CRCounters::myCounters().gct_write_ms += (std::chrono::duration_cast<std::chrono::microseconds>(write_end - write_begin).count());
       }
       // -------------------------------------------------------------------------------------
-      assert(Worker::global_gsn_flushed.load() <= min_all_workers_gsn);
-      Worker::global_gsn_flushed.store(min_all_workers_gsn, std::memory_order_release);
-      Worker::global_sync_to_this_gsn.store(max_all_workers_gsn, std::memory_order_release);
+      assert(Worker::Logging::global_min_gsn_flushed.load() <= min_all_workers_gsn);
+      Worker::Logging::global_min_gsn_flushed.store(min_all_workers_gsn, std::memory_order_release);
+      Worker::Logging::global_sync_to_this_gsn.store(max_all_workers_gsn, std::memory_order_release);
    }
    running_threads--;
 }

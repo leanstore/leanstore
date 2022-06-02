@@ -309,13 +309,13 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                             Guard guard(written_bf.header.latch);
                             guard.toExclusive();
                             assert(written_bf.header.is_being_written_back);
-                            assert(written_bf.header.last_written_gsn < written_lsn);
+                            assert(written_bf.header.last_written_plsn < written_lsn);
                             // -------------------------------------------------------------------------------------
                             if (FLAGS_out_of_place) {
                                partition.freePage(written_bf.header.pid);
                                written_bf.header.pid = out_of_place_pid;
                             }
-                            written_bf.header.last_written_gsn = written_lsn;
+                            written_bf.header.last_written_plsn = written_lsn;
                             written_bf.header.is_being_written_back = false;
                             PPCounters::myCounters().flushed_pages_counter++;
                             // -------------------------------------------------------------------------------------

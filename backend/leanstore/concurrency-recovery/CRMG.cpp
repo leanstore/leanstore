@@ -139,13 +139,13 @@ void CRManager::joinOne(u64 t_i, std::function<bool(WorkerThread&)> condition)
 std::unordered_map<std::string, std::string> CRManager::serialize()
 {
    std::unordered_map<std::string, std::string> map;
-   map["global_logical_clock"] = std::to_string(Worker::global_logical_clock.load());
+   map["global_logical_clock"] = std::to_string(Worker::ConcurrencyControl::global_clock.load());
    return map;
 }
 // -------------------------------------------------------------------------------------
 void CRManager::deserialize(std::unordered_map<std::string, std::string> map)
 {
-   Worker::global_logical_clock = std::stol(map["global_logical_clock"]);
+   Worker::ConcurrencyControl::global_clock = std::stol(map["global_logical_clock"]);
    Worker::global_all_lwm = std::stol(map["global_logical_clock"]);
 }
 // -------------------------------------------------------------------------------------

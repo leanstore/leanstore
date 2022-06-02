@@ -145,7 +145,7 @@ class BTreeGeneric
             if (parent_bf != nullptr) {
                Guard p_guard(parent_bf->header.latch);
                p_guard.toOptimisticOrJump();
-               if (parent_bf->page.GSN == optimistic_parent_pointer.parent_gsn && parent_bf->header.pid == optimistic_parent_pointer.parent_pid) {
+               if (parent_bf->page.PLSN == optimistic_parent_pointer.parent_plsn && parent_bf->header.pid == optimistic_parent_pointer.parent_pid) {
                   if (*(optimistic_parent_pointer.swip_ptr) == &to_find) {
                      p_guard.recheck();
                      c_guard.recheck();
@@ -234,7 +234,7 @@ class BTreeGeneric
             c_guard.toOptimisticOrJump();
             c_guard.tryToExclusive();
             to_find.header.optimistic_parent_pointer.update(parent_handler.parent_bf, parent_handler.parent_bf->header.pid,
-                                                            parent_handler.parent_bf->page.GSN, reinterpret_cast<BufferFrame**>(&parent_handler.swip),
+                                                            parent_handler.parent_bf->page.PLSN, reinterpret_cast<BufferFrame**>(&parent_handler.swip),
                                                             parent_handler.pos);
             c_guard.unlock();
             parent_handler.is_bf_updated = true;

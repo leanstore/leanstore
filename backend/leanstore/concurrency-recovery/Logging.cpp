@@ -11,6 +11,9 @@ namespace leanstore
 namespace cr
 {
 // -------------------------------------------------------------------------------------
+atomic<u64> Worker::Logging::global_min_gsn_flushed = 0;
+atomic<u64> Worker::Logging::global_sync_to_this_gsn = 0;
+// -------------------------------------------------------------------------------------
 u32 Worker::Logging::walFreeSpace()
 {
    // A , B , C : a - b + c % c
@@ -70,7 +73,10 @@ void Worker::Logging::submitWALMetaEntry()
 {
    DEBUG_BLOCK() { active_mt_entry->computeCRC(); }
    wal_wt_cursor += sizeof(WALMetaEntry);
-   publishOffset();
+   auto current = wt_to_lw.getNoSync();
+   current.wal_written_offset = wal_wt_cursor;
+   current.precommitted_tx_commit_ts = my().active_tx.startTS();
+   wt_to_lw.pushSync(current);
 }
 // -------------------------------------------------------------------------------------
 void Worker::Logging::submitDTEntry(u64 total_size)

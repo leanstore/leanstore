@@ -27,10 +27,11 @@ class OptimisticSpinStruct
       while (version & LSB) {
          version = optimistic_latch.load();
       }
-      T copy = current_value;
+      const T copy = current_value;
       if (version != optimistic_latch.load()) {
          goto retry;
       }
+      return copy;
    }
    }
    // Only writer should call this
@@ -39,6 +40,14 @@ class OptimisticSpinStruct
    {
       optimistic_latch.store(optimistic_latch.load() + LSB, std::memory_order_release);
       current_value = next_value;
+      optimistic_latch.store(optimistic_latch.load() + LSB, std::memory_order_release);
+   }
+   // -------------------------------------------------------------------------------------
+   template <class AttributeType>
+   void updateAttribute(AttributeType T::*a, AttributeType new_value)
+   {
+      optimistic_latch.store(optimistic_latch.load() + LSB, std::memory_order_release);
+      current_value.*a = new_value;
       optimistic_latch.store(optimistic_latch.load() + LSB, std::memory_order_release);
    }
 };

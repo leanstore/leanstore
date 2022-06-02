@@ -22,7 +22,7 @@ DEFINE_bool(profiling, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(worker_threads, 4, "");
 DEFINE_bool(cpu_counters, true, "Disable if HW does not have enough counters for all threads");
-DEFINE_bool(pin_threads, true, "Responsibility of the driver");
+DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(root, false, "does this process have root rights ?");
@@ -69,7 +69,7 @@ DEFINE_bool(out_of_place, false, "Out of place writes");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(wal, true, "");
 DEFINE_bool(wal_rfa, true, "Remote Flush Avoidance (RFA)");
-DEFINE_bool(wal_rfa_pmem_simulate, false, "RFA as if we would use pmem (just to check %)");
+DEFINE_bool(wal_tuple_rfa, true, "tuple-wise tracking");
 DEFINE_uint64(wal_offset_gib, 10, "");
 DEFINE_bool(wal_io_hack, true, "Does not really write logs on SSD");
 DEFINE_bool(wal_fsync, false, "");
@@ -89,7 +89,7 @@ DEFINE_bool(vi_update_version_elision, false, "");
 DEFINE_bool(vi_fupdate_chained, false, "");
 DEFINE_bool(vi_fupdate_fat_tuple, false, "");
 DEFINE_uint64(vi_pgc_batch_size, 2, "");
-DEFINE_bool(vi_fat_tuple, true, "");
+DEFINE_bool(vi_fat_tuple, false, "");
 DEFINE_string(vi_fat_tuple_dts, "", "");
 DEFINE_bool(vi_fat_tuple_decompose, true, "");
 DEFINE_uint64(vi_fat_tuple_threshold, 4, "Minimum length of chain length before converting the tuple format to FatTuple");

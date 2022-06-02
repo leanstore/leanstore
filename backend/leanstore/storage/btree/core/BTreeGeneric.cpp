@@ -71,11 +71,16 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
       auto new_left_node_h = HybridPageGuard<BTreeNode>(dt_id);
       auto new_left_node = ExclusivePageGuard<BTreeNode>(std::move(new_left_node_h));
       // -------------------------------------------------------------------------------------
-      // Increment GSNs before writing WAL to make sure that these pages marked as dirty
-      // regardless of the FLAGS_wal
-      new_root.incrementGSN();
-      new_left_node.incrementGSN();
-      c_x_guard.incrementGSN();
+      if (config.enable_wal) {
+         // TODO: System transactions
+         new_root.incrementGSN();
+         new_left_node.incrementGSN();
+         c_x_guard.incrementGSN();
+      } else {
+         new_root.markAsDirty();
+         new_left_node.markAsDirty();
+         c_x_guard.markAsDirty();
+      }
       // -------------------------------------------------------------------------------------
       auto exec = [&]() {
          new_root.keepAlive();
@@ -141,9 +146,15 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          // -------------------------------------------------------------------------------------
          // Increment GSNs before writing WAL to make sure that these pages marked as dirty
          // regardless of the FLAGS_wal
-         p_x_guard.incrementGSN();
-         new_left_node.incrementGSN();
-         c_x_guard.incrementGSN();
+         if (config.enable_wal) {
+            p_x_guard.incrementGSN();
+            new_left_node.incrementGSN();
+            c_x_guard.incrementGSN();
+         } else {
+            p_x_guard.markAsDirty();
+            new_left_node.markAsDirty();
+            c_x_guard.markAsDirty();
+         }
          // -------------------------------------------------------------------------------------
          auto exec = [&]() {
             new_left_node.init(c_x_guard->is_leaf);
@@ -242,9 +253,15 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
             return false;
          }
          // -------------------------------------------------------------------------------------
-         p_guard.incrementGSN();
-         c_guard.incrementGSN();
-         l_guard.incrementGSN();
+         if (config.enable_wal) {
+            p_guard.incrementGSN();
+            c_guard.incrementGSN();
+            l_guard.incrementGSN();
+         } else {
+            p_guard.markAsDirty();
+            c_guard.markAsDirty();
+            l_guard.markAsDirty();
+         }
          // -------------------------------------------------------------------------------------
          l_x_guard.reclaim();
          // -------------------------------------------------------------------------------------
@@ -271,9 +288,15 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
             return false;
          }
          // -------------------------------------------------------------------------------------
-         p_guard.incrementGSN();
-         c_guard.incrementGSN();
-         r_guard.incrementGSN();
+         if (config.enable_wal) {
+            p_guard.incrementGSN();
+            c_guard.incrementGSN();
+            r_guard.incrementGSN();
+         } else {
+            p_guard.markAsDirty();
+            c_guard.markAsDirty();
+            r_guard.markAsDirty();
+         }
          // -------------------------------------------------------------------------------------
          c_x_guard.reclaim();
          // -------------------------------------------------------------------------------------

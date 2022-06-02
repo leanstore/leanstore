@@ -113,11 +113,14 @@ class HybridPageGuard
       return *this;
    }
    // -------------------------------------------------------------------------------------
+   inline void markAsDirty() { bf->page.PLSN++; }
    inline void incrementGSN()
    {
       assert(bf != nullptr);
-      // TODO: this is a temporary hack, we should write WAL entries for every page we write and enable this check ensure(!FLAGS_wal);
-      bf->page.GSN++;
+      assert(bf->page.GSN <= cr::Worker::my().logging.getCurrentGSN());
+      bf->page.PLSN++;
+      bf->page.GSN = cr::Worker::my().logging.getCurrentGSN() + 1;
+      bf->header.last_writer_worker_id = cr::Worker::my().worker_id;  // RFA
       cr::Worker::my().logging.setCurrentGSN(std::max<LID>(cr::Worker::my().logging.getCurrentGSN(), bf->page.GSN));
    }
    // WAL
@@ -126,8 +129,8 @@ class HybridPageGuard
       // TODO: don't sync on temporary table pages like HistoryTree
       if (FLAGS_wal) {
          if (FLAGS_wal_rfa) {
-            if (bf->page.GSN > cr::Worker::my().logging.rfa_gsn_flushed && bf->header.last_writer_worker_id != cr::Worker::my().worker_id) {
-               cr::Worker::my().logging.needs_remote_flush = true;
+            if (bf->page.GSN > cr::Worker::my().logging.rfa_gsn_flushed && bf->header.last_writer_worker_id != cr::Worker::my().worker_id) {  //
+               cr::Worker::my().logging.remote_flush_dependency = true;
             }
          }
          cr::Worker::my().logging.setCurrentGSN(std::max<LID>(cr::Worker::my().logging.getCurrentGSN(), bf->page.GSN));
@@ -138,14 +141,14 @@ class HybridPageGuard
    {
       assert(FLAGS_wal);
       assert(guard.state == GUARD_STATE::EXCLUSIVE);
-      const LID new_gsn = std::max<LID>(bf->page.GSN, cr::Worker::my().logging.getCurrentGSN()) + 1;
-      bf->header.last_writer_worker_id = cr::Worker::my().worker_id;  // RFA
-      bf->page.GSN = new_gsn;
-      cr::Worker::my().logging.setCurrentGSN(new_gsn);
+      if (!FLAGS_wal_tuple_rfa) {
+         incrementGSN();
+      }
       // -------------------------------------------------------------------------------------
       const auto pid = bf->header.pid;
       const auto dt_id = bf->page.dt_id;
-      auto handler = cr::Worker::my().logging.reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, new_gsn, dt_id);
+      // TODO: verify
+      auto handler = cr::Worker::my().logging.reserveDTEntry<WT>(sizeof(WT) + extra_size, pid, cr::Worker::my().logging.getCurrentGSN(), dt_id);
       return handler;
    }
    inline void submitWALEntry(u64 total_size) { cr::Worker::my().logging.submitDTEntry(total_size); }
@@ -223,6 +226,7 @@ class ExclusivePageGuard
    // -------------------------------------------------------------------------------------
    void keepAlive() { ref_guard.keep_alive = true; }
    void incrementGSN() { ref_guard.incrementGSN(); }
+   void markAsDirty() { ref_guard.markAsDirty(); }
    // -------------------------------------------------------------------------------------
    ~ExclusivePageGuard()
    {

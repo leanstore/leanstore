@@ -406,7 +406,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator
       leaf.toExclusive();
    }
    // -------------------------------------------------------------------------------------
-   void markAsDirty() { leaf.incrementGSN(); }
+   void markAsDirty() { leaf.markAsDirty(); }
    virtual OP_RESULT seekToInsertWithHint(Slice key, bool higher = true)
    {
       ensure(cur != -1);
