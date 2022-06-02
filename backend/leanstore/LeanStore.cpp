@@ -174,11 +174,11 @@ void LeanStore::startProfilingThread()
          // -------------------------------------------------------------------------------------
          const u64 tx = std::stoi(cr_table.get("0", "tx"));
          const u64 olap_tx = std::stoi(cr_table.get("0", "olap_tx"));
-         // const u64 committed_tx = std::stoi(cr_table.get("0", "gct_committed_tx")) + std::stoi(cr_table.get("0", "rfa_committed_tx"));
          const double tx_abort = std::stoi(cr_table.get("0", "tx_abort"));
          const double tx_abort_pct = tx_abort * 100.0 / (tx_abort + tx);
+         const double rfa_pct = std::stod(cr_table.get("0", "rfa_committed_tx")) * 100.0 / tx;
+         const double remote_flushes_pct = 100.0 - rfa_pct;
          // const double committed_gct_pct = std::stoi(cr_table.get("0", "gct_committed_tx")) * 100.0 / committed_tx;
-         // const double committed_rfa_pct = std::stoi(cr_table.get("0", "rfa_committed_tx")) * 100.0 / committed_tx;
          // Global Stats
          global_stats.accumulated_tx_counter += tx;
          // -------------------------------------------------------------------------------------
@@ -187,18 +187,17 @@ void LeanStore::startProfilingThread()
          const double instr_per_tx = cpu_table.workers_agg_events["instr"] / tx;
          const double cycles_per_tx = cpu_table.workers_agg_events["cycle"] / tx;
          const double l1_per_tx = cpu_table.workers_agg_events["L1-miss"] / tx;
-         const double lc_per_tx = cpu_table.workers_agg_events["LLC-miss"] / tx;
-         const double rfa_pct = std::stod(cr_table.get("0", "rfa_committed_tx")) * 100.0 / tx;
-         const double remote_flushes_pct = 100.0 - rfa_pct;
+         // const double lc_per_tx = cpu_table.workers_agg_events["LLC-miss"] / tx;
          // using RowType = std::vector<variant<std::string, const char*, Table>>;
          if (FLAGS_print_tx_console) {
             tabulate::Table table;
-            table.add_row({"t", "OLTP TX", "RF %", "Abort%", "OLAP TX", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC", "Space G",
-                           "GCT Rounds"});
+            table.add_row({"t", "OLTP TX", "RF %", "Abort%", "OLAP TX", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "WAL GiB/s",
+                           "GCT GiB/s", "Space G", "GCT Rounds"});
             table.add_row({std::to_string(seconds), std::to_string(tx), std::to_string(remote_flushes_pct), std::to_string(tx_abort_pct),
                            std::to_string(olap_tx), bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), std::to_string(instr_per_tx),
                            std::to_string(cycles_per_tx), std::to_string(cpu_table.workers_agg_events["CPU"]), std::to_string(l1_per_tx),
-                           std::to_string(lc_per_tx), bm_table.get("0", "space_usage_gib"), cr_table.get("0", "gct_rounds")});
+                           cr_table.get("0", "wal_write_gib"), cr_table.get("0", "gct_write_gib"), bm_table.get("0", "space_usage_gib"),
+                           cr_table.get("0", "gct_rounds")});
             // -------------------------------------------------------------------------------------
             table.format().width(10);
             table.column(0).format().width(5);

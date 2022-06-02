@@ -49,7 +49,7 @@ void ConfigsTable::open()
    columns.emplace("c_zipf_factor", [&](Column& col) { col << FLAGS_zipf_factor; });
    // -------------------------------------------------------------------------------------
    columns.emplace("c_wal", [&](Column& col) { col << FLAGS_wal; });
-   columns.emplace("c_wal_io_hack", [&](Column& col) { col << FLAGS_wal_io_hack; });
+   columns.emplace("c_wal_io_hack", [&](Column& col) { col << FLAGS_wal_pwrite; });
    columns.emplace("c_wal_fsync", [&](Column& col) { col << FLAGS_wal_fsync; });
    columns.emplace("c_todo", [&](Column& col) { col << FLAGS_todo; });
    columns.emplace("c_mv", [&](Column& col) { col << FLAGS_mv; });

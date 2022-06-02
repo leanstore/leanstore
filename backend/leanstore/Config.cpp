@@ -71,7 +71,7 @@ DEFINE_bool(wal, true, "");
 DEFINE_bool(wal_rfa, true, "Remote Flush Avoidance (RFA)");
 DEFINE_bool(wal_tuple_rfa, true, "tuple-wise tracking");
 DEFINE_uint64(wal_offset_gib, 10, "");
-DEFINE_bool(wal_io_hack, true, "Does not really write logs on SSD");
+DEFINE_bool(wal_pwrite, true, "Does not really write logs on SSD");
 DEFINE_bool(wal_fsync, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_string(isolation_level, "si", "options: ru (READ_UNCOMMITTED), rc (READ_COMMITTED), si (SNAPSHOT_ISOLATION), ser (SERIALIZABLE)");

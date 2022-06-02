@@ -21,15 +21,6 @@ namespace cr
 {
 // -------------------------------------------------------------------------------------
 static constexpr u16 STATIC_MAX_WORKERS = std::numeric_limits<WORKERID>::max();
-struct alignas(512) WALChunk {
-   struct Slot {
-      u64 offset;
-      u64 length;
-   };
-   WORKERID workers_count;
-   u32 total_size;
-   Slot slot[STATIC_MAX_WORKERS];
-};
 // -------------------------------------------------------------------------------------
 // Abbreviations: WT (Worker Thread), GCT (Group Commit Thread or whoever writes the WAL)
 // Stages: pre-committed (SI passed) -> hardened (its own WALs are written and fsync) -> committed/signaled (all dependencies are flushed too and the

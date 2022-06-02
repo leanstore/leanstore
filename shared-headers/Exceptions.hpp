@@ -7,12 +7,6 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #define imply(lhs, rhs) (!(lhs) || (rhs))
-// -------------------------------------------------------------------------------------
-#define posix_check(expr) \
-   if (!(expr)) {         \
-      perror(#expr);      \
-      assert(false);      \
-   }
 //--------------------------------------------------------------------------------------
 #define Generic_Exception(name)                                                                                        \
    struct name : public std::exception {                                                                               \
@@ -93,3 +87,9 @@ inline void DO_NOT_OPTIMIZE(T const& value)
    asm volatile("" : : "i,r,m"(value) : "memory");
 #endif
 }
+// -------------------------------------------------------------------------------------
+#define posix_check(expr) \
+   if (!(expr)) {         \
+      perror(#expr);      \
+      raise(SIGTRAP);      \
+   }

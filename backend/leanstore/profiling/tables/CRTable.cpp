@@ -42,7 +42,9 @@ void CRTable::open()
    });
    columns.emplace("gct_write_gib",
                    [&](Column& col) { col << (sum(CRCounters::cr_counters, &CRCounters::gct_write_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0; });
-   columns.emplace("wal_write_kib", [&](Column& col) { col << (sum(WorkerCounters::worker_counters, &WorkerCounters::wal_write_bytes) * 1.0) / 1024.0; });
+   columns.emplace("wal_write_gib", [&](Column& col) {
+      col << (sum(WorkerCounters::worker_counters, &WorkerCounters::wal_write_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0;
+   });
    columns.emplace("wal_miss_pct", [&](Column& col) { col << wal_miss_pct; });
    columns.emplace("wal_hit_pct", [&](Column& col) { col << wal_hit_pct; });
    columns.emplace("wal_miss", [&](Column& col) { col << wal_miss; });

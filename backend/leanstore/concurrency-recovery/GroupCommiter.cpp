@@ -28,7 +28,6 @@ void CRManager::groupCommiter()
    pthread_setname_np(pthread_self(), thread_name.c_str());
    CPUCounters::registerThread(thread_name, false);
    // -------------------------------------------------------------------------------------
-   WALChunk chunk;
    [[maybe_unused]] u64 round_i = 0;  // For debugging
    u64 ssd_offset = end_of_block_device;
    // -------------------------------------------------------------------------------------
@@ -47,6 +46,9 @@ void CRManager::groupCommiter()
       }
    }
    auto add_pwrite = [&](u8* src, u64 size, u64 offset) {
+      ensure(offset % 512 == 0);
+      ensure(u64(src) % 512 == 0);
+      ensure(size % 512 == 0);
       io_prep_pwrite(&iocbs[io_slot], ssd_fd, src, size, offset);
       iocbs[io_slot].data = src;
       iocbs_ptr[io_slot] = &iocbs[io_slot];
@@ -68,7 +70,6 @@ void CRManager::groupCommiter()
       min_all_workers_gsn = std::numeric_limits<LID>::max();
       max_all_workers_gsn = 0;
       min_all_workers_hardened_commit_ts = std::numeric_limits<TXID>::max();
-      chunk.total_size = sizeof(WALChunk);
       // -------------------------------------------------------------------------------------
       // Phase 1
       for (u32 w_i = 0; w_i < workers_count; w_i++) {
@@ -89,54 +90,42 @@ void CRManager::groupCommiter()
             if (worker.logging.wt_to_lw_copy.wal_written_offset > worker.logging.wal_gct_cursor) {
                const u64 lower_offset = utils::downAlign(worker.logging.wal_gct_cursor);
                const u64 upper_offset = utils::upAlign(worker.logging.wt_to_lw_copy.wal_written_offset);
-               const u64 size = worker.logging.wt_to_lw_copy.wal_written_offset - worker.logging.wal_gct_cursor;
                const u64 size_aligned = upper_offset - lower_offset;
                // -------------------------------------------------------------------------------------
-               if (!FLAGS_wal_io_hack) {
+               if (FLAGS_wal_pwrite) {
+                  // TODO: add the concept of chunks
                   ssd_offset -= size_aligned;
                   add_pwrite(worker.logging.wal_buffer + lower_offset, size_aligned, ssd_offset);
-               }
-               // -------------------------------------------------------------------------------------
-               COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
-               chunk.slot[w_i].offset = ssd_offset + (worker.logging.wal_gct_cursor - lower_offset);
-               chunk.slot[w_i].length = size;
-               // ensure(chunk.slot[w_i].offset < end_of_block_device);
-               chunk.total_size += size_aligned;
-               // ensure(chunk.slot[w_i].offset >= ssd_offset);
-            } else if (worker.logging.wt_to_lw_copy.wal_written_offset < worker.logging.wal_gct_cursor) {
-               {
-                  // XXXXXX---------------
-                  const u64 lower_offset = 0;
-                  const u64 upper_offset = utils::upAlign(worker.logging.wt_to_lw_copy.wal_written_offset);
-                  const u64 size = worker.logging.wt_to_lw_copy.wal_written_offset;
-                  const u64 size_aligned = upper_offset - lower_offset;
                   // -------------------------------------------------------------------------------------
-                  if (!FLAGS_wal_io_hack) {
-                     ssd_offset -= size_aligned;
-                     add_pwrite(worker.logging.wal_buffer, size_aligned, ssd_offset);
-                  }
                   COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
-                  chunk.slot[w_i].length = size;
                }
+            } else if (worker.logging.wt_to_lw_copy.wal_written_offset < worker.logging.wal_gct_cursor) {
                {
                   // ------------XXXXXXXXX
                   const u64 lower_offset = utils::downAlign(worker.logging.wal_gct_cursor);
                   const u64 upper_offset = Worker::WORKER_WAL_SIZE;
-                  const u64 size = Worker::WORKER_WAL_SIZE - worker.logging.wal_gct_cursor;
                   const u64 size_aligned = upper_offset - lower_offset;
                   // -------------------------------------------------------------------------------------
-                  if (!FLAGS_wal_io_hack) {
+                  if (FLAGS_wal_pwrite) {
                      ssd_offset -= size_aligned;
                      add_pwrite(worker.logging.wal_buffer + lower_offset, size_aligned, ssd_offset);
+                     // -------------------------------------------------------------------------------------
+                     COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
                   }
-                  COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
-                  chunk.slot[w_i].offset = ssd_offset + (worker.logging.wal_gct_cursor - lower_offset);
-                  chunk.slot[w_i].length += size;
                }
-               // ensure(chunk.slot[w_i].offset >= ssd_offset);
-            } else {
-               chunk.slot[w_i].offset = 0;
-               chunk.slot[w_i].length = 0;
+               {
+                  // XXXXXX---------------
+                  const u64 lower_offset = 0;
+                  const u64 upper_offset = utils::upAlign(worker.logging.wt_to_lw_copy.wal_written_offset);
+                  const u64 size_aligned = upper_offset - lower_offset;
+                  // -------------------------------------------------------------------------------------
+                  if (FLAGS_wal_pwrite) {
+                     ssd_offset -= size_aligned;
+                     add_pwrite(worker.logging.wal_buffer, size_aligned, ssd_offset);
+                     // -------------------------------------------------------------------------------------
+                     COUNTERS_BLOCK() { CRCounters::myCounters().gct_write_bytes += size_aligned; }
+                  }
+               }
             }
          }
       }
@@ -149,23 +138,29 @@ void CRManager::groupCommiter()
       }
       // -------------------------------------------------------------------------------------
       // Flush
-      if (!FLAGS_wal_io_hack && chunk.total_size > sizeof(WALChunk)) {
+      if (FLAGS_wal_pwrite) {
          ensure(ssd_offset % 512 == 0);
-         ssd_offset -= sizeof(WALChunk);
-         if (!FLAGS_wal_io_hack) {
-            {
-               s32 ret_code = io_submit(aio_context, io_slot, iocbs_ptr.get());
-               ensure(ret_code == s32(io_slot));
+         if (FLAGS_wal_pwrite) {
+            u32 submitted = 0;
+            u32 left = io_slot;
+            while (left) {
+               s32 ret_code = io_submit(aio_context, left, iocbs_ptr.get() + submitted);
+               if (ret_code != s32(io_slot)) {
+                  cout << ret_code << "," << io_slot << "," << ssd_offset << endl;
+                  ensure(false);
+               }
+               posix_check(ret_code >= 0);
+               submitted += ret_code;
+               left -= ret_code;
             }
             {
                if (io_slot > 0) {
-                  const s32 done_requests = io_getevents(aio_context, io_slot, io_slot, events.get(), NULL);
-                  if (done_requests != io_slot) {
-                     cerr << done_requests << endl;
-                     raise(SIGTRAP);
-                     ensure(false);
-                  }
-                  io_slot = 0;
+                  const s32 done_requests = io_getevents(aio_context, submitted, submitted, events.get(), NULL);
+                  posix_check(done_requests >= 0);
+                  // if (done_requests != io_slot) {
+                  //    cout << done_requests << "," << endl;
+                  //    ensure(false);
+                  // }
                }
             }
             if (FLAGS_wal_fsync) {

@@ -65,7 +65,7 @@ DECLARE_bool(wal);
 DECLARE_bool(wal_rfa);
 DECLARE_bool(wal_tuple_rfa);
 DECLARE_uint64(wal_offset_gib);
-DECLARE_bool(wal_io_hack);
+DECLARE_bool(wal_pwrite);
 DECLARE_bool(wal_fsync);
 // -------------------------------------------------------------------------------------
 DECLARE_string(isolation_level);
