@@ -76,7 +76,8 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          new_left_node.init(c_x_guard->is_leaf);
          c_x_guard->getSep(sep_key, sep_info);
          // -------------------------------------------------------------------------------------
-         c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
+         c_x_guard->split(c_x_guard, new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
+         new_root.bf()->header.tracker = c_x_guard.bf()->header.tracker;
       };
       if (FLAGS_wal) {
          auto new_root_init_wal = new_root.reserveWALEntry<WALInitPage>(0);
@@ -131,7 +132,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          auto exec = [&]() {
             new_left_node.init(c_x_guard->is_leaf);
             c_x_guard->getSep(sep_key, sep_info);
-            c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
+            c_x_guard->split(c_x_guard, p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
          };
          // -------------------------------------------------------------------------------------
          if (FLAGS_wal) {
@@ -208,7 +209,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
       auto l_x_guard = ExclusivePageGuard(std::move(l_guard));
       // -------------------------------------------------------------------------------------
-      if (!l_x_guard->merge(pos - 1, p_x_guard, c_x_guard)) {
+      if (!l_x_guard->merge(l_x_guard, pos - 1, p_x_guard, c_x_guard)) {
          p_guard = std::move(p_x_guard);
          c_guard = std::move(c_x_guard);
          l_guard = std::move(l_x_guard);
@@ -236,7 +237,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       auto r_x_guard = ExclusivePageGuard(std::move(r_guard));
       // -------------------------------------------------------------------------------------
       assert(&p_x_guard->getChild(pos).asBufferFrame() == c_x_guard.bf());
-      if (!c_x_guard->merge(pos, p_x_guard, r_x_guard)) {
+      if (!c_x_guard->merge(c_x_guard, pos, p_x_guard, r_x_guard)) {
          p_guard = std::move(p_x_guard);
          c_guard = std::move(c_x_guard);
          r_guard = std::move(r_x_guard);
@@ -295,7 +296,7 @@ s16 BTreeGeneric::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
    // TODO: corner cases: new upper fence is larger than the older one.
    u32 space_upper_bound = from_left->mergeSpaceUpperBound(to_right);
    if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge TODO: threshold
-      bool succ = from_left->merge(left_pos, parent, to_right);
+      bool succ = from_left->merge(from_left, left_pos, parent, to_right);
       static_cast<void>(succ);
       assert(succ);
       from_left.reclaim();
@@ -550,11 +551,6 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
    if (&c_swip->asBufferFrameMasked() == &to_find) {
       p_guard.recheck();
       return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = &btree.meta_node_bf.asBufferFrame()};
-   }
-   // -------------------------------------------------------------------------------------
-   if(p_guard->upper.isCOOL()) {
-      // Root is cool => every node below is evicted
-      jumpmu::jump();
    }
    // -------------------------------------------------------------------------------------
    HybridPageGuard c_guard(p_guard, p_guard->upper);  // the parent of the bf we are looking for (to_find)

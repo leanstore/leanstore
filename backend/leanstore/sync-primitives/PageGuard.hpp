@@ -29,7 +29,7 @@ class HybridPageGuard
    // -------------------------------------------------------------------------------------
    // Constructors
    HybridPageGuard() : bf(nullptr), guard(nullptr) { jumpmu_registerDestructor(); }  // use with caution
-   HybridPageGuard(Guard& guard, BufferFrame* bf) : bf(bf), guard(std::move(guard)) { jumpmu_registerDestructor(); }
+   HybridPageGuard(Guard& guard, BufferFrame* bf) : bf(bf), guard(std::move(guard)) {bf->header.tracker.trackRead(); jumpmu_registerDestructor();}
    // -------------------------------------------------------------------------------------
    HybridPageGuard(HybridPageGuard& other) = delete;   // Copy constructor
    HybridPageGuard(HybridPageGuard&& other) = delete;  // Move constructor
@@ -40,6 +40,7 @@ class HybridPageGuard
    {
       assert(BMC::global_bf != nullptr);
       bf->page.dt_id = dt_id;
+      bf->header.tracker.trackRead();
       jumpmu_registerDestructor();
    }
    // -------------------------------------------------------------------------------------
@@ -48,6 +49,7 @@ class HybridPageGuard
    {
       guard.toOptimisticSpin();
       syncGSN();
+      bf->header.tracker.trackRead();
       jumpmu_registerDestructor();
    }
    // -------------------------------------------------------------------------------------
@@ -64,6 +66,7 @@ class HybridPageGuard
          guard.toOptimisticOrShared();
       }
       syncGSN();
+      bf->header.tracker.trackRead();
       jumpmu_registerDestructor();
       // -------------------------------------------------------------------------------------
       DEBUG_BLOCK()
@@ -106,6 +109,7 @@ class HybridPageGuard
    {
       assert(bf != nullptr);
       bf->page.GSN++;
+      bf->header.tracker.trackWrite();
    }
    // WAL
    inline void syncGSN()
@@ -145,18 +149,6 @@ class HybridPageGuard
    // Use with caution!
    void toShared() { guard.toShared(); }
    void toExclusive() { guard.toExclusive(); }
-   // -------------------------------------------------------------------------------------
-   // Parent should be exclusively locked, we need a Swip in the parent
-   // This is the child page that we want to cool
-   void cool(Swip<BufferFrame>& swip_in_parent)
-   {
-      BMC::global_bf->coolPage(*bf);
-      swip_in_parent.cool();
-      unlock();
-      guard.state = GUARD_STATE::MOVED;
-      // Should not use this page guard at this point
-   }
-   // -------------------------------------------------------------------------------------
    void reclaim()
    {
       BMC::global_bf->reclaimPage(*(bf));

@@ -38,6 +38,7 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
       partitions_count(1<<FLAGS_partition_bits), partitions_mask(partitions_count -1),
       max_partition_size(std::ceil(((100 - FLAGS_free_pct) * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count)))
 {
+   BufferFrame::Header::watt_backlog.checkSizes(FLAGS_watt_log_size, true);
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
    {
@@ -57,9 +58,9 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
       }
       // -------------------------------------------------------------------------------------
       // Initialize partitions
-      const u64 cooling_bfs_upper_bound = std::ceil((FLAGS_cool_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
+      const u64 next_bfs_upper_bound = std::ceil((FLAGS_cool_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
       for (u64 p_i = 0; p_i < partitions_count; p_i++) {
-         partitions.push_back(std::make_unique<Partition>(p_i, partitions_count, max_partition_size, cooling_bfs_upper_bound));
+         partitions.push_back(std::make_unique<Partition>(p_i, partitions_count, max_partition_size, next_bfs_upper_bound));
       }
       utils::Parallelize::parallelRange(dram_pool_size, [&](u64 begin, u64 end) {
          FreedBfsBatch batch;
@@ -192,6 +193,7 @@ BufferFrame& BufferManager::allocatePage()
    free_bf.header.pid = free_pid;
    free_bf.header.state = BufferFrame::STATE::HOT;
    free_bf.header.lastWrittenGSN = free_bf.page.GSN = 0;
+   free_bf.header.tracker.clear();
    // -------------------------------------------------------------------------------------
    if (free_pid == dram_pool_size) {
       cout << "-------------------------------------------------------------------------------------" << endl;
@@ -206,20 +208,6 @@ BufferFrame& BufferManager::allocatePage()
    }
    // -------------------------------------------------------------------------------------
    return free_bf;
-}
-// -------------------------------------------------------------------------------------
-// Pre: bf is exclusively locked
-// Post: the caller must "cool" the swip pointing to this buffer frame
-// THEN unlock this buffer frame
-// -------------------------------------------------------------------------------------
-void BufferManager::coolPage(BufferFrame& bf)
-{
-   Partition& partition = getPartition(bf.header.pid);
-   std::unique_lock<std::mutex> g_guard(partition.cooling_mutex);
-   partition.cooling_queue.emplace_back(&bf);
-   partition.cooling_bfs_counter++;
-   // -------------------------------------------------------------------------------------
-   bf.header.state = BufferFrame::STATE::COOL;
 }
 // -------------------------------------------------------------------------------------
 // Pre: bf is exclusively locked
@@ -252,16 +240,6 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       swip_guard.recheck();
       leanstore::WorkerCounters::myCounters().hot_hit_counter++;
       return bf;
-   } else if (swip_value.isCOOL()) {
-      BufferFrame* bf = &swip_value.asBufferFrameMasked();
-      swip_guard.recheck();
-      BMOptimisticGuard bf_guard(bf->header.latch);
-      BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);  // parent
-      BMExclusiveGuard bf_x_guard(bf_guard);                // child
-      bf->header.state = BufferFrame::STATE::HOT;
-      swip_value.warm();
-      leanstore::WorkerCounters::myCounters().cold_hit_counter++;
-      return swip_value.asBufferFrame();
    }
    // -------------------------------------------------------------------------------------
    swip_guard.unlock();  // otherwise we would get a deadlock, P->G, G->P
@@ -301,6 +279,8 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       bf.header.lastWrittenGSN = bf.page.GSN;
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
+      bf.header.tracker = BufferFrame::Header::Tracker();
+      bf.header.watt_backlog.load(pid, bf.header.tracker);
       // -------------------------------------------------------------------------------------
       jumpmuTry()
       {

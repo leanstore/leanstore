@@ -142,7 +142,7 @@ u32 BTreeNode::spaceUsedBySlot(u16 s_i)
 // -------------------------------------------------------------------------------------
 // right survives, this gets reclaimed
 // left(this) into right
-bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right)
+bool BTreeNode::merge(ExclusivePageGuard<BTreeNode>& self, u16 slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right)
 {
    assert(right->is_leaf == is_leaf);
    assert(parent->isInner());
@@ -170,6 +170,7 @@ bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, Exclusi
       tmp.upper = right->upper;
    }
    right->copyKeyValueRange(&tmp, tmp.count, 0, right->count);
+   right.bf()->header.tracker.merge(self.bf()->header.tracker);
    parent->removeSlot(slotId);
    memcpy(reinterpret_cast<u8*>(right.ptr()), &tmp, sizeof(BTreeNode));
    right->makeHint();
@@ -347,7 +348,7 @@ Swip<BTreeNode>& BTreeNode::lookupInner(const u8* key, u16 keyLength)
 }
 // -------------------------------------------------------------------------------------
 // This = right
-void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& nodeLeft, u16 sepSlot, u8* sepKey, u16 sepLength)
+void BTreeNode::split(ExclusivePageGuard<BTreeNode>& self, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& nodeLeft, u16 sepSlot, u8* sepKey, u16 sepLength)
 {
    // PRE: current, parent and nodeLeft are x locked
    // assert(sepSlot > 0); TODO: really ?
@@ -373,6 +374,7 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
    nodeRight->makeHint();
    // -------------------------------------------------------------------------------------
    memcpy(reinterpret_cast<char*>(this), nodeRight, sizeof(BTreeNode));
+   nodeLeft.bf()->header.tracker = self.bf()->header.tracker;
 }
 // -------------------------------------------------------------------------------------
 bool BTreeNode::removeSlot(u16 slotId)

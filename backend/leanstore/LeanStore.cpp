@@ -192,13 +192,13 @@ void LeanStore::print_tx_console(profiling::BMTable& bm_table,
       const double lc_per_tx = cpu_table.workers_agg_events["LLC-miss"] / tx;
       Table table;
       table.add_row({"t", "TX P", "TX A", "TX C", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC", "WAL T", "WAL R G",
-                     "WAL W G", "GCT Rounds", "FreeListLength", "Part0", "Part1"});
+                     "WAL W G", "GCT Rounds", "FreeListLength", "Part0", "Part1", "last_min"});
       u64 free = buffer_manager->free_list.counter, part0 = buffer_manager->getPartition(0).partition_size, part1 = buffer_manager->getPartition(1).partition_size;
       table.add_row({to_string(seconds), cr_table.get("0", "tx"), cr_table.get("0", "tx_abort"), cr_table.get("0", "gct_committed_tx"),
                      bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), to_string(instr_per_tx), to_string(cycles_per_tx),
                      to_string(cpu_table.workers_agg_events["CPU"]), to_string(l1_per_tx), to_string(lc_per_tx),
                      cr_table.get("0", "wal_total"), cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"),
-                     cr_table.get("0", "gct_rounds"), to_string(free), to_string(part0), to_string(part1)});
+                     cr_table.get("0", "gct_rounds"), to_string(free), to_string(part0), to_string(part1), to_string(buffer_manager->last_min)});
       // -------------------------------------------------------------------------------------
       table.format().width(10);
       table.column(0).format().width(5);

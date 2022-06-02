@@ -39,10 +39,8 @@ void BMTable::open()
    columns.emplace("pc2", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::phase_2_counter)); });
    columns.emplace("pc3", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::phase_3_counter)); });
    columns.emplace("free_pct", [&](Column& col) { col << (local_total_free * 100.0 / bm.getPoolSize()); });
-   columns.emplace("cool_pct", [&](Column& col) { col << (local_total_cool * 100.0 / bm.getPoolSize()); });
-   columns.emplace("cool_pct_should", [&](Column& col) {
-      col << (std::max<s64>(0, ((FLAGS_cool_pct * 1.0 * bm.getPoolSize() / 100.0) - local_total_free) * 100.0 / bm.getPoolSize()));
-   });
+   columns.emplace("cool_pct", [&](Column& col) { col << 0; }); // TODO: Remove
+   columns.emplace("cool_pct_should", [&](Column& col) {col << 0; }); // TODO: Remove
    columns.emplace("evicted_mib",
                    [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::evicted_pages) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
    columns.emplace("rounds", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::pp_thread_rounds)); });
@@ -69,10 +67,6 @@ void BMTable::next()
    local_poll_ms = sum_reset(PPCounters::pp_counters, &PPCounters::poll_ms);
    // -------------------------------------------------------------------------------------
    local_total_free = bm.free_list.counter.load();
-   local_total_cool = 0;
-   for (u64 p_i = 0; p_i < bm.partitions_count; p_i++) {
-      local_total_cool += bm.getPartition(p_i).cooling_bfs_counter.load();
-   }
    total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
    for (auto& c : columns) {
       c.second.generator(c.second);

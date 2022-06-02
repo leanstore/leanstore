@@ -66,13 +66,11 @@ struct Partition {
    std::mutex io_mutex;
    HashTable io_ht;
    // -------------------------------------------------------------------------------------
-   std::mutex cooling_mutex;
-   std::list<BufferFrame*> cooling_queue;
-   // -------------------------------------------------------------------------------------
-   atomic<u64> cooling_bfs_counter = 0;
+   std::mutex next_mutex;
+   std::list<BufferFrame*> next_queue;
    const u64 max_partition_size;
    atomic<u64> partition_size = 0;
-   const u64 cooling_bfs_limit;
+   const u64 next_bfs_limit;
    // -------------------------------------------------------------------------------------
    // SSD Pages
    const u64 pid_distance;
@@ -105,8 +103,9 @@ struct Partition {
       std::unique_lock<std::mutex> g_guard(pids_mutex);
       return freed_pids.size();
    }
+   void addNextBufferFrame(BufferFrame* next);
    // -------------------------------------------------------------------------------------
-   Partition(u64 first_pid, u64 pid_distance, u64 max_partition_size, u64 cooling_bfs_limit);
+   Partition(u64 first_pid, u64 pid_distance, u64 max_partition_size, u64 next_bfs_limit);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace storage

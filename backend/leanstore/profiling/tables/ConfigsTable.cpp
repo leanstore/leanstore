@@ -30,7 +30,7 @@ void ConfigsTable::open()
    columns.emplace("c_smt", [&](Column& col) { col << FLAGS_smt; });
    // -------------------------------------------------------------------------------------
    columns.emplace("c_free_pct", [&](Column& col) { col << FLAGS_free_pct; });
-   columns.emplace("c_cool_pct", [&](Column& col) { col << FLAGS_cool_pct; });
+   columns.emplace("c_cool_pct", [&](Column& col) { col << 0; }); // TODO: Remove
    columns.emplace("c_pp_threads", [&](Column& col) { col << FLAGS_pp_threads; });
    columns.emplace("c_partition_bits", [&](Column& col) { col << FLAGS_partition_bits; });
    columns.emplace("c_dram_gib", [&](Column& col) { col << FLAGS_dram_gib; });

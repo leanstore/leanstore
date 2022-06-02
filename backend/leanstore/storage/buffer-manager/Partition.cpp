@@ -95,10 +95,19 @@ bool HashTable::has(u64 key)
    return false;
 }
 // -------------------------------------------------------------------------------------
-Partition::Partition(u64 first_pid, u64 pid_distance, u64 max_partition_size, u64 cooling_bfs_limit)
-    : io_ht(utils::getBitsNeeded(cooling_bfs_limit)), max_partition_size(max_partition_size), cooling_bfs_limit(cooling_bfs_limit), pid_distance(pid_distance)
+Partition::Partition(u64 first_pid, u64 pid_distance, u64 max_partition_size, u64 next_bfs_limit)
+    : io_ht(utils::getBitsNeeded(next_bfs_limit)), max_partition_size(max_partition_size), next_bfs_limit(next_bfs_limit), pid_distance(pid_distance)
 {
    next_pid = first_pid;
+}
+void Partition::addNextBufferFrame(BufferFrame* next)
+{
+   next_mutex.lock();
+   while(next_queue.size() >= next_bfs_limit){
+      next_queue.pop_front();
+   }
+   next_queue.emplace_back(next);
+   next_mutex.unlock();
 }
 // -------------------------------------------------------------------------------------
 }  // namespace storage

@@ -23,312 +23,243 @@ namespace leanstore
 {
 namespace storage
 {
-// -------------------------------------------------------------------------------------
 void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_end)
 {
+   // Init Worker itself
    pthread_setname_np(pthread_self(), "page_provider");
    // TODO: register as special worker [hackaround atm]
    while (!cr::Worker::init_done);
    cr::Worker::tls_ptr = new cr::Worker(0, nullptr, 0, ssd_fd);
-   // -------------------------------------------------------------------------------------
-   // Init AIO Context
+
+   // Init Datastructures
    AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_async_batch_size);
-   // -------------------------------------------------------------------------------------
-   // -------------------------------------------------------------------------------------
+   std::vector<std::vector<BufferFrame*>> nextBufferFrames;
+   std::vector<Partition*> partitions;
+   std::vector<u8> sampleSizes;
+   nextBufferFrames.resize(partitions_count);
+   partitions.resize(partitions_count);
+   sampleSizes.resize(partitions_count);
+   for (u64 p_i = 0; p_i < partitions_count; p_i++) {
+      nextBufferFrames[p_i].reserve(getPartition(p_i).next_bfs_limit + 1);
+      partitions[p_i] = &getPartition(p_i);
+      sampleSizes[p_i] = FLAGS_watt_samples;
+   }
+
+   // Do Work
+   if(FLAGS_epoch_size < 1){
+      FLAGS_epoch_size = 1;
+   }
+   u64 evicted_limit = std::max((u64) 1, (u64) dram_pool_size / FLAGS_epoch_size), pages_evicted=0, total_evictions=0;
+   if(evicted_limit <1){
+      evicted_limit = 1;
+   }
+   bool started_eviction = false;
    while (bg_threads_keep_running) {
-      /*
-       * Phase 1: unswizzle pages (put in the cooling stage)
-       */
-      // -------------------------------------------------------------------------------------
-      [[maybe_unused]] Time phase_1_begin, phase_1_end;
-      COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
-      cool_pages();
-      COUNTERS_BLOCK()
-      {
-         phase_1_end = std::chrono::high_resolution_clock::now();
-         PPCounters::myCounters().phase_1_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_1_end - phase_1_begin).count());
-      }
-      // -------------------------------------------------------------------------------------
-      // phase_2_3:
-      for (volatile u64 p_i = p_begin; p_i < p_end; p_i++) {
-         Partition& partition = getPartition(p_i);
-         FreedBfsBatch freed_bfs_batch;
-
-         if (partition.partition_size > partition.max_partition_size) {
-            const s64 pages_to_iterate_partition = partition.partition_size - partition.max_partition_size;
-            // -------------------------------------------------------------------------------------
-            /*
-             * Phase 2:
-             * Iterate over all partitions, in each partition:
-             * iterate over the end of FIFO queue.
-             */
-            [[maybe_unused]] Time phase_2_begin, phase_2_end;
-            COUNTERS_BLOCK() { phase_2_begin = std::chrono::high_resolution_clock::now(); }
-            second_phase(async_write_buffer, p_i, pages_to_iterate_partition, partition, freed_bfs_batch);
-            COUNTERS_BLOCK() { phase_2_end = std::chrono::high_resolution_clock::now(); }
-            /*
-             * Phase 3:
-             */
-            [[maybe_unused]] Time phase_3_begin, phase_3_end;
-            COUNTERS_BLOCK() { phase_3_begin = std::chrono::high_resolution_clock::now(); }
-            third_phase(async_write_buffer, p_i, partition, pages_to_iterate_partition, freed_bfs_batch, phase_3_end);
-            // -------------------------------------------------------------------------------------
-            COUNTERS_BLOCK()
-            {
-               PPCounters::myCounters().phase_2_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_2_end - phase_2_begin).count());
-               PPCounters::myCounters().phase_3_ms += (std::chrono::duration_cast<std::chrono::microseconds>(phase_3_end - phase_3_begin).count());
+      for (u64 p_i = p_begin; p_i < p_end; p_i++) {
+         Partition& myPart = *partitions[p_i];
+         if (myPart.partition_size < myPart.max_partition_size - 10) {
+            continue;
+         }
+         if(!started_eviction){
+            started_eviction = true;
+            cout << "start_eviction" << endl;
+         }
+         double min = findThreshold(sampleSizes[p_i]);
+         if (evictPages(min, p_i, async_write_buffer, partitions, pages_evicted)) {
+            if(sampleSizes[p_i] < FLAGS_watt_log_size){
+               sampleSizes[p_i] += 1;
+            }
+         } else {
+            if (sampleSizes[p_i] > 10) {
+               sampleSizes[p_i] -= 5;
             }
          }
-         // -------------------------------------------------------------------------------------
-         // Attach the freed bfs batch to the partition free list
-         if (freed_bfs_batch.size()) {
-            freed_bfs_batch.push();
+         while(pages_evicted >= evicted_limit){
+            pages_evicted -= evicted_limit;
+            total_evictions += evicted_limit;
+            leanstore::storage::BufferFrame::globalTrackerTime++;
          }
-      }  // end of partitions for
-      COUNTERS_BLOCK() { PPCounters::myCounters().pp_thread_rounds++; }
+      }
    }
+
+   total_evictions+= pages_evicted;
+   cout << "Pages Evicted: " << +total_evictions << endl;
+
+   // Finish
    bg_threads_counter--;
-   //   delete cr::Worker::tls_ptr;
 }
 
-void BufferManager::third_phase(AsyncWriteBuffer& async_write_buffer,
-                                volatile u64 p_i,
-                                Partition& partition,
-                                const s64 pages_to_iterate_partition,
-                                BufferManager::FreedBfsBatch& freed_bfs_batch,
-                                Time& phase_3_end)
-{
-   if (pages_to_iterate_partition > 0) {
+bool page_is_evictable(BufferFrame& page) {
+   return page.header.state == BufferFrame::STATE::HOT      // Only HOT Pages are Evictable
+          && !page.header.keep_in_memory                    // Is Fixed in Memory
+          && !page.header.isInWriteBuffer                   // Check if already in WriteBuffer via "isInWriteBuffer"
+          && !(page.header.latch.isExclusivelyLatched());   // Is in Use
+};
 
-      [[maybe_unused]] Time submit_begin, submit_end;
-      COUNTERS_BLOCK()
-      {
-         PPCounters::myCounters().phase_3_counter++;
-         submit_begin = std::chrono::high_resolution_clock::now();
-      }
-      u32 polled_events = async_write_buffer.flush(partition);
-
-      COUNTERS_BLOCK() { submit_end = std::chrono::high_resolution_clock::now(); }
-      // -------------------------------------------------------------------------------------
-      volatile u64 pages_left_to_iterate_partition = polled_events;
-      JMUW<std::unique_lock<std::mutex>> g_guard(partition.cooling_mutex);
-      // -------------------------------------------------------------------------------------
-      auto bf_itr = partition.cooling_queue.begin();
-      while (pages_left_to_iterate_partition-- && bf_itr != partition.cooling_queue.end()) {
-         BufferFrame& bf = **bf_itr;
-         auto next_bf_tr = std::next(bf_itr, 1);
-         // -------------------------------------------------------------------------------------
-         jumpmuTry()
-         {
-            BMOptimisticGuard o_guard(bf.header.latch);
-            if (bf.header.state != BufferFrame::STATE::COOL || getPartitionID(bf.header.pid) != p_i) {
-               partition.cooling_queue.erase(bf_itr);
-               partition.cooling_bfs_counter--;
-               bf_itr = next_bf_tr;
-               jumpmu_continue;
-            }
-            if (!bf.header.isInWriteBuffer && !bf.isDirty()) {
-               nonDirtyEvict(partition, bf_itr, bf, o_guard, freed_bfs_batch);
-            }
-            // -------------------------------------------------------------------------------------
-            bf_itr = next_bf_tr;
-         }
-         jumpmuCatch() { bf_itr = next_bf_tr; }
-      }
-      // -------------------------------------------------------------------------------------
-      COUNTERS_BLOCK()
-      {
-         PPCounters::myCounters().submit_ms += (std::chrono::duration_cast<std::chrono::microseconds>(submit_end - submit_begin).count());
-         phase_3_end = std::chrono::high_resolution_clock::now();
-      }
-   }
-}
-void BufferManager::second_phase(AsyncWriteBuffer& async_write_buffer,
-                                 volatile u64 p_i,
-                                 const s64 pages_to_iterate_partition,
-                                 Partition& partition,
-                                 BufferManager::FreedBfsBatch& freed_bfs_batch)
+double BufferManager::findThreshold(int samples)
 {
-   if (pages_to_iterate_partition > 0) {
-      PPCounters::myCounters().phase_2_counter++;
-      volatile u64 pages_left_to_iterate_partition = pages_to_iterate_partition;
-      JMUW<std::unique_lock<std::mutex>> g_guard(partition.cooling_mutex);
-      auto bf_itr = partition.cooling_queue.begin();
-      while (pages_left_to_iterate_partition && bf_itr != partition.cooling_queue.end()) {
-         BufferFrame& bf = **bf_itr;
-         auto next_bf_tr = std::next(bf_itr, 1);
-         // -------------------------------------------------------------------------------------
-         jumpmuTry()
-         {
-            BMOptimisticGuard o_guard(bf.header.latch);
-            // Check if the BF got swizzled in or unswizzle another time in another partition
-            if (bf.header.state != BufferFrame::STATE::COOL || getPartitionID(bf.header.pid) != p_i) {
-               partition.cooling_queue.erase(bf_itr);
-               partition.cooling_bfs_counter--;
-               bf_itr = next_bf_tr;
-               jumpmu_continue;
-            }
-            if (!bf.header.isInWriteBuffer) {
-               // Prevent evicting a page that already has an IO Frame with (possibly) threads working on it.
-               {
-                  JMUW<std::unique_lock<std::mutex>> io_guard(partition.io_mutex);
-                  if (partition.io_ht.lookup(bf.header.pid)) {
-                     partition.cooling_queue.erase(bf_itr);
-                     partition.cooling_bfs_counter--;
-                     bf_itr = next_bf_tr;
-                     jumpmu_continue;
-                  }
-               }
-               pages_left_to_iterate_partition--;
-               if (bf.isDirty()) {
-                  if (!async_write_buffer.full()) {
-                     {
-                        BMExclusiveGuard ex_guard(o_guard);
-                        assert(!bf.header.isInWriteBuffer);
-                        bf.header.isInWriteBuffer = true;
-                     }
-                     {
-                        BMSharedGuard s_guard(o_guard);
-                        PID wb_pid = bf.header.pid;
-                        if (FLAGS_out_of_place) {
-                           wb_pid = getPartition(p_i).nextPID();
-                           assert(getPartitionID(bf.header.pid) == p_i);
-                           assert(getPartitionID(wb_pid) == p_i);
-                        }
-                        async_write_buffer.add(bf, wb_pid);
-                     }
-                  } else {
-                     jumpmu_break;
-                  }
-               } else {
-                  nonDirtyEvict(partition, bf_itr, bf, o_guard, freed_bfs_batch);
-               }
-            }
-            bf_itr = next_bf_tr;
-         }
-         jumpmuCatch() { bf_itr = next_bf_tr; }
-      }
-   };
-}
-void BufferManager::cool_pages()
-{
-   auto phase_1_condition = [&](Partition& p) { return p.cooling_bfs_counter < p.cooling_bfs_limit; };
-   BufferFrame* volatile r_buffer = &randomBufferFrame();  // Attention: we may set the r_buffer to a child of a bf instead of random
-   volatile u64 failed_attempts =
-       0;  // [corner cases]: prevent starving when free list is empty and cooling to the required level can not be achieved
-#define repickIf(cond)                 \
-   if (cond) {                         \
-      r_buffer = &randomBufferFrame(); \
-      failed_attempts++;               \
-      continue;                        \
-   }
-   while (true) {
+   volatile double min = 500000;
+   volatile int i=0;
+   while(i< samples) {
       jumpmuTry()
       {
-         while (phase_1_condition(randomPartition()) && failed_attempts < 10) {
-            COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
-            BMOptimisticGuard r_guard(r_buffer->header.latch);
-            // -------------------------------------------------------------------------------------
-            // Performance crticial: we should cross cool (unswizzle), otherwise write performance will drop
-            [[maybe_unused]] const u64 partition_i = getPartitionID(r_buffer->header.pid);
-            const bool is_cooling_candidate = (!r_buffer->header.keep_in_memory && !r_buffer->header.isInWriteBuffer &&
-                                               !(r_buffer->header.latch.isExclusivelyLatched())
-                                               // && (partition_i) >= p_begin && (partition_i) <= p_end
-                                               && r_buffer->header.state == BufferFrame::STATE::HOT);
-            repickIf(!is_cooling_candidate);
-            r_guard.recheck();
-            // -------------------------------------------------------------------------------------
-            bool picked_a_child_instead = false, all_children_evicted = true;
-            [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
-            COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
-            getDTRegistry().iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
-               all_children_evicted &= swip.isEVICTED();  // ignore when it has a child in the cooling stage
-               if (swip.isHOT()) {
-                  r_buffer = &swip.asBufferFrame();
-                  r_guard.recheck();
-                  picked_a_child_instead = true;
-                  return false;
-               }
-               r_guard.recheck();
-               return true;
-            });
-            COUNTERS_BLOCK()
-            {
-               iterate_children_begin = std::chrono::high_resolution_clock::now();
-               PPCounters::myCounters().iterate_children_ms +=
-                   (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
-            }
-            if (picked_a_child_instead) {
-               continue;  // restart the inner loop
-            }
-            repickIf(!all_children_evicted);
+         while(i< samples) {
+            BufferFrame& r_buffer = randomBufferFrame();
+            BMOptimisticGuard r_guard(r_buffer.header.latch);
 
-            // -------------------------------------------------------------------------------------
-            [[maybe_unused]] Time find_parent_begin, find_parent_end;
-            COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
-            DTID dt_id = r_buffer->page.dt_id;
-            r_guard.recheck();
-            ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, *r_buffer);
-            assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
-            assert(parent_handler.parent_guard.latch != reinterpret_cast<HybridLatch*>(0x99));
-            COUNTERS_BLOCK()
-            {
-               find_parent_end = std::chrono::high_resolution_clock::now();
-               PPCounters::myCounters().find_parent_ms +=
-                   (std::chrono::duration_cast<std::chrono::microseconds>(find_parent_end - find_parent_begin).count());
-            }
-            // -------------------------------------------------------------------------------------
-            r_guard.recheck();
-            if (getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer, r_guard, parent_handler)) {
-               r_buffer = &randomBufferFrame();
+            if(!page_is_evictable(r_buffer)){continue;}
+
+            if(!childrenEvicted(r_guard, r_buffer)){
                continue;
             }
-            r_guard.recheck();
-            // -------------------------------------------------------------------------------------
-            // Suitable page founds, lets cool
-            {
-               const PID pid = r_buffer->header.pid;
-               Partition& partition = getPartition(pid);
-               // r_x_guard can only be acquired and released while the partition mutex is locked
-               {
-                  JMUW<std::unique_lock<std::mutex>> g_guard(partition.cooling_mutex);
-                  BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
-                  BMExclusiveGuard r_x_guard(r_guard);
-                  // -------------------------------------------------------------------------------------
-                  assert(r_buffer->header.pid == pid);
-                  assert(r_buffer->header.state == BufferFrame::STATE::HOT);
-                  assert(r_buffer->header.isInWriteBuffer == false);
-                  assert(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
-                  assert(parent_handler.swip.bf == r_buffer);
-                  // -------------------------------------------------------------------------------------
-                  partition.cooling_queue.emplace_back(reinterpret_cast<BufferFrame*>(r_buffer));
-                  r_buffer->header.state = BufferFrame::STATE::COOL;
-                  parent_handler.swip.cool();  // Cool the pointing swip before unlocking the current bf
-                  partition.cooling_bfs_counter++;
-               }
-               // -------------------------------------------------------------------------------------
-               COUNTERS_BLOCK() { PPCounters::myCounters().unswizzled_pages_counter++; }
-               // -------------------------------------------------------------------------------------
-               if (!phase_1_condition(partition)) {
-                  r_buffer = &randomBufferFrame();
-                  break;
-               }
-            }
-            r_buffer = &randomBufferFrame();
-            // -------------------------------------------------------------------------------------
+            i+=1;
+            double value = r_buffer.header.tracker.getValue();
+            if(value < min){min=value;}
          }
-         failed_attempts = 0;
          jumpmu_break;
       }
-      jumpmuCatch() { r_buffer = &randomBufferFrame(); }
+      jumpmuCatch(){};
    }
+   last_min = min;
+   return min;
 }
+/***
+ * Main Idea: check random BufferFrame (prioritize from nextBufferFrames list), if
+ * NonEvictable: skip
+ * Evictable and Clean: directly Evict
+ * Evictable and Dirty: collect for group flush and add to nextBufferFrames list.
+ * @param min
+ * @param partitionID
+ * @param async_write_buffer
+ * @param nextBufferFrames
+ */
+bool BufferManager::evictPages(double min,
+                               u64 partitionID,
+                               AsyncWriteBuffer& async_write_buffer,
+                               std::vector<Partition*>& partitions,
+                               u64& pages_evicted)
+{
+   Partition& myPartition = *partitions[partitionID];
+   FreedBfsBatch evictedOnes;
+   u64 evictions = 0;
+   {
+      u64 tmp = myPartition.partition_size;
+      if(tmp > myPartition.max_partition_size){
+         evictions = tmp - myPartition.max_partition_size;
+      }
+      if(evictions > 500){
+         evictions = 500;
+      }
+   }
+   const u64 toEvict = evictions;
+   volatile u64 evictedPages = 0;
+   volatile u64 fails = 0;
+//   cout << "going to evict pages: " << toEvict << endl;
+//   cout << "NextFrameList has Entrys: " << nextBufferFrames.size() <<endl;
+   while(evictedPages < toEvict && fails < 50*toEvict){
+      fails++;
+      jumpmuTry()
+      {
+         // Select and check random BufferFrame
+         BufferFrame& r_buffer = getNextBufferFrame(myPartition);
 
-void BufferManager::nonDirtyEvict(Partition& partition,
-                                  std::_List_iterator<BufferFrame*>& bf_itr,
-                                  BufferFrame& bf,
-                                  BMOptimisticGuard& guard,
-                                  FreedBfsBatch& evictedOnes)
+         BMOptimisticGuard r_guard(r_buffer.header.latch);
+
+         if(!page_is_evictable(r_buffer)){jumpmu_continue;}
+         double value = r_buffer.header.tracker.getValue();
+         if(value > min){jumpmu_continue;}
+         // If has children: Evict children, too? (children freq usually < parent freq)
+         // Right now: abort if one child is not evicted
+         // Pick one or All Childs for eviction (Problem with Partitioning, thats why not direct evict)?
+         if(!childrenEvicted(r_guard, r_buffer)){
+            jumpmu_continue;
+         }
+         PID pid = r_buffer.header.pid;
+         if(getPartitionID(pid) != partitionID){
+            PID p_id = getPartitionID(pid);
+            if(r_buffer.isDirty()){
+               getPartition(p_id).addNextBufferFrame(&r_buffer);
+            }
+            else if(partitions[p_id]->partition_size > partitions[p_id]->max_partition_size){
+               nonDirtyEvict(r_buffer, r_guard, evictedOnes);
+               partitions[p_id]->partition_size--;
+               evictedPages ++;
+               if(evictedOnes.size()>100){
+                  evictedOnes.push();
+               }
+
+            }
+            jumpmu_continue;
+         }
+         // If clean: Evict directly;
+         // Else: Add to async write buffer
+         if (!r_buffer.isDirty()) {
+            nonDirtyEvict(r_buffer, r_guard, evictedOnes);
+            myPartition.partition_size--;
+            evictedPages ++;
+            if(evictedOnes.size()>100){
+               evictedOnes.push();
+            }
+            fails--;
+            jumpmu_continue;
+         }
+         // If Async Write Buffer is full, flush
+         if (async_write_buffer.full()) {
+            async_write_buffer.flush(myPartition);
+         }
+         {
+            BMExclusiveGuard ex_guard(r_guard);
+            r_buffer.header.isInWriteBuffer = true;
+         }
+         {
+            BMSharedGuard s_guard(r_guard);
+            PID wb_pid = r_buffer.header.pid;
+            if (FLAGS_out_of_place) {
+               wb_pid = myPartition.nextPID();
+               assert(getPartitionID(r_buffer.header.pid) == partitionID);
+               assert(getPartitionID(wb_pid) == partitionID);
+            }
+            async_write_buffer.add(r_buffer, wb_pid);
+         }
+      }
+      jumpmuCatch(){};
+   }
+   // Finally flush
+   async_write_buffer.flush(myPartition);
+   if(evictedOnes.size()){
+      evictedOnes.push();
+   }
+   pages_evicted += evictedPages;
+   return (evictedPages == toEvict);
+}
+BufferFrame& BufferManager::getNextBufferFrame(Partition& partition)
+{
+   partition.next_mutex.lock();
+   if(partition.next_queue.empty()) {
+      partition.next_mutex.unlock();
+      return randomBufferFrame();
+   }
+   BufferFrame* next = partition.next_queue.front();
+   partition.next_queue.pop_front();
+   partition.next_mutex.unlock();
+   return *next;
+}
+bool BufferManager::childrenEvicted(BMOptimisticGuard& r_guard, BufferFrame& r_buffer)
+{
+   bool all_children_evicted;
+   all_children_evicted= true;
+   getDTRegistry().iterateChildrenSwips(r_buffer.page.dt_id, r_buffer, [&](Swip<BufferFrame>& swip) {
+      all_children_evicted &= swip.isEVICTED();
+      if (swip.isHOT()) {
+         all_children_evicted = false;
+         return false;
+      }
+      r_guard.recheck();
+      return true;
+   });
+   return all_children_evicted;
+}
+void BufferManager::nonDirtyEvict(BufferFrame& bf, BMOptimisticGuard& guard, FreedBfsBatch& evictedOnes)
 {
    DTID dt_id = bf.page.dt_id;
    guard.recheck();
@@ -337,28 +268,20 @@ void BufferManager::nonDirtyEvict(Partition& partition,
    BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
    guard.guard.toExclusive();
    // -------------------------------------------------------------------------------------
-   partition.cooling_queue.erase(bf_itr);
-   partition.cooling_bfs_counter--;
-   partition.partition_size--;
-   // -------------------------------------------------------------------------------------
    assert(!bf.header.isInWriteBuffer);
    // Reclaim buffer frame
-   assert(bf.header.state == BufferFrame::STATE::COOL);
    parent_handler.swip.evict(bf.header.pid);
    // -------------------------------------------------------------------------------------
    // Reclaim buffer frame
+   bf.header.watt_backlog.store(bf.header.pid, bf.header.tracker);
    bf.reset();
    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
    bf.header.latch.mutex.unlock();
    // -------------------------------------------------------------------------------------
    evictedOnes.add(bf);
-   if (evictedOnes.size() <= std::min<u64>(FLAGS_worker_threads, 128)) {
-      evictedOnes.push();
-   }
-   // -------------------------------------------------------------------------------------
    COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; PPCounters::myCounters().total_evictions++; }
+   // -------------------------------------------------------------------------------------
 }
-
 // -------------------------------------------------------------------------------------
 }  // namespace storage
 }  // namespace leanstore

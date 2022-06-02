@@ -68,6 +68,7 @@ class BufferManager
    void pageProviderThread(u64 p_begin, u64 p_end);  // [p_begin, p_end)
    atomic<u64> bg_threads_counter = {0};
    atomic<bool> bg_threads_keep_running = {true};
+   atomic<double> last_min = 0;
    // -------------------------------------------------------------------------------------
    // Misc
    Partition& randomPartition();
@@ -107,6 +108,7 @@ class BufferManager
    DTRegistry& getDTRegistry() { return DTRegistry::global_dt_registry; }
    u64 consumedPages();
    BufferFrame& getContainingBufferFrame(const u8*);  // get the buffer frame containing the given ptr address
+   double findThreshold(int samples);
    struct FreedBfsBatch {
       BufferFrame *freed_bfs_batch_head = nullptr, *freed_bfs_batch_tail = nullptr;
       u64 freed_bfs_counter = 0;
@@ -138,24 +140,14 @@ class BufferManager
       }
    };
 
-   void nonDirtyEvict(Partition& partition,
-                      std::_List_iterator<BufferFrame*>& bf_itr,
-                      BufferFrame& bf,
-                      BMOptimisticGuard& guard,
-                      FreedBfsBatch& evictedOnes);
-   void cool_pages();
-   void second_phase(AsyncWriteBuffer& async_write_buffer,
-                     volatile u64 p_i,
-                     const s64 pages_to_iterate_partition,
-                     Partition& partition,
-                     FreedBfsBatch& freed_bfs_batch);
-   using Time = decltype(std::chrono::high_resolution_clock::now());
-   void third_phase(AsyncWriteBuffer& async_write_buffer,
-                    volatile u64 p_i,
-                    Partition& partition,
-                    const s64 pages_to_iterate_partition,
-                    FreedBfsBatch& freed_bfs_batch,
-                    Time& phase_3_end);
+   void nonDirtyEvict(BufferFrame& bf, BMOptimisticGuard& guard, FreedBfsBatch& evictedOnes);
+   bool evictPages(double min,
+                   u64 partitionID,
+                   AsyncWriteBuffer& async_write_buffer,
+                   std::vector<Partition*>& partitions,
+                   u64& pages_evicted);
+   bool childrenEvicted(BMOptimisticGuard& r_guard, BufferFrame& r_buffer);
+   BufferFrame& getNextBufferFrame(Partition& partition);
 };                                                    // namespace storage
 // -------------------------------------------------------------------------------------
 class BMC

@@ -108,6 +108,7 @@ void AsyncWriteBuffer::handleWritten(u32 n_events, Partition& partition)
          }
          jumpmuCatch() {}
       }
+      partition.addNextBufferFrame(write_buffer_commands[slot].bf);
    }
 }
 // if async_write_buffer has pages: get & handle evicted.
