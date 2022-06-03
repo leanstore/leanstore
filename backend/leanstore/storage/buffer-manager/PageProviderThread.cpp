@@ -86,15 +86,19 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
 }
 void BufferManager::wait_for_start(u64 p_begin, u64 p_end, const std::vector<Partition*>& partitions) const
 {
-   while(bg_threads_keep_running){
-      for (u64 p_i = p_begin; p_i < p_end; p_i++) {
-         Partition& myPart = *partitions[p_i];
-         if (myPart.partition_size < myPart.max_partition_size - 10) {
-            continue;
-         }
-         return;
+   PID pid = p_begin;
+   u64 wait_till = partitions[0]->max_partition_size*0.95;
+   cout << "mx_part_size: " << partitions[0]->max_partition_size <<endl;
+   while(bg_threads_keep_running) {
+      Partition& myPart = *partitions[pid++];
+      if (pid >= p_end) {
+         pid = p_begin;
+      }
+      if (myPart.partition_size > wait_till) {
+         break;
       }
    }
+   cout << "Start pageproviding" <<endl;
 }
 
 bool page_is_evictable(BufferFrame& page) {
