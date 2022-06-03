@@ -53,16 +53,12 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    if(evicted_limit <1){
       evicted_limit = 1;
    }
-   bool started_eviction = false;
+   wait_for_start(p_begin, p_end, partitions);
    while (bg_threads_keep_running) {
       for (u64 p_i = p_begin; p_i < p_end; p_i++) {
          Partition& myPart = *partitions[p_i];
          if (myPart.partition_size < myPart.max_partition_size - 10) {
             continue;
-         }
-         if(!started_eviction){
-            started_eviction = true;
-            cout << "start_eviction" << endl;
          }
          double min = findThreshold(sampleSizes[p_i]);
          if (evictPages(min, p_i, async_write_buffer, partitions, pages_evicted)) {
@@ -87,6 +83,18 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
 
    // Finish
    bg_threads_counter--;
+}
+void BufferManager::wait_for_start(u64 p_begin, u64 p_end, const std::vector<Partition*>& partitions) const
+{
+   while(bg_threads_keep_running){
+      for (u64 p_i = p_begin; p_i < p_end; p_i++) {
+         Partition& myPart = *partitions[p_i];
+         if (myPart.partition_size < myPart.max_partition_size - 10) {
+            continue;
+         }
+         return;
+      }
+   }
 }
 
 bool page_is_evictable(BufferFrame& page) {

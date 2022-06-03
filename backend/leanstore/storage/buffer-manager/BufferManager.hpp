@@ -148,6 +148,7 @@ class BufferManager
                    u64& pages_evicted);
    bool childrenEvicted(BMOptimisticGuard& r_guard, BufferFrame& r_buffer);
    BufferFrame& getNextBufferFrame(Partition& partition);
+   void wait_for_start(u64 p_begin, u64 p_end, const std::vector<Partition*>& partitions) const;
 };                                                    // namespace storage
 // -------------------------------------------------------------------------------------
 class BMC
