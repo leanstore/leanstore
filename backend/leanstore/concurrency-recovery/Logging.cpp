@@ -12,6 +12,7 @@ namespace cr
 {
 // -------------------------------------------------------------------------------------
 atomic<u64> Worker::Logging::global_min_gsn_flushed = 0;
+atomic<u64> Worker::Logging::global_min_commit_ts_flushed = 0;
 atomic<u64> Worker::Logging::global_sync_to_this_gsn = 0;
 // -------------------------------------------------------------------------------------
 u32 Worker::Logging::walFreeSpace()

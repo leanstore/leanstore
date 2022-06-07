@@ -13,7 +13,6 @@ namespace cr
 // -------------------------------------------------------------------------------------
 // Threads id order: workers (xN) -> Group Committer Thread (x1) -> Page Provider Threads (xP)
 CRManager* CRManager::global = nullptr;
-std::atomic<u64> CRManager::fsync_counter = 0;
 // -------------------------------------------------------------------------------------
 CRManager::CRManager(HistoryTreeInterface& versions_space, s32 ssd_fd, u64 end_of_block_device)
     : ssd_fd(ssd_fd), end_of_block_device(end_of_block_device), versions_space(versions_space)

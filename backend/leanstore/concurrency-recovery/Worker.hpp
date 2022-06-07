@@ -54,6 +54,7 @@ struct Worker {
       static atomic<u64> global_min_gsn_flushed;   // The minimum of all workers maximum flushed GSN
       static atomic<u64> global_sync_to_this_gsn;  // Artifically increment the workers GSN to this point at the next round to prevent GSN from
                                                    // skewing and undermining RFA
+      static atomic<u64> global_min_commit_ts_flushed;
       // -------------------------------------------------------------------------------------
       WALMetaEntry* active_mt_entry;
       WALDTEntry* active_dt_entry;
@@ -62,7 +63,8 @@ struct Worker {
       std::vector<Transaction> precommitted_queue;
       std::vector<Transaction> precommitted_queue_rfa;
       // -------------------------------------------------------------------------------------
-      std::atomic<TXID> hardened_commit_ts = 0, signaled_commit_ts = 0;  // W: GCT, R: GCT
+      std::atomic<TXID> hardened_commit_ts = 0, signaled_commit_ts = 0;  // W: LW, R: WT
+      std::atomic<TXID> hardened_gsn = 0;                                // W: LW, R: LC
       // -------------------------------------------------------------------------------------
       // Protect W+GCT shared data (worker <-> group commit thread)
       struct WorkerToLW {
@@ -71,11 +73,7 @@ struct Worker {
          TXID precommitted_tx_start_ts = 0;
          TXID precommitted_tx_commit_ts = 0;
       };
-      struct LWToLC {
-         // TODO:
-      };
       utils::OptimisticSpinStruct<WorkerToLW> wt_to_lw;
-      utils::OptimisticSpinStruct<WorkerToLW> lw_to_lc;
       // New: RFA: check for user tx dependency on tuple insert, update, lookup. Deletes are treated as system transaction
       void checkLogDepdency(WORKERID other_worker_id, TXID other_user_tx_id)
       {

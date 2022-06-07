@@ -91,7 +91,6 @@ class CRManager
    void deserialize(std::unordered_map<std::string, std::string> map);
 
   private:
-   static std::atomic<u64> fsync_counter;
    void groupCommiter();
    void groupCommiter1();
    // -------------------------------------------------------------------------------------
