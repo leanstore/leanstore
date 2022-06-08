@@ -155,8 +155,6 @@ void CRManager::groupCommiter1()
                   }
                } else if (wt_to_lw_copy[w_i - w_begin_i].wal_written_offset == worker.logging.wal_gct_cursor) {
                   // raise(SIGTRAP);
-               } else {
-                  raise(SIGTRAP);
                }
             }
             // -------------------------------------------------------------------------------------
@@ -181,7 +179,7 @@ void CRManager::groupCommiter1()
                      posix_check(done_requests >= 0);
                   }
                   const u64 fsync_current_value = fsync_counter.load();
-                  while ((fsync_current_value + 2) < fsync_counter) {
+                  while ((fsync_current_value + 2) >= fsync_counter.load()) {
                   }
                }
             }
