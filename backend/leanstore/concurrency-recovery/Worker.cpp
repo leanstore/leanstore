@@ -47,6 +47,7 @@ Worker::~Worker() = default;
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
 {
    Transaction prev_tx = active_tx;
+   active_tx.stats.start = std::chrono::high_resolution_clock::now();
    // For single-statement transactions, snapshot isolation and serialization are the same as read committed
    if (next_tx_type == TX_MODE::SINGLE_STATEMENT && 0) {  // TODO: check consequences on refreshGlobalState & GC
       if (next_tx_isolation_level > TX_ISOLATION_LEVEL::READ_COMMITTED) {
@@ -121,7 +122,17 @@ void Worker::commitTX()
       }
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
-      if (1) {  // activeTX().hasWrote()
+      if (FLAGS_wal_tuple_rfa) {
+         for (auto& dependency : logging.rfa_checks_at_precommit) {
+            if (logging.other(std::get<0>(dependency)).signaled_commit_ts < std::get<1>(dependency)) {
+               logging.remote_flush_dependency = true;
+               break;
+            }
+         }
+         logging.rfa_checks_at_precommit.clear();
+      }
+      // -------------------------------------------------------------------------------------
+      if (1) {  // activeTX().hasWrote() TODO:
          TXID commit_ts;
          cc.commit_tree->append(
              [&](u8* key) {
@@ -141,6 +152,7 @@ void Worker::commitTX()
          logging.submitWALMetaEntry();
          // -------------------------------------------------------------------------------------
          {
+            active_tx.stats.precommit = std::chrono::high_resolution_clock::now();
             std::unique_lock<std::mutex> g(logging.precommitted_queue_mutex);
             if (logging.remote_flush_dependency) {  // RFA
                logging.precommitted_queue.push_back(active_tx);

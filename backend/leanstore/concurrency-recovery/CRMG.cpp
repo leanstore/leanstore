@@ -35,6 +35,7 @@ CRManager::CRManager(HistoryTreeInterface& versions_space, s32 ssd_fd, u64 end_o
             CPUCounters::registerThread(thread_name, false);
          }
          WorkerCounters::myCounters().worker_id = t_i;
+         CRCounters::myCounters().worker_id = t_i;
          // -------------------------------------------------------------------------------------
          workers[t_i] = new Worker(t_i, workers, workers_count, versions_space, ssd_fd);
          Worker::tls_ptr = workers[t_i];

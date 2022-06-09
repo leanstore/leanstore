@@ -38,6 +38,16 @@ struct CRCounters {
    atomic<u64> cc_ms_history_tree = 0;
    atomic<u64> cc_ms_refresh_global_state = 0;
    // -------------------------------------------------------------------------------------
+   // Latency
+   static constexpr u64 latency_tx_capacity = 1024;  // ATTENTION: buffer overflow if more than max_dt_id in system are registered
+   atomic<u64> cc_ms_precommit_latency[latency_tx_capacity] = {0};
+   atomic<u64> cc_ms_commit_latency[latency_tx_capacity] = {0};
+   atomic<u64> cc_flushes_counter[latency_tx_capacity] = {0};
+   atomic<u64> cc_latency_cursor = {0};
+   atomic<u64> cc_rfa_ms_precommit_latency[latency_tx_capacity] = {0};
+   atomic<u64> cc_rfa_ms_commit_latency[latency_tx_capacity] = {0};
+   atomic<u64> cc_rfa_latency_cursor = {0};
+   // -------------------------------------------------------------------------------------
    CRCounters() {}
    // -------------------------------------------------------------------------------------
    static tbb::enumerable_thread_specific<CRCounters> cr_counters;

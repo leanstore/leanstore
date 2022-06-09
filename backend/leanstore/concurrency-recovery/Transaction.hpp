@@ -3,6 +3,7 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <chrono>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -41,6 +42,11 @@ struct Transaction {
    bool safe_snapshot = false;
    bool is_read_only = false;
    bool has_wrote = false;
+   // -------------------------------------------------------------------------------------
+   struct {
+      std::chrono::high_resolution_clock::time_point start, precommit, commit;
+      u64 flushes_counter = 0;
+   } stats;
    // -------------------------------------------------------------------------------------
    bool isOLAP() { return current_tx_mode == TX_MODE::OLAP; }
    bool isOLTP() { return current_tx_mode == TX_MODE::OLTP; }

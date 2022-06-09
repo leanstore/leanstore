@@ -7,6 +7,7 @@
 #include "leanstore/profiling/tables/CPUTable.hpp"
 #include "leanstore/profiling/tables/CRTable.hpp"
 #include "leanstore/profiling/tables/DTTable.hpp"
+#include "leanstore/profiling/tables/LatencyTable.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
 // -------------------------------------------------------------------------------------
@@ -124,7 +125,8 @@ void LeanStore::startProfilingThread()
       profiling::DTTable dt_table(*buffer_manager.get());
       profiling::CPUTable cpu_table;
       profiling::CRTable cr_table;
-      std::vector<profiling::ProfilingTable*> tables = {&configs_table, &bm_table, &dt_table, &cpu_table, &cr_table};
+      profiling::LatencyTable latency_table;
+      std::vector<profiling::ProfilingTable*> tables = {&configs_table, &bm_table, &dt_table, &cpu_table, &cr_table, &latency_table};
       // -------------------------------------------------------------------------------------
       std::vector<std::ofstream> csvs;
       std::ofstream::openmode open_flags;

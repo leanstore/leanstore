@@ -75,10 +75,14 @@ struct Worker {
       };
       utils::OptimisticSpinStruct<WorkerToLW> wt_to_lw;
       // New: RFA: check for user tx dependency on tuple insert, update, lookup. Deletes are treated as system transaction
+      std::vector<std::tuple<WORKERID, TXID>> rfa_checks_at_precommit;
       void checkLogDepdency(WORKERID other_worker_id, TXID other_user_tx_id)
       {
          if (!remote_flush_dependency && my().worker_id != other_worker_id) {
-            remote_flush_dependency |= other(other_worker_id).signaled_commit_ts < other_user_tx_id;
+            // remote_flush_dependency |= other(other_worker_id).signaled_commit_ts < other_user_tx_id;
+            if (other(other_worker_id).signaled_commit_ts < other_user_tx_id) {
+               rfa_checks_at_precommit.push_back({other_worker_id, other_user_tx_id});
+            }
          }
       }
       // -------------------------------------------------------------------------------------

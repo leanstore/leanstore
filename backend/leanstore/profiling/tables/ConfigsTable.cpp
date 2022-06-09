@@ -51,6 +51,8 @@ void ConfigsTable::open()
    columns.emplace("c_wal", [&](Column& col) { col << FLAGS_wal; });
    columns.emplace("c_wal_io_hack", [&](Column& col) { col << FLAGS_wal_pwrite; });
    columns.emplace("c_wal_fsync", [&](Column& col) { col << FLAGS_wal_fsync; });
+   columns.emplace("c_wal_variant", [&](Column& col) { col << FLAGS_wal_variant; });
+   columns.emplace("c_wal_log_writers", [&](Column& col) { col << FLAGS_wal_log_writers; });
    columns.emplace("c_todo", [&](Column& col) { col << FLAGS_todo; });
    columns.emplace("c_mv", [&](Column& col) { col << FLAGS_mv; });
    columns.emplace("c_vi", [&](Column& col) { col << FLAGS_vi; });

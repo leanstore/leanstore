@@ -40,8 +40,8 @@ void CRManager::groupCommiter1()
          // -------------------------------------------------------------------------------------
          if (FLAGS_wal_fsync) {
             fdatasync(ssd_fd);
-            fsync_counter++;
          }
+         fsync_counter++;
          // -------------------------------------------------------------------------------------
          for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
             Worker& worker = *workers[w_i];
@@ -179,7 +179,7 @@ void CRManager::groupCommiter1()
                      posix_check(done_requests >= 0);
                   }
                   const u64 fsync_current_value = fsync_counter.load();
-                  while ((fsync_current_value + 2) >= fsync_counter.load()) {
+                  while ((fsync_current_value + 2) >= fsync_counter.load() && keep_running) {
                   }
                }
             }
@@ -194,14 +194,27 @@ void CRManager::groupCommiter1()
                // TODO: prevent contention on mutex
                {
                   worker.logging.wal_gct_cursor.store(wt_to_lw_copy[w_i - w_begin_i].wal_written_offset, std::memory_order_release);
+                  const auto time_now = std::chrono::high_resolution_clock::now();
                   std::unique_lock<std::mutex> g(worker.logging.precommitted_queue_mutex);
                   // -------------------------------------------------------------------------------------
                   u64 tx_i = 0;
-                  for (tx_i = 0; tx_i < worker.logging.precommitted_queue.size() &&
-                                 worker.logging.precommitted_queue[tx_i].max_observed_gsn <= Worker::Logging::global_min_gsn_flushed &&
-                                 worker.logging.precommitted_queue[tx_i].start_ts <= Worker::Logging::global_min_commit_ts_flushed;
-                       tx_i++) {
-                     worker.logging.precommitted_queue[tx_i].state = Transaction::STATE::COMMITTED;
+                  for (tx_i = 0; tx_i < worker.logging.precommitted_queue.size(); tx_i++) {
+                     auto& tx = worker.logging.precommitted_queue[tx_i];
+                     if (tx.max_observed_gsn > Worker::Logging::global_min_gsn_flushed ||
+                         tx.start_ts > Worker::Logging::global_min_commit_ts_flushed) {
+                        tx.stats.flushes_counter++;
+                        break;
+                     }
+                     tx.state = Transaction::STATE::COMMITTED;
+                     tx.stats.commit = time_now;
+                     if (1) {
+                        const u64 cursor = CRCounters::myCounters().cc_latency_cursor++ % CRCounters::latency_tx_capacity;
+                        CRCounters::myCounters().cc_ms_precommit_latency[cursor] =
+                            std::chrono::duration_cast<std::chrono::microseconds>(tx.stats.precommit - tx.stats.start).count();
+                        CRCounters::myCounters().cc_ms_commit_latency[cursor] =
+                            std::chrono::duration_cast<std::chrono::microseconds>(tx.stats.commit - tx.stats.start).count();
+                        CRCounters::myCounters().cc_flushes_counter[cursor] += tx.stats.flushes_counter;
+                     }
                   }
                   if (tx_i > 0) {
                      signaled_up_to = std::min<TXID>(signaled_up_to, worker.logging.precommitted_queue[tx_i - 1].commitTS());
@@ -210,8 +223,18 @@ void CRManager::groupCommiter1()
                      committed_tx += tx_i;
                   }
                   // -------------------------------------------------------------------------------------
+                  // RFA
                   for (tx_i = 0; tx_i < ready_to_commit_rfa_cut[w_i - w_begin_i]; tx_i++) {
-                     worker.logging.precommitted_queue_rfa[tx_i].state = Transaction::STATE::COMMITTED;
+                     auto& tx = worker.logging.precommitted_queue_rfa[tx_i];
+                     tx.state = Transaction::STATE::COMMITTED;
+                     tx.stats.commit = time_now;
+                     if (1) {
+                        const u64 cursor = CRCounters::myCounters().cc_rfa_latency_cursor++ % CRCounters::latency_tx_capacity;
+                        CRCounters::myCounters().cc_rfa_ms_precommit_latency[cursor] =
+                            std::chrono::duration_cast<std::chrono::microseconds>(tx.stats.precommit - tx.stats.start).count();
+                        CRCounters::myCounters().cc_rfa_ms_commit_latency[cursor] =
+                            std::chrono::duration_cast<std::chrono::microseconds>(tx.stats.commit - tx.stats.start).count();
+                     }
                   }
                   if (tx_i > 0) {
                      signaled_up_to = std::min<TXID>(signaled_up_to, worker.logging.precommitted_queue_rfa[tx_i - 1].commitTS());
