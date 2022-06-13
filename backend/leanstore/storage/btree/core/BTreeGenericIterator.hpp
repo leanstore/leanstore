@@ -68,7 +68,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                } else {
                   target_guard = HybridPageGuard(p_guard, *c_swip);
                }
-               level++;
+               level = level + 1;
             }
             // -------------------------------------------------------------------------------------
             p_guard.unlock();

@@ -99,7 +99,7 @@ class BTreeGeneric
          } else {
             target_guard = HybridPageGuard(p_guard, c_swip);
          }
-         level++;
+         level = level + 1;
       }
       // -------------------------------------------------------------------------------------
       p_guard.unlock();
@@ -216,7 +216,7 @@ class BTreeGeneric
             }
          }
          c_guard = HybridPageGuard(p_guard, c_swip->cast<BTreeNode>(), latch_mode);
-         level++;
+         level = level + 1;
       }
       p_guard.unlock();
       const bool found = &c_swip->asBufferFrameMasked() == &to_find;
@@ -234,8 +234,8 @@ class BTreeGeneric
             c_guard.toOptimisticOrJump();
             c_guard.tryToExclusive();
             to_find.header.optimistic_parent_pointer.update(parent_handler.parent_bf, parent_handler.parent_bf->header.pid,
-                                                            parent_handler.parent_bf->page.PLSN, reinterpret_cast<BufferFrame**>(&parent_handler.swip),
-                                                            parent_handler.pos);
+                                                            parent_handler.parent_bf->page.PLSN,
+                                                            reinterpret_cast<BufferFrame**>(&parent_handler.swip), parent_handler.pos);
             c_guard.unlock();
             parent_handler.is_bf_updated = true;
          }

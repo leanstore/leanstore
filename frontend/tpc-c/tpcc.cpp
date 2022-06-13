@@ -171,7 +171,7 @@ int main(int argc, char** argv)
                   cr::Worker::my().commitTX();
                }
                WorkerCounters::myCounters().olap_tx++;
-               tx_acc++;
+               tx_acc = tx_acc + 1;
             }
             jumpmuCatch() { WorkerCounters::myCounters().olap_tx_abort++; }
             if (FLAGS_ch_a_once) {
@@ -223,7 +223,7 @@ int main(int argc, char** argv)
                      cr::Worker::my().commitTX();
                   }
                   WorkerCounters::myCounters().tx++;
-                  tx_acc++;
+                  tx_acc = tx_acc + 1;
                }
                jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
             }

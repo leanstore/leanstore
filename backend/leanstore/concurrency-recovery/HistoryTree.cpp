@@ -183,7 +183,7 @@ void HistoryTree::purgeVersions(WORKERID worker_id,
                std::memcpy(payload, version_container.payload, payload_length);
                key = Slice(key_buffer, key_length + 1);
                iterator.removeCurrent();
-               removed_versions++;
+               removed_versions = removed_versions + 1;
                iterator.markAsDirty();
                iterator.reset();
                cb(current_tx_id, dt_id, payload, payload_length, called_before);
@@ -254,7 +254,7 @@ void HistoryTree::purgeVersions(WORKERID worker_id,
             utils::unfold(last_key, last_key_tx_id);
             if (first_key_tx_id >= from_tx_id && to_tx_id >= last_key_tx_id) {
                // Purge the whole page
-               removed_versions += leaf->count;
+               removed_versions = removed_versions + leaf->count;
                leaf->reset();
                did_purge_full_page = true;
             }
