@@ -15,7 +15,7 @@ namespace utils
 template <typename T>
 class OptimisticSpinStruct
 {
-  private:
+  public:
    T current_value;
    std::atomic<u64> optimistic_latch;
 
@@ -27,10 +27,11 @@ class OptimisticSpinStruct
       while (version & LSB) {
          version = optimistic_latch.load();
       }
-      const T copy = current_value;
+      T copy = current_value;
       if (version != optimistic_latch.load()) {
          goto retry;
       }
+      copy.version = version;
       return copy;
    }
    }
@@ -50,6 +51,8 @@ class OptimisticSpinStruct
       current_value.*a = new_value;
       optimistic_latch.store(optimistic_latch.load() + LSB, std::memory_order_release);
    }
+   // -------------------------------------------------------------------------------------
+   void wait(T& copy) { optimistic_latch.wait(copy.version); }
 };
 // -------------------------------------------------------------------------------------
 }  // namespace utils

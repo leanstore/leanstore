@@ -91,8 +91,13 @@ class CRManager
    void deserialize(std::unordered_map<std::string, std::string> map);
 
   private:
+   static std::atomic<u64> fsync_counter;
+   static std::atomic<u64> g_ssd_offset;
+   // -------------------------------------------------------------------------------------
    void groupCommiter();
+   void groupCommitCordinator();
    void groupCommiter1();
+   void groupCommiter2();
    // -------------------------------------------------------------------------------------
    /**
     * @brief Set the Job to specific worker.

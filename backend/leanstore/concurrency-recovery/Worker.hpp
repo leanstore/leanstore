@@ -68,6 +68,7 @@ struct Worker {
       // -------------------------------------------------------------------------------------
       // Protect W+GCT shared data (worker <-> group commit thread)
       struct WorkerToLW {
+         u64 version = 0;
          LID last_gsn = 0;
          u64 wal_written_offset = 0;
          TXID precommitted_tx_start_ts = 0;

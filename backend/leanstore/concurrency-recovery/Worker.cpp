@@ -150,6 +150,7 @@ void Worker::commitTX()
          entry.type = WALEntry::TYPE::TX_COMMIT;
          // TODO: commit_ts in log
          logging.submitWALMetaEntry();
+         logging.wt_to_lw.optimistic_latch.notify_all();
          // -------------------------------------------------------------------------------------
          {
             active_tx.stats.precommit = std::chrono::high_resolution_clock::now();
