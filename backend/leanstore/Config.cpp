@@ -71,7 +71,7 @@ DEFINE_bool(wal, true, "");
 DEFINE_bool(wal_rfa, true, "Remote Flush Avoidance (RFA)");
 DEFINE_bool(wal_tuple_rfa, true, "tuple-wise tracking");
 DEFINE_uint64(wal_offset_gib, 10, "");
-DEFINE_bool(wal_pwrite, true, "Does not really write logs on SSD");
+DEFINE_bool(wal_pwrite, false, "Does not really write logs on SSD");
 DEFINE_bool(wal_fsync, false, "");
 DEFINE_int64(wal_variant, 0, "");
 DEFINE_uint64(wal_log_writers, 1, "");
@@ -79,6 +79,7 @@ DEFINE_uint64(wal_log_writers, 1, "");
 DEFINE_string(isolation_level, "si", "options: ru (READ_UNCOMMITTED), rc (READ_COMMITTED), si (SNAPSHOT_ISOLATION), ser (SERIALIZABLE)");
 DEFINE_bool(mv, true, "Multi-version");
 DEFINE_uint64(si_refresh_rate, 0, "");
+DEFINE_uint64(si_commit_protocol, 0, "0: LS Steal, 1: LS NoSteal, 2: WT");
 DEFINE_bool(todo, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(vi, true, "BTree with SI using in-place version");

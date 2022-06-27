@@ -97,6 +97,7 @@ void Worker::Logging::iterateOverCurrentTXEntries(std::function<void(const WALEn
    u64 cursor = current_tx_wal_start;
    while (cursor != wal_wt_cursor) {
       const WALEntry& entry = *reinterpret_cast<WALEntry*>(wal_buffer + cursor);
+      ensure(entry.size > 0);
       DEBUG_BLOCK()
       {
          if (entry.type != WALEntry::TYPE::CARRIAGE_RETURN)

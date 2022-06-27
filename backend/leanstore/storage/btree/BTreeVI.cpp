@@ -161,7 +161,10 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          jumpmu_return OP_RESULT::ABORT_TX;
       }
       tuple.writeLock();
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
+      COUNTERS_BLOCK()
+      {
+         WorkerCounters::myCounters().cc_update_chains[dt_id]++;
+      }
       // -------------------------------------------------------------------------------------
       if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
          ensure(!cr::activeTX().isSingleStatement());  // TODO: not implemented yet
@@ -201,13 +204,19 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          convert_to_fat_tuple = false;
       }
       if (convert_to_fat_tuple) {
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_triggered[dt_id]++; }
+         COUNTERS_BLOCK()
+         {
+            WorkerCounters::myCounters().cc_fat_tuple_triggered[dt_id]++;
+         }
          tried_converting_to_fat_tuple = true;
          tuple_head.updates_counter = 0;
          const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator);
          if (convert_ret) {
             iterator.leaf->has_garbage = true;
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
+            COUNTERS_BLOCK()
+            {
+               WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++;
+            }
          }
          goto restart;
          UNREACHABLE();
@@ -237,7 +246,10 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
             std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
             BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
          });
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
+         COUNTERS_BLOCK()
+         {
+            WorkerCounters::myCounters().cc_update_versions_created[dt_id]++;
+         }
       } else {
          command_id = tuple_head.command_id;
       }
@@ -326,7 +338,10 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          iterator.markAsDirty();
          jumpmu_return OP_RESULT::OK;
       }
-      jumpmuCatch() { UNREACHABLE(); }
+      jumpmuCatch()
+      {
+         UNREACHABLE();
+      }
    }
    UNREACHABLE();
    return OP_RESULT::OTHER;
@@ -480,7 +495,10 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             iterator.markAsDirty();
             jumpmu_return;
          }
-         jumpmuCatch() { UNREACHABLE(); }
+         jumpmuCatch()
+         {
+            UNREACHABLE();
+         }
          break;
       }
       case WAL_LOG_TYPE::WALRemove: {
@@ -510,7 +528,10 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             primary_version.unlock();
             iterator.markAsDirty();
          }
-         jumpmuCatch() { UNREACHABLE(); }
+         jumpmuCatch()
+         {
+            UNREACHABLE();
+         }
          break;
       }
       default: {
@@ -634,12 +655,15 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_ts == version_tx_id && primary_version.is_removed) {
-            if (primary_version.tx_ts < cr::Worker::my().cc.local_all_lwm) {
+            if (FLAGS_si_commit_protocol != 0 || primary_version.tx_ts < cr::Worker::my().cc.local_all_lwm) {
                ret = iterator.removeCurrent();
                iterator.markAsDirty();
                ensure(ret == OP_RESULT::OK);
                iterator.mergeIfNeeded();
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_removed[btree.dt_id]++; }
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().cc_todo_removed[btree.dt_id]++;
+               }
             } else if (primary_version.tx_ts < cr::Worker::my().cc.local_oltp_lwm) {
                // Move to graveyard
                {
@@ -652,35 +676,64 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                ensure(ret == OP_RESULT::OK);
                iterator.markAsDirty();
                iterator.mergeIfNeeded();
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_moved_gy[btree.dt_id]++; }
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().cc_todo_moved_gy[btree.dt_id]++;
+               }
             } else {
                UNREACHABLE();
             }
          }
       }
    }
-   jumpmuCatch() { UNREACHABLE(); }
+   jumpmuCatch()
+   {
+      UNREACHABLE();
+   }
 }
 // -------------------------------------------------------------------------------------
-void BTreeVI::unlock(void* btree_object, const u8* entry_ptr)
+void BTreeVI::unlock(void* btree_object, const u8* wal_entry_ptr)
 {
    auto& btree = *reinterpret_cast<BTreeVI*>(btree_object);
-   const auto& todo_entry = *reinterpret_cast<const UnlockEntry*>(entry_ptr);
-   // -------------------------------------------------------------------------------------
-   Slice key(todo_entry.key, todo_entry.key_length);
-   OP_RESULT ret;
+   static_cast<void>(btree);
+   const WALEntry& entry = *reinterpret_cast<const WALEntry*>(wal_entry_ptr);
+   Slice key;
+   switch (entry.type) {
+      case WAL_LOG_TYPE::WALInsert: {  // Assuming no insert after remove
+         auto& insert_entry = *reinterpret_cast<const WALInsert*>(&entry);
+         key = Slice(insert_entry.payload, insert_entry.key_length);
+         break;
+      }
+      case WAL_LOG_TYPE::WALUpdate: {
+         auto& update_entry = *reinterpret_cast<const WALUpdateSSIP*>(&entry);
+         key = Slice(update_entry.payload, update_entry.key_length);
+         break;
+      }
+      case WAL_LOG_TYPE::WALRemove: {
+         auto& remove_entry = *reinterpret_cast<const WALRemove*>(&entry);
+         key = Slice(remove_entry.payload, remove_entry.key_length);
+         break;
+      }
+      default: {
+         return;
+         break;
+      }
+   }
    // -------------------------------------------------------------------------------------
    jumpmuTry()
    {
       BTreeExclusiveIterator iterator(*static_cast<BTreeGeneric*>(&btree));
-      ret = iterator.seekExact(key);
+      OP_RESULT ret = iterator.seekExact(key);
       ensure(ret == OP_RESULT::OK);
-      // -------------------------------------------------------------------------------------
-      MutableSlice primary_payload = iterator.mutableValue();
-      Tuple& primary_version = *reinterpret_cast<Tuple*>(primary_payload.data());
-      primary_version.read_lock_counter &= ~(1ull << cr::Worker::my().workerID());
+      auto& tuple = *reinterpret_cast<Tuple*>(iterator.mutableValue().data());
+      ensure(tuple.tuple_format == TupleFormat::CHAINED);
+      auto& chain_head = *reinterpret_cast<ChainedTuple*>(iterator.mutableValue().data());
+      chain_head.tx_ts = cr::activeTX().commitTS() | MSB;
    }
-   jumpmuCatch() { UNREACHABLE(); }
+   jumpmuCatch()
+   {
+      UNREACHABLE();
+   }
 }
 // -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTreeVI::getMeta()

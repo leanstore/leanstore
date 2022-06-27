@@ -184,6 +184,18 @@ struct Worker {
       unique_ptr<TXID[]> local_snapshot_cache_ts;
       unique_ptr<TXID[]> local_workers_start_ts;
       // -------------------------------------------------------------------------------------
+      // -------------------------------------------------------------------------------------
+      // WiredTiger/PG/MySQL variant
+      struct {
+         std::vector<TXID> local_workers_tx_id;  // ReadView Vector
+         TXID current_snapshot_min_tx_id;
+         TXID current_snapshot_max_tx_id;
+         atomic<TXID> snapshot_min_tx_id = 0;
+      } wt_pg;
+      // -------------------------------------------------------------------------------------
+      // LeanStore NoSteal
+      // Nothing for now
+      // -------------------------------------------------------------------------------------
       // Clean up state
       u64 cleaned_untill_oltp_lwm = 0;
       // -------------------------------------------------------------------------------------

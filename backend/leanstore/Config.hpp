@@ -73,6 +73,7 @@ DECLARE_uint64(wal_log_writers);
 DECLARE_string(isolation_level);
 DECLARE_bool(mv);
 DECLARE_uint64(si_refresh_rate);
+DECLARE_uint64(si_commit_protocol);
 DECLARE_bool(todo);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(vi);
