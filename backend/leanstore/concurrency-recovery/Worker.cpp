@@ -56,11 +56,16 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
    }
    // -------------------------------------------------------------------------------------
    if (FLAGS_wal) {
+      active_tx.wal_larger_than_buffer = false;
       logging.current_tx_wal_start = logging.wal_wt_cursor;
       if (!read_only) {
          WALMetaEntry& entry = logging.reserveWALMetaEntry();
          entry.type = WALEntry::TYPE::TX_START;
          logging.submitWALMetaEntry();
+         DEBUG_BLOCK()
+         {
+            entry.checkCRC();
+         }
       }
       assert(prev_tx.state != Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
@@ -185,13 +190,15 @@ void Worker::commitTX()
       if (FLAGS_si_commit_protocol == 2) {
          global_workers_current_snapshot[worker_id].store(cc.global_clock.fetch_add(1), std::memory_order_release);
       } else if (FLAGS_si_commit_protocol == 1) {
-         // TODO: write-set
-         logging.iterateOverCurrentTXEntries([&](const WALEntry& entry) {
-            // if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
-            //    const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
-            //    leanstore::storage::DTRegistry::global_dt_registry.unlock(dt_entry.dt_id, dt_entry.payload);
-            // }
-         });
+         if (active_tx.isOLTP()) {
+            ensure(!active_tx.wal_larger_than_buffer);
+            logging.iterateOverCurrentTXEntries([&](const WALEntry& entry) {
+               if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
+                  const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
+                  leanstore::storage::DTRegistry::global_dt_registry.unlock(dt_entry.dt_id, dt_entry.payload);
+               }
+            });
+         }
       }
       // Only committing snapshot/ changing between SI and lower modes
       if (activeTX().atLeastSI()) {
@@ -204,27 +211,27 @@ void Worker::commitTX()
 // -------------------------------------------------------------------------------------
 void Worker::abortTX()
 {
-   if (FLAGS_wal) {
-      ensure(active_tx.state == Transaction::STATE::STARTED);
-      const u64 tx_id = active_tx.startTS();
-      std::vector<const WALEntry*> entries;
-      logging.iterateOverCurrentTXEntries([&](const WALEntry& entry) {
-         if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
-            entries.push_back(&entry);
-         }
-      });
-      std::for_each(entries.rbegin(), entries.rend(), [&](const WALEntry* entry) {
-         const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(entry);
-         leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tx_id);
-      });
-      // -------------------------------------------------------------------------------------
-      cc.history_tree.purgeVersions(worker_id, active_tx.startTS(), active_tx.startTS(), [&](const TXID, const DTID, const u8*, u64, const bool) {});
-      // -------------------------------------------------------------------------------------
-      WALMetaEntry& entry = logging.reserveWALMetaEntry();
-      entry.type = WALEntry::TYPE::TX_ABORT;
-      logging.submitWALMetaEntry();
-      active_tx.state = Transaction::STATE::ABORTED;
-   }
+   ensure(FLAGS_wal);
+   ensure(!active_tx.wal_larger_than_buffer);
+   ensure(active_tx.state == Transaction::STATE::STARTED);
+   const u64 tx_id = active_tx.startTS();
+   std::vector<const WALEntry*> entries;
+   logging.iterateOverCurrentTXEntries([&](const WALEntry& entry) {
+      if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
+         entries.push_back(&entry);
+      }
+   });
+   std::for_each(entries.rbegin(), entries.rend(), [&](const WALEntry* entry) {
+      const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(entry);
+      leanstore::storage::DTRegistry::global_dt_registry.undo(dt_entry.dt_id, dt_entry.payload, tx_id);
+   });
+   // -------------------------------------------------------------------------------------
+   cc.history_tree.purgeVersions(worker_id, active_tx.startTS(), active_tx.startTS(), [&](const TXID, const DTID, const u8*, u64, const bool) {});
+   // -------------------------------------------------------------------------------------
+   WALMetaEntry& entry = logging.reserveWALMetaEntry();
+   entry.type = WALEntry::TYPE::TX_ABORT;
+   logging.submitWALMetaEntry();
+   active_tx.state = Transaction::STATE::ABORTED;
    jumpmu::jump();
 }
 // -------------------------------------------------------------------------------------

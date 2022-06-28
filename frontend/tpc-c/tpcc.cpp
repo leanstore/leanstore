@@ -110,7 +110,7 @@ int main(int argc, char** argv)
                if (w_id > FLAGS_tpcc_warehouse_count) {
                   return;
                }
-               cr::Worker::my().startTX();
+               cr::Worker::my().startTX(leanstore::TX_MODE::INSTANTLY_VISIBLE_BULK_INSERT);
                tpcc.loadStock(w_id);
                tpcc.loadDistrinct(w_id);
                for (Integer d_id = 1; d_id <= 10; d_id++) {
@@ -173,7 +173,10 @@ int main(int argc, char** argv)
                WorkerCounters::myCounters().olap_tx++;
                tx_acc = tx_acc + 1;
             }
-            jumpmuCatch() { WorkerCounters::myCounters().olap_tx_abort++; }
+            jumpmuCatch()
+            {
+               WorkerCounters::myCounters().olap_tx_abort++;
+            }
             if (FLAGS_ch_a_once) {
                cr::Worker::my().shutdown();
                sleep(2);
@@ -203,7 +206,10 @@ int main(int argc, char** argv)
                   cr::Worker::my().commitTX();
                   WorkerCounters::myCounters().tx++;
                }
-               jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
+               jumpmuCatch()
+               {
+                  WorkerCounters::myCounters().tx_abort++;
+               }
             }
          } else {
             while (keep_running) {
@@ -225,7 +231,10 @@ int main(int argc, char** argv)
                   WorkerCounters::myCounters().tx++;
                   tx_acc = tx_acc + 1;
                }
-               jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
+               jumpmuCatch()
+               {
+                  WorkerCounters::myCounters().tx_abort++;
+               }
             }
          }
          cr::Worker::my().shutdown();

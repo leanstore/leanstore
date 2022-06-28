@@ -333,6 +333,8 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          // -------------------------------------------------------------------------------------
          if (cr::activeTX().isSingleStatement()) {
             cr::Worker::my().commitTX();
+         } else if (cr::activeTX().current_tx_mode == TX_MODE::INSTANTLY_VISIBLE_BULK_INSERT) {
+            primary_version.tx_ts = MSB | 0;
          }
          // -------------------------------------------------------------------------------------
          iterator.markAsDirty();

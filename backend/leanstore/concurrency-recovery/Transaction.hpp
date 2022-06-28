@@ -7,7 +7,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-enum class TX_MODE : u8 { OLAP, OLTP, SINGLE_STATEMENT };
+enum class TX_MODE : u8 { OLAP, OLTP, SINGLE_STATEMENT, INSTANTLY_VISIBLE_BULK_INSERT };
 enum class TX_ISOLATION_LEVEL : u8 { SERIALIZABLE = 3, SNAPSHOT_ISOLATION = 2, READ_COMMITTED = 1, READ_UNCOMMITTED = 0 };
 inline TX_ISOLATION_LEVEL parseIsolationLevel(std::string str)
 {
@@ -42,6 +42,7 @@ struct Transaction {
    bool safe_snapshot = false;
    bool is_read_only = false;
    bool has_wrote = false;
+   bool wal_larger_than_buffer = false;
    // -------------------------------------------------------------------------------------
    struct {
       std::chrono::high_resolution_clock::time_point start, precommit, commit;

@@ -42,7 +42,7 @@ void Worker::Logging::walEnsureEnoughSpace(u32 requested_size)
          wait_untill_free_bytes += WORKER_WAL_SIZE - wal_wt_cursor;  // we have to skip this round
       }
       // Spin until we have enough space
-      if (walFreeSpace() < wait_untill_free_bytes) {
+      if (FLAGS_wal_variant == 2 && walFreeSpace() < wait_untill_free_bytes) {
          wt_to_lw.optimistic_latch.notify_all();
       }
       while (walFreeSpace() < wait_untill_free_bytes) {
@@ -52,7 +52,10 @@ void Worker::Logging::walEnsureEnoughSpace(u32 requested_size)
          entry.size = sizeof(WALMetaEntry);
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
          entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
-         DEBUG_BLOCK() { entry.computeCRC(); }
+         DEBUG_BLOCK()
+         {
+            entry.computeCRC();
+         }
          // -------------------------------------------------------------------------------------
          wal_wt_cursor = 0;
          publishOffset();
@@ -75,7 +78,13 @@ WALMetaEntry& Worker::Logging::reserveWALMetaEntry()
 // -------------------------------------------------------------------------------------
 void Worker::Logging::submitWALMetaEntry()
 {
-   DEBUG_BLOCK() { active_mt_entry->computeCRC(); }
+   if(!((wal_wt_cursor >= current_tx_wal_start) || (wal_wt_cursor + sizeof(WALMetaEntry) < current_tx_wal_start))) {
+      my().active_tx.wal_larger_than_buffer = true;
+   }
+   DEBUG_BLOCK()
+   {
+      active_mt_entry->computeCRC();
+   }
    wal_wt_cursor += sizeof(WALMetaEntry);
    auto current = wt_to_lw.getNoSync();
    current.wal_written_offset = wal_wt_cursor;
@@ -85,8 +94,17 @@ void Worker::Logging::submitWALMetaEntry()
 // -------------------------------------------------------------------------------------
 void Worker::Logging::submitDTEntry(u64 total_size)
 {
-   DEBUG_BLOCK() { active_dt_entry->computeCRC(); }
-   COUNTERS_BLOCK() { WorkerCounters::myCounters().wal_write_bytes += total_size; }
+   if(!((wal_wt_cursor >= current_tx_wal_start) || (wal_wt_cursor + total_size  < current_tx_wal_start))) {
+      my().active_tx.wal_larger_than_buffer = true;
+   }
+   DEBUG_BLOCK()
+   {
+      active_dt_entry->computeCRC();
+   }
+   COUNTERS_BLOCK()
+   {
+      WorkerCounters::myCounters().wal_write_bytes += total_size;
+   }
    wal_wt_cursor += total_size;
    publishMaxGSNOffset();
 }
