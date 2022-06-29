@@ -156,7 +156,7 @@ void Worker::commitTX()
          logging.rfa_checks_at_precommit.clear();
       }
       // -------------------------------------------------------------------------------------
-      if (FLAGS_si_commit_protocol == 0) {  // activeTX().hasWrote() TODO:
+      if (FLAGS_si_commit_protocol <= 1) {  // activeTX().hasWrote() TODO:
          TXID commit_ts;
          cc.commit_tree->append(
              [&](u8* key) {

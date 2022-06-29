@@ -86,15 +86,10 @@ class BTreeVI : public BTreeLL
    // NEVER SHADOW A MEMBER!!!
    struct __attribute__((packed)) Tuple {
       static constexpr COMMANDID INVALID_COMMANDID = std::numeric_limits<COMMANDID>::max();
-      union {
-         // u128 read_ts = 0;
-         // u128 read_lock_counter;
-         u8 read_ts : 1;
-         u8 read_lock_counter : 1;
-      };
       TupleFormat tuple_format;
       WORKERID worker_id;
-      TXID tx_ts;  // Could be start_ts or commit_ts depending on MSB
+      TXID tx_ts;  // Could be start_ts or tx_id for WT scheme
+      TXID commit_ts; // Need for si_commit_protocol = 1 (NoSteal)
       COMMANDID command_id;
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
@@ -296,7 +291,10 @@ class BTreeVI : public BTreeLL
             iterator.assembleKey();
             Slice s_key = iterator.key();
             auto reconstruct = reconstructTuple(s_key, iterator.value(), [&](Slice value) {
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP(); }
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP();
+               }
                keep_scanning = callback(s_key.data(), s_key.length(), value.data(), value.length());
                counter++;
             });
@@ -322,7 +320,10 @@ class BTreeVI : public BTreeLL
          }
          jumpmu_return OP_RESULT::OK;
       }
-      jumpmuCatch() { ensure(false); }
+      jumpmuCatch()
+      {
+         ensure(false);
+      }
       UNREACHABLE();
       jumpmu_return OP_RESULT::OTHER;
    }
@@ -369,7 +370,10 @@ class BTreeVI : public BTreeLL
          g_range();
          auto take_from_oltp = [&]() {
             reconstructTuple(iterator.key(), iterator.value(), [&](Slice value) {
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP(); }
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP();
+               }
                keep_scanning = callback(iterator.key().data(), iterator.key().length(), value.data(), value.length());
             });
             if (!keep_scanning) {
@@ -397,7 +401,10 @@ class BTreeVI : public BTreeLL
                g_iterator.assembleKey();
                Slice g_key = g_iterator.key();
                reconstructTuple(g_key, g_iterator.value(), [&](Slice value) {
-                  COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP(); }
+                  COUNTERS_BLOCK()
+                  {
+                     WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP();
+                  }
                   keep_scanning = callback(g_key.data(), g_key.length(), value.data(), value.length());
                });
                if (!keep_scanning) {
@@ -415,7 +422,10 @@ class BTreeVI : public BTreeLL
                   }
                } else {
                   reconstructTuple(g_key, g_iterator.value(), [&](Slice value) {
-                     COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP(); }
+                     COUNTERS_BLOCK()
+                     {
+                        WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP();
+                     }
                      keep_scanning = callback(g_key.data(), g_key.length(), value.data(), value.length());
                   });
                   if (!keep_scanning) {
@@ -428,14 +438,17 @@ class BTreeVI : public BTreeLL
             }
          }
       }
-      jumpmuCatch() { ensure(false); }
+      jumpmuCatch()
+      {
+         ensure(false);
+      }
       UNREACHABLE();
       jumpmu_return OP_RESULT::OTHER;
    }
    // -------------------------------------------------------------------------------------
-   inline bool isVisibleForMe(WORKERID worker_id, u64 worker_commit_mark, bool to_write = true)
+   inline bool isVisibleForMe(WORKERID worker_id, TXID tx_ts, bool to_write = true)
    {
-      return cr::Worker::my().cc.isVisibleForMe(worker_id, worker_commit_mark, to_write);
+      return cr::Worker::my().cc.isVisibleForMe(worker_id, tx_ts, to_write);
    }
    static inline bool triggerPageWiseGarbageCollection(HybridPageGuard<BTreeNode>& guard) { return guard->has_garbage; }
    u64 convertToFatTupleThreshold() { return FLAGS_worker_threads; }

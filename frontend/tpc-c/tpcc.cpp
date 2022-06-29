@@ -97,7 +97,7 @@ int main(int argc, char** argv)
    if (!FLAGS_recover) {
       cout << "Loading TPC-C" << endl;
       crm.scheduleJobSync(0, [&]() {
-         cr::Worker::my().startTX();
+         cr::Worker::my().startTX(leanstore::TX_MODE::INSTANTLY_VISIBLE_BULK_INSERT);
          tpcc.loadItem();
          tpcc.loadWarehouse();
          cr::Worker::my().commitTX();

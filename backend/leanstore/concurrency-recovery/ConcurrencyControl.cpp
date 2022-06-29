@@ -268,9 +268,7 @@ bool Worker::ConcurrencyControl::isVisibleForMe(WORKERID other_worker_id, u64 tx
    }
    // -------------------------------------------------------------------------------------
    if (FLAGS_si_commit_protocol == 1) {
-      // TODO:
-      TODOException();
-      return false;
+      // Same as variant 0
    } else if (FLAGS_si_commit_protocol == 2) {
       if (tx_ts < wt_pg.current_snapshot_min_tx_id) {
          return true;
