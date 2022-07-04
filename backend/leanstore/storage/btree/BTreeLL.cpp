@@ -46,7 +46,10 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }
-      jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
+      jumpmuCatch()
+      {
+         WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
+      }
    }
    UNREACHABLE();
    return OP_RESULT::OTHER;
@@ -88,7 +91,10 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
                            std::function<bool(const u8* key, u16 key_length, const u8* payload, u16 payload_length)> callback,
                            function<void()>)
 {
-   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_asc[dt_id]++; }
+   COUNTERS_BLOCK()
+   {
+      WorkerCounters::myCounters().dt_scan_asc[dt_id]++;
+   }
    Slice key(start_key, key_length);
    jumpmuTry()
    {
@@ -112,7 +118,10 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
 {
-   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_desc[dt_id]++; }
+   COUNTERS_BLOCK()
+   {
+      WorkerCounters::myCounters().dt_scan_desc[dt_id]++;
+   }
    const Slice key(start_key, key_length);
    jumpmuTry()
    {
@@ -209,7 +218,10 @@ OP_RESULT BTreeLL::prefixLookup(u8* key, u16 key_length, std::function<void(cons
             jumpmu_return ret;
          }
       }
-      jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
+      jumpmuCatch()
+      {
+         WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
+      }
    }
    UNREACHABLE();
    return OP_RESULT::OTHER;
@@ -255,7 +267,10 @@ OP_RESULT BTreeLL::prefixLookupForPrev(u8* key, u16 key_length, std::function<vo
             jumpmu_return ret;
          }
       }
-      jumpmuCatch() { WorkerCounters::myCounters().dt_restarts_read[dt_id]++; }
+      jumpmuCatch()
+      {
+         WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
+      }
    }
    UNREACHABLE();
    return OP_RESULT::OTHER;
@@ -294,7 +309,10 @@ OP_RESULT BTreeLL::append(std::function<void(u8*)> o_key,
             iterator.cur = pos;
             o_value(iterator.mutableValue().data());
             iterator.markAsDirty();
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_append_opt[dt_id]++; }
+            COUNTERS_BLOCK()
+            {
+               WorkerCounters::myCounters().dt_append_opt[dt_id]++;
+            }
             jumpmu_return OP_RESULT::OK;
          }
       }
@@ -331,7 +349,10 @@ OP_RESULT BTreeLL::append(std::function<void(u8*)> o_key,
          }
          session->bf = iterator.leaf.bf;
          // -------------------------------------------------------------------------------------
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_append[dt_id]++; }
+         COUNTERS_BLOCK()
+         {
+            WorkerCounters::myCounters().dt_append[dt_id]++;
+         }
          jumpmu_return OP_RESULT::OK;
       }
       jumpmuCatch() {}
@@ -409,6 +430,7 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
          std::memcpy(wal_entry->payload, key.data(), key.length());
          std::memcpy(wal_entry->payload + o_key_length, value.data(), value.length());
          wal_entry.submit();
+         iterator.markAsDirty();
       } else {
          iterator.markAsDirty();
       }
@@ -432,7 +454,10 @@ OP_RESULT BTreeLL::rangeRemove(u8* start_key, u16 start_key_length, u8* end_key,
       iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
          if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
             iterator.cleanUpCallback([&, to_find = leaf.bf] {
-               jumpmuTry() { this->tryMerge(*to_find); }
+               jumpmuTry()
+               {
+                  this->tryMerge(*to_find);
+               }
                jumpmuCatch() {}
             });
          }
@@ -448,9 +473,13 @@ OP_RESULT BTreeLL::rangeRemove(u8* start_key, u16 start_key_length, u8* end_key,
             iterator.assembleKey();
             auto c_key = iterator.key();
             if (c_key >= s_key && c_key <= e_key) {
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_range_removed[dt_id]++; }
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().dt_range_removed[dt_id]++;
+               }
                ret = iterator.removeCurrent();
                ensure(ret == OP_RESULT::OK);
+               iterator.markAsDirty();
                if (iterator.cur == iterator.leaf->count) {
                   ret = iterator.next();
                }
@@ -474,8 +503,12 @@ OP_RESULT BTreeLL::rangeRemove(u8* start_key, u16 start_key_length, u8* end_key,
             Slice p_e_key(last_key, leaf->getFullKeyLen(leaf->count - 1));
             if (p_s_key >= s_key && p_e_key <= e_key) {
                // Purge the whole page
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_range_removed[dt_id] += leaf->count; }
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().dt_range_removed[dt_id] += leaf->count;
+               }
                leaf->reset();
+               iterator.markAsDirty();
                did_purge_full_page = true;
             }
          });
