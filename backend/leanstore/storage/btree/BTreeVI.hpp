@@ -88,8 +88,10 @@ class BTreeVI : public BTreeLL
       static constexpr COMMANDID INVALID_COMMANDID = std::numeric_limits<COMMANDID>::max();
       TupleFormat tuple_format;
       WORKERID worker_id;
-      TXID tx_ts;  // Could be start_ts or tx_id for WT scheme
-      TXID commit_ts; // Need for si_commit_protocol = 1 (NoSteal)
+      union {
+         TXID tx_ts;  // Could be start_ts or tx_id for WT scheme
+         TXID start_ts;
+      };
       COMMANDID command_id;
       u8 write_locked : 1;
       // -------------------------------------------------------------------------------------
@@ -105,15 +107,15 @@ class BTreeVI : public BTreeLL
    // -------------------------------------------------------------------------------------
    // Chained: only scheduled gc todos. FatTuple: eager pgc, no scheduled gc todos
    struct __attribute__((packed)) ChainedTuple : Tuple {
-      WORKERID updates_counter = 0;
-      u8 can_convert_to_fat_tuple : 1;
+      u16 updates_counter = 0;
+      u16 oldest_tx = 0;
       u8 is_removed : 1;
       // -------------------------------------------------------------------------------------
       u8 payload[];  // latest version in-place
                      // -------------------------------------------------------------------------------------
       ChainedTuple(WORKERID worker_id, TXID tx_id) : Tuple(TupleFormat::CHAINED, worker_id, tx_id), is_removed(false) { reset(); }
       bool isFinal() const { return command_id == INVALID_COMMANDID; }
-      void reset() { can_convert_to_fat_tuple = 1; }
+      void reset() {}
    };
    // -------------------------------------------------------------------------------------
    // We always append the descriptor, one format to keep simple

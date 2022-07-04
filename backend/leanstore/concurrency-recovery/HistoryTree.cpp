@@ -20,13 +20,13 @@ namespace cr
 using namespace leanstore::storage::btree;
 // -------------------------------------------------------------------------------------
 void HistoryTree::insertVersion(WORKERID session_id,
-                                  TXID tx_id,
-                                  COMMANDID command_id,
-                                  DTID dt_id,
-                                  bool is_remove,
-                                  u64 payload_length,
-                                  std::function<void(u8*)> cb,
-                                  bool same_thread)
+                                TXID tx_id,
+                                COMMANDID command_id,
+                                DTID dt_id,
+                                bool is_remove,
+                                u64 payload_length,
+                                std::function<void(u8*)> cb,
+                                bool same_thread)
 {
    if (!FLAGS_history_tree_inserts) {
       return;
@@ -61,7 +61,10 @@ void HistoryTree::insertVersion(WORKERID session_id,
             version_meta.dt_id = dt_id;
             cb(version_meta.payload);
             iterator.markAsDirty();
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_versions_space_inserted_opt[dt_id]++; }
+            COUNTERS_BLOCK()
+            {
+               WorkerCounters::myCounters().cc_versions_space_inserted_opt[dt_id]++;
+            }
             iterator.leaf.unlock();
             jumpmu_return;
          }
@@ -99,18 +102,17 @@ void HistoryTree::insertVersion(WORKERID session_id,
             session->rightmost_init = true;
          }
          // -------------------------------------------------------------------------------------
-         COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_versions_space_inserted[dt_id]++; }
+         COUNTERS_BLOCK()
+         {
+            WorkerCounters::myCounters().cc_versions_space_inserted[dt_id]++;
+         }
          jumpmu_return;
       }
       jumpmuCatch() {}
    }
 }
 // -------------------------------------------------------------------------------------
-bool HistoryTree::retrieveVersion(WORKERID worker_id,
-                                    TXID tx_id,
-                                    COMMANDID command_id,
-                                    const bool is_remove,
-                                    std::function<void(const u8*, u64)> cb)
+bool HistoryTree::retrieveVersion(WORKERID worker_id, TXID tx_id, COMMANDID command_id, const bool is_remove, std::function<void(const u8*, u64)> cb)
 {
    BTreeLL* volatile btree = (is_remove) ? remove_btrees[worker_id] : update_btrees[worker_id];
    // -------------------------------------------------------------------------------------
@@ -133,16 +135,20 @@ bool HistoryTree::retrieveVersion(WORKERID worker_id,
       cb(version_container.payload, payload.length() - sizeof(VersionMeta));
       jumpmu_return true;
    }
-   jumpmuCatch() { jumpmu::jump(); }
+   jumpmuCatch()
+   {
+      UNREACHABLE();
+      jumpmu::jump();
+   }
    UNREACHABLE();
    return false;
 }
 // -------------------------------------------------------------------------------------
 void HistoryTree::purgeVersions(WORKERID worker_id,
-                                  TXID from_tx_id,
-                                  TXID to_tx_id,
-                                  RemoveVersionCallback cb,
-                                  [[maybe_unused]] const u64 limit)  // [from, to]
+                                TXID from_tx_id,
+                                TXID to_tx_id,
+                                RemoveVersionCallback cb,
+                                [[maybe_unused]] const u64 limit)  // [from, to]
 {
    u16 key_length = sizeof(to_tx_id);
    u8 key_buffer[PAGE_SIZE];
@@ -161,7 +167,10 @@ void HistoryTree::purgeVersions(WORKERID worker_id,
          iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
             if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
                iterator.cleanUpCallback([&, to_find = leaf.bf] {
-                  jumpmuTry() { btree->tryMerge(*to_find); }
+                  jumpmuTry()
+                  {
+                     btree->tryMerge(*to_find);
+                  }
                   jumpmuCatch() {}
                });
             }
@@ -194,7 +203,10 @@ void HistoryTree::purgeVersions(WORKERID worker_id,
          }
       }
       }
-      jumpmuCatch() { UNREACHABLE(); }
+      jumpmuCatch()
+      {
+         UNREACHABLE();
+      }
    }
    // -------------------------------------------------------------------------------------
    btree = update_btrees[worker_id];
@@ -231,7 +243,10 @@ void HistoryTree::purgeVersions(WORKERID worker_id,
          iterator.exitLeafCallback([&](HybridPageGuard<BTreeNode>& leaf) {
             if (leaf->freeSpaceAfterCompaction() >= BTreeNodeHeader::underFullSize) {
                iterator.cleanUpCallback([&, to_find = leaf.bf] {
-                  jumpmuTry() { btree->tryMerge(*to_find); }
+                  jumpmuTry()
+                  {
+                     btree->tryMerge(*to_find);
+                  }
                   jumpmuCatch() {}
                });
             }
@@ -271,16 +286,22 @@ void HistoryTree::purgeVersions(WORKERID worker_id,
             jumpmu_break;
          }
       }
-      jumpmuCatch() { UNREACHABLE(); }
+      jumpmuCatch()
+      {
+         UNREACHABLE();
+      }
    }
-   COUNTERS_BLOCK() { CRCounters::myCounters().cc_versions_space_removed += removed_versions; }
+   COUNTERS_BLOCK()
+   {
+      CRCounters::myCounters().cc_versions_space_removed += removed_versions;
+   }
 }
 // -------------------------------------------------------------------------------------
 // Pre: TXID is unsigned integer
 void HistoryTree::visitRemoveVersions(WORKERID worker_id,
-                                        TXID from_tx_id,
-                                        TXID to_tx_id,
-                                        std::function<void(const TXID, const DTID, const u8*, u64, const bool visited_before)> cb)
+                                      TXID from_tx_id,
+                                      TXID to_tx_id,
+                                      std::function<void(const TXID, const DTID, const u8*, u64, const bool visited_before)> cb)
 {
    // [from, to]
    BTreeLL* btree = remove_btrees[worker_id];

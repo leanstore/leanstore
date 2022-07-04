@@ -95,7 +95,8 @@ DEFINE_uint64(vi_pgc_batch_size, 2, "");
 DEFINE_bool(vi_fat_tuple, false, "");
 DEFINE_string(vi_fat_tuple_dts, "", "");
 DEFINE_bool(vi_fat_tuple_decompose, true, "");
-DEFINE_uint64(vi_fat_tuple_threshold, 4, "Minimum length of chain length before converting the tuple format to FatTuple");
+DEFINE_uint64(vi_fat_tuple_trigger, 0, "1: oldest_oltp, 1: probability");
+DEFINE_bool(vi_fat_tuple_alternative, false, "hit the previous version at every update");
 DEFINE_bool(vi_dangling_pointer, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(olap_mode, true, "Use OLAP mode for long running transactions");
