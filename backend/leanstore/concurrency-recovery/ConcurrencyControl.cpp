@@ -71,16 +71,10 @@ void Worker::ConcurrencyControl::refreshGlobalState()
             other(w_i).local_latest_lwm_for_tx.store(other(w_i).local_latest_write_tx, std::memory_order_release);
          }
          // -------------------------------------------------------------------------------------
-         TXID its_all_lwm_buffer = 0, its_oltp_lwm_buffer = 0;
-         u8 key[sizeof(TXID)];
-         utils::fold(key, global_oldest_all_start_ts);
-         other(w_i).commit_tree->prefixLookupForPrev(
-             key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_all_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
+         TXID its_all_lwm_buffer = other(w_i).commit_tree.LCB(global_oldest_all_start_ts),
+              its_oltp_lwm_buffer = other(w_i).commit_tree.LCB(global_oldest_oltp_start_ts);
          // -------------------------------------------------------------------------------------
          if (FLAGS_olap_mode && global_oldest_all_start_ts != global_oldest_oltp_start_ts) {
-            utils::fold(key, global_oldest_oltp_start_ts);
-            other(w_i).commit_tree->prefixLookupForPrev(
-                key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) { its_oltp_lwm_buffer = *reinterpret_cast<const TXID*>(s_value); });
             ensure(its_all_lwm_buffer <= its_oltp_lwm_buffer);
             global_oltp_lwm_buffer = std::min<TXID>(its_oltp_lwm_buffer, global_oltp_lwm_buffer);
          } else {
@@ -172,37 +166,8 @@ synclwm : {
           },
           0);
       cleaned_untill_oltp_lwm = std::max(local_all_lwm, cleaned_untill_oltp_lwm);
-      // -------------------------------------------------------------------------------------
-      {
-         TXID erase_till = 0;
-         u8 key[sizeof(TXID)];
-         utils::fold(key, global_oldest_all_start_ts);
-         commit_tree->prefixLookupForPrev(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_till); });
-         if (erase_till) {
-            u8 start_key[sizeof(TXID)];
-            utils::fold(start_key, u64(0));
-            u8 end_key[sizeof(TXID)];
-            utils::fold(end_key, erase_till - 1);
-            commit_tree->rangeRemove(start_key, sizeof(TXID), end_key, sizeof(TXID));
-         }
-      }
    }
    if (FLAGS_olap_mode && local_all_lwm != local_oltp_lwm) {
-      //  TXID between OLAP and OLTP
-      TXID erase_till = 0, erase_from = 0;
-      u8 key[sizeof(TXID)];
-      utils::fold(key, global_newest_olap_start_ts);
-      commit_tree->prefixLookup(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_from); });
-      utils::fold(key, global_oldest_oltp_start_ts);
-      commit_tree->prefixLookupForPrev(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, erase_till); });
-      if (erase_till) {
-         u8 start_key[sizeof(TXID)];
-         utils::fold(start_key, erase_from + 1);
-         u8 end_key[sizeof(TXID)];
-         utils::fold(end_key, erase_till - 1);
-         commit_tree->rangeRemove(start_key, sizeof(TXID), end_key, sizeof(TXID), false);
-      }
-      // -------------------------------------------------------------------------------------
       if (local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
          // MOVE deletes to the graveyard
          const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
@@ -244,10 +209,8 @@ TXID Worker::ConcurrencyControl::getCommitTimestamp(WORKERID worker_id, TXID tx_
    assert((tx_ts & MSB) || isVisibleForMe(worker_id, tx_ts));
    // -------------------------------------------------------------------------------------
    const TXID& start_ts = tx_ts;
-   TXID commit_ts = std::numeric_limits<TXID>::max();  // TODO: align with GC
-   u8 key[sizeof(TXID)];
-   utils::fold(key, start_ts);
-   other(worker_id).commit_tree->prefixLookup(key, sizeof(TXID), [&](const u8* s_key, u16, const u8*, u16) { utils::unfold(s_key, commit_ts); });
+   TXID lcb = other(worker_id).commit_tree.LCB(start_ts);
+   TXID commit_ts = lcb ? lcb : std::numeric_limits<TXID>::max();  // TODO: align with GC
    ensure(commit_ts > start_ts);
    return commit_ts;
 }
@@ -289,12 +252,7 @@ bool Worker::ConcurrencyControl::isVisibleForMe(WORKERID other_worker_id, u64 tx
       if (is_commit_ts) {
          return true;
       }
-      u8 key[sizeof(TXID)];
-      utils::fold(key, std::numeric_limits<TXID>::max());
-      TXID committed_till = 0;
-      other(other_worker_id).commit_tree->prefixLookupForPrev(key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) {
-         committed_till = *reinterpret_cast<const TXID*>(s_value);
-      });
+      TXID committed_till = other(other_worker_id).commit_tree.LCB(std::numeric_limits<TXID>::max());
       return committed_till >= tx_ts;
    } else if (activeTX().atLeastSI()) {
       if (is_commit_ts) {
@@ -309,13 +267,8 @@ bool Worker::ConcurrencyControl::isVisibleForMe(WORKERID other_worker_id, u64 tx
       } else if (local_snapshot_cache[other_worker_id] >= start_ts) {
          return true;
       }
-      TXID largest_visible_tx_id = 0;
-      u8 key[sizeof(TXID)];
-      utils::fold(key, my().active_tx.startTS());
-      OP_RESULT ret = other(other_worker_id).commit_tree->prefixLookupForPrev(key, sizeof(TXID), [&](const u8*, u16, const u8* s_value, u16) {
-         largest_visible_tx_id = *reinterpret_cast<const TXID*>(s_value);
-      });
-      if (ret == OP_RESULT::OK) {
+      TXID largest_visible_tx_id = other(other_worker_id).commit_tree.LCB(my().active_tx.startTS());
+      if (largest_visible_tx_id) {
          local_snapshot_cache[other_worker_id] = largest_visible_tx_id;
          local_snapshot_cache_ts[other_worker_id] = my().active_tx.startTS();
          return largest_visible_tx_id >= start_ts;
@@ -350,8 +303,8 @@ TXID Worker::ConcurrencyControl::CommitTree::commit(TXID start_ts)
 // -------------------------------------------------------------------------------------
 std::optional<std::pair<TXID, TXID>> Worker::ConcurrencyControl::CommitTree::LCBUnsafe(TXID start_ts)
 {
-   const auto begin = array.get();
-   const auto end = array.get() + capacity;
+   const auto begin = array;
+   const auto end = array + cursor;
    auto it = std::lower_bound(begin, end, start_ts, [&](const auto& pair, TXID ts) { return pair.first < ts; });
    if (it == begin) {
       return {};

@@ -16,6 +16,7 @@
 #include <queue>
 #include <shared_mutex>
 #include <vector>
+#include <memory>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -179,8 +180,6 @@ struct Worker {
       atomic<TXID> all_lwm_receiver;
       atomic<TXID> local_latest_write_tx = 0, local_latest_lwm_for_tx = 0;
       TXID local_all_lwm, local_oltp_lwm;
-      leanstore::KVInterface* commit_tree;
-      std::unique_ptr<u8[]> commit_tree_handler;
       TXID local_global_all_lwm_cache = 0;
       unique_ptr<TXID[]> local_snapshot_cache;  // = Readview
       unique_ptr<TXID[]> local_snapshot_cache_ts;
@@ -198,28 +197,24 @@ struct Worker {
       // LeanStore NoSteal
       // Nothing for now
       // -------------------------------------------------------------------------------------
+      HistoryTreeInterface& history_tree;
+      // -------------------------------------------------------------------------------------
       // Commmit Tree (single-writer multiple-reader)
       struct CommitTree {
          u64 capacity;
-         std::unique_ptr<std::pair<TXID, TXID>[]> array;
+         std::pair<TXID, TXID>* array;
          std::shared_mutex mutex;
          u64 cursor = 0;
          void cleanIfNecessary();
          TXID commit(TXID start_ts);
          std::optional<std::pair<TXID, TXID>> LCBUnsafe(TXID start_ts);
          TXID LCB(TXID start_ts);
-         CommitTree()
-         {
-            capacity = cr::Worker::my().workers_count;
-            assert(capacity);
-         }
+         CommitTree(const u64 workers_count) : capacity(workers_count + 1) { array = new std::pair<TXID, TXID>[capacity]; }
       };
-      CommitTree commit_tree_a;
+      CommitTree commit_tree;
       // -------------------------------------------------------------------------------------
       // Clean up state
       u64 cleaned_untill_oltp_lwm = 0;
-      // -------------------------------------------------------------------------------------
-      HistoryTreeInterface& history_tree;
       // -------------------------------------------------------------------------------------
       void garbageCollection();
       void refreshGlobalState();
@@ -252,7 +247,7 @@ struct Worker {
          const bool found = history_tree.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
          return found;
       }  // -------------------------------------------------------------------------------------
-      ConcurrencyControl(HistoryTreeInterface& ht) : history_tree(ht) {}
+      ConcurrencyControl(HistoryTreeInterface& ht, const u64 workers_count) : history_tree(ht), commit_tree(workers_count) {}
    } cc;
    // -------------------------------------------------------------------------------------
    u64 command_id = 0;

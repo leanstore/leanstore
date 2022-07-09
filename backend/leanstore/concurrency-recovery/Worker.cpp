@@ -30,7 +30,12 @@ atomic<u64> Worker::global_oltp_lwm = 0;
 atomic<u64> Worker::global_newest_olap_start_ts = 0;
 // -------------------------------------------------------------------------------------
 Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, HistoryTreeInterface& history_tree, s32 fd, const bool is_page_provider)
-    : cc(history_tree), worker_id(worker_id), all_workers(all_workers), workers_count(workers_count), ssd_fd(fd), is_page_provider(is_page_provider)
+    : cc(history_tree, workers_count),
+      worker_id(worker_id),
+      all_workers(all_workers),
+      workers_count(workers_count),
+      ssd_fd(fd),
+      is_page_provider(is_page_provider)
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
@@ -42,7 +47,10 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, HistoryTr
       global_workers_current_snapshot[worker_id] = 0;
    }
 }
-Worker::~Worker() = default;
+Worker::~Worker()
+{
+   delete[] cc.commit_tree.array;
+}
 // -------------------------------------------------------------------------------------
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
 {
@@ -100,6 +108,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          } else {
             global_workers_current_snapshot[worker_id].store(active_tx.start_ts, std::memory_order_release);
          }
+         cc.commit_tree.cleanIfNecessary();
          cc.local_global_all_lwm_cache = global_all_lwm.load();
          // -------------------------------------------------------------------------------------
          if (prev_tx.isReadCommitted() || prev_tx.isReadUncommitted()) {
@@ -157,13 +166,7 @@ void Worker::commitTX()
       }
       // -------------------------------------------------------------------------------------
       if (FLAGS_si_commit_protocol <= 1) {  // activeTX().hasWrote() TODO:
-         TXID commit_ts;
-         cc.commit_tree->append(
-             [&](u8* key) {
-                commit_ts = ConcurrencyControl::global_clock.fetch_add(1);
-                utils::fold(key, commit_ts);
-             },
-             sizeof(TXID), [&](u8* value) { *reinterpret_cast<TXID*>(value) = active_tx.startTS(); }, sizeof(TXID), cc.commit_tree_handler);
+         TXID commit_ts = cc.commit_tree.commit(active_tx.startTS());
          cc.local_latest_write_tx.store(commit_ts, std::memory_order_release);
          active_tx.commit_ts = commit_ts;
       }

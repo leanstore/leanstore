@@ -105,8 +105,6 @@ LeanStore::LeanStore()
          std::string name = "_history_tree_" + std::to_string(w_i);
          history_tree->update_btrees[w_i] = &registerBTreeLL(name + "_updates", {.enable_wal = false, .use_bulk_insert = true});
          history_tree->remove_btrees[w_i] = &registerBTreeLL(name + "_removes", {.enable_wal = false, .use_bulk_insert = true});
-         cr_manager->workers[w_i]->cc.commit_tree =
-             &registerBTreeLL("_commit_tree_" + std::to_string(w_i), {.enable_wal = false, .use_bulk_insert = true});
       }
    });
    // -------------------------------------------------------------------------------------
