@@ -75,7 +75,7 @@ void Worker::ConcurrencyControl::refreshGlobalState()
               its_oltp_lwm_buffer = other(w_i).commit_tree.LCB(global_oldest_oltp_start_ts);
          // -------------------------------------------------------------------------------------
          if (FLAGS_olap_mode && global_oldest_all_start_ts != global_oldest_oltp_start_ts) {
-            ensure(its_all_lwm_buffer <= its_oltp_lwm_buffer);
+            // ensure(its_all_lwm_buffer <= its_oltp_lwm_buffer);
             global_oltp_lwm_buffer = std::min<TXID>(its_oltp_lwm_buffer, global_oltp_lwm_buffer);
          } else {
             its_oltp_lwm_buffer = its_all_lwm_buffer;
@@ -240,7 +240,8 @@ bool Worker::ConcurrencyControl::isVisibleForMe(WORKERID other_worker_id, u64 tx
       if (tx_ts > wt_pg.current_snapshot_max_tx_id) {
          return false;
       }
-      for (auto& o_tx_id : wt_pg.local_workers_tx_id) {
+      for (u64 i = 0; i < wt_pg.local_workers_tx_id_cursor; i++) {
+         const auto o_tx_id = wt_pg.local_workers_tx_id[i].load();
          if (o_tx_id == tx_ts) {
             return false;
          }

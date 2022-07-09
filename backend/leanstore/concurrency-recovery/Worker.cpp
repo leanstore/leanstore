@@ -46,6 +46,7 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, HistoryTr
       cc.local_workers_start_ts = make_unique<u64[]>(workers_count + 1);
       global_workers_current_snapshot[worker_id] = 0;
    }
+   cc.wt_pg.local_workers_tx_id = std::make_unique<std::atomic<TXID>[]>(workers_count);
 }
 Worker::~Worker()
 {
@@ -116,7 +117,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          }
          // -------------------------------------------------------------------------------------
          if (FLAGS_si_commit_protocol == 2) {
-            cc.wt_pg.local_workers_tx_id.clear();
+            cc.wt_pg.local_workers_tx_id_cursor = 0;
             cc.wt_pg.current_snapshot_max_tx_id = std::numeric_limits<TXID>::min();
             cc.wt_pg.current_snapshot_min_tx_id = active_tx.start_ts;
             for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
@@ -128,7 +129,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
                   its_tx_id = global_workers_current_snapshot[w_i].load();
                }
                // -------------------------------------------------------------------------------------
-               cc.wt_pg.local_workers_tx_id.push_back(its_tx_id);
+               cc.wt_pg.local_workers_tx_id[cc.wt_pg.local_workers_tx_id_cursor++].store(its_tx_id, std::memory_order_release);
                cc.wt_pg.current_snapshot_max_tx_id = std::max(its_tx_id, cc.wt_pg.current_snapshot_max_tx_id);
                cc.wt_pg.current_snapshot_min_tx_id = std::min(its_tx_id, cc.wt_pg.current_snapshot_min_tx_id);
             }

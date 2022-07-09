@@ -188,7 +188,8 @@ struct Worker {
       // -------------------------------------------------------------------------------------
       // WiredTiger/PG/MySQL variant
       struct {
-         std::vector<TXID> local_workers_tx_id;  // ReadView Vector
+         std::unique_ptr<atomic<TXID>[]> local_workers_tx_id;  // ReadView Vector
+         u64 local_workers_tx_id_cursor = 0;
          TXID current_snapshot_min_tx_id;
          TXID current_snapshot_max_tx_id;
          atomic<TXID> snapshot_min_tx_id = 0;
