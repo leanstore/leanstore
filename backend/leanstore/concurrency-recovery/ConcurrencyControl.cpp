@@ -3,6 +3,7 @@
 // -------------------------------------------------------------------------------------
 #include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
+#include <set>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -335,6 +336,64 @@ bool Worker::ConcurrencyControl::isVisibleForAll(WORKERID, TXID ts)
       // Start Timestamp
       return ts < global_all_lwm.load();
    }
+}
+// -------------------------------------------------------------------------------------
+TXID Worker::ConcurrencyControl::CommitTree::commit(TXID start_ts)
+{
+   mutex.lock();
+   assert(cursor < capacity);
+   const TXID commit_ts = global_clock.fetch_add(1);
+   array[cursor++] = {commit_ts, start_ts};
+   mutex.unlock();
+   return commit_ts;
+}
+// -------------------------------------------------------------------------------------
+std::optional<std::pair<TXID, TXID>> Worker::ConcurrencyControl::CommitTree::LCBUnsafe(TXID start_ts)
+{
+   const auto begin = array.get();
+   const auto end = array.get() + capacity;
+   auto it = std::lower_bound(begin, end, start_ts, [&](const auto& pair, TXID ts) { return pair.first < ts; });
+   if (it == begin) {
+      return {};
+   } else {
+      it--;
+      assert(it->second < start_ts);
+      return *it;
+   }
+}
+// -------------------------------------------------------------------------------------
+TXID Worker::ConcurrencyControl::CommitTree::LCB(TXID start_ts)
+{
+   TXID lcb = 0;
+   mutex.lock_shared();
+   auto v = LCBUnsafe(start_ts);
+   if (v) {
+      lcb = v->second;
+   }
+   mutex.unlock_shared();
+   return lcb;
+}
+// -------------------------------------------------------------------------------------
+void Worker::ConcurrencyControl::CommitTree::cleanIfNecessary()
+{
+   if (cursor < capacity) {
+      return;
+   }
+   std::set<std::pair<TXID, TXID>> set;  // TODO: unordered_set
+   for (WORKERID w_i = 0; w_i < cr::Worker::my().workers_count; w_i++) {
+      const TXID its_start_ts = cr::Worker::global_workers_current_snapshot[w_i].load();
+      auto v = LCBUnsafe(its_start_ts);
+      if (v) {
+         set.insert(*v);
+      }
+   }
+   // -------------------------------------------------------------------------------------
+   mutex.lock();
+   cursor = 0;
+   for (auto& p : set) {
+      array[cursor++] = p;
+   }
+   mutex.unlock();
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

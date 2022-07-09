@@ -12,7 +12,9 @@
 #include <list>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <queue>
+#include <shared_mutex>
 #include <vector>
 // -------------------------------------------------------------------------------------
 namespace leanstore
@@ -195,6 +197,24 @@ struct Worker {
       // -------------------------------------------------------------------------------------
       // LeanStore NoSteal
       // Nothing for now
+      // -------------------------------------------------------------------------------------
+      // Commmit Tree (single-writer multiple-reader)
+      struct CommitTree {
+         u64 capacity;
+         std::unique_ptr<std::pair<TXID, TXID>[]> array;
+         std::shared_mutex mutex;
+         u64 cursor = 0;
+         void cleanIfNecessary();
+         TXID commit(TXID start_ts);
+         std::optional<std::pair<TXID, TXID>> LCBUnsafe(TXID start_ts);
+         TXID LCB(TXID start_ts);
+         CommitTree()
+         {
+            capacity = cr::Worker::my().workers_count;
+            assert(capacity);
+         }
+      };
+      CommitTree commit_tree_a;
       // -------------------------------------------------------------------------------------
       // Clean up state
       u64 cleaned_untill_oltp_lwm = 0;
