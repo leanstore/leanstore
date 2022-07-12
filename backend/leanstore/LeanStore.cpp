@@ -123,7 +123,7 @@ void LeanStore::doProfiling()
    vector<profiling::ProfilingTable*> untimedTables = {&results_table, &configs_table};
    // -------------------------------------------------------------------------------------
    vector<ofstream> timedCsvs, untimedCsvs;
-   ofstream config_csv;
+   ofstream console_csv;
    for (u64 t_i = 0; t_i < timedTables.size(); t_i++) {
       timedCsvs.emplace_back();
       prepareCSV(timedTables[t_i], timedCsvs.back());
@@ -149,7 +149,9 @@ void LeanStore::doProfiling()
       // -------------------------------------------------------------------------------------
       // Console
       // -------------------------------------------------------------------------------------
-      print_tx_console(bm_table, cpu_table, cr_table, seconds, tx);
+      print_tx_console(bm_table, cpu_table, cr_table, seconds, tx, console_csv);
+      this_thread::sleep_for(chrono::milliseconds(1000));
+      locale::global(locale::classic());
       seconds ++;
    }
    printStats(false);
@@ -180,52 +182,71 @@ void LeanStore::prepareCSV(profiling::ProfilingTable* table, ofstream& csv, bool
    }
 }
 void LeanStore::print_tx_console(profiling::BMTable& bm_table,
-                                profiling::CPUTable& cpu_table,
-                                profiling::CRTable& cr_table,
-                                u64 seconds,
-                                const u64 tx) const
+                                 profiling::CPUTable& cpu_table,
+                                 profiling::CRTable& cr_table,
+                                 u64 seconds,
+                                 const u64 tx,
+                                 ofstream& console_csv) const
 {
    if (FLAGS_print_tx_console) {
       const double instr_per_tx = cpu_table.workers_agg_events["instr"] / tx;
       const double cycles_per_tx = cpu_table.workers_agg_events["cycle"] / tx;
       const double l1_per_tx = cpu_table.workers_agg_events["L1-miss"] / tx;
       const double lc_per_tx = cpu_table.workers_agg_events["LLC-miss"] / tx;
-      Table table;
-      table.add_row({"t", "TX P", "TX A", "TX C", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC", "WAL T", "WAL R G",
-                     "WAL W G", "GCT Rounds", "FreeListLength", "Part0", "Part1", "last_min"});
+      Table table, head;
+      head.add_row({"t", "TX P", "TX A", "TX C", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC", "WAL T", "WAL R G",
+                     "WAL W G", "GCT Rounds", "FreeListLength", "Part0", "Part1", "last_min", "touches", "evictions"});
       u64 free = buffer_manager->free_list.counter, part0 = buffer_manager->getPartition(0).partition_size, part1 = buffer_manager->getPartition(1).partition_size;
       table.add_row({to_string(seconds), cr_table.get("0", "tx"), cr_table.get("0", "tx_abort"), cr_table.get("0", "gct_committed_tx"),
                      bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), to_string(instr_per_tx), to_string(cycles_per_tx),
                      to_string(cpu_table.workers_agg_events["CPU"]), to_string(l1_per_tx), to_string(lc_per_tx),
                      cr_table.get("0", "wal_total"), cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"),
-                     cr_table.get("0", "gct_rounds"), to_string(free), to_string(part0), to_string(part1), to_string(buffer_manager->last_min)});
+                     cr_table.get("0", "gct_rounds"), to_string(free), to_string(part0), to_string(part1), to_string(buffer_manager->last_min), bm_table.get("0", "touches"), bm_table.get("0", "evicted_pages")});
       // -------------------------------------------------------------------------------------
+      head.format().width(10);
       table.format().width(10);
+      head.column(0).format().width(5);
       table.column(0).format().width(5);
+      head.column(1).format().width(10);
       table.column(1).format().width(10);
       // -------------------------------------------------------------------------------------
-      auto print_table = [](Table& table, function<bool(u64)> predicate) {
+      auto print_table = [](Table& table, bool printAllLines = false) {
          stringstream ss;
          table.print(ss);
+         u64 length = table.shape().second;
          string str = ss.str();
          u64 line_n = 0;
          for (u64 i = 0; i < str.size(); i++) {
             if (str[i] == '\n') {
                line_n++;
             }
-            if (predicate(line_n)) {
+            if((line_n!=0 && line_n!=length-1) || printAllLines) {
                cout << str[i];
             }
          }
       };
       if (seconds == 0) {
-         print_table(table, [](u64 line_n) { return (line_n < 3) || (line_n == 4); });
+         print_table(head, true);
+         console_csv.open(FLAGS_csv_path + "_console.csv", FLAGS_csv_truncate ? ios::trunc : ios::app);
+         console_csv.seekp(0, ios::end);
+         console_csv << setprecision(2) << fixed;
+         if (console_csv.tellp() == 0) {
+            console_csv << "c_hash";
+            for (auto& c : head.row(0).cells()) {
+               console_csv << "," << c.get()->get_text();
+            }
+            console_csv << endl;
+         }
+
       } else {
-         print_table(table, [](u64 line_n) { return line_n == 4; });
+         print_table(table);
+         console_csv << config_hash;
+         for (auto& c : table.row(0).cells()) {
+            console_csv << "," << c.get()->get_text();
+         }
+         console_csv << endl;
       }
       // -------------------------------------------------------------------------------------
-      this_thread::sleep_for(chrono::milliseconds(1000));
-      locale::global(locale::classic());
    }
 }
 void LeanStore::printTable(profiling::ProfilingTable* table, basic_ofstream<char>& csv, u64 seconds, bool print_seconds) const
