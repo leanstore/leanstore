@@ -61,15 +61,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             continue;
          }
          double min = findThreshold(sampleSizes[p_i]);
-         if (evictPages(min, p_i, async_write_buffer, partitions, pages_evicted)) {
-            if(sampleSizes[p_i] < FLAGS_watt_log_size){
-               sampleSizes[p_i] += 1;
-            }
-         } else {
-            if (sampleSizes[p_i] > 10) {
-               sampleSizes[p_i] -= 5;
-            }
-         }
+         evictPages(min, p_i, async_write_buffer, partitions, pages_evicted);
          while(pages_evicted >= evicted_limit){
             pages_evicted -= evicted_limit;
             total_evictions += evicted_limit;
