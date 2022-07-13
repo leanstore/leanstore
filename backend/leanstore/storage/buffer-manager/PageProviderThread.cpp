@@ -60,7 +60,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          if (myPart.partition_size < myPart.max_partition_size - 10) {
             continue;
          }
-         double min = findThreshold(sampleSizes[p_i]);
+         std::pair<double, double> min = findThreshold(sampleSizes[p_i]);
          evictPages(min, p_i, async_write_buffer, partitions, pages_evicted);
          while(pages_evicted >= evicted_limit){
             pages_evicted -= evicted_limit;
@@ -100,9 +100,10 @@ bool page_is_evictable(BufferFrame& page) {
           && !(page.header.latch.isExclusivelyLatched());   // Is in Use
 };
 
-double BufferManager::findThreshold(int samples)
+std::pair<double, double> BufferManager::findThreshold(int samples)
 {
    volatile double min = 500000;
+   volatile double next_min = 500000;
    volatile int i=0;
    while(i< samples) {
       jumpmuTry()
@@ -118,14 +119,26 @@ double BufferManager::findThreshold(int samples)
             }
             i+=1;
             double value = r_buffer.header.tracker.getValue();
-            if(value < min){min=value;}
+            if(value < min){
+               next_min = min;
+               min=value;
+            }
+            else if (value < next_min){
+               next_min = value;
+            }
          }
          jumpmu_break;
       }
       jumpmuCatch(){};
    }
-   last_min = min;
-   return min;
+   double calculated_min = min;
+   double second_value = min*1.3;
+   if(samples>3){
+      calculated_min = (min + next_min) / 2.0;
+      second_value = next_min;
+   }
+   last_min = calculated_min;
+   return {calculated_min, second_value};
 }
 /***
  * Main Idea: check random BufferFrame (prioritize from nextBufferFrames list), if
@@ -137,7 +150,7 @@ double BufferManager::findThreshold(int samples)
  * @param async_write_buffer
  * @param nextBufferFrames
  */
-bool BufferManager::evictPages(double min,
+bool BufferManager::evictPages(std::pair<double, double> min,
                                u64 partitionID,
                                AsyncWriteBuffer& async_write_buffer,
                                std::vector<Partition*>& partitions,
@@ -160,6 +173,8 @@ bool BufferManager::evictPages(double min,
    volatile u64 fails = 0;
 //   cout << "going to evict pages: " << toEvict << endl;
 //   cout << "NextFrameList has Entrys: " << nextBufferFrames.size() <<endl;
+   WATT_TIME curr_time = BufferFrame::globalTrackerTime.load();
+   checkGoodBufferFrames(myPartition, min, curr_time);
    while(evictedPages < toEvict && fails < 50*toEvict){
       fails++;
       jumpmuTry()
@@ -170,8 +185,12 @@ bool BufferManager::evictPages(double min,
          BMOptimisticGuard r_guard(r_buffer.header.latch);
 
          if(!page_is_evictable(r_buffer)){jumpmu_continue;}
-         double value = r_buffer.header.tracker.getValue();
-         if(value > min){jumpmu_continue;}
+         double value = r_buffer.header.tracker.getValue(curr_time);
+         if(value > min.first){
+            if(value < min.second)
+               getPartition(r_buffer.header.pid).addGoodBufferFrame(&r_buffer);
+            jumpmu_continue;
+         }
          // If has children: Evict children, too? (children freq usually < parent freq)
          // Right now: abort if one child is not evicted
          // Pick one or All Childs for eviction (Problem with Partitioning, thats why not direct evict)?
@@ -236,6 +255,34 @@ bool BufferManager::evictPages(double min,
    pages_evicted += evictedPages;
    return (evictedPages == toEvict);
 }
+void BufferManager::checkGoodBufferFrames(Partition& partition, std::pair<double, double> threshold, WATT_TIME curr_time)
+{
+   if(partition.good_queue.size() == 0){
+      return;
+   }
+   if(curr_time == partition.last_good_check){
+      return;
+   }
+   partition.last_good_check = BufferFrame::globalTrackerTime.load();
+   partition.good_mutex.lock();
+   std::vector<BufferFrame*> evictions, keep;
+   for(BufferFrame* good : partition.good_queue){
+      double value = good->header.tracker.getValue(curr_time);
+      if (value < threshold.first){
+         evictions.emplace_back(good);
+      }else if(value < threshold.second){
+         keep.emplace_back(good);
+      }
+   }
+   // cout << "check" << evictions.size() << " " << keep.size() << endl;
+   partition.good_queue.swap(keep);
+   partition.good_mutex.unlock();
+   partition.next_mutex.lock();
+   for(BufferFrame* next: evictions){
+      partition.next_queue.emplace_back(next);
+   }
+   partition.next_mutex.unlock();
+}
 BufferFrame& BufferManager::getNextBufferFrame(Partition& partition)
 {
    partition.next_mutex.lock();
@@ -243,8 +290,8 @@ BufferFrame& BufferManager::getNextBufferFrame(Partition& partition)
       partition.next_mutex.unlock();
       return randomBufferFrame();
    }
-   BufferFrame* next = partition.next_queue.front();
-   partition.next_queue.pop_front();
+   BufferFrame* next = partition.next_queue.back();
+   partition.next_queue.pop_back();
    partition.next_mutex.unlock();
    return *next;
 }

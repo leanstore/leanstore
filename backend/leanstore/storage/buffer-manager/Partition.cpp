@@ -102,12 +102,20 @@ Partition::Partition(u64 first_pid, u64 pid_distance, u64 max_partition_size, u6
 }
 void Partition::addNextBufferFrame(BufferFrame* next)
 {
-   next_mutex.lock();
-   while(next_queue.size() >= next_bfs_limit){
-      next_queue.pop_front();
+   addToList(next_mutex, next_queue, next);
+}
+void Partition::addGoodBufferFrame(BufferFrame* good)
+{
+   addToList(good_mutex, good_queue, good);
+}
+void Partition::addToList(std::mutex& mutex, std::vector<BufferFrame*>& list, BufferFrame* next)
+{
+   if(list.size() >= next_bfs_limit){
+      return;
    }
-   next_queue.emplace_back(next);
-   next_mutex.unlock();
+   mutex.lock();
+   list.emplace_back(next);
+   mutex.unlock();
 }
 // -------------------------------------------------------------------------------------
 }  // namespace storage

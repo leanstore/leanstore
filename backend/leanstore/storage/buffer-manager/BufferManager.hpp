@@ -108,7 +108,7 @@ class BufferManager
    DTRegistry& getDTRegistry() { return DTRegistry::global_dt_registry; }
    u64 consumedPages();
    BufferFrame& getContainingBufferFrame(const u8*);  // get the buffer frame containing the given ptr address
-   double findThreshold(int samples);
+   std::pair<double, double> findThreshold(int samples);
    struct FreedBfsBatch {
       BufferFrame *freed_bfs_batch_head = nullptr, *freed_bfs_batch_tail = nullptr;
       u64 freed_bfs_counter = 0;
@@ -141,12 +141,13 @@ class BufferManager
    };
 
    void nonDirtyEvict(BufferFrame& bf, BMOptimisticGuard& guard, FreedBfsBatch& evictedOnes);
-   bool evictPages(double min,
+   bool evictPages(std::pair<double, double> min,
                    u64 partitionID,
                    AsyncWriteBuffer& async_write_buffer,
                    std::vector<Partition*>& partitions,
                    u64& pages_evicted);
    bool childrenEvicted(BMOptimisticGuard& r_guard, BufferFrame& r_buffer);
+   void checkGoodBufferFrames(Partition& partition, std::pair<double, double> threshold, WATT_TIME curr_time);
    BufferFrame& getNextBufferFrame(Partition& partition);
    void wait_for_start(u64 p_begin, u64 p_end, const std::vector<Partition*>& partitions) const;
 };                                                    // namespace storage

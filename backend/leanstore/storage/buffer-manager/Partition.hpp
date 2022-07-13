@@ -66,8 +66,9 @@ struct Partition {
    std::mutex io_mutex;
    HashTable io_ht;
    // -------------------------------------------------------------------------------------
-   std::mutex next_mutex;
-   std::list<BufferFrame*> next_queue;
+   std::mutex next_mutex, good_mutex;
+   std::vector<BufferFrame*> next_queue, good_queue;
+   std::atomic<WATT_TIME> last_good_check = {0};
    const u64 max_partition_size;
    atomic<u64> partition_size = 0;
    const u64 next_bfs_limit;
@@ -104,8 +105,11 @@ struct Partition {
       return freed_pids.size();
    }
    void addNextBufferFrame(BufferFrame* next);
+   void addGoodBufferFrame(BufferFrame* good);
    // -------------------------------------------------------------------------------------
    Partition(u64 first_pid, u64 pid_distance, u64 max_partition_size, u64 next_bfs_limit);
+  private:
+   void addToList(std::mutex& mutex, std::vector<BufferFrame*>& list, BufferFrame* next);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace storage
