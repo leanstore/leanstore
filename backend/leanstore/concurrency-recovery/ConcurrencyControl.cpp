@@ -168,7 +168,7 @@ synclwm : {
       cleaned_untill_oltp_lwm = std::max(local_all_lwm, cleaned_untill_oltp_lwm);
    }
    if (FLAGS_olap_mode && local_all_lwm != local_oltp_lwm) {
-      if (local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
+      if (FLAGS_graveyard && local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
          // MOVE deletes to the graveyard
          const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
          history_tree.visitRemoveVersions(my().worker_id, from_tx_id, local_oltp_lwm - 1,

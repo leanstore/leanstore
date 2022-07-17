@@ -124,7 +124,10 @@ void LeanStore::startProfilingThread()
       profiling::CPUTable cpu_table;
       profiling::CRTable cr_table;
       profiling::LatencyTable latency_table;
-      std::vector<profiling::ProfilingTable*> tables = {&configs_table, &bm_table, &dt_table, &cpu_table, &cr_table, &latency_table};
+      std::vector<profiling::ProfilingTable*> tables = {&configs_table, &bm_table, &dt_table, &cpu_table, &cr_table};
+      if (FLAGS_profile_latency) {
+         tables.push_back(&latency_table);
+      }
       // -------------------------------------------------------------------------------------
       std::vector<std::ofstream> csvs;
       std::ofstream::openmode open_flags;

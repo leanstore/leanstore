@@ -19,6 +19,7 @@ DEFINE_bool(print_debug, true, "");
 DEFINE_bool(print_tx_console, true, "");
 DEFINE_uint32(print_debug_interval_s, 1, "");
 DEFINE_bool(profiling, false, "");
+DEFINE_bool(profile_latency, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(worker_threads, 4, "");
 DEFINE_bool(cpu_counters, true, "Disable if HW does not have enough counters for all threads");
@@ -100,6 +101,7 @@ DEFINE_bool(vi_fat_tuple_alternative, false, "hit the previous version at every 
 DEFINE_bool(vi_dangling_pointer, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(olap_mode, true, "Use OLAP mode for long running transactions");
+DEFINE_bool(graveyard, true, "Use Graveyard Index");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(pgc, true, "Precise garbage collection/recycling");
 DEFINE_uint64(pgc_variant, 0, "0 naive, 1 bit faster, 2 ...");

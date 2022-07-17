@@ -62,6 +62,7 @@ void ConfigsTable::open()
    columns.emplace("c_isolation_level", [&](Column& col) { col << FLAGS_isolation_level; });
    columns.emplace("c_si_commit_protocol", [&](Column& col) { col << FLAGS_si_commit_protocol; });
    columns.emplace("c_olap_mode", [&](Column& col) { col << FLAGS_olap_mode; });
+   columns.emplace("c_graveyard", [&](Column& col) { col << FLAGS_graveyard; });
    columns.emplace("c_history_tree_inserts", [&](Column& col) { col << FLAGS_history_tree_inserts; });
    // -------------------------------------------------------------------------------------
    for (auto& c : columns) {

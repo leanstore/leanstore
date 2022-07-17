@@ -22,6 +22,7 @@ DECLARE_bool(root);
 DECLARE_bool(print_debug);
 DECLARE_bool(print_tx_console);
 DECLARE_bool(profiling);
+DECLARE_bool(profile_latency);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(contention_split);
@@ -94,6 +95,7 @@ DECLARE_bool(vi_dangling_pointer);
 DECLARE_bool(vi_fat_tuple_decompose);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(olap_mode);
+DECLARE_bool(graveyard);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(pgc);
 DECLARE_uint64(pgc_variant);
