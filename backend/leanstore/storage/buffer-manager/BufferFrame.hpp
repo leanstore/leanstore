@@ -120,7 +120,7 @@ struct BufferFrame {
          }
          double getValue(WATT_TIME now = globalTrackerTime.load()){
             double readFreq = getFrequency<kr>(reads, readPos.load(), now);
-            double writeFreq = getFrequency<kr>(writes, writePos.load(), now);
+            double writeFreq = getFrequency<kw>(writes, writePos.load(), now);
             return readFreq + writeFreq * FLAGS_write_costs;
          }
         private:
