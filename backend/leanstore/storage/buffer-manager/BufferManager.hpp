@@ -72,7 +72,7 @@ class BufferManager
    // -------------------------------------------------------------------------------------
    // Misc
    Partition& randomPartition();
-   BufferFrame& randomBufferFrame();
+   BufferFrame* randomBufferFrame();
    Partition& getPartition(PID);
    u64 getPartitionID(PID);
 
@@ -148,7 +148,7 @@ class BufferManager
                    u64& pages_evicted);
    bool childrenEvicted(BMOptimisticGuard& r_guard, BufferFrame& r_buffer);
    void checkGoodBufferFrames(Partition& partition, std::pair<double, double> threshold, WATT_TIME curr_time);
-   BufferFrame& getNextBufferFrame(Partition& partition);
+   BufferFrame* getNextBufferFrame(Partition& partition);
    void wait_for_start(u64 p_begin, u64 p_end, const std::vector<Partition*>& partitions) const;
 };                                                    // namespace storage
 // -------------------------------------------------------------------------------------

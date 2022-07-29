@@ -109,7 +109,7 @@ std::pair<double, double> BufferManager::findThreshold(int samples)
       jumpmuTry()
       {
          while(i< samples) {
-            BufferFrame& r_buffer = randomBufferFrame();
+            BufferFrame& r_buffer = *randomBufferFrame();
             BMOptimisticGuard r_guard(r_buffer.header.latch);
 
             if(!page_is_evictable(r_buffer)){continue;}
@@ -175,77 +175,85 @@ bool BufferManager::evictPages(std::pair<double, double> min,
 //   cout << "NextFrameList has Entrys: " << nextBufferFrames.size() <<endl;
    WATT_TIME curr_time = BufferFrame::globalTrackerTime.load();
    checkGoodBufferFrames(myPartition, min, curr_time);
+   const u32 batch = 100;
+   BufferFrame* frames[batch];
    while(evictedPages < toEvict && fails < 50*toEvict){
       fails++;
-      jumpmuTry()
-      {
-         // Select and check random BufferFrame
-         BufferFrame& r_buffer = getNextBufferFrame(myPartition);
+      for (u32 j=0; j<batch; j++) {
+         frames[j] = getNextBufferFrame(myPartition);
+         __builtin_prefetch(frames[j]);
+      }
+      for (u32 j=0; j<batch; j++) {
+         jumpmuTry()
+         {
+            // Select and check random BufferFrame
+            BufferFrame& r_buffer = *frames[j];
 
-         BMOptimisticGuard r_guard(r_buffer.header.latch);
+            BMOptimisticGuard r_guard(r_buffer.header.latch);
 
-         if(!page_is_evictable(r_buffer)){jumpmu_continue;}
-         double value = r_buffer.header.tracker.getValue(curr_time);
-         if(value > min.first){
-            if(value < min.second)
-               getPartition(r_buffer.header.pid).addGoodBufferFrame(&r_buffer);
-            jumpmu_continue;
-         }
-         // If has children: Evict children, too? (children freq usually < parent freq)
-         // Right now: abort if one child is not evicted
-         // Pick one or All Childs for eviction (Problem with Partitioning, thats why not direct evict)?
-         if(!childrenEvicted(r_guard, r_buffer)){
-            jumpmu_continue;
-         }
-         PID pid = r_buffer.header.pid;
-         if(getPartitionID(pid) != partitionID){
-            PID p_id = getPartitionID(pid);
-            if(r_buffer.isDirty()){
-               getPartition(p_id).addNextBufferFrame(&r_buffer);
+            if(!page_is_evictable(r_buffer)){jumpmu_continue;}
+            double value = r_buffer.header.tracker.getValue(curr_time);
+            if(value > min.first){
+               if(value < min.second)
+                  getPartition(r_buffer.header.pid).addGoodBufferFrame(&r_buffer);
+               jumpmu_continue;
             }
-            else if(partitions[p_id]->partition_size > partitions[p_id]->max_partition_size){
+            // If has children: Evict children, too? (children freq usually < parent freq)
+            // Right now: abort if one child is not evicted
+            // Pick one or All Childs for eviction (Problem with Partitioning, thats why not direct evict)?
+            if(!childrenEvicted(r_guard, r_buffer)){
+               jumpmu_continue;
+            }
+            PID pid = r_buffer.header.pid;
+            if(getPartitionID(pid) != partitionID){
+               PID p_id = getPartitionID(pid);
+               if(r_buffer.isDirty()){
+                  getPartition(p_id).addNextBufferFrame(&r_buffer);
+               }
+               else if (partitions[p_id]->partition_size > partitions[p_id]->max_partition_size){
+                  nonDirtyEvict(r_buffer, r_guard, evictedOnes);
+                  partitions[p_id]->partition_size--;
+                  evictedPages++;
+                  if (evictedOnes.size() > 100) {
+                     evictedOnes.push();
+                  }
+
+               }
+               jumpmu_continue;
+            }
+            // If clean: Evict directly;
+            // Else: Add to async write buffer
+            if (!r_buffer.isDirty()) {
                nonDirtyEvict(r_buffer, r_guard, evictedOnes);
-               partitions[p_id]->partition_size--;
-               evictedPages ++;
-               if(evictedOnes.size()>100){
+               myPartition.partition_size--;
+               evictedPages++;
+               if (evictedOnes.size() > 100) {
                   evictedOnes.push();
                }
-
+               fails--;
+               jumpmu_continue;
             }
-            jumpmu_continue;
-         }
-         // If clean: Evict directly;
-         // Else: Add to async write buffer
-         if (!r_buffer.isDirty()) {
-            nonDirtyEvict(r_buffer, r_guard, evictedOnes);
-            myPartition.partition_size--;
-            evictedPages ++;
-            if(evictedOnes.size()>100){
-               evictedOnes.push();
+            // If Async Write Buffer is full, flush
+            if (async_write_buffer.full()) {
+               async_write_buffer.flush(myPartition);
             }
-            fails--;
-            jumpmu_continue;
-         }
-         // If Async Write Buffer is full, flush
-         if (async_write_buffer.full()) {
-            async_write_buffer.flush(myPartition);
-         }
-         {
-            BMExclusiveGuard ex_guard(r_guard);
-            r_buffer.header.isInWriteBuffer = true;
-         }
-         {
-            BMSharedGuard s_guard(r_guard);
-            PID wb_pid = r_buffer.header.pid;
-            if (FLAGS_out_of_place) {
-               wb_pid = myPartition.nextPID();
-               assert(getPartitionID(r_buffer.header.pid) == partitionID);
-               assert(getPartitionID(wb_pid) == partitionID);
+            {
+               BMExclusiveGuard ex_guard(r_guard);
+               r_buffer.header.isInWriteBuffer = true;
             }
-            async_write_buffer.add(r_buffer, wb_pid);
+            {
+               BMSharedGuard s_guard(r_guard);
+               PID wb_pid = r_buffer.header.pid;
+               if (FLAGS_out_of_place) {
+                  wb_pid = myPartition.nextPID();
+                  assert(getPartitionID(r_buffer.header.pid) == partitionID);
+                  assert(getPartitionID(wb_pid) == partitionID);
+               }
+               async_write_buffer.add(r_buffer, wb_pid);
+            }
          }
+         jumpmuCatch(){};
       }
-      jumpmuCatch(){};
    }
    // Finally flush
    async_write_buffer.flush(myPartition);
@@ -283,7 +291,7 @@ void BufferManager::checkGoodBufferFrames(Partition& partition, std::pair<double
    }
    partition.next_mutex.unlock();
 }
-BufferFrame& BufferManager::getNextBufferFrame(Partition& partition)
+BufferFrame* BufferManager::getNextBufferFrame(Partition& partition)
 {
    partition.next_mutex.lock();
    if(partition.next_queue.empty()) {
@@ -293,7 +301,7 @@ BufferFrame& BufferManager::getNextBufferFrame(Partition& partition)
    BufferFrame* next = partition.next_queue.back();
    partition.next_queue.pop_back();
    partition.next_mutex.unlock();
-   return *next;
+   return next;
 }
 bool BufferManager::childrenEvicted(BMOptimisticGuard& r_guard, BufferFrame& r_buffer)
 {
