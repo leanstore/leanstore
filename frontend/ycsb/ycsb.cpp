@@ -83,6 +83,23 @@ int main(int argc, char** argv)
    cout << "building zipf generator" <<endl;
    auto zipf_random = std::make_unique<utils::ScrambledZipfGenerator>(0, FLAGS_ycsb_tuple_count, FLAGS_zipf_factor);
    cout << setprecision(4);
+   cout << "Some Zipf values: " <<endl;
+   map<uint64_t, u32> hits;
+   for (u32 i = 0; i< 10000000; i++){
+      uint64_t value = zipf_random->zipf_generator.rand();
+      if(hits.find(value)!= hits.end()){
+         hits[value]++;
+      }else{
+         hits[value] = 1;
+      }
+   }
+   u32 values = 0;
+   for(auto& elem: hits){
+      cout << elem.first << " " << elem.second << endl;
+      if(values++ == 20){
+         break;
+      }
+   }
    // -------------------------------------------------------------------------------------
    cout << "~Transactions" << endl;
    db.startProfilingThread();
