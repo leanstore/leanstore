@@ -2,6 +2,7 @@
 #include "Units.hpp"
 #include "Swip.hpp"
 #include "leanstore/sync-primitives/Latch.hpp"
+#include "leanstore/utils/simd.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <atomic>
@@ -34,6 +35,34 @@ struct BufferFrame {
       };
       static const u8 kr = 8, kw = 4;
       struct Tracker {
+         static constexpr float table_8[8][8] = {
+             {1,8,7,6,5,4,3,2},
+             {2,1,8,7,6,5,4,3},
+             {3,2,1,8,7,6,5,4},
+             {4,3,2,1,8,7,6,5},
+             {5,4,3,2,1,8,7,6},
+             {6,5,4,3,2,1,8,7},
+             {7,6,5,4,3,2,1,8},
+             {8,7,6,5,4,3,2,1},
+         };
+
+         static constexpr float table_4[4][8] = {
+             {1,4,3,2,1,1,1,1},
+             {2,1,4,3,1,1,1,1},
+             {3,2,1,4,1,1,1,1},
+             {4,3,2,1,1,1,1,1},
+
+         };
+         float simd_getFreq(WATT_TIME* timestamps, unsigned pos, WATT_TIME now) {
+            U8 a(timestamps);
+            U8 nowV(now);
+            F8 diff(nowV-a);
+            F8 i(table_8[pos]);
+            F8 div(i/diff);
+            F8 one(1);
+            F8 result(_mm256_min_ps(div,one));
+            return maxV(result);
+         }
          std::atomic<u8> readPos;
          std::atomic<u8> writePos;
          std::atomic<WATT_TIME> reads[kr];
@@ -119,8 +148,11 @@ struct BufferFrame {
             return *this;
          }
          double getValue(WATT_TIME now = globalTrackerTime.load()){
-            double readFreq = getFrequency<kr>(reads, readPos.load(), now);
-            double writeFreq = getFrequency<kw>(writes, writePos.load(), now);
+            u32 reads_array[8] = {reads[0],reads[1], reads[2],reads[3],reads[4],reads[5],reads[6],reads[7]};
+            u32 write_array[8] = {writes[0],writes[1], writes[2],writes[3],0,0,0,0};
+
+            double readFreq = simd_getFreq(reads_array, readPos, now);
+            double writeFreq = simd_getFreq(write_array, writePos, now);
             return readFreq + writeFreq * FLAGS_write_costs;
          }
         private:
