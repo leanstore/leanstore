@@ -60,6 +60,7 @@ struct FreedBfsBatch {
    }
 };
 // -------------------------------------------------------------------------------------
+// TODO: revisit the comments after switching to clock replacement strategy
 // Notes on Synchronization in Buffer Manager
 // Terminology: PPT: Page Provider Thread, WT: Worker Thread. P: Parent, C: Child, M: Cooling stage mutex
 // Latching order for all PPT operations (unswizzle, evict): M -> P -> C
@@ -85,8 +86,8 @@ class BufferManager
    u64 partitions_count;
    u64 partitions_mask;
    std::vector<std::unique_ptr<Partition>> partitions;
+   std::atomic<u64> clock_cursor = 0;
 
-  private:
    // -------------------------------------------------------------------------------------
    // Threads managements
    void pageProviderThread(u64 p_begin, u64 p_end);  // [p_begin, p_end)

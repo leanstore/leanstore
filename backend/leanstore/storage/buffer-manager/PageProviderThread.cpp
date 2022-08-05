@@ -37,26 +37,48 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    std::vector<BufferFrame*> evict_candidate_bfs;
    // -------------------------------------------------------------------------------------
    auto phase_1_condition = [&](Partition& p) { return (p.dram_free_list.counter < p.free_bfs_limit); };
+   auto next_bf_range = [&]() {
+      restart : {
+         u64 current_cursor = clock_cursor.load();
+         u64 next_value;
+         if ((current_cursor + 64) < dram_pool_size) {
+            next_value = current_cursor + 64;
+         } else {
+            next_value = 0;
+         }
+         if (!clock_cursor.compare_exchange_strong(current_cursor, next_value)) {
+            goto restart;
+         }
+         return std::pair<u64, u64>{current_cursor, next_value == 0 ? dram_pool_size : next_value};
+      }
+   };
    // -------------------------------------------------------------------------------------
    while (bg_threads_keep_running) {
       // Phase 1: unswizzle pages (put in the cooling stage)
       // -------------------------------------------------------------------------------------
       [[maybe_unused]] Time phase_1_begin, phase_1_end;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
-      BufferFrame* volatile r_buffer = &randomBufferFrame();  // Attention: we may set the r_buffer to a child of a bf instead of random
+      BufferFrame* volatile r_buffer = nullptr;  // Attention: we may set the r_buffer to a child of a bf instead of random
       volatile u64 failed_attempts =
           0;  // [corner cases]: prevent starving when free list is empty and cooling to the required level can not be achieved
 #define repickIf(cond)                       \
    if (cond) {                               \
-      r_buffer = &randomBufferFrame();       \
       failed_attempts = failed_attempts + 1; \
-      continue;                              \
+      jumpmu_continue;                              \
    }
       auto& current_partition = randomPartition();
-      while (true) {
-         jumpmuTry()
-         {
-            while (phase_1_condition(current_partition) && failed_attempts < 10) {
+      if (phase_1_condition(current_partition) && failed_attempts < 10) {
+         bool picked_a_child_instead = false;
+         auto bf_range = next_bf_range();
+         u64 bf_i = bf_range.first;
+         while (bf_i < bf_range.second || picked_a_child_instead) {
+            jumpmuTry()
+            {
+               if (picked_a_child_instead) {
+                  picked_a_child_instead = false;
+               } else {
+                  r_buffer = &bfs[bf_i++];
+               }
                COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
                BMOptimisticGuard r_guard(r_buffer->header.latch);
                // -------------------------------------------------------------------------------------
@@ -72,7 +94,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                // -------------------------------------------------------------------------------------
                COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
                // -------------------------------------------------------------------------------------
-               bool picked_a_child_instead = false, all_children_evicted = true;
+               bool all_children_evicted = true;
                [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
                COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
                getDTRegistry().iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
@@ -93,7 +115,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                       (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
                }
                if (picked_a_child_instead) {
-                  continue;  // Restart the inner loop without re-picking
+                  jumpmu_continue;  // Restart the inner loop without re-picking
                }
                repickIf(!all_children_evicted);
                // -------------------------------------------------------------------------------------
@@ -120,11 +142,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                // -------------------------------------------------------------------------------------
                r_guard.recheck();
                const SpaceCheckResult space_check_res = getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);
-               if (space_check_res == SpaceCheckResult::RESTART_SAME_BF) {
-                  continue;
-               } else if (space_check_res == SpaceCheckResult::PICK_ANOTHER_BF) {
-                  r_buffer = &randomBufferFrame();
-                  continue;
+               if (space_check_res == SpaceCheckResult::RESTART_SAME_BF || space_check_res == SpaceCheckResult::PICK_ANOTHER_BF) {
+                  jumpmu_continue;
                }
                r_guard.recheck();
                // -------------------------------------------------------------------------------------
@@ -150,16 +169,13 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                   COUNTERS_BLOCK() { PPCounters::myCounters().unswizzled_pages_counter++; }
                   // -------------------------------------------------------------------------------------
                   if (!phase_1_condition(partition)) {
-                     r_buffer = &randomBufferFrame();
-                     break;
+                     jumpmu_break;
                   }
                }
-               r_buffer = &randomBufferFrame();
+               failed_attempts = 0;
             }
-            failed_attempts = 0;
-            jumpmu_break;
+            jumpmuCatch() {}
          }
-         jumpmuCatch() { r_buffer = &randomBufferFrame(); }
       }
       COUNTERS_BLOCK()
       {
