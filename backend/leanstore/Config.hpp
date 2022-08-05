@@ -10,7 +10,6 @@ DECLARE_bool(pin_threads);
 DECLARE_bool(smt);
 DECLARE_string(csv_path);
 DECLARE_bool(csv_truncate);
-DECLARE_uint32(cool_pct);
 DECLARE_uint32(free_pct);
 DECLARE_uint32(partition_bits);
 DECLARE_uint32(write_buffer_size);

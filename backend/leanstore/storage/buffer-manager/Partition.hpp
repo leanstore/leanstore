@@ -63,15 +63,10 @@ struct HashTable {
 };
 // -------------------------------------------------------------------------------------
 struct Partition {
-   std::mutex io_mutex;
+   std::mutex ht_mutex;
    HashTable io_ht;
    // -------------------------------------------------------------------------------------
-   std::mutex cooling_mutex;
-   std::list<BufferFrame*> cooling_queue;
-   // -------------------------------------------------------------------------------------
-   atomic<u64> cooling_bfs_counter = 0;
    const u64 free_bfs_limit;
-   const u64 cooling_bfs_limit;
    FreeList dram_free_list;
    // -------------------------------------------------------------------------------------
    // SSD Pages
@@ -105,7 +100,7 @@ struct Partition {
       return freed_pids.size();
    }
    // -------------------------------------------------------------------------------------
-   Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 cooling_bfs_limit);
+   Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace storage

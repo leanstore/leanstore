@@ -119,7 +119,6 @@ class BufferManager
       }
    }
    BufferFrame& resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value);
-   void coolPage(BufferFrame& bf);
    void evictLastPage();
    void reclaimPage(BufferFrame& bf);
    // -------------------------------------------------------------------------------------

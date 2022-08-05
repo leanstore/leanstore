@@ -161,7 +161,7 @@ int main(int argc, char** argv)
                   cr::Worker::my().startTX(tx_type, isolation_level);
                   table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
                   cr::Worker::my().commitTX();
-                  leanstore::storage::BMC::global_bf->evictLastPage();
+                  leanstore::storage::BMC::global_bf->evictLastPage(); // to ignore the replacement strategy effect on MVCC experiment
                } else {
                   UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
                   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));
