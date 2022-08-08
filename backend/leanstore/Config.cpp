@@ -66,6 +66,7 @@ DEFINE_string(tag, "", "Unique identifier for this, will be appended to each lin
 // -------------------------------------------------------------------------------------
 DEFINE_bool(optimistic_parent_pointer, true, "");
 DEFINE_bool(out_of_place, false, "Out of place writes");
+DEFINE_uint64(replacement_chunk_size, 64, "Replacement strategy chunk size");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(wal, true, "");
 DEFINE_bool(wal_rfa, true, "Remote Flush Avoidance (RFA)");

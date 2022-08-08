@@ -34,23 +34,17 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    // -------------------------------------------------------------------------------------
    // Init AIO Context
    AsyncWriteBuffer async_write_buffer(ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size);
-   std::vector<BufferFrame*> evict_candidate_bfs;
+   std::vector<BufferFrame*> cool_candidate_bfs, evict_candidate_bfs;
    // -------------------------------------------------------------------------------------
-   auto phase_1_condition = [&](Partition& p) { return (p.dram_free_list.counter < p.free_bfs_limit); };
    auto next_bf_range = [&]() {
-      restart : {
-         u64 current_cursor = clock_cursor.load();
-         u64 next_value;
-         if ((current_cursor + 64) < dram_pool_size) {
-            next_value = current_cursor + 64;
-         } else {
-            next_value = 0;
-         }
-         if (!clock_cursor.compare_exchange_strong(current_cursor, next_value)) {
-            goto restart;
-         }
-         return std::pair<u64, u64>{current_cursor, next_value == 0 ? dram_pool_size : next_value};
+      const u64 BATCH_SIZE = FLAGS_replacement_chunk_size;
+      cool_candidate_bfs.clear();
+      for (u64 i = 0; i < BATCH_SIZE; i++) {
+         BufferFrame* r_bf = &randomBufferFrame();
+         DO_NOT_OPTIMIZE(r_bf->header.state);
+         cool_candidate_bfs.push_back(r_bf);
       }
+      return;
    };
    // -------------------------------------------------------------------------------------
    while (bg_threads_keep_running) {
@@ -58,30 +52,24 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
       // -------------------------------------------------------------------------------------
       [[maybe_unused]] Time phase_1_begin, phase_1_end;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
-      BufferFrame* volatile r_buffer = nullptr;  // Attention: we may set the r_buffer to a child of a bf instead of random
       volatile u64 failed_attempts =
           0;  // [corner cases]: prevent starving when free list is empty and cooling to the required level can not be achieved
 #define repickIf(cond)                       \
    if (cond) {                               \
       failed_attempts = failed_attempts + 1; \
-      jumpmu_continue;                              \
+      jumpmu_continue;                       \
    }
       auto& current_partition = randomPartition();
-      if (phase_1_condition(current_partition) && failed_attempts < 10) {
-         bool picked_a_child_instead = false;
-         auto bf_range = next_bf_range();
-         u64 bf_i = bf_range.first;
-         while (bf_i < bf_range.second || picked_a_child_instead) {
+      if ((current_partition.dram_free_list.counter < current_partition.free_bfs_limit) && failed_attempts < 10) {
+         next_bf_range();
+         while (cool_candidate_bfs.size()) {
             jumpmuTry()
             {
-               if (picked_a_child_instead) {
-                  picked_a_child_instead = false;
-               } else {
-                  r_buffer = &bfs[bf_i++];
-               }
+               BufferFrame* r_buffer = cool_candidate_bfs.back();
+               cool_candidate_bfs.pop_back();
                COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
-               BMOptimisticGuard r_guard(r_buffer->header.latch);
                // -------------------------------------------------------------------------------------
+               BMOptimisticGuard r_guard(r_buffer->header.latch);
                repickIf(r_buffer->header.keep_in_memory || r_buffer->header.is_being_written_back || r_buffer->header.latch.isExclusivelyLatched());
                r_guard.recheck();
                // -------------------------------------------------------------------------------------
@@ -95,14 +83,15 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
                // -------------------------------------------------------------------------------------
                bool all_children_evicted = true;
+               bool picked_a_child_instead = false;
                [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
                COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
                getDTRegistry().iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
                   all_children_evicted &= swip.isEVICTED();  // Ignore when it has a child in the cooling stage
                   if (swip.isHOT()) {
-                     r_buffer = &swip.asBufferFrame();
                      r_guard.recheck();
                      picked_a_child_instead = true;
+                     cool_candidate_bfs.push_back(&swip.asBufferFrame());
                      return false;
                   }
                   r_guard.recheck();
@@ -114,10 +103,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                   PPCounters::myCounters().iterate_children_ms +=
                       (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
                }
-               if (picked_a_child_instead) {
-                  jumpmu_continue;  // Restart the inner loop without re-picking
-               }
-               repickIf(!all_children_evicted);
+               repickIf(!all_children_evicted || picked_a_child_instead);
                // -------------------------------------------------------------------------------------
                [[maybe_unused]] Time find_parent_begin, find_parent_end;
                COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
@@ -150,7 +136,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                // Suitable page founds, lets cool
                {
                   const PID pid = r_buffer->header.pid;
-                  Partition& partition = getPartition(pid);
                   // r_x_guard can only be acquired and released while the partition mutex is locked
                   {
                      BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
@@ -167,10 +152,6 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                   }
                   // -------------------------------------------------------------------------------------
                   COUNTERS_BLOCK() { PPCounters::myCounters().unswizzled_pages_counter++; }
-                  // -------------------------------------------------------------------------------------
-                  if (!phase_1_condition(partition)) {
-                     jumpmu_break;
-                  }
                }
                failed_attempts = 0;
             }
@@ -225,7 +206,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             // Check if the BF got swizzled in or unswizzle another time in another partition
             if (cooled_bf->header.state != BufferFrame::STATE::COOL ||
                 cooled_bf->header.is_being_written_back) {  //  || getPartitionID(bf.header.pid) != p_i
-               continue;
+               jumpmu_continue;
             }
             const PID cooled_bf_pid = cooled_bf->header.pid;
             const u64 p_i = getPartitionID(cooled_bf_pid);
@@ -234,7 +215,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                Partition& partition = getPartition(p_i);
                JMUW<std::unique_lock<std::mutex>> io_guard(partition.ht_mutex);
                if (partition.io_ht.lookup(cooled_bf_pid)) {
-                  continue;
+                  jumpmu_continue;
                }
             }
             if (cooled_bf->isDirty()) {
