@@ -130,10 +130,7 @@ void Worker::ConcurrencyControl::garbageCollection()
              [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length,
                  const bool called_before) {
                 leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, my().worker_id, tx_id, called_before);
-                COUNTERS_BLOCK()
-                {
-                   WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++;
-                }
+                COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
              },
              0);
       return;
@@ -159,10 +156,7 @@ synclwm : {
           my().worker_id, 0, local_all_lwm - 1,
           [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length, const bool called_before) {
              leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, my().worker_id, tx_id, called_before);
-             COUNTERS_BLOCK()
-             {
-                WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++;
-             }
+             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++; }
           },
           0);
       cleaned_untill_oltp_lwm = std::max(local_all_lwm, cleaned_untill_oltp_lwm);
@@ -177,10 +171,7 @@ synclwm : {
                                              cleaned_untill_oltp_lwm = std::max(cleaned_untill_oltp_lwm, tx_id + 1);
                                              leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, my().worker_id, tx_id,
                                                                                                      called_before);
-                                             COUNTERS_BLOCK()
-                                             {
-                                                WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++;
-                                             }
+                                             COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_oltp_executed[dt_id]++; }
                                           });
       }
    }
@@ -334,7 +325,11 @@ void Worker::ConcurrencyControl::CommitTree::cleanIfNecessary()
       return;
    }
    std::set<std::pair<TXID, TXID>> set;  // TODO: unordered_set
+   const WORKERID my_worker_id = cr::Worker::my().worker_id;
    for (WORKERID w_i = 0; w_i < cr::Worker::my().workers_count; w_i++) {
+      if (w_i == my_worker_id) {
+         continue;
+      }
       const TXID its_start_ts = cr::Worker::global_workers_current_snapshot[w_i].load();
       auto v = LCBUnsafe(its_start_ts);
       if (v) {

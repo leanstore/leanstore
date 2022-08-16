@@ -71,10 +71,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          WALMetaEntry& entry = logging.reserveWALMetaEntry();
          entry.type = WALEntry::TYPE::TX_START;
          logging.submitWALMetaEntry();
-         DEBUG_BLOCK()
-         {
-            entry.checkCRC();
-         }
+         DEBUG_BLOCK() { entry.checkCRC(); }
       }
       assert(prev_tx.state != Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
@@ -100,8 +97,11 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
       // -------------------------------------------------------------------------------------
       // Draw TXID from global counter and publish it with the TX type (i.e., OLAP or OLTP)
       // We have to acquire a transaction id and use it for locking in ANY isolation level
-      if (next_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION) {
-         // Also means multi statement
+      if (next_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION) {  // implies multi-statement
+         if (prev_tx.isReadCommitted() || prev_tx.isReadUncommitted()) {
+            cc.switchToSnapshotIsolationMode();
+         }
+         // -------------------------------------------------------------------------------------
          global_workers_current_snapshot[worker_id].store(active_tx.start_ts | LATCH_BIT, std::memory_order_release);
          active_tx.start_ts = ConcurrencyControl::global_clock.fetch_add(1);
          if (FLAGS_olap_mode) {
@@ -111,10 +111,6 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          }
          cc.commit_tree.cleanIfNecessary();
          cc.local_global_all_lwm_cache = global_all_lwm.load();
-         // -------------------------------------------------------------------------------------
-         if (prev_tx.isReadCommitted() || prev_tx.isReadUncommitted()) {
-            cc.switchToSnapshotIsolationMode();
-         }
          // -------------------------------------------------------------------------------------
          if (FLAGS_si_commit_protocol == 2) {
             cc.wt_pg.local_workers_tx_id_cursor = 0;
@@ -142,6 +138,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          if (next_tx_type != TX_MODE::SINGLE_STATEMENT) {
             active_tx.start_ts = ConcurrencyControl::global_clock.fetch_add(1);
          }
+         cc.commit_tree.cleanIfNecessary();
       }
    }
 }
