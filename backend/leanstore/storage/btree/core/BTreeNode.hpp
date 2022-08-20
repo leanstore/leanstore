@@ -184,25 +184,25 @@ struct BTreeNode : public BTreeNodeHeader {
       memcpy(out + prefix_length, getKey(slotId), getKeyLen(slotId));
    }
    // -------------------------------------------------------------------------------------
-   static inline s32 cmpKeys(const u8* a, const u8* b, u16 aLength, u16 bLength)
+   static inline s32 cmpKeys(const u8* a, const u8* b, u16 a_length, u16 b_length)
    {
-      u16 length = min(aLength, bLength);
+      u16 length = min(a_length, b_length);
       if (length < 4) {
          while (length-- > 0) {
             if (*a++ != *b++)
                return a[-1] < b[-1] ? -1 : 1;
          }
-         return (aLength - bLength);
+         return (a_length - b_length);
       } else {
          int c = memcmp(a, b, length);
          if (c != 0)
             return c;
-         return (aLength - bLength);
+         return (a_length - b_length);
       }
    }
-   static inline HeadType head(const u8* key, u16& keyLength)
+   static inline HeadType head(const u8* key, u16& key_length)
    {
-      switch (keyLength) {
+      switch (key_length) {
          case 0:
             return 0;
          case 1:
@@ -217,20 +217,34 @@ struct BTreeNode : public BTreeNodeHeader {
    }
    void makeHint();
    // -------------------------------------------------------------------------------------
-   s32 compareKeyWithBoundaries(const u8* key, u16 keyLength);
+   s32 compareKeyWithBoundaries(const u8* key, u16 key_length);
    // -------------------------------------------------------------------------------------
-   void searchHint(u32 keyHead, unsigned& pos, unsigned& pos2)
+   void searchHint(u16 key_head, u16& lower_out, u16& upper_out)
    {
-      for (pos = 0; pos < hint_count; pos++)
-         if (hint[pos] >= keyHead)
-            break;
-      for (pos2 = pos; pos2 < hint_count; pos2++)
-         if (hint[pos2] != keyHead)
-            break;
+      if (count > hint_count * 2) {
+         u16 dist = count / (hint_count + 1);
+         u16 pos, pos2;
+         // -------------------------------------------------------------------------------------
+         for (pos = 0; lower_out < hint_count; pos++) {
+            if (hint[pos] >= key_head) {
+               break;
+            }
+         }
+         for (pos2 = pos; pos2 < hint_count; pos2++) {
+            if (hint[pos2] != key_head) {
+               break;
+            }
+         }
+         // -------------------------------------------------------------------------------------
+         lower_out = pos * dist;
+         if (pos2 < hint_count) {
+            upper_out = (pos2 + 1) * dist;
+         }
+      }
    }
    // -------------------------------------------------------------------------------------
    template <bool equality_only = false>
-   s16 linearSearchWithHint(const u8* key, u16 key_length, u16 start_pos, bool higher = true)
+   s16 linearSearchWithBias(const u8* key, u16 key_length, u16 start_pos, bool higher = true)
    {
       // EXP
       if (key_length < prefix_length || (bcmp(key, getLowerFenceKey(), prefix_length) != 0)) {
@@ -300,15 +314,7 @@ struct BTreeNode : public BTreeNodeHeader {
       u16 lower = 0;
       u16 upper = count;
       HeadType keyHead = head(key, keyLength);
-
-      if (count > hint_count * 2) {
-         unsigned dist = count / (hint_count + 1);
-         unsigned pos, pos2;
-         searchHint(keyHead, pos, pos2);
-         lower = pos * dist;
-         if (pos2 < hint_count)
-            upper = (pos2 + 1) * dist;
-      }
+      searchHint(keyHead, lower, upper);
 
       while (lower < upper) {
          u16 mid = ((upper - lower) / 2) + lower;
