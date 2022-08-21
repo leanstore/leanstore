@@ -6,12 +6,12 @@
 #include "leanstore/sync-primitives/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-
 #include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <immintrin.h>
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::storage;
