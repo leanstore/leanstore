@@ -219,26 +219,52 @@ struct BTreeNode : public BTreeNodeHeader {
    // -------------------------------------------------------------------------------------
    s32 compareKeyWithBoundaries(const u8* key, u16 key_length);
    // -------------------------------------------------------------------------------------
-   void searchHint(u16 key_head, u16& lower_out, u16& upper_out)
+   void searchHint(HeadType key_head, u16& lower_out, u16& upper_out)
    {
       if (count > hint_count * 2) {
-         u16 dist = count / (hint_count + 1);
-         u16 pos, pos2;
-         // -------------------------------------------------------------------------------------
-         for (pos = 0; lower_out < hint_count; pos++) {
-            if (hint[pos] >= key_head) {
-               break;
+         if (FLAGS_btree_hints == 2) {
+#ifdef __AVX512F__
+            const u16 dist = count / (hint_count + 1);
+            u16 pos, pos2;
+            __m512i key_head_reg = _mm512_set1_epi32(key_head);
+            __m512i chunk = _mm512_loadu_si512(hint);
+            __mmask16 compareMask = _mm512_cmpge_epu32_mask(chunk, key_head_reg);
+            if (compareMask == 0)
+               return;
+            pos = __builtin_ctz(compareMask);
+            lower_out = pos * dist;
+            // -------------------------------------------------------------------------------------
+            for (pos2 = pos; pos2 < hint_count; pos2++) {
+               if (hint[pos2] != key_head) {
+                  break;
+               }
             }
-         }
-         for (pos2 = pos; pos2 < hint_count; pos2++) {
-            if (hint[pos2] != key_head) {
-               break;
+            if (pos2 < hint_count) {
+               upper_out = (pos2 + 1) * dist;
             }
-         }
-         // -------------------------------------------------------------------------------------
-         lower_out = pos * dist;
-         if (pos2 < hint_count) {
-            upper_out = (pos2 + 1) * dist;
+#else
+            throw;
+#endif
+         } else if (FLAGS_btree_hints == 1) {
+            const u16 dist = count / (hint_count + 1);
+            u16 pos, pos2;
+            // -------------------------------------------------------------------------------------
+            for (pos = 0; pos < hint_count; pos++) {
+               if (hint[pos] >= key_head) {
+                  break;
+               }
+            }
+            for (pos2 = pos; pos2 < hint_count; pos2++) {
+               if (hint[pos2] != key_head) {
+                  break;
+               }
+            }
+            // -------------------------------------------------------------------------------------
+            lower_out = pos * dist;
+            if (pos2 < hint_count) {
+               upper_out = (pos2 + 1) * dist;
+            }
+         } else {
          }
       }
    }
@@ -246,6 +272,7 @@ struct BTreeNode : public BTreeNodeHeader {
    template <bool equality_only = false>
    s16 linearSearchWithBias(const u8* key, u16 key_length, u16 start_pos, bool higher = true)
    {
+      throw;
       // EXP
       if (key_length < prefix_length || (bcmp(key, getLowerFenceKey(), prefix_length) != 0)) {
          return -1;
@@ -315,24 +342,37 @@ struct BTreeNode : public BTreeNodeHeader {
       u16 upper = count;
       HeadType keyHead = head(key, keyLength);
       searchHint(keyHead, lower, upper);
-
       while (lower < upper) {
          u16 mid = ((upper - lower) / 2) + lower;
-         if (keyHead < slot[mid].head) {
-            upper = mid;
-         } else if (keyHead > slot[mid].head) {
-            lower = mid + 1;
-         } else if (slot[mid].key_len <= 4) {
-            // head is equal, we don't have to check the rest of the key
-            if (keyLength < slot[mid].key_len) {
+         if (FLAGS_btree_heads) {
+            if (keyHead < slot[mid].head) {
                upper = mid;
-            } else if (keyLength > slot[mid].key_len) {
+            } else if (keyHead > slot[mid].head) {
                lower = mid + 1;
-            } else {
-               if (is_equal != nullptr && is_leaf) {
-                  *is_equal = true;
+            } else if (slot[mid].key_len <= 4) {
+               // head is equal, we don't have to check the rest of the key
+               if (keyLength < slot[mid].key_len) {
+                  upper = mid;
+               } else if (keyLength > slot[mid].key_len) {
+                  lower = mid + 1;
+               } else {
+                  if (is_equal != nullptr && is_leaf) {
+                     *is_equal = true;
+                  }
+                  return mid;  // It is even equal
                }
-               return mid;  // It is even equal
+            } else {
+               int cmp = cmpKeys(key, getKey(mid), keyLength, getKeyLen(mid));
+               if (cmp < 0) {
+                  upper = mid;
+               } else if (cmp > 0) {
+                  lower = mid + 1;
+               } else {
+                  if (is_equal != nullptr && is_leaf) {
+                     *is_equal = true;
+                  }
+                  return mid;  // It is even equal
+               }
             }
          } else {
             int cmp = cmpKeys(key, getKey(mid), keyLength, getKeyLen(mid));

@@ -51,6 +51,8 @@ DECLARE_double(tmp7);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(btree_print_height);
 DECLARE_bool(btree_print_tuples_count);
+DECLARE_bool(btree_heads);
+DECLARE_int64(btree_hints);
 DECLARE_bool(nc_reallocation);
 DECLARE_bool(bulk_insert);
 // -------------------------------------------------------------------------------------
