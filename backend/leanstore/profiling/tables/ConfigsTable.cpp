@@ -44,10 +44,14 @@ void ConfigsTable::open()
    columns.emplace("c_xmerge_k", [&](Column& col) { col << FLAGS_xmerge_k; });
    columns.emplace("c_xmerge", [&](Column& col) { col << FLAGS_xmerge; });
    columns.emplace("c_xmerge_target_pct", [&](Column& col) { col << FLAGS_xmerge_target_pct; });
+   columns.emplace("c_btree_hints", [&](Column& col) { col << FLAGS_btree_hints; });
+   columns.emplace("c_btree_heads", [&](Column& col) { col << FLAGS_btree_heads; });
    // -------------------------------------------------------------------------------------
    columns.emplace("c_zipf_factor", [&](Column& col) { col << FLAGS_zipf_factor; });
    // -------------------------------------------------------------------------------------
    columns.emplace("c_wal", [&](Column& col) { col << FLAGS_wal; });
+   columns.emplace("c_wal_rfa", [&](Column& col) { col << FLAGS_wal_rfa; });
+   columns.emplace("c_wal_tuple_rfa", [&](Column& col) { col << FLAGS_wal_tuple_rfa; });
    columns.emplace("c_wal_io_hack", [&](Column& col) { col << FLAGS_wal_pwrite; });
    columns.emplace("c_wal_fsync", [&](Column& col) { col << FLAGS_wal_fsync; });
    columns.emplace("c_wal_variant", [&](Column& col) { col << FLAGS_wal_variant; });

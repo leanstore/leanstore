@@ -1097,10 +1097,7 @@ class TPCCWorkload
          neworder.scan(
              {0, 0, 0},
              [&](const neworder_t::Key& key, const neworder_t&) {
-                COUNTERS_BLOCK()
-                {
-                   leanstore::WorkerCounters::myCounters().olap_scanned_tuples++;
-                }
+                COUNTERS_BLOCK() { leanstore::WorkerCounters::myCounters().olap_scanned_tuples++; }
                 if (last_key.no_o_id != -1) {
                    if (!(last_key.no_w_id != key.no_w_id || last_key.no_d_id != key.no_d_id || last_key.no_o_id + 1 == key.no_o_id)) {
                       cout << last_key.no_w_id << "," << key.no_w_id << endl;
@@ -1126,22 +1123,6 @@ class TPCCWorkload
          // dummyScan(order);
          // dummyScan(order_wdc);
          // dummyScan(orderline);
-      } else if (query_no == 88) {
-         if (FLAGS_si_commit_protocol == 0) {
-            u64 tmp[FLAGS_worker_threads];
-            for (WORKERID w_i = 0; w_i < FLAGS_worker_threads; w_i++) {
-               tmp[w_i] = leanstore::cr::Worker::global_workers_current_snapshot[w_i].load();
-            }
-         } else if (FLAGS_si_commit_protocol == 2) {
-            u64 tmp[FLAGS_worker_threads];
-            for (WORKERID w_i = 0; w_i < FLAGS_worker_threads; w_i++) {
-               for (WORKERID w_i2 = 0; w_i2 < FLAGS_worker_threads; w_i2++) {
-                  tmp[w_i] = leanstore::cr::Worker::my().all_workers[w_i]->cc.wt_pg.local_workers_tx_id[w_i2].load();
-               }
-            }
-         } else {
-            UNREACHABLE();
-         }
       } else if (query_no == 99) {
          sleep(1);
       } else {
