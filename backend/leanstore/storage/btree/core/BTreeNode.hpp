@@ -266,8 +266,13 @@ struct BTreeNode : public BTreeNodeHeader {
                upper_out = (pos2 + 1) * dist;
             }
             // -------------------------------------------------------------------------------------
-            WorkerCounters::myCounters().dt_researchy[0][0]++;
-            WorkerCounters::myCounters().dt_researchy[0][1] += pos > 0 || pos2 < hint_count;
+            if (is_leaf) {
+               WorkerCounters::myCounters().dt_researchy[0][0]++;
+               WorkerCounters::myCounters().dt_researchy[0][1] += pos > 0 || pos2 < hint_count;
+            } else {
+               WorkerCounters::myCounters().dt_researchy[0][2]++;
+               WorkerCounters::myCounters().dt_researchy[0][3] += pos > 0 || pos2 < hint_count;
+            }
          } else {
          }
       }

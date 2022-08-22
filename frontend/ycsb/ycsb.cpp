@@ -29,8 +29,8 @@ DEFINE_uint32(ycsb_sleepy_thread, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
-using YCSBKey = u32;
-using YCSBPayload = BytesPayload<120>;
+using YCSBKey = u64;
+using YCSBPayload = BytesPayload<8>;
 using KVTable = Relation<YCSBKey, YCSBPayload>;
 // -------------------------------------------------------------------------------------
 double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::high_resolution_clock::time_point end, u64 factor)
@@ -97,7 +97,7 @@ int main(int argc, char** argv)
                crm.scheduleJobAsync(t_i, [&, begin, end]() {
                   for (u64 i = begin; i < end; i++) {
                      YCSBPayload result;
-                     table.lookup1({i}, [&](const KVTable& record) { result = record.my_payload; });
+                     table.lookup1({static_cast<YCSBKey>(i)}, [&](const KVTable& record) { result = record.my_payload; });
                   }
                });
             });
@@ -161,7 +161,7 @@ int main(int argc, char** argv)
                   cr::Worker::my().startTX(tx_type, isolation_level);
                   table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
                   cr::Worker::my().commitTX();
-                  leanstore::storage::BMC::global_bf->evictLastPage(); // to ignore the replacement strategy effect on MVCC experiment
+                  leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
                } else {
                   UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
                   utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));

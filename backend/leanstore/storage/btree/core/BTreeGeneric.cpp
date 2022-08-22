@@ -307,10 +307,10 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
       // ATTENTION: don't use c_guard without making sure it was not reclaimed
       // -------------------------------------------------------------------------------------
       if (pos_in_parent > 0) {
-         merged_successfully |= merge_left();
+         merged_successfully = merged_successfully | merge_left();
       }
       if (!merged_successfully && pos_in_parent < p_guard->count) {
-         merged_successfully |= merge_right();
+         merged_successfully = merged_successfully | merge_right();
       }
    }
    // -------------------------------------------------------------------------------------
