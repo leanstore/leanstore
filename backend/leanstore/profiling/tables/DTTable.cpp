@@ -48,6 +48,12 @@ void DTTable::open()
    columns.emplace("dt_append_opt", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_append_opt, dt_id); });
    columns.emplace("dt_range_removed", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_range_removed, dt_id); });
    // -------------------------------------------------------------------------------------
+   for (u64 r_i = 0; r_i < WorkerCounters::max_researchy_counter; r_i++) {
+      columns.emplace("dt_researchy_" + std::to_string(r_i), [&, r_i](Column& col) {
+         col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_researchy, dt_id, r_i);
+      });
+   }
+   // -------------------------------------------------------------------------------------
    columns.emplace("contention_split_succ_counter",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::contention_split_succ_counter, dt_id); });
    columns.emplace("contention_split_fail_counter",

@@ -11,7 +11,7 @@
 namespace leanstore
 {
 struct WorkerCounters {
-   static constexpr u64 max_researchy_counter = 20;
+   static constexpr u64 max_researchy_counter = 10;
    static constexpr u64 max_dt_id = 1000;  // ATTENTION: buffer overflow if more than max_dt_id in system are registered
    // -------------------------------------------------------------------------------------
    atomic<u64> t_id = 9999;                // used by tpcc
@@ -103,9 +103,6 @@ struct WorkerCounters {
    atomic<u64> cc_fat_tuple_triggered[max_dt_id] = {0};
    atomic<u64> cc_fat_tuple_convert[max_dt_id] = {0};
    atomic<u64> cc_fat_tuple_decompose[max_dt_id] = {0};
-   // -------------------------------------------------------------------------------------
-   constexpr static u64 VW_MAX_STEPS = 10;
-   atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {{0}};
    // -------------------------------------------------------------------------------------
    // WAL
    atomic<u64> wal_write_bytes = 0;

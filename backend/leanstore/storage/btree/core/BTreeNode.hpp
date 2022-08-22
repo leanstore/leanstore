@@ -1,17 +1,18 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "Units.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferFrame.hpp"
 #include "leanstore/storage/buffer-manager/DTRegistry.hpp"
 #include "leanstore/sync-primitives/PageGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <immintrin.h>
 #include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <fstream>
 #include <string>
-#include <immintrin.h>
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore::storage;
@@ -264,6 +265,9 @@ struct BTreeNode : public BTreeNodeHeader {
             if (pos2 < hint_count) {
                upper_out = (pos2 + 1) * dist;
             }
+            // -------------------------------------------------------------------------------------
+            WorkerCounters::myCounters().dt_researchy[0][0]++;
+            WorkerCounters::myCounters().dt_researchy[0][1] += pos > 0 || pos2 < hint_count;
          } else {
          }
       }

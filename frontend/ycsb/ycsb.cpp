@@ -29,7 +29,7 @@ DEFINE_uint32(ycsb_sleepy_thread, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
-using YCSBKey = u64;
+using YCSBKey = u32;
 using YCSBPayload = BytesPayload<120>;
 using KVTable = Relation<YCSBKey, YCSBPayload>;
 // -------------------------------------------------------------------------------------
@@ -117,7 +117,7 @@ int main(int argc, char** argv)
             for (u64 i = begin; i < end; i++) {
                YCSBPayload payload;
                utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
-               YCSBKey& key = i;
+               YCSBKey key = i;
                cr::Worker::my().startTX(tx_type, isolation_level);
                table.insert({key}, {payload});
                cr::Worker::my().commitTX();

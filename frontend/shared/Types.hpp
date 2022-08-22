@@ -81,6 +81,12 @@ unsigned fold(u8* writer, const Timestamp& x)
    return sizeof(x);
 }
 // -------------------------------------------------------------------------------------
+unsigned fold(u8* writer, const u32& x)
+{
+   *reinterpret_cast<u32*>(writer) = __builtin_bswap32(x);
+   return sizeof(x);
+}
+// -------------------------------------------------------------------------------------
 unsigned fold(u8* writer, const u64& x)
 {
    *reinterpret_cast<u64*>(writer) = __builtin_bswap64(x);
@@ -104,6 +110,12 @@ unsigned unfold(const u8* input, Integer& x)
 unsigned unfold(const u8* input, Timestamp& x)
 {
    x = __builtin_bswap64(*reinterpret_cast<const u64*>(input)) ^ (1ul << 63);
+   return sizeof(x);
+}
+// -------------------------------------------------------------------------------------
+unsigned unfold(const u8* input, u32& x)
+{
+   x = __builtin_bswap32(*reinterpret_cast<const u32*>(input));
    return sizeof(x);
 }
 // -------------------------------------------------------------------------------------
