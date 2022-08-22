@@ -44,7 +44,8 @@ void ConfigsTable::open()
    columns.emplace("c_xmerge_k", [&](Column& col) { col << FLAGS_xmerge_k; });
    columns.emplace("c_xmerge", [&](Column& col) { col << FLAGS_xmerge; });
    columns.emplace("c_xmerge_target_pct", [&](Column& col) { col << FLAGS_xmerge_target_pct; });
-   columns.emplace("c_btree_hints", [&](Column& col) { col << FLAGS_btree_hints; });
+   columns.emplace("c_btree_prefix_compression", [&](Column& col) { col << FLAGS_btree_prefix_compression; });
+   columns.emplace("c_btree_heads", [&](Column& col) { col << FLAGS_btree_heads; });
    columns.emplace("c_btree_heads", [&](Column& col) { col << FLAGS_btree_heads; });
    // -------------------------------------------------------------------------------------
    columns.emplace("c_zipf_factor", [&](Column& col) { col << FLAGS_zipf_factor; });

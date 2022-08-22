@@ -55,8 +55,9 @@ DEFINE_double(tmp7, 0.0, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(btree_print_height, false, "Print BTree height in destructor");
 DEFINE_bool(btree_print_tuples_count, false, "Print # tuples in each BTree in destructor");
-DEFINE_int64(btree_hints, 1, "0: disabled 1: serial 1: AVX512");
+DEFINE_bool(btree_prefix_compression, true, "");
 DEFINE_bool(btree_heads, true, "Enable heads optimization in lowerBound search");
+DEFINE_int64(btree_hints, 1, "0: disabled 1: serial 1: AVX512");
 DEFINE_bool(nc_reallocation, false, "Reallocate hot pages in non-clustered btree index");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(bulk_insert, false, "");
