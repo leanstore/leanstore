@@ -269,8 +269,7 @@ void BTreeNode::setFences(u8* lowerKey, u16 lowerLen, u8* upperKey, u16 upperLen
 {
    insertFence(lower_fence, lowerKey, lowerLen);
    insertFence(upper_fence, upperKey, upperLen);
-   for (prefix_length = 0; (prefix_length < min(lowerLen, upperLen)) && (lowerKey[prefix_length] == upperKey[prefix_length]) && prefix_length;
-        prefix_length++)
+   for (prefix_length = 0; (prefix_length < min(lowerLen, upperLen)) && (lowerKey[prefix_length] == upperKey[prefix_length]); prefix_length++)
       ;
 }
 // -------------------------------------------------------------------------------------
