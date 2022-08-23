@@ -223,11 +223,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                   {
                      BMExclusiveGuard ex_guard(o_guard);
                      assert(!cooled_bf->header.is_being_written_back);
-                     cooled_bf->header.is_being_written_back = true;
+                     cooled_bf->header.is_being_written_back.store(true, std::memory_order_release);
                      // TODO: preEviction callback according to DTID
-                  }
-                  {
-                     BMSharedGuard s_guard(o_guard);
                      PID wb_pid = cooled_bf_pid;
                      if (FLAGS_out_of_place) {
                         wb_pid = getPartition(cooled_bf_pid).nextPID();
@@ -252,36 +249,38 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          const u32 polled_events = async_write_buffer.pollEventsSync();
          async_write_buffer.getWrittenBfs(
              [&](BufferFrame& written_bf, u64 written_lsn, PID out_of_place_pid) {
-                while (true) {
-                   jumpmuTry()
+                jumpmuTry()
+                {
+                   // When the written back page is being exclusively locked, we should rather waste the write and move on to another page
+                   // Instead of waiting on its latch because of the likelihood that a data structure implementation keeps holding a parent latch
+                   // while trying to acquire a new page
                    {
-                      Guard guard(written_bf.header.latch);
-                      guard.toExclusive();
+                      BMOptimisticGuard o_guard(written_bf.header.latch);
+                      BMExclusiveGuard ex_guard(o_guard);
                       assert(written_bf.header.is_being_written_back);
                       assert(written_bf.header.last_written_plsn < written_lsn);
                       // -------------------------------------------------------------------------------------
-                      if (FLAGS_out_of_place) {
+                      if (FLAGS_out_of_place) {  // For recovery, so much has to be done here...
                          getPartition(getPartitionID(written_bf.header.pid)).freePage(written_bf.header.pid);
                          written_bf.header.pid = out_of_place_pid;
                       }
                       written_bf.header.last_written_plsn = written_lsn;
                       written_bf.header.is_being_written_back = false;
                       PPCounters::myCounters().flushed_pages_counter++;
-                      // -------------------------------------------------------------------------------------
-                      guard.unlock();
-                      jumpmu_break;
+                   }
+                }
+                jumpmuCatch() { written_bf.header.is_being_written_back.store(false, std::memory_order_release); }
+                // -------------------------------------------------------------------------------------
+                {
+                   jumpmuTry()
+                   {
+                      BMOptimisticGuard o_guard(written_bf.header.latch);
+                      if (written_bf.header.state == BufferFrame::STATE::COOL && !written_bf.header.is_being_written_back && !written_bf.isDirty()) {
+                         evict_bf(written_bf, o_guard);
+                      }
                    }
                    jumpmuCatch() {}
                 }
-                // -------------------------------------------------------------------------------------
-                jumpmuTry()
-                {
-                   BMOptimisticGuard o_guard(written_bf.header.latch);
-                   if (written_bf.header.state == BufferFrame::STATE::COOL && !written_bf.header.is_being_written_back && !written_bf.isDirty()) {
-                      evict_bf(written_bf, o_guard);
-                   }
-                }
-                jumpmuCatch() {}
              },
              polled_events);
       }

@@ -21,7 +21,7 @@ struct BufferFrame {
       WORKERID last_writer_worker_id = std::numeric_limits<u8>::max();  // for RFA
       LID last_written_plsn = 0;
       STATE state = STATE::FREE;  // INIT:
-      bool is_being_written_back = false;
+      std::atomic<bool> is_being_written_back = false;
       bool keep_in_memory = false;
       PID pid = 9999;         // INIT:
       HybridLatch latch = 0;  // INIT: // ATTENTION: NEVER DECREMENT
@@ -94,7 +94,7 @@ struct BufferFrame {
       header.last_writer_worker_id = std::numeric_limits<u8>::max();
       header.last_written_plsn = 0;
       header.state = STATE::FREE;  // INIT:
-      header.is_being_written_back = false;
+      header.is_being_written_back.store(false, std::memory_order_release);
       header.pid = 9999;
       header.next_free_bf = nullptr;
       header.contention_tracker.reset();
