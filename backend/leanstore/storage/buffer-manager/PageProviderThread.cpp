@@ -26,7 +26,7 @@ namespace storage
 // -------------------------------------------------------------------------------------
 void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_end)
 {
-   std::string thread_name("page_provider_" + std::to_string(p_begin) + "_" + std::to_string(p_end));
+   std::string thread_name("pp_" + std::to_string(p_begin) + "_" + std::to_string(p_end));
    pthread_setname_np(pthread_self(), thread_name.c_str());
    using Time = decltype(std::chrono::high_resolution_clock::now());
    // -------------------------------------------------------------------------------------
