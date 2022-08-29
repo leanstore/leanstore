@@ -30,6 +30,7 @@ DEFINE_uint64(ch_a_threads, 0, "CH analytical threads");
 DEFINE_uint64(ch_a_rounds, 1, "");
 DEFINE_uint64(ch_a_query, 2, "");
 DEFINE_string(rocks_db, "none", "none/pessimistic/optimistic");
+DEFINE_bool(print_header, true, "");
 // -------------------------------------------------------------------------------------
 thread_local rocksdb::Transaction* RocksDB::txn = nullptr;
 // -------------------------------------------------------------------------------------
@@ -149,14 +150,19 @@ int main(int argc, char** argv)
                thread_committed[t_i]++;
             }
             jumpmuCatch() { thread_aborted[t_i]++; }
-            running_threads_counter--;
          }
+         running_threads_counter--;
       });
    }
    // -------------------------------------------------------------------------------------
    threads.emplace_back([&]() {
       running_threads_counter++;
+      u64 time = 0;
+      if (FLAGS_print_header) {
+         cout << "t,tag,olap_committed,olap_aborted,oltp_committed,oltp_aborted" << endl;
+      }
       while (keep_running) {
+         cout << time++ << "," << FLAGS_tag << ",";
          u64 total_committed = 0, total_aborted = 0;
          for (u64 t_i = 0; t_i < FLAGS_ch_a_threads; t_i++) {
             total_committed += thread_committed[t_i].exchange(0);
