@@ -22,6 +22,7 @@ DECLARE_bool(print_debug);
 DECLARE_bool(print_tx_console);
 DECLARE_bool(profiling);
 DECLARE_bool(profile_latency);
+DECLARE_bool(crc_check);
 DECLARE_uint32(print_debug_interval_s);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(contention_split);

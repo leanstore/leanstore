@@ -62,7 +62,7 @@ struct BufferFrame {
       };
       OptimisticParentPointer optimistic_parent_pointer;
       // -------------------------------------------------------------------------------------
-      u64 debug;
+      u64 debug = 0;
    };
    struct alignas(512) Page {
       LID PLSN = 0;

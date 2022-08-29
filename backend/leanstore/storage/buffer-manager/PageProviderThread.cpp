@@ -181,6 +181,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
          c_guard.guard.toExclusive();
          // -------------------------------------------------------------------------------------
+         if (FLAGS_crc_check && bf.header.debug) {
+            ensure(utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE) == bf.header.debug);
+         }
+         // -------------------------------------------------------------------------------------
          ensure(!bf.isDirty());
          assert(!bf.header.is_being_written_back);
          // Reclaim buffer frame

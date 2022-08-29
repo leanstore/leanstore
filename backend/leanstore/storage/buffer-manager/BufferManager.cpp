@@ -197,7 +197,7 @@ BufferFrame& BufferManager::allocatePage()
    return free_bf;
 }
 // -------------------------------------------------------------------------------------
- void BufferManager::evictLastPage()
+void BufferManager::evictLastPage()
 {
    if (FLAGS_worker_page_eviction && last_read_bf) {
       jumpmuTry()
@@ -330,6 +330,9 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       bf.header.last_written_plsn = bf.page.PLSN;
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
+      if (FLAGS_crc_check) {
+         bf.header.debug = utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE);
+      }
       // -------------------------------------------------------------------------------------
       jumpmuTry()
       {
