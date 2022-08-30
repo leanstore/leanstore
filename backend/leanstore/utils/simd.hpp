@@ -53,9 +53,12 @@ inline F8 operator/(const F8& a, const F8& b) { return _mm256_div_ps(a.reg, b.re
 inline float minn(float a, float b) { return a<b ? a : b; }
 inline float maxx(float a, float b) { return a>b ? a : b; }
 
-inline float maxV(F8 x) {
-   F8 r1(_mm256_permute2f128_ps(x, x, 1));
-   F8 r2(_mm256_max_ps(x, r1));
+inline float maxV(F8 x, bool use8) {
+   F8 r2 = x;
+   if(use8) {
+      F8 r1(_mm256_permute2f128_ps(x, x, 1));
+      r2 = F8(_mm256_max_ps(x, r1));
+   }
    F8 r3(_mm256_permute_ps(r2, 14));
    F8 r4(_mm256_max_ps(r2, r3));
    return maxx(r4.entry[0], r4.entry[1]);

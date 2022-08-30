@@ -34,7 +34,11 @@ struct BufferFrame {
          }
       };
       static const u8 kr = 8, kw = 4;
-      struct Tracker {
+
+      struct alignas(64) Tracker {
+         std::atomic<WATT_TIME> reads[kr], writes[kw];
+         std::atomic<u8> readPos, writePos;
+
          static constexpr float table_8[8][8] = {
              {1,8,7,6,5,4,3,2},
              {2,1,8,7,6,5,4,3},
@@ -51,40 +55,31 @@ struct BufferFrame {
              {2,1,4,3,1,1,1,1},
              {3,2,1,4,1,1,1,1},
              {4,3,2,1,1,1,1,1},
-
          };
-         float simd_getFreq(WATT_TIME* timestamps, unsigned pos, WATT_TIME now) {
+         float simd_getFreq(WATT_TIME* timestamps, unsigned pos, WATT_TIME now, bool use8) {
             U8 a(timestamps);
             U8 nowV(now);
             F8 diff(nowV-a);
-            F8 i(table_8[pos]);
+            F8 i(use8? table_8[pos] : table_4[pos]);
             F8 div(i/diff);
             F8 one(1);
             F8 result(_mm256_min_ps(div,one));
-            return maxV(result);
+            return maxV(result, use8);
          }
-         std::atomic<u8> readPos;
-         std::atomic<u8> writePos;
-         std::atomic<WATT_TIME> reads[kr];
-         std::atomic<WATT_TIME> writes[kw];
-         std::atomic<WATT_TIME> last_track;
 
          Tracker() { clear();}
 
-         void trackRead() {
+         void trackRead(WATT_TIME ts = globalTrackerTime.load()) {
             auto p = readPos.load();
-            auto ts = globalTrackerTime.load();
             if (ts != reads[p]) {
                auto newPos = (p+1)%kr;
                reads[newPos].store(ts, std::memory_order_release);
                readPos.store(newPos, std::memory_order_release);
-               last_track.store(ts, std::memory_order_release);
             }
          }
 
-         void trackWrite() {
+         void trackWrite(WATT_TIME ts = globalTrackerTime.load()) {
             auto p = writePos.load();
-            auto ts = last_track.load();
             if (ts != writes[p]) {
                auto newPos = (p+1) % kw;
                writes[newPos].store(ts, std::memory_order_release);
@@ -138,7 +133,6 @@ struct BufferFrame {
             // Exclusive locked -> memory_order relevant?
             readPos.store(other.readPos, std::memory_order_release);
             writePos.store(other.writePos, std::memory_order_release);
-            last_track.store(other.last_track, std::memory_order_release);
             for (u8 i=0; i<kr || i < kw; i++) {
                if (i < kr)
                   reads[i].store(other.reads[i], std::memory_order_release);
@@ -151,46 +145,15 @@ struct BufferFrame {
             u32 reads_array[8] = {reads[0],reads[1], reads[2],reads[3],reads[4],reads[5],reads[6],reads[7]};
             u32 write_array[8] = {writes[0],writes[1], writes[2],writes[3],0,0,0,0};
 
-            double readFreq = simd_getFreq(reads_array, readPos, now);
-            double writeFreq = simd_getFreq(write_array, writePos, now);
+            double readFreq = simd_getFreq(reads_array, readPos, now, true);
+            double writeFreq = simd_getFreq(write_array, writePos, now, false);
             return readFreq + writeFreq * FLAGS_write_costs;
-         }
-        private:
-         template<u8 k>
-         double getFrequency(std::atomic<WATT_TIME>* array, u8 curr, WATT_TIME now){
-            long value = 10;
-            WATT_TIME best_age = 100000;
-            long best_value = 0;
-            for(s8 pos = curr; pos >= 0 && array[pos] != 0;  pos--){
-               WATT_TIME age = now - array[pos] + 1;
-               long left = value*best_age;
-               long right = best_value * age;
-               if(left> right){
-                  best_value = value;
-                  best_age = age;
-               }
-               value+=10;
-            }
-            for(s8 pos = k-1; pos > curr && array[pos] != 0; pos--){
-               WATT_TIME age = now - array[pos];
-               long left = value*best_age + 1;
-               long right = best_value * age;
-               if(left> right){
-                  best_value = value;
-                  best_age = age;
-               }
-               value+=10;
-            }
-            if(best_age ==0){
-               best_age++;
-            }
-            return best_value * 1.0 /best_age;
          }
       };
       struct Tracker_store {
          u8 readPos, writePos;
-         WATT_TIME reads[kr], writes[kw], last_track;
-         Tracker_store():readPos(0), writePos(0), last_track(0){
+         WATT_TIME reads[kr], writes[kw];
+         Tracker_store():readPos(0), writePos(0){
             for (u8 i=0; i<kr || i < kw; i++) {
                if (i < kr)
                   reads[i] = 0;
@@ -198,7 +161,7 @@ struct BufferFrame {
                   writes[i] = 0;
             }
          }
-         Tracker_store(const Tracker& track): readPos(track.readPos.load()), writePos(track.writePos.load()), last_track(track.last_track.load()){
+         Tracker_store(const Tracker& track): readPos(track.readPos.load()), writePos(track.writePos.load()){
             for (u8 i=0; i<kr || i < kw; i++) {
                if (i < kr)
                   reads[i] = track.reads[i];
@@ -215,7 +178,6 @@ struct BufferFrame {
                if (i < kw)
                   track.writes[i].store(writes[i], std::memory_order_release);
             }
-            track.last_track.store(last_track, std::memory_order_release);
          }
       };
       struct WATT_LOG{

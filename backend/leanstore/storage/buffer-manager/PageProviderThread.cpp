@@ -133,7 +133,7 @@ std::pair<double, double> BufferManager::findThreshold(int samples)
    }
    double calculated_min = min;
    double second_value = min*1.3;
-   if(samples>3){
+   if(samples>1){
       calculated_min = (min + next_min) / 2.0;
       second_value = next_min;
    }
@@ -164,8 +164,8 @@ bool BufferManager::evictPages(std::pair<double, double> min,
       if(tmp > myPartition.max_partition_size){
          evictions = tmp - myPartition.max_partition_size;
       }
-      if(evictions > 500){
-         evictions = 500;
+      if(evictions > 1000){
+         evictions = 1000;
       }
    }
    const u64 toEvict = evictions;
@@ -178,12 +178,12 @@ bool BufferManager::evictPages(std::pair<double, double> min,
    const u32 batch = 100;
    BufferFrame* frames[batch];
    while(evictedPages < toEvict && fails < 50*toEvict){
-      fails++;
       for (u32 j=0; j<batch; j++) {
          frames[j] = getNextBufferFrame(myPartition);
          __builtin_prefetch(frames[j]);
       }
       for (u32 j=0; j<batch; j++) {
+         fails++;
          jumpmuTry()
          {
             // Select and check random BufferFrame
