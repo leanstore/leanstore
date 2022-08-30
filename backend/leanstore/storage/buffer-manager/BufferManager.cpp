@@ -291,7 +291,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       BMExclusiveGuard bf_x_guard(bf_guard);                // child
       bf->header.state = BufferFrame::STATE::HOT;
       swip_value.warm();
-      return swip_value.asBufferFrame();
+      return *bf;
    }
    // -------------------------------------------------------------------------------------
    swip_guard.unlock();  // Otherwise we would get a deadlock, P->G, G->P

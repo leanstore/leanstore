@@ -208,10 +208,9 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                cleanup_cb = nullptr;
             }
             // -------------------------------------------------------------------------------------
-            if (FLAGS_optimistic_scan) {
+            if (FLAGS_optimistic_scan && leaf_pos_in_parent != -1) {
                jumpmuTry()
                {
-                  ensure(leaf_pos_in_parent != -1);
                   if ((leaf_pos_in_parent + 1) <= p_guard->count) {
                      s32 next_leaf_pos = leaf_pos_in_parent + 1;
                      Swip<BTreeNode>& c_swip = (next_leaf_pos < p_guard->count) ? p_guard->getChild(next_leaf_pos) : p_guard->upper;
@@ -290,10 +289,9 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
                cleanup_cb = nullptr;
             }
             // -------------------------------------------------------------------------------------
-            if (FLAGS_optimistic_scan) {
+            if (FLAGS_optimistic_scan && leaf_pos_in_parent != -1) {
                jumpmuTry()
                {
-                  ensure(leaf_pos_in_parent != -1);
                   if ((leaf_pos_in_parent - 1) >= 0) {
                      s32 next_leaf_pos = leaf_pos_in_parent - 1;
                      Swip<BTreeNode>& c_swip = p_guard->getChild(next_leaf_pos);
