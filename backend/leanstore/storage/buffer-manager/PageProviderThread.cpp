@@ -89,9 +89,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                getDTRegistry().iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
                   all_children_evicted &= swip.isEVICTED();  // Ignore when it has a child in the cooling stage
                   if (swip.isHOT()) {
+                     BufferFrame* picked_child_bf = &swip.asBufferFrame();
                      r_guard.recheck();
                      picked_a_child_instead = true;
-                     cool_candidate_bfs.push_back(&swip.asBufferFrame());
+                     cool_candidate_bfs.push_back(picked_child_bf);
                      return false;
                   }
                   r_guard.recheck();
