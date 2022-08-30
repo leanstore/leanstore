@@ -24,6 +24,7 @@
 DEFINE_int64(tpcc_warehouse_count, 1, "");
 DEFINE_int32(tpcc_abort_pct, 0, "");
 DEFINE_uint64(run_until_tx, 0, "");
+DEFINE_bool(tpcc_verify, false, "");
 DEFINE_bool(tpcc_warehouse_affinity, false, "");
 DEFINE_bool(tpcc_fast_load, false, "");
 DEFINE_bool(tpcc_remove, true, "");
@@ -122,6 +123,30 @@ int main(int argc, char** argv)
          });
       }
       crm.joinAll();
+      // -------------------------------------------------------------------------------------
+      if (FLAGS_tpcc_verify) {
+         cout << "Verifying TPC-C" << endl;
+         crm.scheduleJobSync(0, [&]() {
+            cr::Worker::my().startTX(leanstore::TX_MODE::OLTP);
+            tpcc.verifyItems();
+            cr::Worker::my().commitTX();
+         });
+         g_w_id = 1;
+         for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+            crm.scheduleJobAsync(t_i, [&]() {
+               while (true) {
+                  u32 w_id = g_w_id++;
+                  if (w_id > FLAGS_tpcc_warehouse_count) {
+                     return;
+                  }
+                  cr::Worker::my().startTX(leanstore::TX_MODE::OLTP);
+                  tpcc.verifyWarehouse(w_id);
+                  cr::Worker::my().commitTX();
+               }
+            });
+            crm.joinAll();
+         }
+      }
    }
    // -------------------------------------------------------------------------------------
    double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
@@ -173,10 +198,7 @@ int main(int argc, char** argv)
                WorkerCounters::myCounters().olap_tx++;
                tx_acc = tx_acc + 1;
             }
-            jumpmuCatch()
-            {
-               WorkerCounters::myCounters().olap_tx_abort++;
-            }
+            jumpmuCatch() { WorkerCounters::myCounters().olap_tx_abort++; }
             if (FLAGS_ch_a_once) {
                cr::Worker::my().shutdown();
                sleep(2);
@@ -206,10 +228,7 @@ int main(int argc, char** argv)
                   cr::Worker::my().commitTX();
                   WorkerCounters::myCounters().tx++;
                }
-               jumpmuCatch()
-               {
-                  WorkerCounters::myCounters().tx_abort++;
-               }
+               jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
             }
          } else {
             while (keep_running) {
@@ -231,10 +250,7 @@ int main(int argc, char** argv)
                   WorkerCounters::myCounters().tx++;
                   tx_acc = tx_acc + 1;
                }
-               jumpmuCatch()
-               {
-                  WorkerCounters::myCounters().tx_abort++;
-               }
+               jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
             }
          }
          cr::Worker::my().shutdown();

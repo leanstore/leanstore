@@ -71,7 +71,7 @@ struct district_t {
    static constexpr unsigned maxFoldLength() { return 0 + sizeof(Key::d_w_id) + sizeof(Key::d_id); };
 };
 
-struct customer_t {
+struct customer_t { // 712B
    static constexpr int id = 2;
    struct Key {
       static constexpr int id = 2;

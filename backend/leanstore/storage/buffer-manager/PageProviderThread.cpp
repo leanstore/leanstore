@@ -181,8 +181,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
          c_guard.guard.toExclusive();
          // -------------------------------------------------------------------------------------
-         if (FLAGS_crc_check && bf.header.debug) {
-            ensure(utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE) == bf.header.debug);
+         if (FLAGS_crc_check && bf.header.crc) {
+            ensure(utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE) == bf.header.crc);
          }
          // -------------------------------------------------------------------------------------
          ensure(!bf.isDirty());
@@ -229,6 +229,9 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                      BMExclusiveGuard ex_guard(o_guard);
                      assert(!cooled_bf->header.is_being_written_back);
                      cooled_bf->header.is_being_written_back.store(true, std::memory_order_release);
+                     if (FLAGS_crc_check) {
+                        cooled_bf->header.crc = utils::CRC(cooled_bf->page.dt, EFFECTIVE_PAGE_SIZE);
+                     }
                      // TODO: preEviction callback according to DTID
                      PID wb_pid = cooled_bf_pid;
                      if (FLAGS_out_of_place) {
@@ -274,7 +277,11 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                       PPCounters::myCounters().flushed_pages_counter++;
                    }
                 }
-                jumpmuCatch() { written_bf.header.is_being_written_back.store(false, std::memory_order_release); }
+                jumpmuCatch()
+                {
+                   written_bf.header.crc = 0;
+                   written_bf.header.is_being_written_back.store(false, std::memory_order_release);
+                }
                 // -------------------------------------------------------------------------------------
                 {
                    jumpmuTry()

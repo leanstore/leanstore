@@ -56,6 +56,7 @@ class HybridPageGuard
    {
       assert(BMC::global_bf != nullptr);
       bf->page.dt_id = dt_id;
+      markAsDirty();
       jumpmu_registerDestructor();
    }
    // -------------------------------------------------------------------------------------

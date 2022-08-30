@@ -966,6 +966,27 @@ class TPCCWorkload
       }
    }
    // -------------------------------------------------------------------------------------
+   void verifyWarehouse(Integer w_id)
+   {
+      // for (Integer w_id = 1; w_id <= warehouseCount; w_id++) {
+      warehouse.lookup1({w_id}, [&](const auto&) {});
+      for (Integer d_id = 1; d_id <= 10; d_id++) {
+         for (Integer c_id = 1; c_id <= 3000; c_id++) {
+            customer.lookup1({w_id, d_id, c_id}, [&](const auto&) {});
+         }
+      }
+      for (Integer s_id = 1; s_id <= ITEMS_NO; s_id++) {
+         stock.lookup1({w_id, s_id}, [&](const auto&) {});
+      }
+   }
+   // -------------------------------------------------------------------------------------
+   void verifyItems()
+   {
+      for (Integer i = 1; i <= ITEMS_NO; i++) {
+         item.lookup1({i}, [&](const auto&) {});
+      }
+   }
+   // -------------------------------------------------------------------------------------
    // <tx_num, read_only>
    std::tuple<s32, bool> getRandomTXInfo()
    {

@@ -62,7 +62,7 @@ struct BufferFrame {
       };
       OptimisticParentPointer optimistic_parent_pointer;
       // -------------------------------------------------------------------------------------
-      u64 debug = 0;
+      u64 crc = 0;
    };
    struct alignas(512) Page {
       LID PLSN = 0;
@@ -87,7 +87,7 @@ struct BufferFrame {
    // Pre: bf is exclusively locked
    void reset()
    {
-      header.debug = header.pid;
+      header.crc = 0;
       // -------------------------------------------------------------------------------------
       assert(!header.is_being_written_back);
       header.latch.assertExclusivelyLatched();

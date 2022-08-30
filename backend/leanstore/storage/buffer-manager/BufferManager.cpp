@@ -331,7 +331,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
       if (FLAGS_crc_check) {
-         bf.header.debug = utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE);
+         bf.header.crc = utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE);
       }
       // -------------------------------------------------------------------------------------
       jumpmuTry()
