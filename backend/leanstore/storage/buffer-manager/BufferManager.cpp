@@ -300,13 +300,12 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
    Partition& partition = getPartition(pid);
    JMUW<std::unique_lock<std::mutex>> g_guard(partition.ht_mutex);
    swip_guard.recheck();
-   assert(!swip_value.isHOT());
+   paranoid(!swip_value.isHOT());
    // -------------------------------------------------------------------------------------
    auto frame_handler = partition.io_ht.lookup(pid);
    if (!frame_handler) {
       BufferFrame& bf = randomPartition().dram_free_list.tryPop();
       IOFrame& io_frame = partition.io_ht.insert(pid);
-      assert(bf.header.state == BufferFrame::STATE::FREE);
       bf.header.latch.assertNotExclusivelyLatched();
       // -------------------------------------------------------------------------------------
       io_frame.state = IOFrame::STATE::READING;
@@ -316,6 +315,8 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       g_guard->unlock();
       // -------------------------------------------------------------------------------------
       readPageSync(pid, bf.page);
+      // -------------------------------------------------------------------------------------
+      paranoid(bf.header.state == BufferFrame::STATE::FREE);
       COUNTERS_BLOCK()
       {
          WorkerCounters::myCounters().dt_page_reads[bf.page.dt_id]++;
@@ -324,10 +325,10 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
             utils::printBackTrace();
          }
       }
-      assert(bf.page.magic_debugging_number == pid);
+      paranoid(bf.page.magic_debugging_number == pid);
       // -------------------------------------------------------------------------------------
       // ATTENTION: Fill the BF
-      assert(!bf.header.is_being_written_back);
+      paranoid(!bf.header.is_being_written_back);
       bf.header.last_written_plsn = bf.page.PLSN;
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
@@ -391,16 +392,16 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
          // We have to exclusively lock the bf because the page provider thread will
          // try to evict them when its IO is done
          bf->header.latch.assertNotExclusivelyLatched();
-         assert(bf->header.state == BufferFrame::STATE::LOADED);
+         paranoid(bf->header.state == BufferFrame::STATE::LOADED);
          BMOptimisticGuard bf_guard(bf->header.latch);
          BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
          BMExclusiveGuard bf_x_guard(bf_guard);
          // -------------------------------------------------------------------------------------
          io_frame.bf = nullptr;
-         assert(bf->header.pid == pid);
+         paranoid(bf->header.pid == pid);
          swip_value.warm(bf);
-         assert(swip_value.isHOT());
-         assert(bf->header.state == BufferFrame::STATE::LOADED);
+         paranoid(swip_value.isHOT());
+         paranoid(bf->header.state == BufferFrame::STATE::LOADED);
          bf->header.state = BufferFrame::STATE::HOT;  // ATTENTION: SET TO HOT AFTER
                                                       // IT IS SWIZZLED IN
          // -------------------------------------------------------------------------------------
@@ -429,7 +430,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
 // -------------------------------------------------------------------------------------
 void BufferManager::readPageSync(u64 pid, u8* destination)
 {
-   assert(u64(destination) % 512 == 0);
+   paranoid(u64(destination) % 512 == 0);
    s64 bytes_left = PAGE_SIZE;
    do {
       const int bytes_read = pread(ssd_fd, destination, bytes_left, pid * PAGE_SIZE + (PAGE_SIZE - bytes_left));

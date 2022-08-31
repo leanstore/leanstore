@@ -50,7 +50,7 @@ void AsyncWriteBuffer::add(BufferFrame& bf, PID pid)
    // -------------------------------------------------------------------------------------
    PARANOID_BLOCK()
    {
-      if (FLAGS_pid_tracing) {
+      if (FLAGS_pid_tracing && !FLAGS_recycle_pages) {
          Tracing::mutex.lock();
          if (Tracing::ht.contains(pid)) {
             auto& entry = Tracing::ht[pid];
