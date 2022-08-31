@@ -1,4 +1,5 @@
 #include "AsyncWriteBuffer.hpp"
+#include "Tracing.hpp"
 
 #include "Exceptions.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -46,6 +47,18 @@ void AsyncWriteBuffer::add(BufferFrame& bf, PID pid)
    assert(u64(&bf.page) % 512 == 0);
    assert(pending_requests <= batch_max_size);
    COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_page_writes[bf.page.dt_id]++; }
+   // -------------------------------------------------------------------------------------
+   PARANOID_BLOCK()
+   {
+      if (FLAGS_pid_tracing) {
+         Tracing::mutex.lock();
+         if (Tracing::ht.contains(pid)) {
+            auto& entry = Tracing::ht[pid];
+            ensure(std::get<0>(entry) == bf.page.dt_id);
+         }
+         Tracing::mutex.unlock();
+      }
+   }
    // -------------------------------------------------------------------------------------
    auto slot = pending_requests++;
    write_buffer_commands[slot].bf = &bf;

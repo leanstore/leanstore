@@ -179,7 +179,7 @@ BufferFrame& BufferManager::allocatePage()
 {
    // Pick a pratition randomly
    Partition& partition = randomPartition();
-   BufferFrame& free_bf = partition.dram_free_list.pop();
+   BufferFrame& free_bf = partition.dram_free_list.tryPop();
    PID free_pid = partition.nextPID();
    assert(free_bf.header.state == BufferFrame::STATE::FREE);
    // -------------------------------------------------------------------------------------
@@ -261,14 +261,15 @@ void BufferManager::evictLastPage()
 void BufferManager::reclaimPage(BufferFrame& bf)
 {
    Partition& partition = getPartition(bf.header.pid);
-   partition.freePage(bf.header.pid);
+   if (FLAGS_recycle_pages) {
+      partition.freePage(bf.header.pid);
+   }
    // -------------------------------------------------------------------------------------
    if (bf.header.is_being_written_back) {
       // DO NOTHING ! we have a garbage collector ;-)
       bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
       bf.header.latch.mutex.unlock();
    } else {
-      Partition& partition = getPartition(bf.header.pid);
       bf.reset();
       bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
       bf.header.latch.mutex.unlock();
@@ -303,7 +304,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
    // -------------------------------------------------------------------------------------
    auto frame_handler = partition.io_ht.lookup(pid);
    if (!frame_handler) {
-      BufferFrame& bf = randomPartition().dram_free_list.tryPop(g_guard);
+      BufferFrame& bf = randomPartition().dram_free_list.tryPop();
       IOFrame& io_frame = partition.io_ht.insert(pid);
       assert(bf.header.state == BufferFrame::STATE::FREE);
       bf.header.latch.assertNotExclusivelyLatched();

@@ -19,12 +19,12 @@ class Tracing
 {
   public:
    static std::mutex mutex;
-   static std::unordered_map<PID, u64> pid_tracing;
+   static std::unordered_map<PID, std::tuple<DTID, u64>> ht;
    static void printStatus(PID pid)
    {
       mutex.lock();
-      if (pid_tracing.contains(pid)) {
-         cout << pid << " was written out: " << pid_tracing[pid] << " times" << endl;
+      if (ht.contains(pid)) {
+         cout << pid << " was written out: " << std::get<1>(ht[pid]) << " times form DT: " << std::get<0>(ht[pid]) << endl;
       } else {
          cout << pid << " was never written out" << endl;
       }

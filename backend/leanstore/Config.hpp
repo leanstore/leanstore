@@ -66,6 +66,7 @@ DECLARE_string(tag);
 DECLARE_bool(optimistic_parent_pointer);
 DECLARE_bool(out_of_place);
 DECLARE_uint64(replacement_chunk_size);
+DECLARE_bool(recycle_pages);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(wal);
 DECLARE_bool(wal_rfa);

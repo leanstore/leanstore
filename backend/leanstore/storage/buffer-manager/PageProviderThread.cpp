@@ -207,10 +207,10 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          // -------------------------------------------------------------------------------------
          if (FLAGS_pid_tracing) {
             Tracing::mutex.lock();
-            if (Tracing::pid_tracing.contains(evicted_pid)) {
-               Tracing::pid_tracing[evicted_pid]++;
+            if (Tracing::ht.contains(evicted_pid)) {
+               std::get<1>(Tracing::ht[evicted_pid])++;
             } else {
-               Tracing::pid_tracing[evicted_pid] = 1;
+               Tracing::ht[evicted_pid] = {dt_id, 1};
             }
             Tracing::mutex.unlock();
          }
