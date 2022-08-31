@@ -25,6 +25,11 @@ ENDIF(SANI)
 target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic tabluate rapidjson ${Boost_LIBRARIES}) #tbb
 
 # ---------------------------------------------------------------------------
+OPTION(PARANOID "Enable sanity checks in release mode" OFF)
+IF(PARANOID)
+  target_compile_definitions(leanstore PUBLIC PARANOID)
+ENDIF(PARANOID)
+# ---------------------------------------------------------------------------
 SET(COUNTERS_LEVEL "all" CACHE STRING "Which counters to leave in leanstore build")
 IF(COUNTERS_LEVEL STREQUAL "all")
   target_compile_definitions(leanstore PUBLIC MACRO_COUNTERS_ALL)

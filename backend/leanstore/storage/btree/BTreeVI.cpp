@@ -116,7 +116,34 @@ OP_RESULT BTreeVI::lookupOptimistic(const u8* key, const u16 key_length, functio
             }
          } else {
             leaf.recheck();
-            raise(SIGTRAP);
+            PARANOID_BLOCK()
+            {
+               const PID pid = leaf.bf->header.pid;
+               leaf.recheck();
+               cout << "not found" << endl;
+               leanstore::storage::Tracing::printStatus(pid);
+               HybridPageGuard<BTreeNode> p_guard(meta_node_bf);
+               HybridPageGuard<BTreeNode> target_guard;
+               target_guard = HybridPageGuard<BTreeNode>(p_guard, p_guard->upper);
+               // -------------------------------------------------------------------------------------
+               u16 volatile level = 0;
+               // -------------------------------------------------------------------------------------
+               while (!target_guard->is_leaf) {
+                  s32 pos = target_guard->lowerBound<false>(key, key_length);
+                  Swip<BTreeNode>* c_swip = nullptr;
+                  if (pos == target_guard->count)
+                     c_swip = &target_guard->upper;
+                  else
+                     c_swip = &target_guard->getChild(pos);
+                  p_guard = std::move(target_guard);
+                  target_guard = HybridPageGuard(p_guard, *c_swip);
+                  level = level + 1;
+                  explainWhen(target_guard->is_leaf);
+               }
+               // -------------------------------------------------------------------------------------
+               raise(SIGTRAP);
+               p_guard.unlock();
+            }
             jumpmu_return OP_RESULT::NOT_FOUND;
          }
       }

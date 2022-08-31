@@ -2,6 +2,7 @@
 #include "BufferFrame.hpp"
 #include "BufferManager.hpp"
 #include "Exceptions.hpp"
+#include "Tracing.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
@@ -118,8 +119,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                   }
                }
                // -------------------------------------------------------------------------------------
-               assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
-               assert(parent_handler.parent_guard.latch != reinterpret_cast<HybridLatch*>(0x99));
+               paranoid(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
+               paranoid(parent_handler.parent_guard.latch != reinterpret_cast<HybridLatch*>(0x99));
                COUNTERS_BLOCK()
                {
                   find_parent_end = std::chrono::high_resolution_clock::now();
@@ -142,11 +143,11 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                      BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
                      BMExclusiveGuard r_x_guard(r_guard);
                      // -------------------------------------------------------------------------------------
-                     assert(r_buffer->header.pid == pid);
-                     assert(r_buffer->header.state == BufferFrame::STATE::HOT);
-                     assert(r_buffer->header.is_being_written_back == false);
-                     assert(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
-                     assert(parent_handler.swip.bf == r_buffer);
+                     paranoid(r_buffer->header.pid == pid);
+                     paranoid(r_buffer->header.state == BufferFrame::STATE::HOT);
+                     paranoid(r_buffer->header.is_being_written_back == false);
+                     paranoid(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
+                     paranoid(parent_handler.swip.bf == r_buffer);
                      // -------------------------------------------------------------------------------------
                      r_buffer->header.state = BufferFrame::STATE::COOL;
                      parent_handler.swip.cool();  // Cool the pointing swip before unlocking the current bf
@@ -178,7 +179,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             }
          }
          // -------------------------------------------------------------------------------------
-         assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
+         paranoid(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
          BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
          c_guard.guard.toExclusive();
          // -------------------------------------------------------------------------------------
@@ -187,10 +188,12 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          }
          // -------------------------------------------------------------------------------------
          ensure(!bf.isDirty());
-         assert(!bf.header.is_being_written_back);
-         // Reclaim buffer frame
-         assert(bf.header.state == BufferFrame::STATE::COOL);
-         parent_handler.swip.evict(bf.header.pid);
+         paranoid(!bf.header.is_being_written_back);
+         paranoid(bf.header.state == BufferFrame::STATE::COOL);
+         paranoid(parent_handler.swip.isCOOL());
+         // -------------------------------------------------------------------------------------
+         const PID evicted_pid = bf.header.pid;
+         parent_handler.swip.evict(evicted_pid);
          // -------------------------------------------------------------------------------------
          // Reclaim buffer frame
          bf.reset();
@@ -200,6 +203,16 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
          freed_bfs_batch.add(bf);
          if (freed_bfs_batch.size() <= std::min<u64>(FLAGS_worker_threads, 128)) {
             freed_bfs_batch.push(current_partition);
+         }
+         // -------------------------------------------------------------------------------------
+         if (FLAGS_pid_tracing) {
+            Tracing::mutex.lock();
+            if (Tracing::pid_tracing.contains(evicted_pid)) {
+               Tracing::pid_tracing[evicted_pid]++;
+            } else {
+               Tracing::pid_tracing[evicted_pid] = 1;
+            }
+            Tracing::mutex.unlock();
          }
          // -------------------------------------------------------------------------------------
          COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; }
@@ -228,7 +241,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                if (!async_write_buffer.full()) {
                   {
                      BMExclusiveGuard ex_guard(o_guard);
-                     assert(!cooled_bf->header.is_being_written_back);
+                     paranoid(!cooled_bf->header.is_being_written_back);
                      cooled_bf->header.is_being_written_back.store(true, std::memory_order_release);
                      if (FLAGS_crc_check) {
                         cooled_bf->header.crc = utils::CRC(cooled_bf->page.dt, EFFECTIVE_PAGE_SIZE);
@@ -237,8 +250,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                      PID wb_pid = cooled_bf_pid;
                      if (FLAGS_out_of_place) {
                         wb_pid = getPartition(cooled_bf_pid).nextPID();
-                        assert(getPartitionID(cooled_bf->header.pid) == p_i);
-                        assert(getPartitionID(wb_pid) == p_i);
+                        paranoid(getPartitionID(cooled_bf->header.pid) == p_i);
+                        paranoid(getPartitionID(wb_pid) == p_i);
                      }
                      async_write_buffer.add(*cooled_bf, wb_pid);
                   }
@@ -266,8 +279,8 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
                    {
                       BMOptimisticGuard o_guard(written_bf.header.latch);
                       BMExclusiveGuard ex_guard(o_guard);
-                      assert(written_bf.header.is_being_written_back);
-                      assert(written_bf.header.last_written_plsn < written_lsn);
+                      ensure(written_bf.header.is_being_written_back);
+                      ensure(written_bf.header.last_written_plsn < written_lsn);
                       // -------------------------------------------------------------------------------------
                       if (FLAGS_out_of_place) {  // For recovery, so much has to be done here...
                          getPartition(getPartitionID(written_bf.header.pid)).freePage(written_bf.header.pid);

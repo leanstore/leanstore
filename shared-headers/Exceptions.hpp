@@ -35,6 +35,18 @@ Generic_Exception(TODO);
                                                                   std::to_string(__LINE__) + " msg: " + std::string(#e))         \
                               : (void)0)
 
+#ifdef PARANOID
+#define paranoid(e) always_check(e);
+#define PARANOID_BLOCK() if constexpr (true)
+#else
+#ifdef DEBUG
+#define PARANOID_BLOCK() if constexpr (true)
+#else
+#define PARANOID_BLOCK() if constexpr (false)
+#endif
+#define paranoid(e) assert(e)
+#endif
+
 #ifdef DEBUG
 #define ensure(e) assert(e);
 #else
