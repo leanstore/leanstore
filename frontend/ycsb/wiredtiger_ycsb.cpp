@@ -27,6 +27,8 @@ DEFINE_uint32(ycsb_warmup_rounds, 0, "");
 DEFINE_bool(ycsb_single_statement_tx, true, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
 // -------------------------------------------------------------------------------------
+DEFINE_bool(print_header, true, "");
+// -------------------------------------------------------------------------------------
 thread_local WT_SESSION* WiredTigerDB::session = nullptr;
 thread_local WT_CURSOR* WiredTigerDB::cursor[20] = {nullptr};
 // -------------------------------------------------------------------------------------
@@ -116,13 +118,17 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    threads.emplace_back([&]() {
       running_threads_counter++;
+      if (FLAGS_print_header) {
+         cout << "t,tag,oltp_committed,oltp_aborted" << endl;
+      }
+      u64 time = 0;
       while (keep_running) {
          u64 total_committed = 0, total_aborted = 0;
          for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
             total_committed += thread_committed[t_i].exchange(0);
             total_aborted += thread_aborted[t_i].exchange(0);
          }
-         cout << total_committed << "," << total_aborted << endl;
+         cout << time++ << "," << FLAGS_tag << "," << total_committed << "," << total_aborted << endl;
          sleep(1);
       }
       running_threads_counter--;
