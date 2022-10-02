@@ -46,6 +46,7 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    chrono::high_resolution_clock::time_point begin, end;
    // -------------------------------------------------------------------------------------
+   // Always init with the maximum number of threads (FLAGS_worker_threads)
    LeanStore db;
    auto& crm = db.getCRManager();
    LeanStoreAdapter<KVTable> table;
