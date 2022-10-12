@@ -81,7 +81,7 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
       // -------------------------------------------------------------------------------------
       for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
          pp_threads.emplace_back(
-             [&, t_i](u64 p_begin, u64 p_end) {
+             [&, t_i]() {
                 if (FLAGS_pin_threads) {
                    utils::pinThisThread(FLAGS_worker_threads + 1 + t_i);
                 } else {
@@ -92,10 +92,8 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
                 if (FLAGS_root) {
                    posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
                 }
-                pageProviderThread(p_begin, p_end);
-             },
-             t_i * partitions_per_thread,
-             ((t_i + 1) * partitions_per_thread) + ((t_i == FLAGS_pp_threads - 1) ? extra_partitions_for_last_thread : 0));
+                pageProviderThread();
+             });
          bg_threads_counter++;
       }
       for (auto& thread : pp_threads) {

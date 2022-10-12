@@ -65,7 +65,7 @@ class BufferManager
   private:
    // -------------------------------------------------------------------------------------
    // Threads managements
-   void pageProviderThread(u64 p_begin, u64 p_end);  // [p_begin, p_end)
+   void pageProviderThread();  // [p_begin, p_end)
    atomic<u64> bg_threads_counter = {0};
    atomic<bool> bg_threads_keep_running = {true};
    atomic<double> last_min = 0;
@@ -149,7 +149,7 @@ class BufferManager
    bool childrenEvicted(BMOptimisticGuard& r_guard, BufferFrame& r_buffer);
    void checkGoodBufferFrames(Partition& partition, std::pair<double, double> threshold, WATT_TIME curr_time);
    BufferFrame* getNextBufferFrame(Partition& partition);
-   void wait_for_start(u64 p_begin, u64 p_end, const std::vector<Partition*>& partitions) const;
+   void wait_for_start(const std::vector<Partition*>& partitions) const;
 };                                                    // namespace storage
 // -------------------------------------------------------------------------------------
 class BMC

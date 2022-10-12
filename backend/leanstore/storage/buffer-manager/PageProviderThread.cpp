@@ -23,7 +23,7 @@ namespace leanstore
 {
 namespace storage
 {
-void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_end)
+void BufferManager::pageProviderThread()  // [p_begin, p_end)
 {
    // Init Worker itself
    pthread_setname_np(pthread_self(), "page_provider");
@@ -53,11 +53,16 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    if(evicted_limit <1){
       evicted_limit = 1;
    }
-   wait_for_start(p_begin, p_end, partitions);
+   wait_for_start(partitions);
    while (bg_threads_keep_running) {
-      for (u64 p_i = p_begin; p_i < p_end; p_i++) {
+      for (u64 p_i = 0; p_i < partitions.size(); p_i++) {
          Partition& myPart = *partitions[p_i];
-         if (myPart.partition_size < myPart.max_partition_size - 10) {
+         if(myPart.is_page_provided.exchange(true)){
+            // alreaddy handled;
+            continue;
+         }
+            if (myPart.partition_size < myPart.max_partition_size - 10) {
+            myPart.is_page_provided = false;
             continue;
          }
          std::pair<double, double> min = findThreshold(sampleSizes[p_i]);
@@ -67,6 +72,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             total_evictions += evicted_limit;
             leanstore::storage::BufferFrame::globalTrackerTime++;
          }
+         myPart.is_page_provided = false;
       }
    }
 
@@ -76,21 +82,20 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
    // Finish
    bg_threads_counter--;
 }
-void BufferManager::wait_for_start(u64 p_begin, u64 p_end, const std::vector<Partition*>& partitions) const
+void BufferManager::wait_for_start(const std::vector<Partition*>& partitions) const
 {
-   PID pid = p_begin;
    u64 wait_till = partitions[0]->max_partition_size*0.95;
    cout << "mx_part_size: " << partitions[0]->max_partition_size <<endl;
    while(bg_threads_keep_running) {
-      Partition& myPart = *partitions[pid++];
-      if (pid >= p_end) {
-         pid = p_begin;
-      }
-      if (myPart.partition_size > wait_till) {
-         break;
+      for(Partition* part: partitions) {
+         Partition& myPart = *part;
+         myPart.is_page_provided = false;
+         if (myPart.partition_size > wait_till) {
+            cout << "Start pageproviding" << endl;
+            return;
+         }
       }
    }
-   cout << "Start pageproviding" <<endl;
 }
 
 bool page_is_evictable(BufferFrame& page) {

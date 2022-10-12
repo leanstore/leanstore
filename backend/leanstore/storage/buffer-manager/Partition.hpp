@@ -69,6 +69,7 @@ struct Partition {
    std::mutex next_mutex, good_mutex;
    std::vector<BufferFrame*> next_queue, good_queue;
    std::atomic<WATT_TIME> last_good_check = {0};
+   std::atomic<bool> is_page_provided = {false};
    const u64 max_partition_size;
    atomic<u64> partition_size = 0;
    const u64 next_bfs_limit;
