@@ -19,6 +19,7 @@ DECLARE_uint32(epoch_size);
 DECLARE_uint32(write_costs);
 DECLARE_uint32(watt_log_size);
 DECLARE_uint32(watt_samples);
+DECLARE_bool(watt_history);
 DECLARE_bool(trunc);
 DECLARE_bool(root);
 DECLARE_bool(print_debug);

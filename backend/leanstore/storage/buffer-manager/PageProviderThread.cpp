@@ -337,7 +337,9 @@ void BufferManager::nonDirtyEvict(BufferFrame& bf, BMOptimisticGuard& guard, Fre
    parent_handler.swip.evict(bf.header.pid);
    // -------------------------------------------------------------------------------------
    // Reclaim buffer frame
-   bf.header.watt_backlog.store(bf.header.pid, bf.header.tracker);
+   if(FLAGS_watt_history){
+      bf.header.watt_backlog.store(bf.header.pid, bf.header.tracker);
+   }
    bf.reset();
    bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
    bf.header.latch.mutex.unlock();
