@@ -190,15 +190,16 @@ void LeanStore::print_tx_console(profiling::BMTable& bm_table,
 {
    if (FLAGS_print_tx_console) {
       const double instr_per_tx = cpu_table.workers_agg_events["instr"] / tx;
+      const double br_per_tx = cpu_table.workers_agg_events["br-miss"] / tx;
       const double cycles_per_tx = cpu_table.workers_agg_events["cycle"] / tx;
       const double l1_per_tx = cpu_table.workers_agg_events["L1-miss"] / tx;
       const double lc_per_tx = cpu_table.workers_agg_events["LLC-miss"] / tx;
       Table table, head;
-      head.add_row({"t", "TX P", "TX A", "TX C", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC", "WAL T", "WAL R G",
+      head.add_row({"t", "TX P", "TX A", "TX C", "W MiB", "R MiB", "Instrs/TX", "Branch miss/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC", "WAL T", "WAL R G",
                      "WAL W G", "GCT Rounds", "FreeListLength", "Part0", "Part1", "last_min", "touches", "evictions"});
       u64 free = buffer_manager->free_list.counter, part0 = buffer_manager->getPartition(0).partition_size, part1 = buffer_manager->getPartition(1).partition_size;
       table.add_row({to_string(seconds), cr_table.get("0", "tx"), cr_table.get("0", "tx_abort"), cr_table.get("0", "gct_committed_tx"),
-                     bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), to_string(instr_per_tx), to_string(cycles_per_tx),
+                     bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), to_string(instr_per_tx), to_string(br_per_tx), to_string(cycles_per_tx),
                      to_string(cpu_table.workers_agg_events["CPU"]), to_string(l1_per_tx), to_string(lc_per_tx),
                      cr_table.get("0", "wal_total"), cr_table.get("0", "wal_read_gib"), cr_table.get("0", "wal_write_gib"),
                      cr_table.get("0", "gct_rounds"), to_string(free), to_string(part0), to_string(part1), to_string(buffer_manager->last_min), bm_table.get("0", "touches"), bm_table.get("0", "evicted_pages")});
@@ -207,8 +208,6 @@ void LeanStore::print_tx_console(profiling::BMTable& bm_table,
       table.format().width(10);
       head.column(0).format().width(5);
       table.column(0).format().width(5);
-      head.column(1).format().width(10);
-      table.column(1).format().width(10);
       // -------------------------------------------------------------------------------------
       auto print_table = [](Table& table, bool printAllLines = false) {
          stringstream ss;
