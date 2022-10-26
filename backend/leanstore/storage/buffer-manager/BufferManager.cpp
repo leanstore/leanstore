@@ -75,9 +75,7 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
    // Page Provider threads
    if (FLAGS_pp_threads) {  // make it optional for pure in-memory experiments
       std::vector<thread> pp_threads;
-      const u64 partitions_per_thread = partitions_count / FLAGS_pp_threads;
       ensure(FLAGS_pp_threads <= partitions_count);
-      const u64 extra_partitions_for_last_thread = partitions_count % FLAGS_pp_threads;
       // -------------------------------------------------------------------------------------
       for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
          pp_threads.emplace_back(
