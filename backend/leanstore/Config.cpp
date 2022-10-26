@@ -25,6 +25,7 @@ DEFINE_uint32(print_debug_interval_s, 1, "");
 DEFINE_bool(profiling, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(worker_threads, 4, "");
+DEFINE_uint32(creator_threads, 4, "");
 DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
 // -------------------------------------------------------------------------------------

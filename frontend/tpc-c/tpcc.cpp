@@ -83,6 +83,9 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    TPCCWorkload<LeanStoreAdapter> tpcc(warehouse, district, customer, customerwdl, history, neworder, order, order_wdc, orderline, item, stock,
                                        FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove, FLAGS_tpcc_cross_warehouses);
+   atomic<u64> keep_running = true;
+   atomic<u64> running_threads_counter = 0;
+
    if (!FLAGS_recover) {
       crm.scheduleJobSync(0, [&]() {
          cr::Worker::my().refreshSnapshot();
@@ -92,34 +95,34 @@ int main(int argc, char** argv)
          cr::Worker::my().commitTX();
       });
       std::atomic<u32> g_w_id = 1;
-      for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-         crm.scheduleJobAsync(t_i, [&]() {
-            cr::Worker::my().refreshSnapshot();
-            while (true) {
-               u32 w_id = g_w_id++;
-               if (w_id > FLAGS_tpcc_warehouse_count) {
-                  return;
-               }
-               cr::Worker::my().startTX();
-               tpcc.loadStock(w_id);
-               tpcc.loadDistrinct(w_id);
-               for (Integer d_id = 1; d_id <= 10; d_id++) {
-                  tpcc.loadCustomer(w_id, d_id);
-                  tpcc.loadOrders(w_id, d_id);
-               }
-               cr::Worker::my().commitTX();
-            }
-         });
+      std::vector<thread> worker_threads;
+      for (u32 t_i = 0; t_i < FLAGS_creator_threads; t_i++) {
+         worker_threads.emplace_back(
+             [&, t_i]() {
+                while (keep_running) {
+                   u32 w_id = g_w_id++;
+                   if (w_id > FLAGS_tpcc_warehouse_count) {
+                      return;
+                   }
+                   tpcc.loadStock(w_id);
+                   tpcc.loadDistrinct(w_id);
+                   for (Integer d_id = 1; d_id <= 10; d_id++) {
+                      tpcc.loadCustomer(w_id, d_id);
+                      tpcc.loadOrders(w_id, d_id);
+                   }
+                }
+          });
+
       }
-      crm.joinAll();
+      for (auto& thread : worker_threads) {
+         thread.join();
+      }
    }
    // -------------------------------------------------------------------------------------
    double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << "data loaded - consumed space in GiB = " << gib << endl;
    crm.scheduleJobSync(0, [&]() { cout << "Warehouse pages = " << warehouse.btree->countPages() << endl; });
    // -------------------------------------------------------------------------------------
-   atomic<u64> keep_running = true;
-   atomic<u64> running_threads_counter = 0;
    vector<thread> threads;
    auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
    db.startProfilingThread();

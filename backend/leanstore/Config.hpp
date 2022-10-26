@@ -5,6 +5,7 @@ DECLARE_double(dram_gib);
 DECLARE_double(ssd_gib);
 DECLARE_string(ssd_path);
 DECLARE_uint32(worker_threads);
+DECLARE_uint32(creator_threads);
 DECLARE_bool(pin_threads);
 DECLARE_bool(smt);
 DECLARE_string(csv_path);

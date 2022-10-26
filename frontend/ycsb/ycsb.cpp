@@ -52,24 +52,25 @@ int main(int argc, char** argv)
    if (!FLAGS_recover) {
       cout << "Inserting " << FLAGS_ycsb_tuple_count << " values" << endl;
       begin = chrono::high_resolution_clock::now();
-      utils::Parallelize::range(FLAGS_worker_threads, FLAGS_ycsb_tuple_count, [&](u64 t_i, u64 begin, u64 end) {
-         crm.scheduleJobAsync(t_i, [&, begin, end]() {
-            for (u64 i = begin; i < end; i++) {
-               YCSBPayload payload;
-               utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
-               YCSBKey& key = i;
-               cr::Worker::my().startTX();
-               table.insert({key}, {payload});
-               cr::Worker::my().commitTX();
-            }
-         });
-      });
-      while(!crm.allJoinable()){
+      std::atomic<bool> creating = true;
+      crm.scheduleJobAsync(0, [&]() {
+         while(creating){
+
          sleep(1);
          const u64 written_pages = db.getBufferManager().consumedPages();
          const u64 mib = written_pages * PAGE_SIZE / 1024 / 1024;
          cout << "current inserted volume: (pages, MiB) = (" << written_pages << ", " << mib << ")" << endl;
-      }
+      }});
+
+      utils::Parallelize::parallelRange(FLAGS_ycsb_tuple_count, [&](u64 begin, u64 end) {
+            for (u64 i = begin; i < end; i++) {
+               YCSBPayload payload;
+               utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
+               YCSBKey& key = i;
+               table.insert({key}, {payload});
+            }
+      });
+      creating=false;
       crm.joinAll();
       end = chrono::high_resolution_clock::now();
       cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
