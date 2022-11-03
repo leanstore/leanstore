@@ -276,7 +276,9 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
       bf.header.tracker = BufferFrame::Header::Tracker();
-      bf.header.watt_backlog.load(pid, bf.header.tracker);
+      if(FLAGS_watt_history){
+         bf.header.watt_backlog.load(pid, bf.header.tracker);
+      }
       // -------------------------------------------------------------------------------------
       jumpmuTry()
       {

@@ -199,6 +199,11 @@ struct BufferFrame {
             store.toTracker(into);
          }
          void checkSizes(PID page, [[maybe_unused]] bool init = false){
+            if(!FLAGS_watt_history && !init){
+               cerr << "ERROR: checkSizes called without watt_history" << endl;
+               assert(false);
+               std::system_error();
+            }
             if(currSize <= page){
                cout << "Resizing to " << page << endl;
                if(!init){
