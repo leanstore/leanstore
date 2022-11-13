@@ -56,20 +56,22 @@ int main(int argc, char** argv)
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
                                     : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
-   cout << "Inserting " << ycsb_tuple_count << " values" << endl;
-   begin = chrono::high_resolution_clock::now();
-   leanstore::utils::Parallelize::range(FLAGS_worker_threads, ycsb_tuple_count, [&](u64 t_i, u64 begin, u64 end) {
-      wiredtiger_db.prepareThread();
-      for (u64 i = begin; i < end; i++) {
+   if(!FLAGS_recover) {
+     cout << "Inserting " << ycsb_tuple_count << " values" << endl;
+     begin = chrono::high_resolution_clock::now();
+     leanstore::utils::Parallelize::range(FLAGS_worker_threads, ycsb_tuple_count, [&](u64 t_i, u64 begin, u64 end) {
+       wiredtiger_db.prepareThread();
+       for (u64 i = begin; i < end; i++) {
          YCSBPayload payload;
          leanstore::utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
          YCSBKey& key = i;
          table.insert({key}, {payload});
-      }
-   });
-   end = chrono::high_resolution_clock::now();
-   cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-   cout << calculateMTPS(begin, end, ycsb_tuple_count) << " M tps" << endl;
+       }
+     });
+     end = chrono::high_resolution_clock::now();
+     cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
+     cout << calculateMTPS(begin, end, ycsb_tuple_count) << " M tps" << endl;
+   }
    // -------------------------------------------------------------------------------------
    std::vector<thread> threads;
    auto zipf_random = std::make_unique<leanstore::utils::ScrambledZipfGenerator>(0, ycsb_tuple_count, FLAGS_zipf_factor);

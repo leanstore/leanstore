@@ -60,41 +60,43 @@ int main(int argc, char** argv)
                                         FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove,
                                         should_tpcc_driver_handle_isolation_anomalies, FLAGS_tpcc_warehouse_affinity);
    // -------------------------------------------------------------------------------------
-   wiredtiger_db.startTX();
    std::vector<thread> threads;
    std::atomic<u32> g_w_id = 1;
-   tpcc.loadItem();
-   tpcc.loadWarehouse();
-   wiredtiger_db.commitTX();
-   wiredtiger_db.closeSession();
+   if(!FLAGS_recover) {
+     wiredtiger_db.startTX();
+     tpcc.loadItem();
+     tpcc.loadWarehouse();
+     wiredtiger_db.commitTX();
+     wiredtiger_db.closeSession();
 
-   for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-      threads.emplace_back([&]() {
+     for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+       threads.emplace_back([&]() {
          wiredtiger_db.prepareThread();
          while (true) {
-            const u32 w_id = g_w_id++;
-            if (w_id > FLAGS_tpcc_warehouse_count) {
-               return;
-            }
-            jumpmuTry()
-            {
+           const u32 w_id = g_w_id++;
+           if (w_id > FLAGS_tpcc_warehouse_count) {
+             return;
+           }
+           jumpmuTry()
+             {
                // wiredtiger_db.session->begin_transaction(wiredtiger_db.session, NULL);
                tpcc.loadStock(w_id);
                tpcc.loadDistrinct(w_id);
                for (Integer d_id = 1; d_id <= 10; d_id++) {
-                  tpcc.loadCustomer(w_id, d_id);
-                  tpcc.loadOrders(w_id, d_id);
+                 tpcc.loadCustomer(w_id, d_id);
+                 tpcc.loadOrders(w_id, d_id);
                }
                // wiredtiger_db.session->commit_transaction(wiredtiger_db.session, NULL);
-            }
-            jumpmuCatch() { UNREACHABLE(); }
+             }
+           jumpmuCatch() { UNREACHABLE(); }
          }
-      });
+       });
+     }
+     for (auto& thread : threads) {
+       thread.join();
+     }
+     threads.clear();
    }
-   for (auto& thread : threads) {
-      thread.join();
-   }
-   threads.clear();
    // -------------------------------------------------------------------------------------
    atomic<u64> running_threads_counter = 0;
    atomic<u64> keep_running = true;

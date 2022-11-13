@@ -26,6 +26,7 @@ DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
 DEFINE_uint32(ycsb_warmup_rounds, 0, "");
 DEFINE_bool(ycsb_single_statement_tx, true, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
+DEFINE_string(rocks_db, "none", "none/pessimistic/optimistic");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(print_header, true, "");
 // -------------------------------------------------------------------------------------
@@ -48,26 +49,42 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    chrono::high_resolution_clock::time_point begin, end;
    // -------------------------------------------------------------------------------------
-   RocksDB rocks_db;
+   RocksDB::DB_TYPE type;
+   if (FLAGS_rocks_db == "none") {
+      type = RocksDB::DB_TYPE::DB;
+   } else if (FLAGS_rocks_db == "pessimistic") {
+      type = RocksDB::DB_TYPE::TransactionDB;
+   } else if (FLAGS_rocks_db == "optimistic") {
+      // TODO: still WIP
+      UNREACHABLE();
+      type = RocksDB::DB_TYPE::OptimisticDB;
+   } else {
+      UNREACHABLE();
+   }
+   RocksDB rocks_db(type);
    rocks_db.prepareThread();
    RocksDBAdapter<YCSBTable> table(rocks_db);
    // -------------------------------------------------------------------------------------
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
                                     : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
-   cout << "Inserting " << ycsb_tuple_count << " values" << endl;
-   begin = chrono::high_resolution_clock::now();
-   leanstore::utils::Parallelize::range(FLAGS_worker_threads, ycsb_tuple_count, [&](u64 t_i, u64 begin, u64 end) {
-      for (u64 i = begin; i < end; i++) {
+   if(!FLAGS_recover) {
+     cout << "Inserting " << ycsb_tuple_count << " values" << endl;
+     begin = chrono::high_resolution_clock::now();
+     leanstore::utils::Parallelize::range(FLAGS_worker_threads, ycsb_tuple_count, [&](u64 t_i, u64 begin, u64 end) {
+       for (u64 i = begin; i < end; i++) {
          YCSBPayload payload;
          leanstore::utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
          YCSBKey& key = i;
+         rocks_db.startTX();
          table.insert({key}, {payload});
-      }
-   });
-   end = chrono::high_resolution_clock::now();
-   cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
-   cout << calculateMTPS(begin, end, ycsb_tuple_count) << " M tps" << endl;
+         rocks_db.commitTX();
+       }
+     });
+     end = chrono::high_resolution_clock::now();
+     cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
+     cout << calculateMTPS(begin, end, ycsb_tuple_count) << " M tps" << endl;
+   }
    // -------------------------------------------------------------------------------------
    std::vector<thread> threads;
    auto zipf_random = std::make_unique<leanstore::utils::ScrambledZipfGenerator>(0, ycsb_tuple_count, FLAGS_zipf_factor);
@@ -95,6 +112,7 @@ int main(int argc, char** argv)
                }
                assert(key < ycsb_tuple_count);
                YCSBPayload result;
+               rocks_db.startTX();
                if (FLAGS_ycsb_read_ratio == 100 || leanstore::utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
                   table.lookup1({key}, [&](const YCSBTable&) {});  // result = record.my_payload;
                } else {
@@ -103,6 +121,7 @@ int main(int argc, char** argv)
                   table.update1(
                       {key}, [&](YCSBTable& rec) { rec.my_payload = result; }, tabular_update_descriptor);
                }
+               rocks_db.commitTX();
                thread_committed[t_i]++;
             }
             jumpmuCatch() { thread_aborted[t_i]++; }

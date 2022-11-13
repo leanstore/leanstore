@@ -68,36 +68,38 @@ int main(int argc, char** argv)
                                      FLAGS_order_wdc_index, FLAGS_tpcc_warehouse_count, FLAGS_tpcc_remove, true, true);
    std::vector<thread> threads;
    std::atomic<u32> g_w_id = 1;
-   rocks_db.startTX();
-   tpcc.loadItem();
-   tpcc.loadWarehouse();
-   rocks_db.commitTX();
-   for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-      threads.emplace_back([&]() {
+   if(!FLAGS_recover) {
+     rocks_db.startTX();
+     tpcc.loadItem();
+     tpcc.loadWarehouse();
+     rocks_db.commitTX();
+     for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+       threads.emplace_back([&]() {
          while (true) {
-            const u32 w_id = g_w_id++;
-            if (w_id > FLAGS_tpcc_warehouse_count) {
-               return;
-            }
-            jumpmuTry()
-            {
+           const u32 w_id = g_w_id++;
+           if (w_id > FLAGS_tpcc_warehouse_count) {
+             return;
+           }
+           jumpmuTry()
+             {
                rocks_db.startTX();
                tpcc.loadStock(w_id);
                tpcc.loadDistrinct(w_id);
                for (Integer d_id = 1; d_id <= 10; d_id++) {
-                  tpcc.loadCustomer(w_id, d_id);
-                  tpcc.loadOrders(w_id, d_id);
+                 tpcc.loadCustomer(w_id, d_id);
+                 tpcc.loadOrders(w_id, d_id);
                }
                rocks_db.commitTX();
-            }
-            jumpmuCatch() { UNREACHABLE(); }
+             }
+           jumpmuCatch() { UNREACHABLE(); }
          }
-      });
+       });
+     }
+     for (auto& thread : threads) {
+       thread.join();
+     }
+     threads.clear();
    }
-   for (auto& thread : threads) {
-      thread.join();
-   }
-   threads.clear();
    // -------------------------------------------------------------------------------------
    atomic<u64> running_threads_counter = 0;
    atomic<u64> keep_running = true;
