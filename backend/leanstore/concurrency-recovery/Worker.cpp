@@ -57,13 +57,6 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
 {
    Transaction prev_tx = active_tx;
    active_tx.stats.start = std::chrono::high_resolution_clock::now();
-   // For single-statement transactions, snapshot isolation and serialization are the same as read committed
-   if (next_tx_type == TX_MODE::SINGLE_STATEMENT && 0) {  // TODO: check consequences on refreshGlobalState & GC
-      if (next_tx_isolation_level > TX_ISOLATION_LEVEL::READ_COMMITTED) {
-         next_tx_isolation_level = TX_ISOLATION_LEVEL::READ_COMMITTED;
-      }
-   }
-   // -------------------------------------------------------------------------------------
    if (FLAGS_wal) {
       active_tx.wal_larger_than_buffer = false;
       logging.current_tx_wal_start = logging.wal_wt_cursor;
@@ -135,9 +128,6 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          if (prev_tx.atLeastSI()) {
             cc.switchToReadCommittedMode();
          }
-         if (next_tx_type != TX_MODE::SINGLE_STATEMENT) {
-            active_tx.start_ts = ConcurrencyControl::global_clock.fetch_add(1);
-         }
          cc.commit_tree.cleanIfNecessary();
       }
    }
@@ -148,9 +138,6 @@ void Worker::commitTX()
    if (activeTX().isDurable()) {
       command_id = 0;  // Reset command_id only on commit and never on abort
       // -------------------------------------------------------------------------------------
-      if (activeTX().isSingleStatement() && active_tx.state != Transaction::STATE::STARTED) {
-         return;  // Skip double commit in case of single statement upsert [hack]
-      }
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
       if (FLAGS_wal_tuple_rfa) {

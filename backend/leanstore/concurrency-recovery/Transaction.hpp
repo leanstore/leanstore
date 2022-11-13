@@ -7,7 +7,7 @@
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
-enum class TX_MODE : u8 { OLAP, OLTP, SINGLE_STATEMENT, INSTANTLY_VISIBLE_BULK_INSERT };
+enum class TX_MODE : u8 { OLAP, OLTP, DETERMINISTIC, INSTANTLY_VISIBLE_BULK_INSERT };
 enum class TX_ISOLATION_LEVEL : u8 { SERIALIZABLE = 3, SNAPSHOT_ISOLATION = 2, READ_COMMITTED = 1, READ_UNCOMMITTED = 0 };
 inline TX_ISOLATION_LEVEL parseIsolationLevel(std::string str)
 {
@@ -53,7 +53,6 @@ struct Transaction {
    bool isOLTP() { return current_tx_mode == TX_MODE::OLTP; }
    bool isReadOnly() { return is_read_only; }
    bool hasWrote() { return has_wrote; }
-   bool isSingleStatement() { return current_tx_mode == TX_MODE::SINGLE_STATEMENT; }
    bool isDurable() { return is_durable; }
    bool atLeastSI() { return current_tx_isolation_level >= TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION; }
    bool isSI() { return current_tx_isolation_level == TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION; }

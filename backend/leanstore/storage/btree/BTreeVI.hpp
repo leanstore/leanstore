@@ -225,6 +225,14 @@ class BTreeVI : public BTreeLL
                       function<bool(const u8* key, u16 key_length, const u8* value, u16 value_length)>,
                       function<void()>) override;
    // -------------------------------------------------------------------------------------
+   OP_RESULT prepareDeterministicUpdate(u8* key, u16 key_length, BTreeExclusiveIterator& iterator);
+   OP_RESULT executeDeterministricUpdate(u8* key,
+                                         u16 key_length,
+                                         BTreeExclusiveIterator& iterator,
+                                         function<void(u8* value, u16 value_size)>,
+                                         UpdateSameSizeInPlaceDescriptor&);
+
+   // -------------------------------------------------------------------------------------
    void create(DTID dtid, Config config, BTreeLL* graveyard_btree)
    {
       this->graveyard = graveyard_btree;
@@ -293,10 +301,7 @@ class BTreeVI : public BTreeLL
             iterator.assembleKey();
             Slice s_key = iterator.key();
             auto reconstruct = reconstructTuple(s_key, iterator.value(), [&](Slice value) {
-               COUNTERS_BLOCK()
-               {
-                  WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP();
-               }
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP(); }
                keep_scanning = callback(s_key.data(), s_key.length(), value.data(), value.length());
                counter++;
             });
@@ -322,10 +327,7 @@ class BTreeVI : public BTreeLL
          }
          jumpmu_return OP_RESULT::OK;
       }
-      jumpmuCatch()
-      {
-         ensure(false);
-      }
+      jumpmuCatch() { ensure(false); }
       UNREACHABLE();
       jumpmu_return OP_RESULT::OTHER;
    }
@@ -372,10 +374,7 @@ class BTreeVI : public BTreeLL
          g_range();
          auto take_from_oltp = [&]() {
             reconstructTuple(iterator.key(), iterator.value(), [&](Slice value) {
-               COUNTERS_BLOCK()
-               {
-                  WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP();
-               }
+               COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP(); }
                keep_scanning = callback(iterator.key().data(), iterator.key().length(), value.data(), value.length());
             });
             if (!keep_scanning) {
@@ -403,10 +402,7 @@ class BTreeVI : public BTreeLL
                g_iterator.assembleKey();
                Slice g_key = g_iterator.key();
                reconstructTuple(g_key, g_iterator.value(), [&](Slice value) {
-                  COUNTERS_BLOCK()
-                  {
-                     WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP();
-                  }
+                  COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP(); }
                   keep_scanning = callback(g_key.data(), g_key.length(), value.data(), value.length());
                });
                if (!keep_scanning) {
@@ -424,10 +420,7 @@ class BTreeVI : public BTreeLL
                   }
                } else {
                   reconstructTuple(g_key, g_iterator.value(), [&](Slice value) {
-                     COUNTERS_BLOCK()
-                     {
-                        WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP();
-                     }
+                     COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_scan_callback[dt_id] += cr::activeTX().isOLAP(); }
                      keep_scanning = callback(g_key.data(), g_key.length(), value.data(), value.length());
                   });
                   if (!keep_scanning) {
@@ -440,10 +433,7 @@ class BTreeVI : public BTreeLL
             }
          }
       }
-      jumpmuCatch()
-      {
-         ensure(false);
-      }
+      jumpmuCatch() { ensure(false); }
       UNREACHABLE();
       jumpmu_return OP_RESULT::OTHER;
    }

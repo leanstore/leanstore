@@ -212,9 +212,6 @@ bool Worker::ConcurrencyControl::isVisibleForMe(WORKERID other_worker_id, u64 tx
    const bool is_commit_ts = tx_ts & MSB;
    const TXID committed_ts = (tx_ts & MSB) ? (tx_ts & MSB_MASK) : 0;
    const TXID start_ts = tx_ts & MSB_MASK;
-   if (is_commit_ts && activeTX().isSingleStatement()) {
-      return true;
-   }
    if (!to_write && activeTX().isReadUncommitted()) {
       return true;
    }
