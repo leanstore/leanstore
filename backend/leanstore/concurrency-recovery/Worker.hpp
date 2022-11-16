@@ -11,12 +11,12 @@
 #include <functional>
 #include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <queue>
 #include <shared_mutex>
 #include <vector>
-#include <memory>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -49,7 +49,6 @@ struct Worker {
    static constexpr u64 CLEAN_BITS_MASK = ~(LATCH_BIT | OLAP_BIT | RC_BIT);
    // TXID : [LATCH_BIT | RC_BIT | OLAP_BIT | id];
    // LWM : [LATCH_BIT | RC_BIT | OLTP_OLAP_SAME_BIT | id];
-   static constexpr s64 WORKER_WAL_SIZE = 1024 * 1024 * 10;
    static constexpr s64 CR_ENTRY_SIZE = sizeof(WALMetaEntry);
    // -------------------------------------------------------------------------------------
    // Worker Local
@@ -59,6 +58,7 @@ struct Worker {
                                                    // skewing and undermining RFA
       static atomic<u64> global_min_commit_ts_flushed;
       // -------------------------------------------------------------------------------------
+      s64 WORKER_WAL_SIZE = 0;
       WALMetaEntry* active_mt_entry;
       WALDTEntry* active_dt_entry;
       // Shared between Group Committer and Worker
@@ -93,8 +93,8 @@ struct Worker {
       u64 wal_wt_cursor = 0;
       u64 wal_buffer_round = 0, wal_next_to_clean = 0;
       // -------------------------------------------------------------------------------------
-      atomic<u64> wal_gct_cursor = 0;               // GCT->W
-      alignas(512) u8 wal_buffer[WORKER_WAL_SIZE];  // W->GCT
+      atomic<u64> wal_gct_cursor = 0;  // GCT->W
+      alignas(512) u8* wal_buffer;     // W->GCT
       LID wal_lsn_counter = 0;
       LID wt_gsn_clock;
       LID rfa_gsn_flushed;
@@ -264,11 +264,7 @@ struct Worker {
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
    // -------------------------------------------------------------------------------------
-   // Shared with all workers
-
-  public:
-   // -------------------------------------------------------------------------------------
-   inline WORKERID workerID() { return worker_id; }
+   // Experiments hacks
 
   public:
    // -------------------------------------------------------------------------------------
@@ -279,6 +275,7 @@ struct Worker {
    void commitTX();
    void abortTX();
    void shutdown();
+   inline WORKERID workerID() { return worker_id; }
 };
 // -------------------------------------------------------------------------------------
 // Shortcuts

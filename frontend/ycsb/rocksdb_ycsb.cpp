@@ -1,7 +1,7 @@
 #include <gflags/gflags.h>
 
 #include "../shared/RocksDBAdapter.hpp"
-#include "Schema.hpp"
+#include "../shared/Schema.hpp"
 #include "Units.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"

@@ -115,7 +115,7 @@ void CRManager::groupCommiter2()
                   {
                      // ------------XXXXXXXXX
                      const u64 lower_offset = utils::downAlign(worker.logging.wal_gct_cursor);
-                     const u64 upper_offset = Worker::WORKER_WAL_SIZE;
+                     const u64 upper_offset = FLAGS_wal_buffer_size;
                      const u64 size_aligned = upper_offset - lower_offset;
                      // -------------------------------------------------------------------------------------
                      if (FLAGS_wal_pwrite) {

@@ -1,5 +1,5 @@
 #include "../shared/LeanStoreAdapter.hpp"
-#include "Schema.hpp"
+#include "../shared/Schema.hpp"
 #include "Units.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
@@ -25,6 +25,7 @@ DEFINE_uint32(ycsb_threads, 0, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
 DEFINE_bool(ycsb_warmup, true, "");
 DEFINE_uint32(ycsb_sleepy_thread, 0, "");
+DEFINE_uint32(ycsb_ops_per_tx, 1, "");
 // -------------------------------------------------------------------------------------
 using namespace leanstore;
 // -------------------------------------------------------------------------------------
@@ -52,6 +53,7 @@ int main(int argc, char** argv)
    crm.scheduleJobSync(0, [&]() { table = LeanStoreAdapter<KVTable>(db, "YCSB"); });
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    db.registerConfigEntry("ycsb_threads", FLAGS_ycsb_threads);
+   db.registerConfigEntry("ycsb_ops_per_tx", FLAGS_ycsb_ops_per_tx);
    // -------------------------------------------------------------------------------------
    leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
    const TX_MODE tx_type = TX_MODE::OLTP;
@@ -156,20 +158,20 @@ int main(int argc, char** argv)
                }
                assert(key < ycsb_tuple_count);
                YCSBPayload result;
-               if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
-                  cr::Worker::my().startTX(tx_type, isolation_level);
-                  table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
-                  cr::Worker::my().commitTX();
-                  // leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
-               } else {
-                  UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
-                  utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));
-                  // -------------------------------------------------------------------------------------
-                  cr::Worker::my().startTX(tx_type, isolation_level);
-                  table.update1(
-                      {key}, [&](KVTable& rec) { rec.my_payload = result; }, tabular_update_descriptor);
-                  cr::Worker::my().commitTX();
+               cr::Worker::my().startTX(tx_type, isolation_level);
+               for (u64 op_i = 0; op_i < FLAGS_ycsb_ops_per_tx; op_i++) {
+                  if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
+                     table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
+                     // leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
+                  } else {
+                     UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
+                     utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));
+                     // -------------------------------------------------------------------------------------
+                     table.update1(
+                         {key}, [&](KVTable& rec) { rec.my_payload = result; }, tabular_update_descriptor);
+                  }
                }
+               cr::Worker::my().commitTX();
                WorkerCounters::myCounters().tx++;
             }
             jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }

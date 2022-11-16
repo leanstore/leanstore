@@ -114,8 +114,6 @@ int main(int argc, char** argv)
    }
    // -------------------------------------------------------------------------------------
    const u64 DISTANCE = 8 * (PAGE_SIZE / (sizeof(YCSBKey) + sizeof(YCSBPayload)));
-   auto zipf_random = std::make_unique<utils::ScrambledZipfGenerator>(0, FLAGS_ycsb_deterministic ? (ycsb_tuple_count / DISTANCE) : ycsb_tuple_count,
-                                                                      FLAGS_zipf_factor);
    cout << setprecision(4);
    // -------------------------------------------------------------------------------------
    cout << "~Transactions" << endl;
@@ -137,15 +135,13 @@ int main(int argc, char** argv)
                    new leanstore::storage::btree::BTreeExclusiveIterator(*static_cast<leanstore::storage::btree::BTreeGeneric*>(btree_vi)));
             }
             std::vector<YCSBKey> keys(FLAGS_ycsb_ops_per_tx, 0);
+            for (u64 op_i = 0; op_i < FLAGS_ycsb_ops_per_tx; op_i++) {
+              keys[op_i] = op_i * DISTANCE;  // zipf->random()
+            }
             while (keep_running) {
-               for (u64 op_i = 0; op_i < FLAGS_ycsb_ops_per_tx; op_i++) {
-                  keys[op_i] = op_i * DISTANCE;  // zipf->random()
-               }
-               // std::sort(keys.begin(), keys.end());
                jumpmuTry()
                {
                   if (FLAGS_ycsb_deterministic) {
-                     ensure(FLAGS_zipf_factor != 0);
                      for (u64 op_i = 0; op_i < FLAGS_ycsb_ops_per_tx; op_i++) {
                         u8 folded_key[sizeof(YCSBKey)];
                         u16 folded_key_len = fold(folded_key, keys[op_i]);
@@ -170,6 +166,7 @@ int main(int argc, char** argv)
                      }
                      WorkerCounters::myCounters().tx++;
                   } else {
+                    std::random_shuffle(keys.begin(), keys.end());
                      cr::Worker::my().startTX(tx_type, isolation_level);
                      for (u64 op_i = 0; op_i < FLAGS_ycsb_ops_per_tx; op_i++) {
                         utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));

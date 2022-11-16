@@ -82,6 +82,7 @@ DEFINE_bool(wal_pwrite, false, "Does not really write logs on SSD");
 DEFINE_bool(wal_fsync, false, "");
 DEFINE_int64(wal_variant, 0, "");
 DEFINE_uint64(wal_log_writers, 1, "");
+DEFINE_uint64(wal_buffer_size, 1024 * 1024 * 10, "");
 // -------------------------------------------------------------------------------------
 DEFINE_string(isolation_level, "si", "options: ru (READ_UNCOMMITTED), rc (READ_COMMITTED), si (SNAPSHOT_ISOLATION), ser (SERIALIZABLE)");
 DEFINE_bool(mv, true, "Multi-version");

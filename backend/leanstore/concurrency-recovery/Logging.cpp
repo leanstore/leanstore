@@ -20,9 +20,9 @@ u32 Worker::Logging::walFreeSpace()
    // A , B , C : a - b + c % c
    const auto gct_cursor = wal_gct_cursor.load();
    if (gct_cursor == wal_wt_cursor) {
-      return WORKER_WAL_SIZE;
+      return FLAGS_wal_buffer_size;
    } else if (gct_cursor < wal_wt_cursor) {
-      return gct_cursor + (WORKER_WAL_SIZE - wal_wt_cursor);
+      return gct_cursor + (FLAGS_wal_buffer_size - wal_wt_cursor);
    } else {
       return gct_cursor - wal_wt_cursor;
    }
@@ -31,15 +31,15 @@ u32 Worker::Logging::walFreeSpace()
 u32 Worker::Logging::walContiguousFreeSpace()
 {
    const auto gct_cursor = wal_gct_cursor.load();
-   return (gct_cursor > wal_wt_cursor) ? gct_cursor - wal_wt_cursor : WORKER_WAL_SIZE - wal_wt_cursor;
+   return (gct_cursor > wal_wt_cursor) ? gct_cursor - wal_wt_cursor : FLAGS_wal_buffer_size - wal_wt_cursor;
 }
 // -------------------------------------------------------------------------------------
 void Worker::Logging::walEnsureEnoughSpace(u32 requested_size)
 {
    if (FLAGS_wal) {
       u32 wait_untill_free_bytes = requested_size + CR_ENTRY_SIZE;
-      if ((WORKER_WAL_SIZE - wal_wt_cursor) < static_cast<u32>(requested_size + CR_ENTRY_SIZE)) {
-         wait_untill_free_bytes += WORKER_WAL_SIZE - wal_wt_cursor;  // we have to skip this round
+      if ((FLAGS_wal_buffer_size - wal_wt_cursor) < static_cast<u32>(requested_size + CR_ENTRY_SIZE)) {
+         wait_untill_free_bytes += FLAGS_wal_buffer_size - wal_wt_cursor;  // we have to skip this round
       }
       // Spin until we have enough space
       if (FLAGS_wal_variant == 2 && walFreeSpace() < wait_untill_free_bytes) {
@@ -51,7 +51,7 @@ void Worker::Logging::walEnsureEnoughSpace(u32 requested_size)
          WALMetaEntry& entry = *reinterpret_cast<WALMetaEntry*>(wal_buffer + wal_wt_cursor);
          entry.size = sizeof(WALMetaEntry);
          entry.type = WALEntry::TYPE::CARRIAGE_RETURN;
-         entry.size = WORKER_WAL_SIZE - wal_wt_cursor;
+         entry.size = FLAGS_wal_buffer_size - wal_wt_cursor;
          DEBUG_BLOCK()
          {
             entry.computeCRC();
@@ -63,7 +63,7 @@ void Worker::Logging::walEnsureEnoughSpace(u32 requested_size)
          wal_buffer_round++;  // Carriage Return
       }
       ensure(walContiguousFreeSpace() >= requested_size);
-      ensure(wal_wt_cursor + requested_size + CR_ENTRY_SIZE <= WORKER_WAL_SIZE);
+      ensure(wal_wt_cursor + requested_size + CR_ENTRY_SIZE <= FLAGS_wal_buffer_size);
    }
 }
 // -------------------------------------------------------------------------------------

@@ -39,7 +39,8 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, HistoryTr
 {
    Worker::tls_ptr = this;
    CRCounters::myCounters().worker_id = worker_id;
-   std::memset(logging.wal_buffer, 0, WORKER_WAL_SIZE);
+   logging.wal_buffer = reinterpret_cast<u8*>(std::aligned_alloc(512, FLAGS_wal_buffer_size));
+   std::memset(logging.wal_buffer, 0, FLAGS_wal_buffer_size);
    if (!is_page_provider) {
       cc.local_snapshot_cache = make_unique<u64[]>(workers_count);
       cc.local_snapshot_cache_ts = make_unique<u64[]>(workers_count);
@@ -178,14 +179,17 @@ void Worker::commitTX()
       if (FLAGS_si_commit_protocol == 2) {
          global_workers_current_snapshot[worker_id].store(cc.global_clock.fetch_add(1), std::memory_order_release);
       } else if (FLAGS_si_commit_protocol == 1) {
+         u64 counter = 0;
          if (active_tx.isOLTP()) {
             ensure(!active_tx.wal_larger_than_buffer);
             logging.iterateOverCurrentTXEntries([&](const WALEntry& entry) {
                if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
                   const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
                   leanstore::storage::DTRegistry::global_dt_registry.unlock(dt_entry.dt_id, dt_entry.payload);
+                  counter++;
                }
             });
+            cout << counter << endl;
          }
       }
       // Only committing snapshot/ changing between SI and lower modes
