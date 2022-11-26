@@ -171,6 +171,7 @@ int main(int argc, char** argv)
                      // -------------------------------------------------------------------------------------
                      table.update1(
                          {key}, [&](KVTable& rec) { rec.my_payload = result; }, tabular_update_descriptor);
+                     leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
                   }
                }
                cr::Worker::my().commitTX();

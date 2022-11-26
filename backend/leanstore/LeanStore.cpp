@@ -64,6 +64,7 @@ LeanStore::LeanStore()
    ssd_fd = open(FLAGS_ssd_path.c_str(), flags, 0666);
    if (ssd_fd == -1) {
       perror("posix error");
+      std::cout << "path: " << FLAGS_ssd_path << std::endl;
       SetupFailed("Could not open the file or the SSD block device");
    }
    if (FLAGS_falloc > 0) {
