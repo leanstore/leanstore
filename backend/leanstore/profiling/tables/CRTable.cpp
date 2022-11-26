@@ -60,6 +60,7 @@ void CRTable::open()
    columns.emplace("cc_ms_olap_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_olap_tx); });
    columns.emplace("cc_ms_gc", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_gc); });
    columns.emplace("cc_ms_fat_tuple", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_fat_tuple); });
+   columns.emplace("cc_ms_fat_tuple_conversion", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_fat_tuple_conversion); });
    columns.emplace("cc_ms_snapshotting", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_snapshotting); });
    columns.emplace("cc_ms_committing", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_committing); });
    columns.emplace("cc_ms_history_tree", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_history_tree); });

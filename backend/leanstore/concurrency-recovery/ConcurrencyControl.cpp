@@ -283,7 +283,7 @@ bool Worker::ConcurrencyControl::isVisibleForAll(WORKERID, TXID ts)
 // -------------------------------------------------------------------------------------
 TXID Worker::ConcurrencyControl::CommitTree::commit(TXID start_ts)
 {
-   utils::Timer timer(CRCounters::myCounters().cc_ms_commiting);
+   utils::Timer timer(CRCounters::myCounters().cc_ms_committing);
    mutex.lock();
    assert(cursor < capacity);
    const TXID commit_ts = global_clock.fetch_add(1);

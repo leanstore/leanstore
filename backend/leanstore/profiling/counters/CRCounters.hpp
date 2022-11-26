@@ -39,6 +39,7 @@ struct CRCounters {
    atomic<u64> cc_ms_oltp_tx = 0;
    atomic<u64> cc_ms_olap_tx = 0;
    atomic<u64> cc_ms_fat_tuple = 0;
+   atomic<u64> cc_ms_fat_tuple_conversion = 0;
    // -------------------------------------------------------------------------------------
    // Latency
    static constexpr u64 latency_tx_capacity = 1024;  // ATTENTION: buffer overflow if more than max_dt_id in system are registered

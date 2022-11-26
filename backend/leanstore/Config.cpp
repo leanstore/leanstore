@@ -45,6 +45,7 @@ DEFINE_uint64(xmerge_k, 5, "");
 DEFINE_double(xmerge_target_pct, 80, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(optimistic_scan, true, "Jump to next leaf directly if the pointer in the parent has not changed");
+DEFINE_bool(measure_time, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_double(tmp1, 0.0, "for ad-hoc experiments");
 DEFINE_double(tmp2, 0.0, "");

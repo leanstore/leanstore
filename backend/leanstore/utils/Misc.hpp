@@ -1,6 +1,7 @@
 #pragma once
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
+#include "leanstore/Config.hpp"
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <chrono>
@@ -109,11 +110,18 @@ inline u64 unfold(const u8* input, s64& x)
 struct Timer {
    std::atomic<u64>& ms_counter;
    std::chrono::high_resolution_clock::time_point time_begin;
-   Timer(atomic<u64>& ms_counter) : ms_counter(ms_counter) { time_begin = std::chrono::high_resolution_clock::now(); }
+   Timer(atomic<u64>& ms_counter) : ms_counter(ms_counter)
+   {
+      if (FLAGS_measure_time) {
+         time_begin = std::chrono::high_resolution_clock::now();
+      }
+   }
    ~Timer()
    {
-      const u64 duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - time_begin).count();
-      ms_counter += duration;
+      if (FLAGS_measure_time) {
+         const u64 duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - time_begin).count();
+         ms_counter += duration;
+      }
    }
 };
 // -------------------------------------------------------------------------------------

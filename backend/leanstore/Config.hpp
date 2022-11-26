@@ -35,6 +35,7 @@ DECLARE_uint64(xmerge_k);
 DECLARE_double(xmerge_target_pct);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(optimistic_scan);
+DECLARE_bool(measure_time);
 // -------------------------------------------------------------------------------------
 DECLARE_string(zipf_path);
 DECLARE_double(zipf_factor);

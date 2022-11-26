@@ -359,7 +359,7 @@ void BTreeVI::FatTupleDifferentAttributes::resize(const u32 new_length)
 // -------------------------------------------------------------------------------------
 bool BTreeVI::convertChainedToFatTupleDifferentAttributes(BTreeExclusiveIterator& iterator)
 {
-   utils::Timer timer(CRCounters::myCounters().cc_ms_fat_tuple);
+   utils::Timer timer(CRCounters::myCounters().cc_ms_fat_tuple_conversion);
    u16 number_of_deltas_to_replace = 0;
    std::vector<u8> dynamic_buffer;
    dynamic_buffer.resize(maxFatTupleLength());
