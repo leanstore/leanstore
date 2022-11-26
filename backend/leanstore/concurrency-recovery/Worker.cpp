@@ -96,6 +96,7 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
             cc.switchToSnapshotIsolationMode();
          }
          // -------------------------------------------------------------------------------------
+         utils::Timer timer(CRCounters::myCounters().cc_ms_snapshotting);
          global_workers_current_snapshot[worker_id].store(active_tx.start_ts | LATCH_BIT, std::memory_order_release);
          active_tx.start_ts = ConcurrencyControl::global_clock.fetch_add(1);
          if (FLAGS_olap_mode) {
@@ -189,7 +190,9 @@ void Worker::commitTX()
                   counter++;
                }
             });
-            cout << counter << endl;
+            if (FLAGS_tmp6 > 0) {
+               cout << counter << endl;
+            }
          }
       }
       // Only committing snapshot/ changing between SI and lower modes

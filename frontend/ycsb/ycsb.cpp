@@ -98,7 +98,9 @@ int main(int argc, char** argv)
                crm.scheduleJobAsync(t_i, [&, begin, end]() {
                   for (u64 i = begin; i < end; i++) {
                      YCSBPayload result;
+                     // cr::Worker::my().startTX(tx_type, isolation_level);
                      table.lookup1({static_cast<YCSBKey>(i)}, [&](const KVTable& record) { result = record.my_payload; });
+                     // cr::Worker::my().commitTX();
                   }
                });
             });
@@ -162,7 +164,7 @@ int main(int argc, char** argv)
                for (u64 op_i = 0; op_i < FLAGS_ycsb_ops_per_tx; op_i++) {
                   if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
                      table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
-                     // leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
+                     leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
                   } else {
                      UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
                      utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));

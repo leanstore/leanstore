@@ -30,8 +30,8 @@ void Worker::ConcurrencyControl::refreshGlobalState()
       // Why bother
       return;
    }
+   utils::Timer timer(CRCounters::myCounters().cc_ms_refresh_global_state);
    if (utils::RandomGenerator::getRandU64(0, my().workers_count) == 0 && global_mutex.try_lock()) {
-      utils::Timer timer(CRCounters::myCounters().cc_ms_refresh_global_state);
       TXID local_newest_olap = std::numeric_limits<u64>::min();
       TXID local_oldest_oltp = std::numeric_limits<u64>::max();
       TXID local_oldest_tx = std::numeric_limits<u64>::max();
@@ -256,6 +256,7 @@ bool Worker::ConcurrencyControl::isVisibleForMe(WORKERID other_worker_id, u64 tx
       } else if (local_snapshot_cache[other_worker_id] >= start_ts) {
          return true;
       }
+      utils::Timer timer(CRCounters::myCounters().cc_ms_snapshotting);
       TXID largest_visible_tx_id = other(other_worker_id).commit_tree.LCB(my().active_tx.startTS());
       if (largest_visible_tx_id) {
          local_snapshot_cache[other_worker_id] = largest_visible_tx_id;
@@ -282,6 +283,7 @@ bool Worker::ConcurrencyControl::isVisibleForAll(WORKERID, TXID ts)
 // -------------------------------------------------------------------------------------
 TXID Worker::ConcurrencyControl::CommitTree::commit(TXID start_ts)
 {
+   utils::Timer timer(CRCounters::myCounters().cc_ms_commiting);
    mutex.lock();
    assert(cursor < capacity);
    const TXID commit_ts = global_clock.fetch_add(1);
