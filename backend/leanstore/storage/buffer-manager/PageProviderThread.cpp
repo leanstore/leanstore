@@ -239,7 +239,7 @@ bool BufferManager::evictPages(std::pair<double, double> min,
                jumpmu_continue;
             }
             // If Async Write Buffer is full, flush
-            async_write_buffer.checkFull(myPartition);
+            async_write_buffer.ensureNotFull(myPartition);
             {
                BMExclusiveGuard ex_guard(r_guard);
                r_buffer.header.isInWriteBuffer = true;

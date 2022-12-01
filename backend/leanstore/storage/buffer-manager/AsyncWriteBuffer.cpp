@@ -31,7 +31,7 @@ AsyncWriteBuffer::AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size) : 
    }
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::checkFull(Partition& partition)
+void AsyncWriteBuffer::ensureNotFull(Partition& partition)
 {
    if(full()){
       flush(partition);
@@ -60,38 +60,42 @@ void AsyncWriteBuffer::add(BufferFrame* bf, PID pid)
    write_buffer[slot].magic_debugging_number = pid;
 }
 // -------------------------------------------------------------------------------------
-u64 AsyncWriteBuffer::waitAndSubmit()
+void AsyncWriteBuffer::waitAndHandle(Partition& partition)
 {
-   if (!empty()) {
-      u64 slot = 0;
-      for(auto& pagecombi: pagesToWrite){
-         write_buffer_commands[slot].bf = pagecombi.first;
-         write_buffer_commands[slot].pid = pagecombi.second;
-         void* write_buffer_slot_ptr = &write_buffer[slot];
-         io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size*pagecombi.second);
-         iocbs[slot].data = write_buffer_slot_ptr;
-         iocbs_ptr[slot] = &iocbs[slot];
-         slot++;
-      }
-      int ret_code = io_submit(aio_context, pagesToWrite.size(), iocbs_ptr.get());
-      ensure(ret_code == s32(pagesToWrite.size()));
-
-      const int done_requests = io_getevents(aio_context, pagesToWrite.size(), pagesToWrite.size(), events.get(), NULL);
-      if (u32(done_requests) != pagesToWrite.size()) {
-         cerr << "Error in number of Requests: " << done_requests << endl;
-         raise(SIGTRAP);
-         assert(false);
-      }
-      pagesToWrite.clear();
-      leanstore::PPCounters::myCounters().total_writes += done_requests;
-      return done_requests;
+   if(submitted_pages==0){
+      return;
    }
-   return 0;
+   const int done_requests = io_getevents(aio_context, submitted_pages, submitted_pages, events.get(), NULL);
+   if (u32(done_requests) != submitted_pages) {
+      cerr << "Error in number of Requests: " << done_requests << endl;
+      raise(SIGTRAP);
+      assert(false);
+   }
+   handleWritten(partition);
+}
+void AsyncWriteBuffer::submit()
+{
+   u64 slot = 0;
+   for(auto& pagecombi: pagesToWrite){
+      write_buffer_commands[slot].bf = pagecombi.first;
+      write_buffer_commands[slot].pid = pagecombi.second;
+      void* write_buffer_slot_ptr = &write_buffer[slot];
+      io_prep_pwrite(&iocbs[slot], fd, write_buffer_slot_ptr, page_size, page_size *pagecombi.second);
+      iocbs[slot].data = write_buffer_slot_ptr;
+      iocbs_ptr[slot] = &iocbs[slot];
+      slot++;
+   }
+   submitted_pages = pagesToWrite.size();
+   pagesToWrite.clear();
+   int ret_code = io_submit(aio_context, submitted_pages, iocbs_ptr.get());
+   ensure(ret_code == s32(submitted_pages));
+
 }
 // -------------------------------------------------------------------------------------
-void AsyncWriteBuffer::handleWritten(u32 n_events, Partition& partition)
+void AsyncWriteBuffer::handleWritten(Partition& partition)
 {
-   for (volatile u64 i = 0; i < n_events; i++) {
+   PPCounters::myCounters().total_writes += submitted_pages;
+   for (volatile u64 i = 0; i < submitted_pages; i++) {
       const auto slot = (u64(events[i].data) - u64(write_buffer.get())) / page_size;
       // -------------------------------------------------------------------------------------
       assert(events[i].res == page_size);
@@ -124,15 +128,12 @@ void AsyncWriteBuffer::handleWritten(u32 n_events, Partition& partition)
    }
 }
 // if async_write_buffer has pages: get & handle evicted.
-u32 AsyncWriteBuffer::flush(Partition& partition)
+void AsyncWriteBuffer::flush(Partition& partition)
 {
    if(!empty()) {
-      const u32 n_events = waitAndSubmit();
-      handleWritten(n_events, partition);
-      return n_events;
-//      cout << "Pages Flushed " << n_events << endl;
+      submit();
+      waitAndHandle(partition);
    }
-   return 0;
 }
 // -------------------------------------------------------------------------------------
 }  // namespace storage
