@@ -239,9 +239,7 @@ bool BufferManager::evictPages(std::pair<double, double> min,
                jumpmu_continue;
             }
             // If Async Write Buffer is full, flush
-            if (async_write_buffer.full()) {
-               async_write_buffer.flush(myPartition);
-            }
+            async_write_buffer.checkFull(myPartition);
             {
                BMExclusiveGuard ex_guard(r_guard);
                r_buffer.header.isInWriteBuffer = true;
@@ -254,7 +252,7 @@ bool BufferManager::evictPages(std::pair<double, double> min,
                   assert(getPartitionID(r_buffer.header.pid) == partitionID);
                   assert(getPartitionID(wb_pid) == partitionID);
                }
-               async_write_buffer.add(r_buffer, wb_pid);
+               async_write_buffer.add(&r_buffer, wb_pid);
             }
          }
          jumpmuCatch(){};

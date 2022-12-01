@@ -25,7 +25,7 @@ class AsyncWriteBuffer
    io_context_t aio_context;
    int fd;
    u64 page_size, batch_max_size;
-   u64 pending_requests = 0;
+   std::vector<std::pair<BufferFrame*, PID>> pagesToWrite;
 
   public:
    std::unique_ptr<BufferFrame::Page[]> write_buffer;
@@ -38,12 +38,13 @@ class AsyncWriteBuffer
    // -------------------------------------------------------------------------------------
    AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size);
    // Caller takes care of sync
+   void checkFull(Partition& partition);
    bool full();
-   void add(BufferFrame& bf, PID pid);
+   void add(BufferFrame* bf, PID pid);
    u32 flush(Partition& partition);
   private:
    bool empty();
-   u64 submitAndWait();
+   u64 waitAndSubmit();
    void handleWritten(u32 n_events, Partition& partition);
 };
 // -------------------------------------------------------------------------------------
