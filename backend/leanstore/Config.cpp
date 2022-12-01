@@ -8,7 +8,7 @@ DEFINE_uint32(partition_bits, 6, "bits per partition");
 DEFINE_uint32(pp_threads, 1, "number of page provider threads");
 DEFINE_uint32(epoch_size, 1000, "size of epoch: ram/epoch_size");
 DEFINE_uint32(write_costs, 1, "how much does one write should costs more then a read");
-DEFINE_uint32(watt_log_size, 30000000, "what is the largest expected page_id");
+DEFINE_uint32(watt_log_size, 0, "what is the largest expected page_id");
 DEFINE_uint32(watt_samples, 50, "How much samples for picking a page");
 DEFINE_bool(watt_history, false, "Use watt history?");
 // -------------------------------------------------------------------------------------

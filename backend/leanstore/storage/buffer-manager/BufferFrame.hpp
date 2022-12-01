@@ -181,7 +181,7 @@ struct BufferFrame {
          }
       };
       struct WATT_LOG{
-         WATT_LOG(PID page = 1000000){
+         WATT_LOG(PID page = 0){
              checkSizes(page, true);
          };
         private:
