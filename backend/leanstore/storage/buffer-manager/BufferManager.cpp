@@ -316,13 +316,14 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       g_guard->unlock();
       io_frame.mutex.lock();
       io_frame.mutex.unlock();
+      g_guard->lock();
       if (io_frame.readers_counter.fetch_add(-1) == 1) {
-         g_guard->lock();
          if (io_frame.readers_counter == 0) {
             partition.io_ht.remove(pid);
          }
-         g_guard->unlock();
+
       }
+      g_guard->unlock();
       // -------------------------------------------------------------------------------------
       jumpmu::jump();
    }

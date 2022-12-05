@@ -96,6 +96,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
          gotoPage(key);
       }
       cur = leaf->lowerBound<false>(key.data(), key.length());
+      leaf.recheck();
       if (cur < leaf->count) {
          return OP_RESULT::OK;
       } else {
