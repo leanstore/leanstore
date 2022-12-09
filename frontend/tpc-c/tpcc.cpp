@@ -235,6 +235,7 @@ int main(int argc, char** argv)
             }
          } else {
             while (keep_running) {
+              utils::Timer timer(CRCounters::myCounters().cc_ms_oltp_tx);
                jumpmuTry()
                {
                   cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, isolation_level);

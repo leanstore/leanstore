@@ -59,12 +59,20 @@ void CRTable::open()
    columns.emplace("cc_ms_oltp_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_oltp_tx); });
    columns.emplace("cc_ms_olap_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_olap_tx); });
    columns.emplace("cc_ms_gc", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_gc); });
+   columns.emplace("cc_ms_gc_cm", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_gc_cm); });
+   columns.emplace("cc_ms_gc_graveyard", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_gc_graveyard); });
+   columns.emplace("cc_ms_gc_history_tree", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_gc_history_tree); });
    columns.emplace("cc_ms_fat_tuple", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_fat_tuple); });
    columns.emplace("cc_ms_fat_tuple_conversion", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_fat_tuple_conversion); });
    columns.emplace("cc_ms_snapshotting", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_snapshotting); });
    columns.emplace("cc_ms_committing", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_committing); });
-   columns.emplace("cc_ms_history_tree", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_history_tree); });
+   columns.emplace("cc_ms_history_tree_insert", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_history_tree_insert); });
+   columns.emplace("cc_ms_history_tree_retrieve", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_history_tree_retrieve); });
    columns.emplace("cc_ms_refresh_global_state", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_refresh_global_state); });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("cc_ms_start_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_start_tx); });
+   columns.emplace("cc_ms_commit_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_commit_tx); });
+   columns.emplace("cc_ms_abort_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::cc_ms_abort_tx); });
 }
 // -------------------------------------------------------------------------------------
 void CRTable::next()

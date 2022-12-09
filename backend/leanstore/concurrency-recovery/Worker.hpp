@@ -234,7 +234,7 @@ struct Worker {
       // -------------------------------------------------------------------------------------
       inline u64 insertVersion(DTID dt_id, bool is_remove, u64 payload_length, std::function<void(u8*)> cb)
       {
-         utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
+         utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree_insert);
          const u64 new_command_id = (my().command_id++) | ((is_remove) ? TYPE_MSB(COMMANDID) : 0);
          history_tree.insertVersion(my().worker_id, my().active_tx.startTS(), new_command_id, dt_id, is_remove, payload_length, cb);
          return new_command_id;
@@ -244,7 +244,7 @@ struct Worker {
                                   COMMANDID its_command_id,
                                   std::function<void(const u8*, u64 payload_length)> cb)
       {
-         utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree);
+         utils::Timer timer(CRCounters::myCounters().cc_ms_history_tree_retrieve);
          const bool is_remove = its_command_id & TYPE_MSB(COMMANDID);
          const bool found = history_tree.retrieveVersion(its_worker_id, its_tx_id, its_command_id, is_remove, cb);
          return found;

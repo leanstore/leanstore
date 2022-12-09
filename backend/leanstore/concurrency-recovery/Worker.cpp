@@ -56,6 +56,7 @@ Worker::~Worker()
 // -------------------------------------------------------------------------------------
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
 {
+   utils::Timer timer(CRCounters::myCounters().cc_ms_start_tx);
    Transaction prev_tx = active_tx;
    active_tx.stats.start = std::chrono::high_resolution_clock::now();
    if (FLAGS_wal) {
@@ -96,13 +97,15 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
             cc.switchToSnapshotIsolationMode();
          }
          // -------------------------------------------------------------------------------------
-         utils::Timer timer(CRCounters::myCounters().cc_ms_snapshotting);
-         global_workers_current_snapshot[worker_id].store(active_tx.start_ts | LATCH_BIT, std::memory_order_release);
-         active_tx.start_ts = ConcurrencyControl::global_clock.fetch_add(1);
-         if (FLAGS_olap_mode) {
-            global_workers_current_snapshot[worker_id].store(active_tx.start_ts | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
-         } else {
-            global_workers_current_snapshot[worker_id].store(active_tx.start_ts, std::memory_order_release);
+         {
+           utils::Timer timer(CRCounters::myCounters().cc_ms_snapshotting);
+           global_workers_current_snapshot[worker_id].store(active_tx.start_ts | LATCH_BIT, std::memory_order_release);
+           active_tx.start_ts = ConcurrencyControl::global_clock.fetch_add(1);
+           if (FLAGS_olap_mode) {
+             global_workers_current_snapshot[worker_id].store(active_tx.start_ts | ((active_tx.isOLAP()) ? OLAP_BIT : 0), std::memory_order_release);
+           } else {
+             global_workers_current_snapshot[worker_id].store(active_tx.start_ts, std::memory_order_release);
+           }
          }
          cc.commit_tree.cleanIfNecessary();
          cc.local_global_all_lwm_cache = global_all_lwm.load();
@@ -127,35 +130,37 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
             cc.wt_pg.snapshot_min_tx_id = cc.wt_pg.current_snapshot_min_tx_id;
          }
       } else {
-         if (prev_tx.atLeastSI()) {
-            cc.switchToReadCommittedMode();
-         }
-         cc.commit_tree.cleanIfNecessary();
+        if (prev_tx.atLeastSI()) {
+          cc.switchToReadCommittedMode();
+        }
+        cc.commit_tree.cleanIfNecessary();
       }
    }
 }
 // -------------------------------------------------------------------------------------
 void Worker::commitTX()
 {
-   if (activeTX().isDurable()) {
+  if (activeTX().isDurable()) {
+    {
+      utils::Timer timer(CRCounters::myCounters().cc_ms_commit_tx);
       command_id = 0;  // Reset command_id only on commit and never on abort
       // -------------------------------------------------------------------------------------
       assert(active_tx.state == Transaction::STATE::STARTED);
       // -------------------------------------------------------------------------------------
       if (FLAGS_wal_tuple_rfa) {
-         for (auto& dependency : logging.rfa_checks_at_precommit) {
-            if (logging.other(std::get<0>(dependency)).signaled_commit_ts < std::get<1>(dependency)) {
-               logging.remote_flush_dependency = true;
-               break;
-            }
-         }
-         logging.rfa_checks_at_precommit.clear();
+        for (auto& dependency : logging.rfa_checks_at_precommit) {
+          if (logging.other(std::get<0>(dependency)).signaled_commit_ts < std::get<1>(dependency)) {
+            logging.remote_flush_dependency = true;
+            break;
+          }
+        }
+        logging.rfa_checks_at_precommit.clear();
       }
       // -------------------------------------------------------------------------------------
       if (FLAGS_si_commit_protocol <= 1) {  // activeTX().hasWrote() TODO:
-         TXID commit_ts = cc.commit_tree.commit(active_tx.startTS());
-         cc.local_latest_write_tx.store(commit_ts, std::memory_order_release);
-         active_tx.commit_ts = commit_ts;
+        TXID commit_ts = cc.commit_tree.commit(active_tx.startTS());
+        cc.local_latest_write_tx.store(commit_ts, std::memory_order_release);
+        active_tx.commit_ts = commit_ts;
       }
       // -------------------------------------------------------------------------------------
       active_tx.max_observed_gsn = logging.wt_gsn_clock;
@@ -166,46 +171,48 @@ void Worker::commitTX()
       // TODO: commit_ts in log
       logging.submitWALMetaEntry();
       if (FLAGS_wal_variant == 2) {
-         logging.wt_to_lw.optimistic_latch.notify_all();
+        logging.wt_to_lw.optimistic_latch.notify_all();
       }
       // -------------------------------------------------------------------------------------
       active_tx.stats.precommit = std::chrono::high_resolution_clock::now();
       std::unique_lock<std::mutex> g(logging.precommitted_queue_mutex);
       if (logging.remote_flush_dependency) {  // RFA
-         logging.precommitted_queue.push_back(active_tx);
+        logging.precommitted_queue.push_back(active_tx);
       } else {
-         CRCounters::myCounters().rfa_committed_tx++;
-         logging.precommitted_queue_rfa.push_back(active_tx);
+        CRCounters::myCounters().rfa_committed_tx++;
+        logging.precommitted_queue_rfa.push_back(active_tx);
       }
       if (FLAGS_si_commit_protocol == 2) {
-         global_workers_current_snapshot[worker_id].store(cc.global_clock.fetch_add(1), std::memory_order_release);
+        global_workers_current_snapshot[worker_id].store(cc.global_clock.fetch_add(1), std::memory_order_release);
       } else if (FLAGS_si_commit_protocol == 1) {
-         u64 counter = 0;
-         if (active_tx.isOLTP()) {
-            ensure(!active_tx.wal_larger_than_buffer);
-            logging.iterateOverCurrentTXEntries([&](const WALEntry& entry) {
-               if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
-                  const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
-                  leanstore::storage::DTRegistry::global_dt_registry.unlock(dt_entry.dt_id, dt_entry.payload);
-                  counter++;
-               }
-            });
-            if (FLAGS_tmp6 > 0) {
-               cout << counter << endl;
+        u64 counter = 0;
+        if (active_tx.isOLTP()) {
+          ensure(!active_tx.wal_larger_than_buffer);
+          logging.iterateOverCurrentTXEntries([&](const WALEntry& entry) {
+            if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
+              const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
+              leanstore::storage::DTRegistry::global_dt_registry.unlock(dt_entry.dt_id, dt_entry.payload);
+              counter++;
             }
-         }
+          });
+          if (FLAGS_tmp6 > 0) {
+            cout << counter << endl;
+          }
+        }
       }
-      // Only committing snapshot/ changing between SI and lower modes
-      if (activeTX().atLeastSI()) {
-         cc.refreshGlobalState();
-      }
-      // All isolation level generate garbage
-      cc.garbageCollection();
-   }
+    }
+    // Only committing snapshot/ changing between SI and lower modes
+    if (activeTX().atLeastSI()) {
+      cc.refreshGlobalState();
+    }
+    // All isolation level generate garbage
+    cc.garbageCollection();
+  }
 }
 // -------------------------------------------------------------------------------------
 void Worker::abortTX()
 {
+   utils::Timer timer(CRCounters::myCounters().cc_ms_abort_tx);
    ensure(FLAGS_wal);
    ensure(!active_tx.wal_larger_than_buffer);
    ensure(active_tx.state == Transaction::STATE::STARTED);

@@ -151,6 +151,7 @@ synclwm : {
 }
    // ATTENTION: atm, with out extra sync, the two lwm can not
    if (local_all_lwm > cleaned_untill_oltp_lwm) {
+      utils::Timer timer(CRCounters::myCounters().cc_ms_gc_history_tree);
       // PURGE!
       history_tree.purgeVersions(
           my().worker_id, 0, local_all_lwm - 1,
@@ -163,6 +164,7 @@ synclwm : {
    }
    if (FLAGS_olap_mode && local_all_lwm != local_oltp_lwm) {
       if (FLAGS_graveyard && local_oltp_lwm > 0 && local_oltp_lwm > cleaned_untill_oltp_lwm) {
+        utils::Timer timer(CRCounters::myCounters().cc_ms_gc_graveyard);
          // MOVE deletes to the graveyard
          const u64 from_tx_id = cleaned_untill_oltp_lwm > 0 ? cleaned_untill_oltp_lwm : 0;
          history_tree.visitRemoveVersions(my().worker_id, from_tx_id, local_oltp_lwm - 1,
@@ -323,6 +325,7 @@ void Worker::ConcurrencyControl::CommitTree::cleanIfNecessary()
    if (cursor < capacity) {
       return;
    }
+   utils::Timer timer(CRCounters::myCounters().cc_ms_gc_cm);
    std::set<std::pair<TXID, TXID>> set;  // TODO: unordered_set
    const WORKERID my_worker_id = cr::Worker::my().worker_id;
    for (WORKERID w_i = 0; w_i < cr::Worker::my().workers_count; w_i++) {
