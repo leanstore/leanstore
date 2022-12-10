@@ -121,7 +121,7 @@ int main(int argc, char** argv)
                YCSBPayload payload;
                utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
                YCSBKey key = i;
-               cr::Worker::my().startTX(tx_type, isolation_level);
+               cr::Worker::my().startTX(tx_type, leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION);
                table.insert({key}, {payload});
                cr::Worker::my().commitTX();
             }

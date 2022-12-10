@@ -157,7 +157,7 @@ void Worker::commitTX()
         logging.rfa_checks_at_precommit.clear();
       }
       // -------------------------------------------------------------------------------------
-      if (FLAGS_si_commit_protocol <= 1) {  // activeTX().hasWrote() TODO:
+      if (FLAGS_si_commit_protocol <= 1 && activeTX().hasWrote()) {  // activeTX().hasWrote() TODO:
         TXID commit_ts = cc.commit_tree.commit(active_tx.startTS());
         cc.local_latest_write_tx.store(commit_ts, std::memory_order_release);
         active_tx.commit_ts = commit_ts;

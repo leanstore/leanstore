@@ -186,14 +186,16 @@ int main(int argc, char** argv)
                   if (FLAGS_ch_a_process_delay_sec) {
                      sleep(FLAGS_ch_a_process_delay_sec);
                   }
-                  JMUW<utils::Timer> timer(CRCounters::myCounters().cc_ms_olap_tx);
-                  if (FLAGS_ch_a_rounds) {
-                     for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
-                        tpcc.analyticalQuery(FLAGS_ch_a_query);
-                     }
-                  } else {
-                     while (keep_running) {
-                        tpcc.analyticalQuery(FLAGS_ch_a_query);
+                  {
+                     JMUW<utils::Timer> timer(CRCounters::myCounters().cc_ms_olap_tx);
+                     if (FLAGS_ch_a_rounds) {
+                        for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
+                           tpcc.analyticalQuery(FLAGS_ch_a_query);
+                        }
+                     } else {
+                        while (keep_running) {
+                           tpcc.analyticalQuery(FLAGS_ch_a_query);
+                        }
                      }
                   }
                   cr::Worker::my().commitTX();
@@ -201,7 +203,10 @@ int main(int argc, char** argv)
                WorkerCounters::myCounters().olap_tx++;
                tx_acc = tx_acc + 1;
             }
-            jumpmuCatch() { WorkerCounters::myCounters().olap_tx_abort++; }
+            jumpmuCatch()
+            {
+               WorkerCounters::myCounters().olap_tx_abort++;
+            }
             if (FLAGS_ch_a_once) {
                cr::Worker::my().shutdown();
                sleep(2);
@@ -231,11 +236,14 @@ int main(int argc, char** argv)
                   cr::Worker::my().commitTX();
                   WorkerCounters::myCounters().tx++;
                }
-               jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
+               jumpmuCatch()
+               {
+                  WorkerCounters::myCounters().tx_abort++;
+               }
             }
          } else {
             while (keep_running) {
-              utils::Timer timer(CRCounters::myCounters().cc_ms_oltp_tx);
+               utils::Timer timer(CRCounters::myCounters().cc_ms_oltp_tx);
                jumpmuTry()
                {
                   cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, isolation_level);
@@ -254,7 +262,10 @@ int main(int argc, char** argv)
                   WorkerCounters::myCounters().tx++;
                   tx_acc = tx_acc + 1;
                }
-               jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
+               jumpmuCatch()
+               {
+                  WorkerCounters::myCounters().tx_abort++;
+               }
             }
          }
          cr::Worker::my().shutdown();

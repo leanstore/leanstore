@@ -162,7 +162,10 @@ OP_RESULT BTreeVI::prepareDeterministicUpdate(u8* o_key, u16 o_key_length, BTree
       ensure(ret == OP_RESULT::OK);
       jumpmu_return ret;
    }
-   jumpmuCatch() { ensure(false); }
+   jumpmuCatch()
+   {
+      ensure(false);
+   }
    return OP_RESULT::OTHER;
 }
 // -------------------------------------------------------------------------------------
@@ -190,7 +193,10 @@ OP_RESULT BTreeVI::executeDeterministricUpdate(u8* o_key,
          std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
          BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
       });
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
+      COUNTERS_BLOCK()
+      {
+         WorkerCounters::myCounters().cc_update_versions_created[dt_id]++;
+      }
       // -------------------------------------------------------------------------------------
       // WAL
       auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
@@ -258,7 +264,10 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          jumpmu_return OP_RESULT::ABORT_TX;
       }
       tuple.writeLock();
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_chains[dt_id]++; }
+      COUNTERS_BLOCK()
+      {
+         WorkerCounters::myCounters().cc_update_chains[dt_id]++;
+      }
       // -------------------------------------------------------------------------------------
       if (tuple.tuple_format == TupleFormat::FAT_TUPLE_DIFFERENT_ATTRIBUTES) {
          const bool res = reinterpret_cast<FatTupleDifferentAttributes*>(&tuple)->update(iterator, o_key, o_key_length, callback, update_descriptor);
@@ -304,12 +313,18 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
          }
          // -------------------------------------------------------------------------------------
          if (convert_to_fat_tuple) {
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_triggered[dt_id]++; }
+            COUNTERS_BLOCK()
+            {
+               WorkerCounters::myCounters().cc_fat_tuple_triggered[dt_id]++;
+            }
             tuple_head.updates_counter = 0;
             const bool convert_ret = convertChainedToFatTupleDifferentAttributes(iterator);
             if (convert_ret) {
                iterator.leaf->has_garbage = true;
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++; }
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().cc_fat_tuple_convert[dt_id]++;
+               }
             }
             goto restart;
             UNREACHABLE();
@@ -332,12 +347,17 @@ OP_RESULT BTreeVI::updateSameSizeInPlace(u8* o_key,
       COMMANDID command_id;
       // -------------------------------------------------------------------------------------
       // Write the ChainedTupleDelta
-      command_id = cr::Worker::my().cc.insertVersion(dt_id, false, version_payload_length, [&](u8* version_payload) {
-         auto& secondary_version = *new (version_payload) UpdateVersion(tuple_head.worker_id, tuple_head.tx_ts, tuple_head.command_id, true);
-         std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
-         BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
-      });
-      COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_update_versions_created[dt_id]++; }
+      if (!FLAGS_vi_fupdate_chained) {
+         command_id = cr::Worker::my().cc.insertVersion(dt_id, false, version_payload_length, [&](u8* version_payload) {
+            auto& secondary_version = *new (version_payload) UpdateVersion(tuple_head.worker_id, tuple_head.tx_ts, tuple_head.command_id, true);
+            std::memcpy(secondary_version.payload, &update_descriptor, update_descriptor.size());
+            BTreeLL::generateDiff(update_descriptor, secondary_version.payload + update_descriptor.size(), tuple_head.payload);
+         });
+         COUNTERS_BLOCK()
+         {
+            WorkerCounters::myCounters().cc_update_versions_created[dt_id]++;
+         }
+      }
       // -------------------------------------------------------------------------------------
       // WAL
       auto wal_entry = iterator.leaf.reserveWALEntry<WALUpdateSSIP>(o_key_length + delta_and_descriptor_size);
@@ -418,7 +438,10 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          iterator.markAsDirty();
          jumpmu_return OP_RESULT::OK;
       }
-      jumpmuCatch() { UNREACHABLE(); }
+      jumpmuCatch()
+      {
+         UNREACHABLE();
+      }
    }
    UNREACHABLE();
    return OP_RESULT::OTHER;
@@ -568,7 +591,10 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             iterator.markAsDirty();
             jumpmu_return;
          }
-         jumpmuCatch() { UNREACHABLE(); }
+         jumpmuCatch()
+         {
+            UNREACHABLE();
+         }
          break;
       }
       case WAL_LOG_TYPE::WALRemove: {
@@ -598,7 +624,10 @@ void BTreeVI::undo(void* btree_object, const u8* wal_entry_ptr, const u64)
             primary_version.unlock();
             iterator.markAsDirty();
          }
-         jumpmuCatch() { UNREACHABLE(); }
+         jumpmuCatch()
+         {
+            UNREACHABLE();
+         }
          break;
       }
       default: {
@@ -727,7 +756,10 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                iterator.markAsDirty();
                ensure(ret == OP_RESULT::OK);
                iterator.mergeIfNeeded();
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_removed[btree.dt_id]++; }
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().cc_todo_removed[btree.dt_id]++;
+               }
             } else if (primary_version.tx_ts < cr::Worker::my().cc.local_oltp_lwm) {
                // Move to graveyard
                {
@@ -740,14 +772,20 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
                ensure(ret == OP_RESULT::OK);
                iterator.markAsDirty();
                iterator.mergeIfNeeded();
-               COUNTERS_BLOCK() { WorkerCounters::myCounters().cc_todo_moved_gy[btree.dt_id]++; }
+               COUNTERS_BLOCK()
+               {
+                  WorkerCounters::myCounters().cc_todo_moved_gy[btree.dt_id]++;
+               }
             } else {
                UNREACHABLE();
             }
          }
       }
    }
-   jumpmuCatch() { UNREACHABLE(); }
+   jumpmuCatch()
+   {
+      UNREACHABLE();
+   }
 }
 // -------------------------------------------------------------------------------------
 void BTreeVI::unlock(void* btree_object, const u8* wal_entry_ptr)
@@ -791,7 +829,10 @@ void BTreeVI::unlock(void* btree_object, const u8* wal_entry_ptr)
       // chain_head.commit_ts = cr::activeTX().commitTS() | MSB;
       // }
    }
-   jumpmuCatch() { UNREACHABLE(); }
+   jumpmuCatch()
+   {
+      UNREACHABLE();
+   }
 }
 // -------------------------------------------------------------------------------------
 struct DTRegistry::DTMeta BTreeVI::getMeta()
@@ -887,6 +928,8 @@ std::tuple<OP_RESULT, u16> BTreeVI::reconstructChainedTuple([[maybe_unused]] Sli
                            cr::Worker::my().cc.local_workers_start_ts.get() + cr::Worker::my().workers_count, next_tx_id) -
                      cr::Worker::my().cc.local_workers_start_ts.get()
               << endl;
+         cerr << "tls = " << cr::Worker::my().active_tx.startTS() << endl;
+         explainWhen(true);
          explainWhen(next_command_id != ChainedTuple::INVALID_COMMANDID);
          return {OP_RESULT::NOT_FOUND, chain_length};
       }
