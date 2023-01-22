@@ -431,7 +431,7 @@ OP_RESULT BTreeVI::insert(u8* o_key, u16 o_key_length, u8* value, u16 value_leng
          auto& primary_version = *new (payload.data()) ChainedTuple(cr::Worker::my().workerID(), cr::activeTX().startTS());
          std::memcpy(primary_version.payload, value, value_length);
          // -------------------------------------------------------------------------------------
-         if (cr::activeTX().current_tx_mode == TX_MODE::INSTANTLY_VISIBLE_BULK_INSERT && FLAGS_si_commit_protocol == 1) {
+         if (cr::activeTX().current_tx_mode == TX_MODE::INSTANTLY_VISIBLE_BULK_INSERT) {
             primary_version.tx_ts = MSB | 0;
          }
          // -------------------------------------------------------------------------------------
@@ -751,7 +751,7 @@ void BTreeVI::todo(void* btree_object, const u8* entry_ptr, const u64 version_wo
       ChainedTuple& primary_version = *reinterpret_cast<ChainedTuple*>(primary_payload.data());
       if (!primary_version.isWriteLocked()) {
          if (primary_version.worker_id == version_worker_id && primary_version.tx_ts == version_tx_id && primary_version.is_removed) {
-            if (FLAGS_si_commit_protocol > 1 || primary_version.tx_ts < cr::Worker::my().cc.local_all_lwm) {
+            if (primary_version.tx_ts < cr::Worker::my().cc.local_all_lwm) {
                ret = iterator.removeCurrent();
                iterator.markAsDirty();
                ensure(ret == OP_RESULT::OK);

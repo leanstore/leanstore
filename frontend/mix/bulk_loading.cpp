@@ -59,9 +59,6 @@ int main(int argc, char** argv)
          table.insert({key}, {payload});
          WorkerCounters::myCounters().tx++;
       }
-      if (cr::Worker::my().logging.wal_buffer_round && FLAGS_si_commit_protocol == 1) {
-         cout << endl << "Warning: WAL Buffer did not fit the whole entries" << endl;
-      }
       cr::Worker::my().commitTX();
    });
    crm.joinAll();

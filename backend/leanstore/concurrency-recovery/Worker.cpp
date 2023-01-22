@@ -109,26 +109,6 @@ void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_
          }
          cc.commit_tree.cleanIfNecessary();
          cc.local_global_all_lwm_cache = global_all_lwm.load();
-         // -------------------------------------------------------------------------------------
-         if (FLAGS_si_commit_protocol == 2) {
-            cc.wt_pg.local_workers_tx_id_cursor = 0;
-            cc.wt_pg.current_snapshot_max_tx_id = std::numeric_limits<TXID>::min();
-            cc.wt_pg.current_snapshot_min_tx_id = active_tx.start_ts;
-            for (WORKERID w_i = 0; w_i < workers_count; w_i++) {
-               if (w_i == worker_id)
-                  continue;
-               TXID its_tx_id = global_workers_current_snapshot[w_i].load();
-               // -------------------------------------------------------------------------------------
-               while (its_tx_id & LATCH_BIT) {
-                  its_tx_id = global_workers_current_snapshot[w_i].load();
-               }
-               // -------------------------------------------------------------------------------------
-               cc.wt_pg.local_workers_tx_id[cc.wt_pg.local_workers_tx_id_cursor++].store(its_tx_id, std::memory_order_release);
-               cc.wt_pg.current_snapshot_max_tx_id = std::max(its_tx_id, cc.wt_pg.current_snapshot_max_tx_id);
-               cc.wt_pg.current_snapshot_min_tx_id = std::min(its_tx_id, cc.wt_pg.current_snapshot_min_tx_id);
-            }
-            cc.wt_pg.snapshot_min_tx_id = cc.wt_pg.current_snapshot_min_tx_id;
-         }
       } else {
         if (prev_tx.atLeastSI()) {
           cc.switchToReadCommittedMode();
@@ -157,7 +137,7 @@ void Worker::commitTX()
         logging.rfa_checks_at_precommit.clear();
       }
       // -------------------------------------------------------------------------------------
-      if (FLAGS_si_commit_protocol <= 1 && activeTX().hasWrote()) {  // activeTX().hasWrote() TODO:
+      if (activeTX().hasWrote()) {
         TXID commit_ts = cc.commit_tree.commit(active_tx.startTS());
         cc.local_latest_write_tx.store(commit_ts, std::memory_order_release);
         active_tx.commit_ts = commit_ts;
@@ -181,24 +161,6 @@ void Worker::commitTX()
       } else {
         CRCounters::myCounters().rfa_committed_tx++;
         logging.precommitted_queue_rfa.push_back(active_tx);
-      }
-      if (FLAGS_si_commit_protocol == 2) {
-        global_workers_current_snapshot[worker_id].store(cc.global_clock.fetch_add(1), std::memory_order_release);
-      } else if (FLAGS_si_commit_protocol == 1) {
-        u64 counter = 0;
-        if (active_tx.isOLTP()) {
-          ensure(!active_tx.wal_larger_than_buffer);
-          logging.iterateOverCurrentTXEntries([&](const WALEntry& entry) {
-            if (entry.type == WALEntry::TYPE::DT_SPECIFIC) {
-              const auto& dt_entry = *reinterpret_cast<const WALDTEntry*>(&entry);
-              leanstore::storage::DTRegistry::global_dt_registry.unlock(dt_entry.dt_id, dt_entry.payload);
-              counter++;
-            }
-          });
-          if (FLAGS_tmp6 > 0) {
-            cout << counter << endl;
-          }
-        }
       }
     }
     // Only committing snapshot/ changing between SI and lower modes

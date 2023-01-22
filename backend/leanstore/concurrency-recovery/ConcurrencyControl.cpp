@@ -15,17 +15,6 @@ atomic<u64> Worker::ConcurrencyControl::global_clock = WORKERS_INCREMENT;
 // Also for interval garbage collection
 void Worker::ConcurrencyControl::refreshGlobalState()
 {
-   if (FLAGS_si_commit_protocol == 2) {
-      local_all_lwm = std::numeric_limits<TXID>::max();
-      for (WORKERID w_i = 0; w_i < my().workers_count; w_i++) {
-         TXID its_in_flight_tx_id = other(w_i).wt_pg.snapshot_min_tx_id.load();
-         local_all_lwm = std::min(local_all_lwm, its_in_flight_tx_id);
-      }
-      if (local_all_lwm)
-         local_all_lwm--;
-      return;
-   }
-   // -------------------------------------------------------------------------------------
    if (!FLAGS_todo) {
       // Why bother
       return;
@@ -123,22 +112,6 @@ void Worker::ConcurrencyControl::garbageCollection()
       return;
    }
    // -------------------------------------------------------------------------------------
-   if (FLAGS_si_commit_protocol == 2) {
-      if (local_all_lwm)
-         history_tree.purgeVersions(
-             my().worker_id, 0, local_all_lwm - 1,
-             [&](const TXID tx_id, const DTID dt_id, const u8* version_payload, [[maybe_unused]] u64 version_payload_length,
-                 const bool called_before) {
-                leanstore::storage::DTRegistry::global_dt_registry.todo(dt_id, version_payload, my().worker_id, tx_id, called_before);
-                COUNTERS_BLOCK()
-                {
-                   WorkerCounters::myCounters().cc_todo_olap_executed[dt_id]++;
-                }
-             },
-             0);
-      return;
-   }
-   // -------------------------------------------------------------------------------------
    // TODO: smooth purge, we should not let the system hang on this, as a quick fix, it should be enough if we purge in small batches
    utils::Timer timer(CRCounters::myCounters().cc_ms_gc);
 synclwm : {
@@ -189,14 +162,12 @@ synclwm : {
 }
 Worker::ConcurrencyControl::VISIBILITY Worker::ConcurrencyControl::isVisibleForIt(WORKERID whom_worker_id, TXID commit_ts)
 {
-   ensure(FLAGS_si_commit_protocol == 0);
    return local_workers_start_ts[whom_worker_id] > commit_ts ? VISIBILITY::VISIBLE_ALREADY : VISIBILITY::VISIBLE_NEXT_ROUND;
 }
 // -------------------------------------------------------------------------------------
 // UNDETERMINED is not possible atm because we spin on start_ts
 Worker::ConcurrencyControl::VISIBILITY Worker::ConcurrencyControl::isVisibleForIt(WORKERID whom_worker_id, WORKERID what_worker_id, TXID tx_ts)
 {
-   ensure(FLAGS_si_commit_protocol == 0);
    const bool is_commit_ts = tx_ts & MSB;
    const TXID commit_ts = is_commit_ts ? (tx_ts & MSB_MASK) : getCommitTimestamp(what_worker_id, tx_ts);
    return isVisibleForIt(whom_worker_id, commit_ts);
@@ -204,7 +175,6 @@ Worker::ConcurrencyControl::VISIBILITY Worker::ConcurrencyControl::isVisibleForI
 // -------------------------------------------------------------------------------------
 TXID Worker::ConcurrencyControl::getCommitTimestamp(WORKERID worker_id, TXID tx_ts)
 {
-   ensure(FLAGS_si_commit_protocol == 0);
    if (tx_ts & MSB) {
       return tx_ts & MSB_MASK;
    }
@@ -227,24 +197,6 @@ bool Worker::ConcurrencyControl::isVisibleForMe(WORKERID other_worker_id, u64 tx
       return true;
    }
    if (my().worker_id == other_worker_id) {
-      return true;
-   }
-   // -------------------------------------------------------------------------------------
-   if (FLAGS_si_commit_protocol == 1) {
-      // Same as variant 0
-   } else if (FLAGS_si_commit_protocol == 2) {
-      if (tx_ts < wt_pg.current_snapshot_min_tx_id) {
-         return true;
-      }
-      if (tx_ts > wt_pg.current_snapshot_max_tx_id) {
-         return false;
-      }
-      for (u64 i = 0; i < wt_pg.local_workers_tx_id_cursor; i++) {
-         const auto o_tx_id = wt_pg.local_workers_tx_id[i].load();
-         if (o_tx_id == tx_ts) {
-            return false;
-         }
-      }
       return true;
    }
    // -------------------------------------------------------------------------------------
@@ -291,7 +243,6 @@ bool Worker::ConcurrencyControl::isVisibleForMe(WORKERID other_worker_id, u64 tx
 // -------------------------------------------------------------------------------------
 bool Worker::ConcurrencyControl::isVisibleForAll(WORKERID, TXID ts)
 {
-   ensure(FLAGS_si_commit_protocol == 0);
    if (ts & MSB) {
       // Commit Timestamp
       return (ts & MSB_MASK) < global_oldest_all_start_ts.load();

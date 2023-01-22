@@ -88,7 +88,6 @@ DEFINE_uint64(wal_buffer_size, 1024 * 1024 * 10, "");
 DEFINE_string(isolation_level, "si", "options: ru (READ_UNCOMMITTED), rc (READ_COMMITTED), si (SNAPSHOT_ISOLATION), ser (SERIALIZABLE)");
 DEFINE_bool(mv, true, "Multi-version");
 DEFINE_uint64(si_refresh_rate, 0, "");
-DEFINE_uint64(si_commit_protocol, 0, "0: LS Steal, 1: LS NoSteal, 2: WT");
 DEFINE_bool(todo, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(vi, true, "BTree with SI using in-place version");
