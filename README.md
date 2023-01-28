@@ -13,6 +13,14 @@ Install dependencies:
 
 check `build/frontend/tpcc --help` for other options
 
+## Implemented Featuers
+- [x] Lightweight buffer manager with pointer swizzling [ICDE18]
+- [x] Optimstic Lock Coupling with Hybrid Page Guard to synchronize paged data structures [IEEE19]
+- [x] Variable-length key/values B-Tree with prefix compression and hints  [BTW23]
+- [x] Scalable and robust out-of-memory Snapshot Isolation (OSIC protocol, Graveyard and FatTuple) [VLDB23]
+- [x] Distributed Logging with remote flush avoidance [SIGMOD20, BTW23]
+- [ ] Recovery [SIGMOD20]
+
 ## Cite
 The code we used for our VLDB 2023 that covers alternative SI commit protocols is in a different [branch](https://github.com/leanstore/leanstore/tree/mvcc).
 ```
@@ -24,7 +32,7 @@ The code we used for our VLDB 2023 that covers alternative SI commit protocols i
 }
 ```
 
-The code we used for our BTW 2023 paper that covers alternative dependency tracking and is in a different [branch](https://github.com/leanstore/leanstore/tree/btw).
+BTW 2023 [branch](https://github.com/leanstore/leanstore/tree/btw) that covers alternative dependency tracking.
 ```
 @inproceedings{leanstore23,
     author    = {Adnan Alhomssi, Michael Haubenschild and Viktor Leis},
@@ -34,7 +42,7 @@ The code we used for our BTW 2023 paper that covers alternative dependency track
 }
 ```
 
-The code we used for our CIDR 2021 paper is in a different (and outdated) [branch](https://github.com/leanstore/leanstore/tree/cidr).
+CIDR 2021 [branch](https://github.com/leanstore/leanstore/tree/cidr) (outdated).
 ```
 @inproceedings{alhomssi21,
     author    = {Adnan Alhomssi and Viktor Leis},
