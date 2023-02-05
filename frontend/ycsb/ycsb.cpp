@@ -8,8 +8,10 @@
 #include "leanstore/utils/RandomGenerator.hpp"
 #include "leanstore/utils/ScrambledZipfGenerator.hpp"
 // -------------------------------------------------------------------------------------
+#include "leanstore/concurrency/Mean.hpp"
+#include "leanstore/io/IoInterface.hpp"
+// -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
-#include <tbb/tbb.h>
 // -------------------------------------------------------------------------------------
 #include <iostream>
 #include <set>
@@ -38,23 +40,20 @@ double calculateMTPS(chrono::high_resolution_clock::time_point begin, chrono::hi
    return (tps / 1000000.0);
 }
 // -------------------------------------------------------------------------------------
-int main(int argc, char** argv)
-{
-   gflags::SetUsageMessage("Leanstore Frontend");
-   gflags::ParseCommandLineFlags(&argc, &argv, true);
-   // -------------------------------------------------------------------------------------
-   tbb::task_scheduler_init taskScheduler(FLAGS_worker_threads);
+void run_ycsb() {
    // -------------------------------------------------------------------------------------
    chrono::high_resolution_clock::time_point begin, end;
    // -------------------------------------------------------------------------------------
    // LeanStore DB
    LeanStore db;
    unique_ptr<BTreeInterface<YCSBKey, YCSBPayload>> adapter;
-   auto& vs_btree = db.registerBTreeLL("ycsb");
-   adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
-   db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
-   db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);
-   db.startProfilingThread();
+   mean::task::scheduleTaskSync([&]() {
+         auto& vs_btree = db.registerBTreeLL("ycsb", "y");
+         adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
+         db.startProfilingThread();
+         db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
+         db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);
+   });
    // -------------------------------------------------------------------------------------
    auto& table = *adapter;
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
@@ -66,19 +65,22 @@ int main(int argc, char** argv)
       cout << "-------------------------------------------------------------------------------------" << endl;
       cout << "Inserting values" << endl;
       begin = chrono::high_resolution_clock::now();
-      {
-         tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
-            // vector<u64> keys(range.size());
-            // std::iota(keys.begin(), keys.end(), range.begin());
-            // std::random_shuffle(keys.begin(), keys.end());
-            for (u64 t_i = range.begin(); t_i < range.end(); t_i++) {
-               YCSBPayload payload;
-               utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
-               auto& key = t_i;
-               table.insert(key, payload);
-            }
-         });
-      }
+
+      mean::BlockedRange bb(0, (u64)n);
+      ensure((bool)((bb.end - bb.begin) > 1));
+      auto ycsb_insert_fun = [&](mean::BlockedRange bb, std::atomic<bool>&) {
+         // vector<u64> keys(range.size());
+         // std::iota(keys.begin(), keys.end(), range.begin());
+         // std::random_shuffle(keys.begin(), keys.end());
+         for (u64 t_i = bb.begin; t_i < bb.end; t_i++) {
+            YCSBPayload payload;
+            utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
+            auto& key = t_i;
+            table.insert(key, payload);
+            mean::task::yield();
+         }
+      };
+      mean::task::parallelFor(bb, ycsb_insert_fun, FLAGS_worker_tasks, 100000);
       end = chrono::high_resolution_clock::now();
       cout << "time elapsed = " << (chrono::duration_cast<chrono::microseconds>(end - begin).count() / 1000000.0) << endl;
       cout << calculateMTPS(begin, end, n) << " M tps" << endl;
@@ -99,12 +101,16 @@ int main(int argc, char** argv)
       cout << "Scan" << endl;
       {
          begin = chrono::high_resolution_clock::now();
-         tbb::parallel_for(tbb::blocked_range<u64>(0, n), [&](const tbb::blocked_range<u64>& range) {
-            for (u64 i = range.begin(); i < range.end(); i++) {
+         mean::BlockedRange bb(0, (u64)n);
+         ensure((bool)((bb.end - bb.begin) > 1));
+         auto ycsb_fun = [&](mean::BlockedRange bb, std::atomic<bool>&) {
+            for (u64 i = bb.begin; i < bb.end; i++) {
                YCSBPayload result;
                table.lookup(i, result);
+               mean::task::yield();
             }
-         });
+         };
+         mean::task::parallelFor(bb, ycsb_fun, FLAGS_worker_tasks, 100000);
          end = chrono::high_resolution_clock::now();
       }
       // -------------------------------------------------------------------------------------
@@ -118,11 +124,18 @@ int main(int argc, char** argv)
    cout << "~Transactions" << endl;
    atomic<bool> keep_running = true;
    atomic<u64> running_threads_counter = 0;
-   vector<thread> threads;
-   for (u64 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
-      threads.emplace_back([&]() {
+   {
+      auto start = mean::getSeconds();
+      auto ycsb_tx = [&](mean::BlockedRange bb, std::atomic<bool>& cancelled){
          running_threads_counter++;
+         int timeCheck = 0;
          while (keep_running) {
+            auto before = mean::getTimePoint();
+            timeCheck++;
+            if (timeCheck % 32 == 0 && mean::getSeconds() - start > FLAGS_run_for_seconds) {
+               cancelled = true;
+               break;
+            }
             YCSBKey key = zipf_random->rand();
             assert(key < ycsb_tuple_count);
             YCSBPayload result;
@@ -133,10 +146,15 @@ int main(int argc, char** argv)
                utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
                table.update(key, payload);
             }
+            auto timeDiff = mean::timePointDifferenceUs(mean::getTimePoint(), before);
+            WorkerCounters::myCounters().total_tx_time += timeDiff;
+            WorkerCounters::myCounters().tx_latency_hist.increaseSlot(timeDiff);
             WorkerCounters::myCounters().tx++;
          }
          running_threads_counter--;
-      });
+      };
+      mean::BlockedRange bb(0, (u64)1000000000000ul);
+      mean::task::parallelFor(bb, ycsb_tx, FLAGS_worker_tasks, 100000);
    }
    {
       // Shutdown threads
@@ -145,11 +163,38 @@ int main(int argc, char** argv)
       while (running_threads_counter) {
          MYPAUSE();
       }
-      for (auto& thread : threads) {
-         thread.join();
-      }
    }
    cout << "-------------------------------------------------------------------------------------" << endl;
+   // -------------------------------------------------------------------------------------
+}
+// -------------------------------------------------------------------------------------
+int main(int argc, char** argv)
+{
+   gflags::SetUsageMessage("Leanstore Frontend");
+   gflags::ParseCommandLineFlags(&argc, &argv, true);
+   // -------------------------------------------------------------------------------------
+   // -------------------------------------------------------------------------------------
+   using namespace mean;
+   IoOptions ioOptions("auto", FLAGS_ssd_path);
+   ioOptions.write_back_buffer_size = PAGE_SIZE;
+   ioOptions.engine = FLAGS_ioengine;
+   ioOptions.ioUringPollMode = FLAGS_io_uring_poll_mode;
+   ioOptions.ioUringShareWq = FLAGS_io_uring_share_wq;
+   ioOptions.raid5 = FLAGS_raid5;
+   ioOptions.iodepth = (FLAGS_async_batch_size + FLAGS_worker_tasks)*2; // hacky, how to take into account for remotes 
+   // -------------------------------------------------------------------------------------
+   if (FLAGS_nopp) {
+      ioOptions.channelCount = FLAGS_worker_threads;
+      mean::env::init(
+         FLAGS_worker_threads, //std::min(std::thread::hardware_concurrency(), FLAGS_tpcc_warehouse_count),
+         0/*FLAGS_pp_threads*/, ioOptions);
+   } else {
+      ioOptions.channelCount = FLAGS_worker_threads + FLAGS_pp_threads;
+      mean::env::init(FLAGS_worker_threads, FLAGS_pp_threads, ioOptions);
+   }
+   mean::env::start(run_ycsb);
+   // -------------------------------------------------------------------------------------
+   mean::env::join();
    // -------------------------------------------------------------------------------------
    return 0;
 }

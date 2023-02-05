@@ -3,12 +3,20 @@
 #include "FreeList.hpp"
 #include "Units.hpp"
 #include "leanstore/Config.hpp"
+#include "leanstore/concurrency/Mean.hpp"
+#include "leanstore/storage/buffer-manager/FreeList.hpp"
+#include "leanstore/utils/Misc.hpp"
+#include "leanstore/utils/PreallocationStack.hpp"
+#include "leanstore/utils/RingBuffer.hpp"
+#include "leanstore/utils/RingBufferMPSC.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#include <deque>
 #include <list>
 #include <mutex>
 #include <unordered_set>
 #include <vector>
+#include <stack>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -22,7 +30,7 @@ struct IOFrame {
       TO_DELETE = 2,
       UNDEFINED = 3  // for debugging
    };
-   std::mutex mutex;
+   mean::mutex mutex;
    STATE state = STATE::UNDEFINED;
    BufferFrame* bf = nullptr;
    // -------------------------------------------------------------------------------------
@@ -38,6 +46,7 @@ struct HashTable {
       Entry* next;
       IOFrame value;
       Entry(u64 key);
+      Entry();
    };
    // -------------------------------------------------------------------------------------
    struct Handler {
@@ -52,6 +61,7 @@ struct HashTable {
    // -------------------------------------------------------------------------------------
    u64 mask;
    Entry** entries;
+   utils::PreallocationStack<Entry> alloc_stack;
    // -------------------------------------------------------------------------------------
    u64 hashKey(u64 k);
    IOFrame& insert(u64 key);
@@ -62,23 +72,74 @@ struct HashTable {
    HashTable(u64 size_in_bits);
 };
 // -------------------------------------------------------------------------------------
-struct Partition {
-   std::mutex io_mutex;
-   HashTable io_ht;
+// -------------------------------------------------------------------------------------
+struct FreedBfsBatch {
+   BufferFrame *freed_bfs_batch_head = nullptr, *freed_bfs_batch_tail = nullptr;
+   u64 freed_bfs_counter = 0;
    // -------------------------------------------------------------------------------------
-   std::mutex cooling_mutex;
-   std::list<BufferFrame*> cooling_queue;
+   void reset()
+   {
+      freed_bfs_batch_head = nullptr;
+      freed_bfs_batch_tail = nullptr;
+      freed_bfs_counter = 0;
+   }
+   // -------------------------------------------------------------------------------------
+   u64 size() { return freed_bfs_counter; }
+   // -------------------------------------------------------------------------------------
+   void add(BufferFrame& bf)
+   {
+      bf.header.next_free_bf = freed_bfs_batch_head;
+      if (freed_bfs_batch_head == nullptr) {
+         freed_bfs_batch_tail = &bf;
+      }
+      freed_bfs_batch_head = &bf;
+      freed_bfs_counter++;
+      // -------------------------------------------------------------------------------------
+   }
+};
+struct CoolingPartition {
+   enum class PPState {
+      Phase1,
+      Phase3poll,
+      Phase3pollDone,
+   };
+   struct PPStateData {
+      PPState state = PPState::Phase1;
+      decltype(std::chrono::high_resolution_clock::now()) poll_begin, poll_end;
+      decltype(std::chrono::high_resolution_clock::now()) phase_3_begin, phase_3_end;
+      int submitted = 0;
+      int done = 0;
+      int debug_thread = -1;
+      FreedBfsBatch freed_bfs_batch;
+   } state;
+   // -------------------------------------------------------------------------------------
+   // -------------------------------------------------------------------------------------
+   //mean::SpinLock cooling_mutex;
+   utils::RingBuffer<BufferFrame*> cooling_queue;
+   utils::RingBuffer<BufferFrame*> io_queue;
+   std::deque<BufferFrame*> io_queue2;
    // -------------------------------------------------------------------------------------
    atomic<u64> cooling_bfs_counter = 0;
    const u64 free_bfs_limit;
    const u64 cooling_bfs_limit;
    FreeList dram_free_list;
+   s64 outstanding = 0;
    // -------------------------------------------------------------------------------------
-   // SSD Pages
    const u64 pid_distance;
    std::mutex pids_mutex;  // protect free pids vector
    std::vector<PID> freed_pids;
    u64 next_pid;
+   // -------------------------------------------------------------------------------------
+   CoolingPartition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 cooling_bfs_limit, u64 max_outsanding_ios)
+      : cooling_queue(cooling_bfs_limit * 2), // FIXME
+      io_queue(max_outsanding_ios ),
+      free_bfs_limit(free_bfs_limit), cooling_bfs_limit(cooling_bfs_limit), pid_distance(pid_distance)
+   {
+      next_pid = first_pid;
+   }
+   // -------------------------------------------------------------------------------------
+   // SSD Pages
+   // -------------------------------------------------------------------------------------
    inline PID nextPID()
    {
       std::unique_lock<std::mutex> g_guard(pids_mutex);
@@ -105,10 +166,24 @@ struct Partition {
       return freed_pids.size();
    }
    // -------------------------------------------------------------------------------------
-   Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 cooling_bfs_limit);
-   ~Partition();
+   void pushFreeList()
+   {
+      FreedBfsBatch& b = state.freed_bfs_batch;
+      dram_free_list.batchPush(b.freed_bfs_batch_head, b.freed_bfs_batch_tail, b.freed_bfs_counter);
+      b.reset();
+   }
+   // -------------------------------------------------------------------------------------
 };
-// -------------------------------------------------------------------------------------
+struct IoPartition {
+   // -------------------------------------------------------------------------------------
+   mean::mutex io_mutex;
+   HashTable io_ht;
+   IoPartition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 cooling_bfs_limit);
+   // -------------------------------------------------------------------------------------
+   IoPartition(u64 max_outsanding_ios) : io_ht(utils::getBitsNeeded(max_outsanding_ios)) { }
+   ~IoPartition();
+   // -------------------------------------------------------------------------------------
+};
 }  // namespace storage
 }  // namespace leanstore
 // -------------------------------------------------------------------------------------

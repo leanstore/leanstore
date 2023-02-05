@@ -15,6 +15,8 @@ class BMTable : public ProfilingTable
    BufferManager& bm;
    s64 local_phase_1_ms = 0, local_phase_2_ms = 0, local_phase_3_ms = 0, local_poll_ms = 0, total;
    u64 local_total_free, local_total_cool;
+   u64 local_pp_submit_cnt, local_pp_submitted;
+   u64 local_pp_qlen_cnt;
 
   public:
    BMTable(BufferManager& bm);

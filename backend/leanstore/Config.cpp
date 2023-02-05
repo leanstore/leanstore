@@ -21,9 +21,12 @@ DEFINE_uint32(falloc, 0, "Preallocate GiB");
 DEFINE_bool(print_debug, true, "");
 DEFINE_bool(print_tx_console, true, "");
 DEFINE_uint32(print_debug_interval_s, 1, "");
+DEFINE_bool(print_obj_stats, false, "");
 DEFINE_bool(profiling, false, "");
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(worker_threads, 4, "");
+DEFINE_uint32(worker_threads, 20, "");
+DEFINE_uint32(worker_tasks, 1, "");
+DEFINE_bool(nopp, false, "disables seperate exclusivie pp threads");
 DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
 // -------------------------------------------------------------------------------------
@@ -60,6 +63,7 @@ DEFINE_int64(trace_trigger_probability, 100, "");
 DEFINE_string(tag, "", "Unique identifier for this, will be appended to each line csv");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(out_of_place, false, "");
+DEFINE_bool(optimistic_parent_pointer, true, "");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(wal, false, "");
 DEFINE_uint64(wal_offset_gib, 1, "");
@@ -71,6 +75,11 @@ DEFINE_uint64(si_refresh_rate, 0, "");
 DEFINE_bool(vw, false, "BTree with SI using versions in WAL");
 DEFINE_bool(vw_todo, false, "");
 DEFINE_bool(vi, false, "BTree with SI using in-place version");
+// -------------------------------------------------------------------------------------
+DEFINE_string(ioengine, "auto", "auto, spdk, liburing, libaio");
+DEFINE_bool(io_uring_poll_mode, true, "enables IORING_SETUP_IOPOLL");
+DEFINE_int64(io_uring_share_wq, 0, "enables IORING_SETUP_ATTACH_WQ with a single worker");
+DEFINE_bool(raid5, false, "enable RAID 5");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
 DEFINE_uint64(tmp, 0, "");

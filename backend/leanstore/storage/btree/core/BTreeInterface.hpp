@@ -24,7 +24,7 @@ struct WALEntry {
    WAL_LOG_TYPE type;
 };
 // -------------------------------------------------------------------------------------
-enum class OP_RESULT : u8 { OK = 0, NOT_FOUND = 1, DUPLICATE = 2, ABORT_TX = 3, NOT_ENOUGH_SPACE = 4, OTHER = 5 };
+enum class OP_RESULT : u8 { OK = 0, NOT_FOUND = 1, DUPLICATE = 2, ABORT_TX = 3, NOT_ENOUGH_SPACE = 4, OTHER = 5, UNREACHABLE = 6 };
 struct WALUpdateGenerator {
    void (*before)(u8* tuple, u8* entry);
    void (*after)(u8* tuple, u8* entry);

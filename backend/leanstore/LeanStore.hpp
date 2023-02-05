@@ -27,7 +27,7 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    s32 ssd_fd;
    // -------------------------------------------------------------------------------------
-   unique_ptr<cr::CRManager> cr_manager;
+   //unique_ptr<cr::CRManager> cr_manager;
    unique_ptr<storage::BufferManager> buffer_manager;
    // -------------------------------------------------------------------------------------
    atomic<u64> bg_threads_counter = 0;
@@ -47,19 +47,21 @@ class LeanStore
    u64 getConfigHash();
    GlobalStats getGlobalStats();
    // -------------------------------------------------------------------------------------
-   storage::btree::BTreeLL& registerBTreeLL(string name);
+   storage::btree::BTreeLL& registerBTreeLL(string name, string short_name);
    storage::btree::BTreeLL& retrieveBTreeLL(string name) { return btrees_ll[name]; }
-   storage::btree::BTreeVW& registerBTreeVW(string name);
+   storage::btree::BTreeVW& registerBTreeVW(string name, string short_name);
    storage::btree::BTreeVW& retrieveBTreeVW(string name) { return btrees_vw[name]; }
-   storage::btree::BTreeVI& registerBTreeVI(string name);
+   storage::btree::BTreeVI& registerBTreeVI(string name, string short_name);
    storage::btree::BTreeVI& retrieveBTreeVI(string name) { return btrees_vi[name]; }
    // -------------------------------------------------------------------------------------
    storage::BufferManager& getBufferManager() { return *buffer_manager; }
-   cr::CRManager& getCRManager() { return *cr_manager; }
+   //cr::CRManager& getCRManager() { return *cr_manager; }
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
    void persist();
    void restore();
+   // -------------------------------------------------------------------------------------
+   void printObjStats();
    // -------------------------------------------------------------------------------------
    ~LeanStore();
 };

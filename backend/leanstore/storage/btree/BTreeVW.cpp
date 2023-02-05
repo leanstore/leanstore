@@ -655,6 +655,7 @@ struct DTRegistry::DTMeta BTreeVW::getMeta()
 {
    DTRegistry::DTMeta btree_meta = {.iterate_children = iterateChildrenSwips,
                                     .find_parent = findParent,
+                                    .find_parent_no_jump = findParentNoJump,
                                     .check_space_utilization = checkSpaceUtilization,
                                     .checkpoint = checkpoint,
                                     .undo = undo,

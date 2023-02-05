@@ -11,15 +11,8 @@ DTRegistry DTRegistry::global_dt_registry;
 // -------------------------------------------------------------------------------------
 void DTRegistry::iterateChildrenSwips(DTID dtid, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)
 {
-   auto dt_meta = dt_instances_ht[dtid];
+   auto& dt_meta = dt_instances_ht[dtid];
    dt_types_ht[std::get<0>(dt_meta)].iterate_children(std::get<1>(dt_meta), bf, callback);
-}
-// -------------------------------------------------------------------------------------
-ParentSwipHandler DTRegistry::findParent(DTID dtid, BufferFrame& bf)
-{
-   auto dt_meta = dt_instances_ht[dtid];
-   auto name = std::get<2>(dt_meta);
-   return dt_types_ht[std::get<0>(dt_meta)].find_parent(std::get<1>(dt_meta), bf);
 }
 // -------------------------------------------------------------------------------------
 bool DTRegistry::checkSpaceUtilization(DTID dtid, BufferFrame& bf, OptimisticGuard& guard, ParentSwipHandler& parent_handler)
@@ -42,11 +35,12 @@ void DTRegistry::registerDatastructureType(DTType type, DTRegistry::DTMeta dt_me
    dt_types_ht[type] = dt_meta;
 }
 // -------------------------------------------------------------------------------------
-DTID DTRegistry::registerDatastructureInstance(DTType type, void* root_object, string name)
+DTID DTRegistry::registerDatastructureInstance(DTType type, void* root_object, string name, string short_name)
 {
    std::unique_lock guard(mutex);
    DTID new_instance_id = instances_counter++;
-   dt_instances_ht.insert({new_instance_id, {type, root_object, name}});
+   std::cout << "meta: " << type << " name: " << name << std::endl;
+   dt_instances_ht.insert({(long unsigned int)new_instance_id, {type, root_object, name, short_name}});
    return new_instance_id;
 }
 // -------------------------------------------------------------------------------------

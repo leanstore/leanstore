@@ -7,6 +7,8 @@ DECLARE_double(dram_gib);
 DECLARE_double(ssd_gib);
 DECLARE_string(ssd_path);
 DECLARE_uint32(worker_threads);
+DECLARE_uint32(worker_tasks);
+DECLARE_bool(nopp);
 DECLARE_bool(pin_threads);
 DECLARE_bool(smt);
 DECLARE_string(csv_path);
@@ -25,6 +27,7 @@ DECLARE_bool(print_debug);
 DECLARE_bool(print_tx_console);
 DECLARE_bool(profiling);
 DECLARE_uint32(print_debug_interval_s);
+DECLARE_bool(print_obj_stats);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(contention_split);
 DECLARE_uint64(cm_update_on);
@@ -56,6 +59,7 @@ DECLARE_int64(trace_dt_id);
 DECLARE_int64(trace_trigger_probability);
 DECLARE_string(tag);
 // -------------------------------------------------------------------------------------
+DECLARE_bool(optimistic_parent_pointer);
 DECLARE_bool(out_of_place);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(wal);
@@ -68,6 +72,11 @@ DECLARE_uint64(si_refresh_rate);
 DECLARE_bool(vw);
 DECLARE_bool(vw_todo);
 DECLARE_bool(vi);
+// -------------------------------------------------------------------------------------
+DECLARE_string(ioengine);
+DECLARE_bool(io_uring_poll_mode);
+DECLARE_int64(io_uring_share_wq);
+DECLARE_bool(raid5);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
 DECLARE_uint64(tmp);

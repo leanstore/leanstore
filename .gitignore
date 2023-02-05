@@ -16,4 +16,8 @@ git-ignore
 debug*
 release*
 clang*
+*.swp
+*.swo
+.vimrc
+compile_commands.json
 paper*

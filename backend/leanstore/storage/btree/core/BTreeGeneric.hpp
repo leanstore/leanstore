@@ -5,6 +5,7 @@
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
+#include "leanstore/sync-primitives/JumpMU.hpp"
 #include "leanstore/sync-primitives/PageGuard.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
@@ -56,7 +57,95 @@ class BTreeGeneric
    XMergeReturnCode XMerge(HybridPageGuard<BTreeNode>& p_guard, HybridPageGuard<BTreeNode>& c_guard, ParentSwipHandler&);
    // -------------------------------------------------------------------------------------
    static bool checkSpaceUtilization(void* btree_object, BufferFrame&, OptimisticGuard&, ParentSwipHandler&);
-   static ParentSwipHandler findParent(BTreeGeneric& btree_object, BufferFrame& to_find);
+   inline static bool findParentNoJump(BTreeGeneric& btree, BufferFrame& to_find, ParentSwipHandler& ret) {
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent[btree.dt_id]++; }
+      if (FLAGS_optimistic_parent_pointer) {
+         Guard c_guard(to_find.header.latch);
+         if (c_guard.tryToOptimistic()) {
+            BufferFrame::Header::OptimisticParentPointer::Child opp = to_find.header.optimistic_parent_pointer.child;
+            if (c_guard.tryRecheck() && opp.parent_bf != nullptr) {
+               Guard p_guard(opp.parent_bf->header.latch);
+               if (p_guard.tryToOptimistic() && opp.parent_bf->header.pid == opp.parent_pid) {
+                  assert(opp.parent_bf_version_on_update <= opp.parent_bf->header.latch.version);
+                  if (opp.parent_bf->header.optimistic_parent_pointer.parent.last_swip_invalidation_version <= opp.parent_bf_version_on_update) {
+                     ensure(opp.swip_ptr);
+                     if (!((Swip<void>*)(opp.swip_ptr))->isEVICTED() && ((Swip<void>*)(opp.swip_ptr))->bfPtrAsHot() == &to_find) {
+                        COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent_dbg[btree.dt_id]++; }
+                        if (p_guard.tryRecheck() && c_guard.tryRecheck()) {
+                           ret = {.swip = reinterpret_cast<Swip<BufferFrame>*>(opp.swip_ptr),//opp.swip_ptr),
+                              .parent_guard = std::move(p_guard),
+                              .parent_bf = opp.parent_bf,
+                              .pos = opp.pos_in_parent};
+                           //std::cerr << std::hex << "opp re: " << ret.swip << " bf: " << (u64)ret.swip->bf << " parent_bf: " << std::endl;
+                           COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent_fast[btree.dt_id]++; }
+                           return true;
+                        }
+                     } else {
+                        /*
+                           std::cout << "no! opp.swip: " << swip->bfPtrAsHot()  << " to_f: " << &to_find << " to_f.pageID: " << std::hex << to_find.header.pid << " ";
+                           std::cout << "p_bf.split gsn: " << parent_bf->header.optimistic_parent_pointer.lastSplitGSN << " opp gsn: " << optimistic_parent_pointer.parent_gsn << " ";
+                           std::cout << "p_bf.pid: " <<parent_bf->header.pid << " opp.pid" << optimistic_parent_pointer.parent_pid << std::endl;
+                           */
+                        COUNTERS_BLOCK() {
+                           WorkerCounters::myCounters().dt_find_parent_dbg2++;
+                        }
+                     }
+                  }
+               }
+            }
+         }
+      }
+      jumpmuTry() {
+         findParentSlowPath(btree, to_find, ret);
+         jumpmu_return true;
+      } jumpmuCatch() { return false;}
+   }
+   inline static void findParent(BTreeGeneric& btree, BufferFrame& to_find, ParentSwipHandler& ret) {
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent[btree.dt_id]++; }
+      if (FLAGS_optimistic_parent_pointer) {
+         jumpmuTry()
+         {
+            Guard c_guard(to_find.header.latch);
+            c_guard.toOptimisticOrJump();
+            BufferFrame::Header::OptimisticParentPointer::Child opp = to_find.header.optimistic_parent_pointer.child;
+            c_guard.recheck();
+            if (opp.parent_bf != nullptr) {
+               Guard p_guard(opp.parent_bf->header.latch);
+               p_guard.toOptimisticOrJump();
+               if (opp.parent_bf->header.pid == opp.parent_pid) {
+                  assert(opp.parent_bf_version_on_update <= opp.parent_bf->header.latch.version);
+                  if (opp.parent_bf->header.optimistic_parent_pointer.parent.last_swip_invalidation_version <= opp.parent_bf_version_on_update) {
+                     ensure(opp.swip_ptr);
+                     if (!((Swip<void>*)(opp.swip_ptr))->isEVICTED() && ((Swip<void>*)(opp.swip_ptr))->bfPtrAsHot() == &to_find) {
+                        COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent_dbg[btree.dt_id]++; }
+                        p_guard.recheck();
+                        c_guard.recheck();
+                        ret = {.swip = reinterpret_cast<Swip<BufferFrame>*>(opp.swip_ptr),//opp.swip_ptr),
+                           .parent_guard = std::move(p_guard),
+                           .parent_bf = opp.parent_bf,
+                           .pos = opp.pos_in_parent};
+                        //std::cerr << std::hex << "opp re: " << ret.swip << " bf: " << (u64)ret.swip->bf << " parent_bf: " << std::endl;
+                        COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent_fast[btree.dt_id]++; }
+                        jumpmu_return;
+                     } else {
+                        /*
+                           std::cout << "no! opp.swip: " << swip->bfPtrAsHot()  << " to_f: " << &to_find << " to_f.pageID: " << std::hex << to_find.header.pid << " ";
+                           std::cout << "p_bf.split gsn: " << parent_bf->header.optimistic_parent_pointer.lastSplitGSN << " opp gsn: " << optimistic_parent_pointer.parent_gsn << " ";
+                           std::cout << "p_bf.pid: " <<parent_bf->header.pid << " opp.pid" << optimistic_parent_pointer.parent_pid << std::endl;
+                           */
+                        COUNTERS_BLOCK() { 
+                           WorkerCounters::myCounters().dt_find_parent_dbg2++; 
+                        }
+                     }
+                  } 
+               }  
+            }
+         }
+         jumpmuCatch() {}
+      }
+      findParentSlowPath(btree, to_find, ret);
+   }
+   static void findParentSlowPath(BTreeGeneric& btree_object, BufferFrame& to_find, ParentSwipHandler& parent_handler, bool opt = FLAGS_optimistic_parent_pointer);
    static void iterateChildrenSwips(void* btree_object, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback);
    static void checkpoint(void*, BufferFrame& bf, u8* dest);
    // -------------------------------------------------------------------------------------

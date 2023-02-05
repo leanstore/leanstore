@@ -4,6 +4,7 @@
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/storage/btree/core/WALMacros.hpp"
 // -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
 #include <cassert>
 #include <cstdint>
 #include <cstring>
@@ -20,14 +21,14 @@ struct LeanStoreAdapter {
    {
       // hack
    }
-   LeanStoreAdapter(LeanStore& db, string name) : name(name)
+   LeanStoreAdapter(LeanStore& db, string name, string short_name) : name(name)
    {
       if (FLAGS_vw) {
-         btree = &db.registerBTreeVW(name);
+         btree = &db.registerBTreeVW(name, short_name);
       } else if (FLAGS_vi) {
-         btree = &db.registerBTreeVI(name);
+         btree = &db.registerBTreeVI(name, short_name);
       } else {
-         btree = &db.registerBTreeLL(name);
+         btree = &db.registerBTreeLL(name, short_name);
       }
    }
    // -------------------------------------------------------------------------------------
@@ -71,7 +72,7 @@ struct LeanStoreAdapter {
       const auto res = btree->lookup(folded_key, folded_key_len, [&](const u8* payload, u16 payload_length) {
          static_cast<void>(payload_length);
          const Record& typed_payload = *reinterpret_cast<const Record*>(payload);
-         assert(payload_length == sizeof(Record));
+         //assert(payload_length == sizeof(Record));
          fn(typed_payload);
       });
       ensure(res == btree::OP_RESULT::OK);

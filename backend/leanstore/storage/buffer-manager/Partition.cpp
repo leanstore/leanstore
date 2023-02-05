@@ -21,8 +21,9 @@ void* malloc_huge(size_t size)
 }
 // -------------------------------------------------------------------------------------
 HashTable::Entry::Entry(PID key) : key(key) {}
+HashTable::Entry::Entry() : key(0) {}
 // -------------------------------------------------------------------------------------
-HashTable::HashTable(u64 sizeInBits)
+HashTable::HashTable(u64 sizeInBits) : alloc_stack(1ull << sizeInBits)
 {
    uint64_t size = (1ull << sizeInBits);
    mask = size - 1;
@@ -48,7 +49,8 @@ u64 HashTable::hashKey(PID k)
 // -------------------------------------------------------------------------------------
 IOFrame& HashTable::insert(PID key)
 {
-   auto e = new Entry(key);
+   auto e = alloc_stack.pop();
+   e->key = key;
    uint64_t pos = hashKey(key) & mask;
    e->next = entries[pos];
    entries[pos] = e;
@@ -73,7 +75,7 @@ void HashTable::remove(HashTable::Handler& handler)
 {
    Entry* to_delete = *handler.holder;
    *handler.holder = (*handler.holder)->next;
-   delete to_delete;
+   alloc_stack.ret(to_delete);
 }
 // -------------------------------------------------------------------------------------
 void HashTable::remove(u64 key)
@@ -93,12 +95,6 @@ bool HashTable::has(u64 key)
       e = e->next;
    }
    return false;
-}
-// -------------------------------------------------------------------------------------
-Partition::Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit, u64 cooling_bfs_limit)
-    : io_ht(utils::getBitsNeeded(cooling_bfs_limit)), free_bfs_limit(free_bfs_limit), cooling_bfs_limit(cooling_bfs_limit), pid_distance(pid_distance)
-{
-   next_pid = first_pid;
 }
 // -------------------------------------------------------------------------------------
 }  // namespace storage

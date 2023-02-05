@@ -12,7 +12,9 @@
 #include <sys/mman.h>
 
 #include <cstring>
+#include <ios>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <thread>
@@ -45,7 +47,7 @@ class BufferManager
    // -------------------------------------------------------------------------------------
    BufferFrame* bfs;
    // -------------------------------------------------------------------------------------
-   const int ssd_fd;
+   // int ssd_fd;
    // -------------------------------------------------------------------------------------
    // Free  Pages
    const u8 safety_pages = 10;               // we reserve these extra pages to prevent segfaults
@@ -53,31 +55,53 @@ class BufferManager
    atomic<u64> ssd_freed_pages_counter = 0;  // used to track how many pages did we really allocate
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
-   u64 partitions_count;
    u64 partitions_mask;
-   Partition* partitions;
-
+   // -------------------------------------------------------------------------------------
+  public:
+   u64 io_partitions_count;
+   u64 cooling_partitions_count;
+   IoPartition* io_partitions;
+   CoolingPartition* cooling_partitions;
   private:
    // -------------------------------------------------------------------------------------
    // Threads managements
    void pageProviderThread(u64 p_begin, u64 p_end);  // [p_begin, p_end)
+  public:
+   //IoPartition& randomIoPartition();
+   s64 phase_1_condition(CoolingPartition& p);
+   s64 phase_2_3_condition(CoolingPartition& p);
+   u64 pageProviderPhase1(CoolingPartition& p, const u64 really, int partition_id);
+   u64 pageProviderPhase1Vec(CoolingPartition& p, const u64 really, int partition_id);
+   void pageProviderCycle(int p_id);
+  private:
+   void evict_bf(CoolingPartition& partition, FreedBfsBatch& freed_bfs_batch, BufferFrame& bf, OptimisticGuard& guard, bool& p1, bool& p2);
+   int pageProviderPhase2(CoolingPartition& partition, u64 pages_to_iterate_partition, FreedBfsBatch&  freed_bfs_batch);
+   void pageProviderPhase3evict(CoolingPartition& partition, FreedBfsBatch&  freed_bfs_batch);
+   // -------------------------------------------------------------------------------------
    atomic<u64> bg_threads_counter = 0;
    atomic<bool> bg_threads_keep_running = true;
    // -------------------------------------------------------------------------------------
    // Misc
-   Partition& randomPartition();
    BufferFrame& randomBufferFrame();
-   Partition& getPartition(PID);
-   u64 getPartitionID(PID);
-
+   BufferFrame& partitionRandomBufferFrame(u64 partition, u64);
+   u64 partitionRandomBufferFramePos(u64 partition, u64 max_partitions);
+   CoolingPartition& randomCoolingPartition();
+   CoolingPartition& getCoolingPartition(BufferFrame&);
+   IoPartition& getIoPartition(PID);
+   u64 getIoPartitionID(PID);
   public:
    // -------------------------------------------------------------------------------------
-   BufferManager(s32 ssd_fd);
+   BufferManager();
    ~BufferManager();
    // -------------------------------------------------------------------------------------
    BufferFrame& allocatePage();
    inline BufferFrame& tryFastResolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
    {
+      /*
+      if (rand() % 8 == 0) {
+         mean::task::yield();
+      }
+      //*/
       if (swip_value.isHOT()) {
          BufferFrame& bf = swip_value.bfRef();
          swip_guard.recheck();

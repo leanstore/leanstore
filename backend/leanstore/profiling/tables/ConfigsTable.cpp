@@ -25,6 +25,7 @@ void ConfigsTable::open()
    columns.emplace("c_worker_threads", [&](Column& col) { col << FLAGS_worker_threads; });
    columns.emplace("c_pin_threads", [&](Column& col) { col << FLAGS_pin_threads; });
    columns.emplace("c_smt", [&](Column& col) { col << FLAGS_smt; });
+   columns.emplace("c_ioengine", [&](Column& col) { col << FLAGS_ioengine; });
    // -------------------------------------------------------------------------------------
    columns.emplace("c_free_pct", [&](Column& col) { col << FLAGS_free_pct; });
    columns.emplace("c_cool_pct", [&](Column& col) { col << FLAGS_cool_pct; });
@@ -50,6 +51,10 @@ void ConfigsTable::open()
    columns.emplace("c_backoff", [&](Column& col) { col << FLAGS_backoff; });
    // -------------------------------------------------------------------------------------
    columns.emplace("c_wal", [&](Column& col) { col << FLAGS_wal; });
+   columns.emplace("c_worker_tasks", [&](Column& col) { col << FLAGS_worker_tasks; });
+   // -------------------------------------------------------------------------------------
+   columns.emplace("c_ssd_path", [&](Column& col) { col << FLAGS_ssd_path; });
+   columns.emplace("c_io_uring_poll_mode", [&](Column& col) { col << FLAGS_io_uring_poll_mode; });
    columns.emplace("c_si", [&](Column& col) { col << FLAGS_si; });
    columns.emplace("c_vw", [&](Column& col) { col << FLAGS_vw; });
    columns.emplace("c_vw_todo", [&](Column& col) { col << FLAGS_vw_todo; });

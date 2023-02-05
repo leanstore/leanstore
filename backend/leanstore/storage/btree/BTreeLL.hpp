@@ -61,7 +61,16 @@ class BTreeLL : public BTreeInterface, public BTreeGeneric
    virtual u64 countEntries() override;
    virtual u64 getHeight() override;
    // -------------------------------------------------------------------------------------
-   static ParentSwipHandler findParent(void* btree_object, BufferFrame& to_find);
+   __attribute__((always_inline))
+   inline static void findParent(void* btree_object, BufferFrame& to_find, ParentSwipHandler& ph)
+   {
+      BTreeGeneric::findParent(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find, ph);
+   };
+   __attribute__((always_inline))
+   inline static bool findParentNoJump(void* btree_object, BufferFrame& to_find, ParentSwipHandler& ph)
+   {
+      return BTreeGeneric::findParentNoJump(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find, ph);
+   };
    static void undo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
    static void todo(void* btree_object, const u8* wal_entry_ptr, const u64 tts);
    static DTRegistry::DTMeta getMeta();

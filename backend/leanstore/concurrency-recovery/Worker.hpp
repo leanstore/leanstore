@@ -47,8 +47,7 @@ struct Worker {
    const u64 worker_id;
    Worker** all_workers;
    const u64 workers_count;
-   const s32 ssd_fd;
-   Worker(u64 worker_id, Worker** all_workers, u64 workers_count, s32 fd);
+   Worker(u64 worker_id, Worker** all_workers, u64 workers_count);
    static inline Worker& my() { return *Worker::tls_ptr; }
    ~Worker();
    // -------------------------------------------------------------------------------------

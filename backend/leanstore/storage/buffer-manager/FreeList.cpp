@@ -1,7 +1,9 @@
 #include "FreeList.hpp"
+#include "leanstore/concurrency/Mean.hpp"
 
 #include "Exceptions.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
+#include "leanstore/utils/UserJumpReasons.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
@@ -28,7 +30,7 @@ void FreeList::push(BufferFrame& bf)
    counter++;
 }
 // -------------------------------------------------------------------------------------
-struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<std::mutex>>& lock)
+struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<mean::mutex>>& lock)
 {
    BufferFrame* c_header = head;
    BufferFrame* free_bf = nullptr;
@@ -46,7 +48,7 @@ struct BufferFrame& FreeList::tryPop(JMUW<std::unique_lock<std::mutex>>& lock)
       }
    } else {
       lock->unlock();
-      jumpmu::jump();
+      jumpmu::jump(UserJumpReason::NoFreePages);
    }
    return *free_bf;
 }
@@ -75,7 +77,8 @@ struct BufferFrame& FreeList::pop()
       }
    }
    // WorkerCounters::myCounters().dt_researchy_2[0]++;
-   jumpmu::jump();
+   WorkerCounters::myCounters().free_list_pop_failed++;
+   jumpmu::jump(UserJumpReason::NoFreePages);
    return *free_bf;  // unreachable
 }
 // -------------------------------------------------------------------------------------

@@ -4,6 +4,7 @@
 #include <tbb/enumerable_thread_specific.h>
 
 #include "PerfEvent.hpp"
+#include "leanstore/utils/Hist.hpp"
 // -------------------------------------------------------------------------------------
 #include <atomic>
 #include <unordered_map>
@@ -21,10 +22,13 @@ struct WorkerCounters {
    atomic<u64> cold_hit_counter = 0;
    atomic<u64> read_operations_counter = 0;
    atomic<u64> allocate_operations_counter = 0;
+   atomic<u64> free_list_pop_failed = 0;
    atomic<u64> restarts_counter = 0;
    atomic<u64> tx = 0;
    atomic<u64> tx_abort = 0;
-   atomic<u64> tmp = 0;
+   atomic<s32> tmp = 0;
+   atomic<u64> total_tx_time = 0;
+   Hist<int, u64> tx_latency_hist{1000, 0, 100000};
    // -------------------------------------------------------------------------------------
    // Space and contention management
    atomic<u64> contention_split_succ_counter[max_dt_id] = {0};
@@ -40,7 +44,15 @@ struct WorkerCounters {
    atomic<u64> dt_restarts_read[max_dt_id] = {0};
    atomic<u64> dt_researchy[max_dt_id][max_researchy_counter] = {};  // temporary counter used to track some value for an idea in my mind
    // -------------------------------------------------------------------------------------
-  constexpr static u64 VW_MAX_STEPS = 10;
+   atomic<u64> dt_find_parent[max_dt_id] = {0};
+   atomic<u64> dt_find_parent_root[max_dt_id] = {0};
+   atomic<u64> dt_find_parent_fast[max_dt_id] = {0};
+   atomic<u64> dt_find_parent_slow[max_dt_id] = {0};
+   atomic<u64> dt_find_parent_dbg[max_dt_id] = {0};
+   // -------------------------------------------------------------------------------------
+   atomic<u64> dt_find_parent_dbg2 = {0};
+   // -------------------------------------------------------------------------------------
+   constexpr static u64 VW_MAX_STEPS = 10;
    atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {0};
    // -------------------------------------------------------------------------------------
    // WAL

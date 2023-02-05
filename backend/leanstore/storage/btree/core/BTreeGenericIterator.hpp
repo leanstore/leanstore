@@ -186,6 +186,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
    virtual bool keyFitsInCurrentNode(Slice key) { return leaf->compareKeyWithBoundaries(key.data(), key.length()) == 0; }
    virtual void splitForKey(Slice key)
    {
+      volatile u32 mask = 1;
       while (true) {
          jumpmuTry()
          {
@@ -199,7 +200,7 @@ class BTreeExclusiveIterator : public BTreePessimisticIterator<LATCH_FALLBACK_MO
             btree.trySplit(*bf);
             jumpmu_break;
          }
-         jumpmuCatch() {}
+         jumpmuCatch() { BACKOFF_STRATEGIES(); } // needed in nopp config, to prevent infinite looping, if there are no free pages
       }
    }
    virtual OP_RESULT insertKV(Slice key, Slice value)

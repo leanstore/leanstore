@@ -1,9 +1,9 @@
 #include "BTreeLL.hpp"
 
 #include "core/BTreeGenericIterator.hpp"
-#include "leanstore/concurrency-recovery/CRMG.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
+#include "leanstore/storage/btree/core/BTreeInterface.hpp"
 // -------------------------------------------------------------------------------------
 #include <signal.h>
 // -------------------------------------------------------------------------------------
@@ -53,6 +53,7 @@ OP_RESULT BTreeLL::lookup(u8* key, u16 key_length, function<void(const u8*, u16)
          WorkerCounters::myCounters().dt_restarts_read[dt_id]++;
       }
    }
+   return OP_RESULT::UNREACHABLE;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanAsc(u8* start_key,
@@ -81,6 +82,7 @@ OP_RESULT BTreeLL::scanAsc(u8* start_key,
       }
    }
    jumpmuCatch() { ensure(false); }
+   return OP_RESULT::UNREACHABLE;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(const u8*, u16, const u8*, u16)> callback, function<void()>)
@@ -106,6 +108,7 @@ OP_RESULT BTreeLL::scanDesc(u8* start_key, u16 key_length, std::function<bool(co
       }
    }
    jumpmuCatch() { ensure(false); }
+   return OP_RESULT::UNREACHABLE;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_length)
@@ -132,6 +135,7 @@ OP_RESULT BTreeLL::insert(u8* o_key, u16 o_key_length, u8* o_value, u16 o_value_
       jumpmu_return OP_RESULT::OK;
    }
    jumpmuCatch() { ensure(false); }
+   return OP_RESULT::UNREACHABLE;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::updateSameSize(u8* o_key,
@@ -170,6 +174,7 @@ OP_RESULT BTreeLL::updateSameSize(u8* o_key,
       jumpmu_return OP_RESULT::OK;
    }
    jumpmuCatch() { ensure(false); }
+   return OP_RESULT::UNREACHABLE;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
@@ -196,10 +201,11 @@ OP_RESULT BTreeLL::remove(u8* o_key, u16 o_key_length)
       }
       ret = iterator.removeCurrent();
       ensure(ret == OP_RESULT::OK);
-      iterator.mergeIfNeeded();
+      //iterator.mergeIfNeeded();
       jumpmu_return OP_RESULT::OK;
    }
    jumpmuCatch() { ensure(false); }
+   return OP_RESULT::UNREACHABLE;
 }
 // -------------------------------------------------------------------------------------
 u64 BTreeLL::countEntries()
@@ -228,6 +234,7 @@ struct DTRegistry::DTMeta BTreeLL::getMeta()
 {
    DTRegistry::DTMeta btree_meta = {.iterate_children = iterateChildrenSwips,
                                     .find_parent = findParent,
+                                    .find_parent_no_jump = findParentNoJump,
                                     .check_space_utilization = checkSpaceUtilization,
                                     .checkpoint = checkpoint,
                                     .undo = undo,
@@ -235,10 +242,6 @@ struct DTRegistry::DTMeta BTreeLL::getMeta()
    return btree_meta;
 }
 // -------------------------------------------------------------------------------------
-struct ParentSwipHandler BTreeLL::findParent(void* btree_object, BufferFrame& to_find)
-{
-   return BTreeGeneric::findParent(*static_cast<BTreeGeneric*>(reinterpret_cast<BTreeLL*>(btree_object)), to_find);
-}
 // -------------------------------------------------------------------------------------
 }  // namespace btree
 }  // namespace storage

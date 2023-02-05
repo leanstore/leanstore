@@ -43,6 +43,7 @@ OP_RESULT BTreeVI::lookup(u8* o_key, u16 o_key_length, function<void(const u8*, 
       jumpmu_return ret;
    }
    jumpmuCatch() { ensure(false); }
+   return OP_RESULT::UNREACHABLE;
 }
 // -------------------------------------------------------------------------------------
 OP_RESULT BTreeVI::updateSameSize(u8* o_key,
@@ -348,6 +349,7 @@ struct DTRegistry::DTMeta BTreeVI::getMeta()
 {
    DTRegistry::DTMeta btree_meta = {.iterate_children = iterateChildrenSwips,
                                     .find_parent = findParent,
+                                    .find_parent_no_jump = findParentNoJump,
                                     .check_space_utilization = checkSpaceUtilization,
                                     .checkpoint = checkpoint,
                                     .undo = undo,

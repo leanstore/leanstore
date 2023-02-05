@@ -45,6 +45,19 @@ void DTTable::open()
       columns.emplace("vw_version_step_" + std::to_string(i),
                       [&, i](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::vw_version_step, dt_id, i); });
    }
+   // -------------------------------------------------------------------------------------
+   columns.emplace("dt_find_parent", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent, dt_id); });
+   columns.emplace("dt_find_parent_root",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_root, dt_id); });
+   columns.emplace("dt_find_parent_fast",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_fast, dt_id); });
+   columns.emplace("dt_find_parent_slow",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_slow, dt_id); });
+   columns.emplace("dt_find_parent_dbg",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_dbg, dt_id); });
+   columns.emplace("dt_find_parent_dbg2",
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_dbg2); });
+   // -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------
 void DTTable::next()

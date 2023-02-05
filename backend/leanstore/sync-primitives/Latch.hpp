@@ -1,9 +1,12 @@
 #pragma once
 #include "Units.hpp"
 #include "leanstore/Config.hpp"
-#include "leanstore/utils/JumpMU.hpp"
+#include "leanstore/concurrency/Mean.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/concurrency/YieldLock.hpp"
 // -------------------------------------------------------------------------------------
+#include "JumpMU.hpp"
+#include "leanstore/utils/UserJumpReasons.hpp"
 // -------------------------------------------------------------------------------------
 #ifdef __x86_64__
 #include <emmintrin.h>
@@ -16,21 +19,29 @@
 #include <unistd.h>
 
 #include <atomic>
-#include <shared_mutex>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
 namespace storage
 {
 #define MAX_BACKOFF FLAGS_backoff  // FLAGS_x
-#define BACKOFF_STRATEGIES()                                              \
-   if (FLAGS_backoff) {                                                   \
-      for (u64 i = utils::RandomGenerator::getRandU64(0, mask); i; --i) { \
-         MYPAUSE();                                                       \
-      }                                                                   \
-      mask = mask < MAX_BACKOFF ? mask << 1 : MAX_BACKOFF;                \
+#define BACKOFF_STRATEGIES()                                                        \
+   if (FLAGS_nopp                                                                   \
+         && (jumpmu::user_jump_reason() == UserJumpReason::NoFreePages              \
+            || jumpmu::user_jump_reason() == UserJumpReason::Lock)) {               \
+      if (jumpmu::user_jump_reason() == UserJumpReason::NoFreePages) {              \
+         mean::task::yield(mean::TaskState::ReadyMem);                              \
+      } else {                                                                      \
+         mean::task::yield(mean::TaskState::ReadyJumpLock);                         \
+      }                                                                             \
+   } else {                                                                         \
+      if (FLAGS_backoff) {                                                          \
+         for (u64 i = utils::RandomGenerator::getRandU64(0, mask); i; --i) {        \
+            MYPAUSE();                                                              \
+         }                                                                          \
+         mask = mask < MAX_BACKOFF ? mask << 1 : MAX_BACKOFF;                       \
+      }                                                                             \
    }
-
 // -------------------------------------------------------------------------------------
 struct RestartException {
   public:
@@ -43,7 +54,7 @@ constexpr static u64 LATCH_VERSION_MASK = ~(0ull);
 using VersionType = atomic<u64>;
 struct alignas(64) HybridLatch {
    VersionType version;
-   std::shared_mutex mutex;
+   mean::SharedYieldLock mutex;
    // -------------------------------------------------------------------------------------
    template <typename... Args>
    HybridLatch(Args&&... args) : version(std::forward<Args>(args)...)
@@ -70,6 +81,7 @@ struct Guard {
    u64 version;
    bool faced_contention = false;
    // -------------------------------------------------------------------------------------
+   Guard() : latch(nullptr) {}
    Guard(HybridLatch& latch) : latch(&latch) {}
    Guard(HybridLatch* latch) : latch(latch) {}
    // -------------------------------------------------------------------------------------
@@ -94,6 +106,15 @@ struct Guard {
       return *this;
    }
    // -------------------------------------------------------------------------------------
+   bool tryRecheck()
+   {
+      // maybe only if state == optimistic
+      assert(state == GUARD_STATE::OPTIMISTIC || version == latch->ref().load());
+      if (state == GUARD_STATE::OPTIMISTIC && version != latch->ref().load()) {
+         return false;
+      }
+      return true;
+   }
    void recheck()
    {
       // maybe only if state == optimistic
@@ -113,6 +134,17 @@ struct Guard {
       } else if (state == GUARD_STATE::SHARED) {
          latch->mutex.unlock_shared();
          state = GUARD_STATE::OPTIMISTIC;
+      }
+   }
+   inline bool tryToOptimistic()
+   {
+      assert(state == GUARD_STATE::UNINITIALIZED && latch != nullptr && state != GUARD_STATE::MOVED);
+      version = latch->ref().load();
+      if ((version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT) {
+         return false;
+      } else {
+         state = GUARD_STATE::OPTIMISTIC;
+         return true;
       }
    }
    // -------------------------------------------------------------------------------------
@@ -164,6 +196,35 @@ struct Guard {
       } else {
          state = GUARD_STATE::OPTIMISTIC;
       }
+   }
+   inline bool tryToExclusive()
+   {
+      assert(state != GUARD_STATE::SHARED && state != GUARD_STATE::EXCLUSIVE);
+      /*
+      if (state == GUARD_STATE::EXCLUSIVE)
+         return false;
+      */
+      if (state == GUARD_STATE::OPTIMISTIC) {
+         const u64 new_version = version + LATCH_EXCLUSIVE_BIT;
+         u64 expected = version;
+         if (!latch->mutex.try_lock()) {
+            return false;
+         }
+         if (!latch->ref().compare_exchange_strong(expected, new_version)) {
+            latch->mutex.unlock();
+            return false;
+         }
+         version = new_version;
+         state = GUARD_STATE::EXCLUSIVE;
+      } else {
+         if (!latch->mutex.try_lock()) {
+            return false;
+         }
+         version = latch->ref().load() + LATCH_EXCLUSIVE_BIT;
+         latch->ref().store(version, std::memory_order_release);
+         state = GUARD_STATE::EXCLUSIVE;
+      }
+      return true;
    }
    inline void toExclusive()
    {

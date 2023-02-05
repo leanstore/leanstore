@@ -15,37 +15,72 @@ endif ()
 # Library
 # ---------------------------------------------------------------------------
 add_library(leanstore STATIC ${LEANSTORE_CC})
-
-OPTION(SANI "Compile leanstore with sanitizers" OFF)
-IF(SANI)
-  if (CMAKE_BUILD_TYPE MATCHES Debug)
-    target_compile_options(leanstore PUBLIC -fsanitize=address)
-    target_link_libraries(leanstore asan)
-  endif ()
-ENDIF(SANI)
-
 target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic tabluate) #tbb
 
-# ---------------------------------------------------------------------------
-SET(COUNTERS_LEVEL "all" CACHE STRING "Which counters to leave in leanstore build")
-IF(COUNTERS_LEVEL STREQUAL "all")
-  target_compile_definitions(leanstore PUBLIC MACRO_COUNTERS_ALL)
-ENDIF()
 
-SET(CHECKS_LEVEL "default" CACHE STRING "Which checks to leave in leanstore build")
-IF(CHECKS_LEVEL STREQUAL "default")
-  IF(CMAKE_BUILD_TYPE MATCHES Debug)
-    target_compile_definitions(leanstore PUBLIC MACRO_CHECK_DEBUG)
-  ELSEIF(CMAKE_BUILD_TYPE MATCHES RelWithDebInfo OR CMAKE_BUILD_TYPE MATCHES Release)
-    target_compile_definitions(leanstore PUBLIC MACRO_CHECK_RELEASE)
-  ENDIF()
-ELSEIF(CHECKS_LEVEL STREQUAL "debug")
-  target_compile_definitions(leanstore PUBLIC MACRO_CHECK_DEBUG)
-ELSEIF(CHECKS_LEVEL STREQUAL "release")
-  target_compile_definitions(leanstore PUBLIC MACRO_CHECK_RELEASE)
-ELSEIF(CHECKS_LEVEL STREQUAL "benchmark")
-  target_compile_definitions(leanstore PUBLIC MACRO_CHECK_BENCHMARK)
-ENDIF()
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+add_dependencies(leanstore spdk)
+add_dependencies(leanstore liburing)
+
+# xnvme stuff
+if(LEANSTORE_INCLUDE_XNVME)
+   add_dependencies(leanstore xnvme)
+   message("Including XNVME")
+   target_link_libraries(leanstore 
+      -L${XNVME_LIBRARY_PATH}
+      -Wl,--whole-archive -Wl,--no-as-needed
+      -lxnvme
+      -Wl,--no-whole-archive -Wl,--as-needed
+	  -pthread -lrt -lm -lnuma -luuid -laio
+   )
+endif()
+
+# all the SPDK stuff
+target_link_libraries(leanstore -L${SPDK_LIBRARY_PATH})
+target_link_libraries(leanstore  -lspdk_vmd -Wl,--whole-archive -lspdk_nvme -Wl,--no-whole-archive -lspdk_trace -lspdk_sock -lspdk_log -lspdk_json -lspdk_env_dpdk -lspdk_util -lspdk_vfio_user)
+target_link_libraries(leanstore
+	-Wl,--whole-archive
+	${DPDK_LIBRARY_PATH}/librte_eal.a 
+	${DPDK_LIBRARY_PATH}/librte_telemetry.a 
+	${DPDK_LIBRARY_PATH}/librte_mempool.a 
+	${DPDK_LIBRARY_PATH}/librte_kvargs.a 
+	${DPDK_LIBRARY_PATH}/librte_bus_pci.a 
+	${DPDK_LIBRARY_PATH}/librte_pci.a 
+	${DPDK_LIBRARY_PATH}/librte_ring.a
+	-Wl,--no-whole-archive
+)
+target_link_libraries(leanstore -luuid -lnuma -lrt -lcrypto -laio)
+target_link_libraries(leanstore -L${ISAL_LIBRARY_PATH} -lisal )
+
+target_link_libraries(leanstore ${TBB_LIBRARIES})
+
+target_link_libraries(leanstore ${Boost_LIBRARIES} )
+#target_link_libraries(leanstore -L~/boost_1_73_0/stage/lib/ -lboost_context)
+#target_include_directories(leanstore PUBLIC ~/boost_1_73_0/boost/context/) 
+# use it with cmake ... -DCMAKE_CXX_FLAGS='-Dleanstore_USE_TASKING -DBOOST_USE_UCONTEXT'
+
+target_link_libraries(leanstore -L${liburing_LIBRARY_PATH})
+target_link_libraries(leanstore -luring )
+
+target_link_libraries(leanstore ${CMAKE_DL_LIBS})
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+
+
+#if (CMAKE_BUILD_TYPE MATCHES Debug)
+#    target_compile_options(leanstore PUBLIC -fsanitize=address)
+#    target_link_libraries(leanstore asan)
+#endif ()
+OPTION(LEANSTORE_COUNTERS "Compile leanstore with debugging/performance counters" ON)
+IF(LEANSTORE_COUNTERS)
+  target_compile_definitions(leanstore PUBLIC MACRO_FLAG_COUNTERS=1)
+ENDIF(LEANSTORE_COUNTERS)
 # ---------------------------------------------------------------------------
 target_include_directories(leanstore PUBLIC ${SHARED_INCLUDE_DIRECTORY})
 target_include_directories(leanstore PRIVATE ${CMAKE_CURRENT_LIST_DIR})

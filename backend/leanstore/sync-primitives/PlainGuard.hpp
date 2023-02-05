@@ -2,8 +2,9 @@
 #include "Latch.hpp"
 #include "Units.hpp"
 #include "leanstore/Config.hpp"
-#include "leanstore/utils/JumpMU.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+// -------------------------------------------------------------------------------------
+#include "JumpMU.hpp"
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -26,6 +27,8 @@ class OptimisticGuard
   public:
    Guard guard;
    // -------------------------------------------------------------------------------------
+   OptimisticGuard(Guard& g) : guard(std::move(g)) {
+   }
    OptimisticGuard(HybridLatch& lock) : guard(lock)
    {
       // assert(if_contended != FALLBACK_METHOD::EXCLUSIVE && if_contended != FALLBACK_METHOD::SHARED);

@@ -1,9 +1,9 @@
 #pragma once
 #include "Exceptions.hpp"
 #include "Latch.hpp"
-#include "leanstore/concurrency-recovery/CRMG.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
+#include "leanstore/concurrency-recovery/Worker.hpp"
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
@@ -194,6 +194,8 @@ class ExclusivePageGuard
    }
    // -------------------------------------------------------------------------------------
    void keepAlive() { ref_guard.keep_alive = true; }
+   // -------------------------------------------------------------------------------------
+   inline void updateLastSwipInvalidation() { bf()->header.optimistic_parent_pointer.parent.last_swip_invalidation_version = bf()->header.latch.version;}
    // -------------------------------------------------------------------------------------
    ~ExclusivePageGuard()
    {

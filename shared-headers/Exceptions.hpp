@@ -8,11 +8,15 @@
 // -------------------------------------------------------------------------------------
 #define imply(lhs, rhs) (!(lhs) || (rhs))
 // -------------------------------------------------------------------------------------
-#define posix_check(expr) \
-  if (!(expr)) {          \
-    perror(#expr);        \
-    assert(false);        \
-  }
+inline void posix_check(bool expr, std::string msg = "")
+{
+   if (!(expr)) {
+      perror("posix_check failed");
+      perror(msg.c_str());
+      assert(false);
+   }
+}
+//#define posix_check(expr) //  if (!(expr)) {          //    perror(#expr);        //    assert(false);        //  }
 //--------------------------------------------------------------------------------------
 #define Generic_Exception(name)                                                                                      \
   struct name : public std::exception {                                                                              \
@@ -42,10 +46,32 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
                                                       " msg: " + std::string(#e))                                                               \
                              : (void)0)
 
+// -------------------------------------------------------------------------------------
+inline void null_check(bool e, std::string msg = "")
+{
+   if (__builtin_expect(!(e), 0)) {
+      throw leanstore::ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + std::to_string(__LINE__) + ": " +  msg);
+   }
+}
+// -------------------------------------------------------------------------------------
 #ifdef DEBUG
-#define ensure(e) assert(e);
+inline void ensure(bool e, std::string msg = "")
+{
+   if (__builtin_expect(!(e), 0)) {
+      throw leanstore::ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + std::to_string(__LINE__) + ": " +  msg);
+   }
+}
 #else
-#define ensure(e) always_check(e)
+inline void ensure(bool e, std::string msg = "")
+{
+   if (__builtin_expect(!(e), 0)) {
+      throw leanstore::ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" + std::to_string(__LINE__) + ": " +  msg);
+   }
+}
+//#define ensure(e)                                                                                                                               //
+//(__builtin_expect(!(e), 0) ? throw leanstore::ex::EnsureFailed(std::string(__func__) + " in " + std::string(__FILE__) + "@" +
+//std::to_string(__LINE__) + //                                                      " msg: " + std::string(#e)) //                             :
+//(void)0)
 #endif
 // -------------------------------------------------------------------------------------
 #define TODO() throw leanstore::ex::TODO(std::string(__FILE__) + ":" + std::string(std::to_string(__LINE__)));
@@ -78,7 +104,7 @@ void OnEnsureFailedPrint(const std::string& func, const std::string& file, int l
 #ifdef MACRO_COUNTERS_ALL
 #define COUNTERS_BLOCK() if(true)
 #else
-#define COUNTERS_BLOCK() if(else)
+#define COUNTERS_BLOCK() if(false)
 #endif
 // -------------------------------------------------------------------------------------
 template <typename T>

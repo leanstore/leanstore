@@ -14,14 +14,20 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -rdynamic")
 
+#set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
+#set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=undefined")
+
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
   add_compile_options(-Wall -Wextra -mavx2 -mcx16 -m64) # -fno-elide-constructors no need for now
 else()
   add_compile_options(-Wall -Wextra -march=native)
 endif()
 
+add_compile_options(-Werror -Wno-error=unused-parameter -Wno-error=unused-variable -Wno-error=unused-local-typedefs -Wno-error=unused-but-set-variable) 
+
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3") # because we had weird behavior on aws ARM
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -O3")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3") # because we had behavior on aws arm without
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" AND CMAKE_BUILD_TYPE MATCHES Debug)
     add_compile_options(-fstandalone-debug)
@@ -38,6 +44,13 @@ if (CYGWIN)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
 endif (CYGWIN)
 
+option(LEANSTORE_INCLUDE_XNVME "include xnvme, be carefull as this overrides the used spdk binary to use the one given by xnvme.." OFF) #OFF by default
+if(LEANSTORE_INCLUDE_XNVME)
+   message("Including XNVME")
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DLEANSTORE_INCLUDE_XNVME")
+else()
+   # do nothing
+endif(LEANSTORE_INCLUDE_XNVME)
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -49,6 +62,12 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 include("${CMAKE_SOURCE_DIR}/libs/gflags.cmake")
 include("${CMAKE_SOURCE_DIR}/libs/tabluate.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/spdk.cmake")
+include("${CMAKE_SOURCE_DIR}/libs/uring.cmake")
+if(LEANSTORE_INCLUDE_XNVME)
+   include("${CMAKE_SOURCE_DIR}/libs/xnvme.cmake")
+endif()
+include("${CMAKE_SOURCE_DIR}/libs/boost.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/googletest.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/benchmark.cmake")
 #include("${CMAKE_SOURCE_DIR}/libs/rapidjson.cmake")
@@ -67,6 +86,13 @@ include("${CMAKE_SOURCE_DIR}/libs/tabluate.cmake")
 
 include("${CMAKE_SOURCE_DIR}/shared-headers/local.cmake")
 
+include_directories(
+        ${CMAKE_SOURCE_DIR}/include
+        ${FLEX_INCLUDE_DIRS}
+        ${GTEST_INCLUDE_DIR}
+        ${GFLAGS_INCLUDE_DIR}
+)
+
 # ---------------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------------
@@ -78,3 +104,26 @@ add_subdirectory("backend")
 # ---------------------------------------------------------------------------
 
 add_subdirectory("frontend")
+
+# ---------------------------------------------------------------------------
+# Linting
+# ---------------------------------------------------------------------------
+
+
+#todo
+
+#include("${CMAKE_SOURCE_DIR}/cmake/clang-tidy.cmake")
+#list(APPEND lint_targets lint_src)
+#add_custom_target(lint)
+#add_dependencies(lint ${lint_targets})
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+message(STATUS "[cengine] settings")
+message(STATUS "    GFLAGS_INCLUDE_DIR          = ${GFLAGS_INCLUDE_DIR}")
+message(STATUS "    GFLAGS_LIBRARY_PATH         = ${GFLAGS_LIBRARY_PATH}")
+message(STATUS "[TEST] settings")
+message(STATUS "    GTEST_INCLUDE_DIR           = ${GTEST_INCLUDE_DIR}")
+message(STATUS "    GTEST_LIBRARY_PATH          = ${GTEST_LIBRARY_PATH}")

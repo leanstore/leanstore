@@ -151,6 +151,7 @@ u32 BTreeNode::spaceUsedBySlot(u16 s_i)
 // left(this) into right
 bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right)
 {
+   parent.updateLastSwipInvalidation();
    if (is_leaf) {
       assert(right->is_leaf);
       assert(parent->isInner());
@@ -321,7 +322,9 @@ BTreeNode::SeparatorInfo BTreeNode::findSep()
 // -------------------------------------------------------------------------------------
 void BTreeNode::getSep(u8* sepKeyOut, BTreeNodeHeader::SeparatorInfo info)
 {
-   memcpy(sepKeyOut, getLowerFenceKey(), prefix_length);
+   if(prefix_length) {
+      memcpy(sepKeyOut, getLowerFenceKey(), prefix_length);
+   }
    if (info.trunc) {
       memcpy(sepKeyOut + prefix_length, getKey(info.slot + 1), info.length - prefix_length);
    } else {
@@ -359,6 +362,7 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
    // PRE: current, parent and nodeLeft are x locked
    // assert(sepSlot > 0); TODO: really ?
    assert(sepSlot < (EFFECTIVE_PAGE_SIZE / sizeof(SwipType)));
+   parent.updateLastSwipInvalidation();
    // -------------------------------------------------------------------------------------
    nodeLeft->setFences(getLowerFenceKey(), lower_fence.length, sepKey, sepLength);
    BTreeNode tmp(is_leaf);

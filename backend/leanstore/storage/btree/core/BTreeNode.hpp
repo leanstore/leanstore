@@ -8,9 +8,11 @@
 // -------------------------------------------------------------------------------------
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <string>
 // -------------------------------------------------------------------------------------
 using namespace std;
@@ -192,7 +194,7 @@ struct BTreeNode : public BTreeNodeHeader {
          *is_equal = false;
       }
       if (equalityOnly) {
-         if ((keyLength < prefix_length) || (bcmp(key, getLowerFenceKey(), prefix_length) != 0))
+         if ((keyLength < prefix_length) || (prefix_length > 0 && bcmp(key, getLowerFenceKey(), prefix_length) != 0))
             return -1;
       } else {
          int prefixCmp = cmpKeys(key, getLowerFenceKey(), min<u16>(keyLength, prefix_length), prefix_length);

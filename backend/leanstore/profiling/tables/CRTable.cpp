@@ -28,10 +28,22 @@ void CRTable::open()
    columns.emplace("gct_write_pct", [&](Column& col) { col << 100.0 * write / total; });
    columns.emplace("gct_committed_tx", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::gct_committed_tx); });
    columns.emplace("gct_rounds", [&](Column& col) { col << sum(CRCounters::cr_counters, &CRCounters::gct_rounds); });
-   columns.emplace("tx", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx); });
+   columns.emplace("tx", [&](Column& col) { col << local_tx; });
    columns.emplace("tx_abort", [](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::tx_abort); });
    // -------------------------------------------------------------------------------------
-
+   columns.emplace("tx_latency_us", [&](Column& col) {
+     col << (local_tx > 0 ? sum(WorkerCounters::worker_counters, &WorkerCounters::total_tx_time) / local_tx : 0);
+   });
+   columns.emplace("tx_latency_us_95p", [&](Column& col) {
+     col << local_tx_lat95p_us;
+   });
+   columns.emplace("tx_latency_us_99p", [&](Column& col) {
+     col << local_tx_lat99p_us;
+   });
+   columns.emplace("tx_latency_us_99p9", [&](Column& col) {
+     col << local_tx_lat99p9_us;
+   });
+   // -------------------------------------------------------------------------------------
    columns.emplace("wal_read_gib", [&](Column& col) {
       col << (sum(WorkerCounters::worker_counters, &WorkerCounters::wal_read_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0;
    });
@@ -56,6 +68,23 @@ void CRTable::next()
    p2 = sum(CRCounters::cr_counters, &CRCounters::gct_phase_2_ms);
    write = sum(CRCounters::cr_counters, &CRCounters::gct_write_ms);
    total = p1 + p2 + write;
+
+   local_tx = sum(WorkerCounters::worker_counters, &WorkerCounters::tx);
+   u64 lat95p = 0;
+   u64 lat99p = 0;
+   u64 lat99p9 = 0;
+   int counters = 0;
+   for (typename decltype(WorkerCounters::worker_counters)::iterator i = WorkerCounters::worker_counters.begin(); i != WorkerCounters::worker_counters.end(); ++i) {
+      lat95p = std::max(lat95p, i->tx_latency_hist.getPercentile(95));
+      lat99p = std::max(lat99p, i->tx_latency_hist.getPercentile(99));
+      lat99p9 = std::max(lat99p9, i->tx_latency_hist.getPercentile(99.9));
+      i->tx_latency_hist.resetData();
+      counters++;
+   }
+   local_tx_lat95p_us = lat95p;// / counters;
+   local_tx_lat99p_us = lat99p;// / counters;
+   local_tx_lat99p9_us = lat99p9;// / counters;
+
    clear();
    for (auto& c : columns) {
       c.second.generator(c.second);

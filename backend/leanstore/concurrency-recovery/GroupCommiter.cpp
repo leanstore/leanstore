@@ -1,4 +1,5 @@
-#include "CRMG.hpp"
+#include "GroupCommiter.hpp"
+#include "leanstore/concurrency/Mean.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/CRCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -22,12 +23,16 @@ struct alignas(512) SSDMeta {
    u64 last_written_chunk;
 };
 // -------------------------------------------------------------------------------------
-void CRManager::groupCommiter()
+void GroupCommiter::groupCommiter()
 {
    using Time = decltype(std::chrono::high_resolution_clock::now());
+   bool keep_running = true;  // FIXME maybe a mean task or environment function?
+   int workers_count = mean::env::workerCount();
+   u64 end_of_block_device = mean::IoInterface::instance().storageSize();
+
+   /*
    [[maybe_unused]] Time phase_1_begin, phase_1_end, phase_2_begin, phase_2_end, write_begin, write_end;
    // -------------------------------------------------------------------------------------
-   running_threads++;
    std::string thread_name("group_committer");
    pthread_setname_np(pthread_self(), thread_name.c_str());
    CPUCounters::registerThread(thread_name, false);
@@ -240,8 +245,7 @@ void CRManager::groupCommiter()
          CRCounters::myCounters().gct_write_ms += (std::chrono::duration_cast<std::chrono::microseconds>(write_end - write_begin).count());
       }
    }
-
-   running_threads--;
+   */
 }
 // -------------------------------------------------------------------------------------
 }  // namespace cr

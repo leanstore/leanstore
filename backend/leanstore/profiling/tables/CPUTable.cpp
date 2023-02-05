@@ -1,6 +1,7 @@
 #include "CPUTable.hpp"
 
 #include "leanstore/Config.hpp"
+#include "leanstore/concurrency/Mean.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
 // -------------------------------------------------------------------------------------
@@ -27,6 +28,7 @@ void CPUTable::open()
       columns.emplace(event_name, [](Column&) {});
    }
    columns.emplace("key", [](Column&) {});
+   columns.emplace(mean::env::printCountersHeader(), [](Column&){});
 }
 // -------------------------------------------------------------------------------------
 void CPUTable::next()
@@ -66,8 +68,13 @@ void CPUTable::next()
             columns.at(event.first) << event.second;
          }
          thread.second.e->startCounters();
+         columns.at(mean::env::printCountersHeader()) << mean::env::printCounters(std::stoi(thread.second.name));
       }
    }
+   /*
+   for (typename tbb::enumerable_thread_specific<TECounters>::iterator i = TECounters::te_counters.begin(); i != TECounters::te_counters.end(); ++i) {
+   }
+   */
 }
 // -------------------------------------------------------------------------------------
 }  // namespace profiling

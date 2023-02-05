@@ -7,13 +7,16 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
-#include <unordered_map>
+#include <map>
 #include <vector>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
 namespace profiling
 {
+struct no_thousands_sep : std::numpunct<char> {
+    std::string do_grouping() const { return ""; }
+};
 struct Column {
    std::function<void(Column& col)> generator;
    std::vector<std::string> values;
@@ -30,14 +33,26 @@ struct Column {
    std::string to_string(double x)
    {
       std::stringstream stream;
+      stream.imbue(std::locale(std::cout.getloc(), new no_thousands_sep));
       stream << std::fixed << std::setprecision(1) << x;
-      return stream.str();
+      auto s = stream.str();
+      if (s.find(",") != std::string::npos) {
+         std::cout << s.back() << std::endl;
+         ensure(false);
+      }
+      return s;
    }
    std::string to_string(float x)
    {
       std::stringstream stream;
+      stream.imbue(std::locale(std::cout.getloc(), new no_thousands_sep));
       stream << std::fixed << std::setprecision(1) << x;
-      return stream.str();
+      auto s = stream.str();
+      if (s.find(",") != std::string::npos) {
+         std::cout << s.back() << std::endl;
+         ensure(false);
+      }
+      return s;
    }
    std::string to_string(std::string x) { return x; }
    // -------------------------------------------------------------------------------------
@@ -54,7 +69,7 @@ using ColumnValues = std::vector<std::string>;
 class ProfilingTable
 {
   protected:
-   std::unordered_map<std::string, Column> columns;
+   std::map<std::string, Column> columns;
 
   public:
    // Open -> getColumns() -> next -> getColumns()
@@ -74,12 +89,13 @@ class ProfilingTable
          }
       }
       ensure(false);
+      return "";
    }
    double getDouble(std::string key, std::string column) { return std::stod(get(key, column)); }
    virtual std::string getName() { return "null"; };
    virtual void open(){};
    virtual void next(){};
-   virtual std::unordered_map<std::string, Column>& getColumns() { return columns; }
+   virtual std::map<std::string, Column>& getColumns() { return columns; }
    Column& operator[](std::string name) { return columns.at(name); }
 };
 }  // namespace profiling

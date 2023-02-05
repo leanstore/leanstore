@@ -2,7 +2,9 @@
 
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
+#include "leanstore/storage/btree/core/BTreeNode.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
+#include "leanstore/storage/buffer-manager/Swip.hpp"
 #include "leanstore/sync-primitives/PageGuard.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
@@ -35,9 +37,10 @@ void BTreeGeneric::create(DTID dtid, BufferFrame* meta_bf)
 void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 {
    cr::Worker::my().walEnsureEnoughSpace(PAGE_SIZE * 1);
-   auto parent_handler = findParent(*this, to_split);
+   ParentSwipHandler parent_handler;
+   findParent(*this, to_split, parent_handler);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-   HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
+   HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip->cast<BTreeNode>());
    if (c_guard->count <= 2)
       return;
    // -------------------------------------------------------------------------------------
@@ -174,9 +177,10 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
 // -------------------------------------------------------------------------------------
 bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
 {
-   auto parent_handler = findParent(*this, to_merge);
+   ParentSwipHandler parent_handler;
+   findParent(*this, to_merge, parent_handler);
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
-   HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip.cast<BTreeNode>());
+   HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip->cast<BTreeNode>());
    int pos = parent_handler.pos;
    if (isMetaNode(p_guard) || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
       p_guard.unlock();
@@ -479,8 +483,9 @@ void BTreeGeneric::checkpoint(void*, BufferFrame& bf, u8* dest)
 // TODO: Refactor
 // Jump if any page on the path is already evicted or of the bf could not be found
 // to_find is not latched
-struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFrame& to_find)
+void BTreeGeneric::findParentSlowPath(BTreeGeneric& btree, BufferFrame& to_find, ParentSwipHandler& parent_handler, bool opt)
 {
+   // -------------------------------------------------------------------------------------
    auto& c_node = *reinterpret_cast<BTreeNode*>(to_find.page.dt);
    // -------------------------------------------------------------------------------------
    HybridPageGuard<BTreeNode> p_guard(btree.meta_node_bf);
@@ -498,7 +503,9 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
    // check if bf is the root node
    if (c_swip->bfPtrAsHot() == &to_find) {
       p_guard.recheck();
-      return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = btree.meta_node_bf};
+      COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent_root[btree.dt_id]++; }
+      parent_handler.swip = &c_swip->cast<BufferFrame>(); parent_handler.parent_guard = std::move(p_guard.guard); parent_handler.parent_bf = btree.meta_node_bf;
+      return;
    }
    // -------------------------------------------------------------------------------------
    HybridPageGuard c_guard(p_guard, p_guard->upper);  // the parent of the bf we are looking for (to_find)
@@ -531,7 +538,30 @@ struct ParentSwipHandler BTreeGeneric::findParent(BTreeGeneric& btree, BufferFra
    if (!found) {
       jumpmu::jump();
    }
-   return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(c_guard.guard), .parent_bf = c_guard.bf, .pos = pos};
+   // -------------------------------------------------------------------------------------
+   parent_handler.swip = &c_swip->cast<BufferFrame>(); parent_handler.parent_guard = std::move(c_guard.guard); parent_handler.parent_bf = c_guard.bf; parent_handler.pos = pos;;
+   if (opt) {
+      jumpmuTry()
+      {
+         Guard c_guard(to_find.header.latch);
+         c_guard.toOptimisticOrJump();
+         //c_guard.tryToExclusive();
+         if (to_find.header.optimistic_parent_pointer.child.updateRequired(parent_handler.parent_bf, parent_handler.parent_bf->header.pid,
+                  reinterpret_cast<BufferFrame**>(parent_handler.swip),
+                  parent_handler.pos, 
+                  parent_handler.parent_bf->header.optimistic_parent_pointer.parent.last_swip_invalidation_version)) { // check if last invalidation time is newer than set version
+               c_guard.toExclusive();
+               assert(!parent_handler.swip->isEVICTED());
+               to_find.header.optimistic_parent_pointer.child.update(parent_handler.parent_bf, parent_handler.parent_bf->header.pid,
+                     reinterpret_cast<BufferFrame**>(parent_handler.swip),
+                     parent_handler.pos, parent_handler.parent_bf->header.latch.version); // set the newest version (not the invalidation)
+               c_guard.unlock();
+               parent_handler.is_bf_updated = true;
+         }
+      }
+      jumpmuCatch() {}
+   }
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent_slow[btree.dt_id]++; }
 }
 // -------------------------------------------------------------------------------------
 void BTreeGeneric::iterateChildrenSwips(void*, BufferFrame& bf, std::function<bool(Swip<BufferFrame>&)> callback)
@@ -581,7 +611,8 @@ s64 BTreeGeneric::iterateAllPages(std::function<s64(BTreeNode&)> inner, std::fun
       {
          HybridPageGuard<BTreeNode> p_guard(meta_node_bf);
          HybridPageGuard c_guard(p_guard, p_guard->upper);
-         jumpmu_return iterateAllPagesRec(c_guard, inner, leaf);
+         auto res = iterateAllPagesRec(c_guard, inner, leaf);
+         jumpmu_return res;
       }
       jumpmuCatch() {}
    }
@@ -610,6 +641,7 @@ u64 BTreeGeneric::countInner()
 double BTreeGeneric::averageSpaceUsage()
 {
    ensure(false);  // TODO
+   return -1;
 }
 // -------------------------------------------------------------------------------------
 u32 BTreeGeneric::bytesFree()
