@@ -1,5 +1,5 @@
 #include "../shared/LeanStoreAdapter.hpp"
-#include "Schema.hpp"
+#include "../shared/Schema.hpp"
 #include "Units.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
