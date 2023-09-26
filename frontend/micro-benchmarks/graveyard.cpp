@@ -12,7 +12,6 @@
 // -------------------------------------------------------------------------------------
 #include <gflags/gflags.h>
 #include <tbb/parallel_for.h>
-#include <tbb/task_scheduler_init.h>
 // -------------------------------------------------------------------------------------
 #include <iostream>
 #include <set>
