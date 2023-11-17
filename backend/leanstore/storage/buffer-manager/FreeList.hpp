@@ -11,9 +11,8 @@ namespace storage
 {
 // -------------------------------------------------------------------------------------
 struct FreeList {
-   std::mutex mutex;
-   BufferFrame* head = nullptr;
-   std::atomic<u64> counter = 0;
+   atomic<BufferFrame*> head = {nullptr};
+   std::atomic<u64> counter = {0};
    // -------------------------------------------------------------------------------------
    BufferFrame& tryPop();
    void batchPush(BufferFrame* head, BufferFrame* tail, u64 counter);
