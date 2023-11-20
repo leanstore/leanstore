@@ -1,4 +1,6 @@
 #include "JumpMU.hpp"
+#include "Exceptions.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 
 #include <signal.h>
 // -------------------------------------------------------------------------------------
@@ -29,6 +31,7 @@ void jump()
    }
    auto& env_to_jump = jumpmu::env[jumpmu::checkpoint_counter - 1];
    checkpoint_counter--;
+   COUNTERS_BLOCK() {leanstore::WorkerCounters::myCounters().jumps++;}
    longjmp(env_to_jump, 1);
 }
 }  // namespace jumpmu

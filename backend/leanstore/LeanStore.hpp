@@ -78,6 +78,17 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    static void addStringFlag(string name, fLS::clstring* flag) { persisted_string_flags.push_back(std::make_tuple(name, flag)); }
    static void addS64Flag(string name, s64* flag) { persisted_s64_flags.push_back(std::make_tuple(name, flag)); }
+  private:
+   static void printStats(bool reset = true);
+   void doProfiling();
+   void printTable(profiling::ProfilingTable* table, basic_ofstream<char>& csv, u64 seconds, bool print_seconds = true) const;
+   void print_tx_console(profiling::BMTable& bm_table,
+                         profiling::CPUTable& cpu_table,
+                         profiling::CRTable& cr_table,
+                         u64 seconds,
+                         const u64 tx,
+                         ofstream& console_csv) const;
+   void prepareCSV(profiling::ProfilingTable* table, ofstream& csv, bool print_seconds = true) const;
 };
 
 // -------------------------------------------------------------------------------------

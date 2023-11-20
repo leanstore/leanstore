@@ -3,6 +3,7 @@
 
 #include "Exceptions.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
+#include "leanstore/profiling/counters/PPCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
 // -------------------------------------------------------------------------------------
@@ -106,6 +107,7 @@ void AsyncWriteBuffer::getWrittenBfs(std::function<void(BufferFrame&, u64, PID)>
       auto written_lsn = write_buffer[slot].PLSN;
       callback(*write_buffer_commands[slot].bf, written_lsn, write_buffer_commands[slot].pid);
    }
+   COUNTERS_BLOCK() { PPCounters::myCounters().total_writes += n_events; }
 }
 // -------------------------------------------------------------------------------------
 }  // namespace storage

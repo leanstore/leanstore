@@ -8,6 +8,7 @@
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include "PerfEvent.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 // -------------------------------------------------------------------------------------
 #include <libaio.h>
 #include <sys/mman.h>
@@ -112,6 +113,7 @@ class BufferManager
    inline BufferFrame& tryFastResolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
    {
       if (swip_value.isHOT()) {
+         COUNTERS_BLOCK() {leanstore::WorkerCounters::myCounters().hot_hit_counter++;}
          BufferFrame& bf = swip_value.asBufferFrame();
          swip_guard.recheck();
          return bf;

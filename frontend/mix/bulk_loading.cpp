@@ -58,6 +58,7 @@ int main(int argc, char** argv)
          YCSBKey key = i;
          table.insert({key}, {payload});
          WorkerCounters::myCounters().tx++;
+         WorkerCounters::myCounters().tx_counter++;
       }
       cr::Worker::my().commitTX();
    });

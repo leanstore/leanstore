@@ -176,6 +176,7 @@ int main(int argc, char** argv)
                }
                cr::Worker::my().commitTX();
                WorkerCounters::myCounters().tx++;
+               WorkerCounters::myCounters().tx_counter++;
             }
             jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; }
          }

@@ -215,7 +215,7 @@ void BufferManager::pageProviderThread(u64 p_begin, u64 p_end)  // [p_begin, p_e
             Tracing::mutex.unlock();
          }
          // -------------------------------------------------------------------------------------
-         COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; }
+         COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; PPCounters::myCounters().total_evictions++; }
       };
       // -------------------------------------------------------------------------------------
       for (volatile const auto& cooled_bf : evict_candidate_bfs) {

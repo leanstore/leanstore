@@ -96,7 +96,10 @@ int main(int argc, char** argv)
             ensure(ret);
             table.insert({newest + 1}, {});
             cr::Worker::my().commitTX();
-            COUNTERS_BLOCK() { WorkerCounters::myCounters().tx++; }
+            COUNTERS_BLOCK() {
+               WorkerCounters::myCounters().tx++;
+               WorkerCounters::myCounters().tx_counter++;
+             }
          }
          jumpmuCatch() { ensure(false); }
       }

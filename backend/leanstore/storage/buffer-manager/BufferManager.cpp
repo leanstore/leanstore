@@ -6,7 +6,6 @@
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/PPCounters.hpp"
-#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/Parallelize.hpp"
@@ -171,6 +170,9 @@ Partition& BufferManager::randomPartition()
 BufferFrame& BufferManager::randomBufferFrame()
 {
    auto rand_buffer_i = utils::RandomGenerator::getRand<u64>(0, dram_pool_size);
+   COUNTERS_BLOCK() {
+      PPCounters::myCounters().touched_bfs_counter++;
+      PPCounters::myCounters().total_touches++;}
    return bfs[rand_buffer_i];
 }
 // -------------------------------------------------------------------------------------
@@ -192,7 +194,10 @@ BufferFrame& BufferManager::allocatePage()
    free_bf.header.last_written_plsn = free_bf.page.PLSN = free_bf.page.GSN = 0;
    free_bf.header.latch.assertExclusivelyLatched();
    // -------------------------------------------------------------------------------------
-   COUNTERS_BLOCK() { WorkerCounters::myCounters().allocate_operations_counter++; }
+   COUNTERS_BLOCK() {
+      WorkerCounters::myCounters().allocate_operations_counter++;
+      WorkerCounters::myCounters().new_pages_counter++;
+   }
    // -------------------------------------------------------------------------------------
    return free_bf;
 }

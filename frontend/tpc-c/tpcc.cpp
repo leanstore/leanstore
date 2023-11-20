@@ -201,6 +201,7 @@ int main(int argc, char** argv)
                   cr::Worker::my().commitTX();
                }
                WorkerCounters::myCounters().olap_tx++;
+               WorkerCounters::myCounters().tx_counter++;
                tx_acc = tx_acc + 1;
             }
             jumpmuCatch()
@@ -235,6 +236,7 @@ int main(int argc, char** argv)
                       {1}, [&](warehouse_t& rec) { rec.w_ytd += 1; }, warehouse_update_descriptor);
                   cr::Worker::my().commitTX();
                   WorkerCounters::myCounters().tx++;
+                  WorkerCounters::myCounters().tx_counter++;
                }
                jumpmuCatch()
                {
@@ -260,6 +262,7 @@ int main(int argc, char** argv)
                      cr::Worker::my().commitTX();
                   }
                   WorkerCounters::myCounters().tx++;
+                  WorkerCounters::myCounters().tx_counter++;
                   tx_acc = tx_acc + 1;
                }
                jumpmuCatch()
