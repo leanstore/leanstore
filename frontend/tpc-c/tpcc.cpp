@@ -158,166 +158,168 @@ int main(int argc, char** argv)
    cout << "TPC-C loaded - consumed space in GiB = " << gib << endl;
    crm.scheduleJobSync(0, [&]() { cout << "Warehouse pages = " << warehouse.btree->countPages() << endl; });
    // -------------------------------------------------------------------------------------
-   atomic<u64> keep_running = true;
-   atomic<u64> running_threads_counter = 0;
-   vector<thread> threads;
-   auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
-   db.startProfilingThread();
-   u64 tx_per_thread[FLAGS_worker_threads];
-   // -------------------------------------------------------------------------------------
-   const u32 exec_threads = FLAGS_tpcc_threads ? FLAGS_tpcc_threads : FLAGS_worker_threads;
-   for (u64 t_i = exec_threads - FLAGS_ch_a_threads; t_i < exec_threads; t_i++) {
-      crm.scheduleJobAsync(t_i, [&, t_i]() {
-         running_threads_counter++;
-         prepareWorker(db);
-         volatile u64 tx_acc = 0;
-         const leanstore::TX_MODE tx_mode = leanstore::TX_MODE::OLAP;
-         cr::Worker::my().startTX(tx_mode, isolation_level);
-         cr::Worker::my().commitTX();
-         // -------------------------------------------------------------------------------------
-         if (FLAGS_ch_a_start_delay_sec) {
-            cr::Worker::my().cc.switchToReadCommittedMode();
-            sleep(FLAGS_ch_a_start_delay_sec);
-            cr::Worker::my().cc.switchToSnapshotIsolationMode();
-         }
-         // -------------------------------------------------------------------------------------
-         while (keep_running) {
-            jumpmuTry()
-            {
-               cr::Worker::my().startTX(tx_mode, isolation_level);
+   if(FLAGS_run_until_tx!=0 || FLAGS_run_for_seconds!=0) {
+      atomic<u64> keep_running = true;
+      atomic<u64> running_threads_counter = 0;
+      vector<thread> threads;
+      auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
+      db.startProfilingThread();
+      u64 tx_per_thread[FLAGS_worker_threads];
+      // -------------------------------------------------------------------------------------
+      const u32 exec_threads = FLAGS_tpcc_threads ? FLAGS_tpcc_threads : FLAGS_worker_threads;
+      for (u64 t_i = exec_threads - FLAGS_ch_a_threads; t_i < exec_threads; t_i++) {
+         crm.scheduleJobAsync(t_i, [&, t_i]() {
+            running_threads_counter++;
+            prepareWorker(db);
+            volatile u64 tx_acc = 0;
+            const leanstore::TX_MODE tx_mode = leanstore::TX_MODE::OLAP;
+            cr::Worker::my().startTX(tx_mode, isolation_level);
+            cr::Worker::my().commitTX();
+            // -------------------------------------------------------------------------------------
+            if (FLAGS_ch_a_start_delay_sec) {
+               cr::Worker::my().cc.switchToReadCommittedMode();
+               sleep(FLAGS_ch_a_start_delay_sec);
+               cr::Worker::my().cc.switchToSnapshotIsolationMode();
+            }
+            // -------------------------------------------------------------------------------------
+            while (keep_running) {
+               jumpmuTry()
                {
-                  if (FLAGS_ch_a_process_delay_sec) {
-                     sleep(FLAGS_ch_a_process_delay_sec);
-                  }
+                  cr::Worker::my().startTX(tx_mode, isolation_level);
                   {
-                     JMUW<utils::Timer> timer(CRCounters::myCounters().cc_ms_olap_tx);
-                     if (FLAGS_ch_a_rounds) {
-                        for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
-                           tpcc.analyticalQuery(FLAGS_ch_a_query);
-                        }
-                     } else {
-                        while (keep_running) {
-                           tpcc.analyticalQuery(FLAGS_ch_a_query);
+                     if (FLAGS_ch_a_process_delay_sec) {
+                        sleep(FLAGS_ch_a_process_delay_sec);
+                     }
+                     {
+                        JMUW<utils::Timer> timer(CRCounters::myCounters().cc_ms_olap_tx);
+                        if (FLAGS_ch_a_rounds) {
+                           for (u64 i = 0; i < FLAGS_ch_a_rounds; i++) {
+                              tpcc.analyticalQuery(FLAGS_ch_a_query);
+                           }
+                        } else {
+                           while (keep_running) {
+                              tpcc.analyticalQuery(FLAGS_ch_a_query);
+                           }
                         }
                      }
-                  }
-                  cr::Worker::my().commitTX();
-               }
-               WorkerCounters::myCounters().olap_tx++;
-               WorkerCounters::myCounters().tx_counter++;
-               tx_acc = tx_acc + 1;
-            }
-            jumpmuCatch()
-            {
-               WorkerCounters::myCounters().olap_tx_abort++;
-            }
-            if (FLAGS_ch_a_once) {
-               cr::Worker::my().shutdown();
-               sleep(2);
-               break;
-            }
-         }
-         cr::Worker::my().shutdown();
-         // -------------------------------------------------------------------------------------
-         tx_per_thread[t_i] = tx_acc;
-         finishWorker(db);
-         running_threads_counter--;
-      });
-   }
-   // -------------------------------------------------------------------------------------
-   for (u64 t_i = 0; t_i < exec_threads - FLAGS_ch_a_threads; t_i++) {
-      crm.scheduleJobAsync(t_i, [&, t_i]() {
-         running_threads_counter++;
-         prepareWorker(db);
-         volatile u64 tx_acc = 0;
-         if (FLAGS_tmp4 && t_i == 0) {
-            while (keep_running) {
-               jumpmuTry()
-               {
-                  cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION);
-                  UpdateDescriptorGenerator1(warehouse_update_descriptor, warehouse_t, w_ytd);
-                  warehouse.update1(
-                      {1}, [&](warehouse_t& rec) { rec.w_ytd += 1; }, warehouse_update_descriptor);
-                  cr::Worker::my().commitTX();
-                  WorkerCounters::myCounters().tx++;
-                  WorkerCounters::myCounters().tx_counter++;
-               }
-               jumpmuCatch()
-               {
-                  WorkerCounters::myCounters().tx_abort++;
-               }
-            }
-         } else {
-            while (keep_running) {
-               utils::Timer timer(CRCounters::myCounters().cc_ms_oltp_tx);
-               jumpmuTry()
-               {
-                  cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, isolation_level);
-                  u32 w_id;
-                  if (FLAGS_tpcc_warehouse_affinity) {
-                     w_id = t_i + 1;
-                  } else {
-                     w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
-                  }
-                  tpcc.tx(w_id);
-                  if (FLAGS_tpcc_abort_pct && tpcc.urand(0, 100) <= FLAGS_tpcc_abort_pct) {
-                     cr::Worker::my().abortTX();
-                  } else {
                      cr::Worker::my().commitTX();
                   }
-                  WorkerCounters::myCounters().tx++;
+                  WorkerCounters::myCounters().olap_tx++;
                   WorkerCounters::myCounters().tx_counter++;
                   tx_acc = tx_acc + 1;
                }
                jumpmuCatch()
                {
-                  WorkerCounters::myCounters().tx_abort++;
+                  WorkerCounters::myCounters().olap_tx_abort++;
+               }
+               if (FLAGS_ch_a_once) {
+                  cr::Worker::my().shutdown();
+                  sleep(2);
+                  break;
                }
             }
-         }
-         cr::Worker::my().shutdown();
-         // -------------------------------------------------------------------------------------
-         tx_per_thread[t_i] = tx_acc;
-         finishWorker(db);
-         running_threads_counter--;
-      });
-   }
-   // -------------------------------------------------------------------------------------
-   {
-      if (FLAGS_run_until_tx) {
-         while (true) {
-            if (db.getGlobalStats().accumulated_tx_counter >= FLAGS_run_until_tx) {
-               cout << FLAGS_run_until_tx << " has been reached";
-               break;
-            }
-            usleep(500);
-         }
-      } else {
-         // Shutdown threads
-         sleep(FLAGS_run_for_seconds);
+            cr::Worker::my().shutdown();
+            // -------------------------------------------------------------------------------------
+            tx_per_thread[t_i] = tx_acc;
+            finishWorker(db);
+            running_threads_counter--;
+         });
       }
-      keep_running = false;
-      while (running_threads_counter) {
-      }
-      crm.joinAll();
-   }
-   cout << endl;
-   {
-      u64 total = 0;
+      // -------------------------------------------------------------------------------------
       for (u64 t_i = 0; t_i < exec_threads - FLAGS_ch_a_threads; t_i++) {
-         total += tx_per_thread[t_i];
-         cout << tx_per_thread[t_i] << ",";
+         crm.scheduleJobAsync(t_i, [&, t_i]() {
+            running_threads_counter++;
+            prepareWorker(db);
+            volatile u64 tx_acc = 0;
+            if (FLAGS_tmp4 && t_i == 0) {
+               while (keep_running) {
+                  jumpmuTry()
+                  {
+                     cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, leanstore::TX_ISOLATION_LEVEL::SNAPSHOT_ISOLATION);
+                     UpdateDescriptorGenerator1(warehouse_update_descriptor, warehouse_t, w_ytd);
+                     warehouse.update1(
+                         {1}, [&](warehouse_t& rec) { rec.w_ytd += 1; }, warehouse_update_descriptor);
+                     cr::Worker::my().commitTX();
+                     WorkerCounters::myCounters().tx++;
+                     WorkerCounters::myCounters().tx_counter++;
+                  }
+                  jumpmuCatch()
+                  {
+                     WorkerCounters::myCounters().tx_abort++;
+                  }
+               }
+            } else {
+               while (keep_running) {
+                  utils::Timer timer(CRCounters::myCounters().cc_ms_oltp_tx);
+                  jumpmuTry()
+                  {
+                     cr::Worker::my().startTX(leanstore::TX_MODE::OLTP, isolation_level);
+                     u32 w_id;
+                     if (FLAGS_tpcc_warehouse_affinity) {
+                        w_id = t_i + 1;
+                     } else {
+                        w_id = tpcc.urand(1, FLAGS_tpcc_warehouse_count);
+                     }
+                     tpcc.tx(w_id);
+                     if (FLAGS_tpcc_abort_pct && tpcc.urand(0, 100) <= FLAGS_tpcc_abort_pct) {
+                        cr::Worker::my().abortTX();
+                     } else {
+                        cr::Worker::my().commitTX();
+                     }
+                     WorkerCounters::myCounters().tx++;
+                     WorkerCounters::myCounters().tx_counter++;
+                     tx_acc = tx_acc + 1;
+                  }
+                  jumpmuCatch()
+                  {
+                     WorkerCounters::myCounters().tx_abort++;
+                  }
+               }
+            }
+            cr::Worker::my().shutdown();
+            // -------------------------------------------------------------------------------------
+            tx_per_thread[t_i] = tx_acc;
+            finishWorker(db);
+            running_threads_counter--;
+         });
+      }
+      // -------------------------------------------------------------------------------------
+      {
+         if (FLAGS_run_until_tx) {
+            while (true) {
+               if (db.getGlobalStats().accumulated_tx_counter >= FLAGS_run_until_tx) {
+                  cout << FLAGS_run_until_tx << " has been reached";
+                  break;
+               }
+               usleep(500);
+            }
+         } else {
+            // Shutdown threads
+            sleep(FLAGS_run_for_seconds);
+         }
+         keep_running = false;
+         while (running_threads_counter) {
+         }
+         crm.joinAll();
       }
       cout << endl;
-      cout << "TPC-C = " << total << endl;
-      total = 0;
-      for (u64 t_i = exec_threads - FLAGS_ch_a_threads; t_i < exec_threads; t_i++) {
-         total += tx_per_thread[t_i];
-         cout << tx_per_thread[t_i] << ",";
+      {
+         u64 total = 0;
+         for (u64 t_i = 0; t_i < exec_threads - FLAGS_ch_a_threads; t_i++) {
+            total += tx_per_thread[t_i];
+            cout << tx_per_thread[t_i] << ",";
+         }
+         cout << endl;
+         cout << "TPC-C = " << total << endl;
+         total = 0;
+         for (u64 t_i = exec_threads - FLAGS_ch_a_threads; t_i < exec_threads; t_i++) {
+            total += tx_per_thread[t_i];
+            cout << tx_per_thread[t_i] << ",";
+         }
+         cout << "CH = " << total << endl;
       }
-      cout << "CH = " << total << endl;
+      // -------------------------------------------------------------------------------------
    }
-   // -------------------------------------------------------------------------------------
    gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << endl << "consumed space in GiB = " << gib << endl;
    return 0;
