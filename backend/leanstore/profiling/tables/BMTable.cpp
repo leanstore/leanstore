@@ -7,7 +7,7 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
-using leanstore::utils::threadlocal::sum;
+using leanstore::utils::threadlocal::sum_reset;
 namespace leanstore
 {
 namespace profiling
@@ -36,37 +36,36 @@ void BMTable::open()
    columns.emplace("p2_pct", [&](Column& col) { col << (local_phase_2_ms * 100.0 / total); });
    columns.emplace("p3_pct", [&](Column& col) { col << (local_phase_3_ms * 100.0 / total); });
    columns.emplace("poll_pct", [&](Column& col) { col << ((local_poll_ms * 100.0 / total)); });
-   columns.emplace("find_parent_pct", [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::find_parent_ms) * 100.0 / total); });
+   columns.emplace("find_parent_pct", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::find_parent_ms) * 100.0 / total); });
    columns.emplace("iterate_children_pct",
-                   [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::iterate_children_ms) * 100.0 / total); });
-   columns.emplace("pc1", [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::phase_1_counter)); });
-   columns.emplace("pc2", [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::phase_2_counter)); });
-   columns.emplace("pc3", [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::phase_3_counter)); });
+                   [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::iterate_children_ms) * 100.0 / total); });
+   columns.emplace("pc1", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::phase_1_counter)); });
+   columns.emplace("pc2", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::phase_2_counter)); });
+   columns.emplace("pc3", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::phase_3_counter)); });
    columns.emplace("free_pct", [&](Column& col) { col << (local_total_free * 100.0 / bm.getPoolSize()); });
-   columns.emplace("evicted_mib",
-                   [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::evicted_pages) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0); });
-   columns.emplace("rounds", [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::pp_thread_rounds)); });
-   columns.emplace("touches", [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::touched_bfs_counter)); });
-   columns.emplace("unswizzled", [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::unswizzled_pages_counter)); });
-   columns.emplace("submit_ms", [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::submit_ms) * 100.0 / total); });
-   columns.emplace("async_mb_ws", [&](Column& col) { col << (sum(PPCounters::pp_counters, &PPCounters::async_wb_ms)); });
+   columns.emplace("evicted_pages", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::evicted_pages)); });
+   columns.emplace("rounds", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::pp_thread_rounds)); });
+   columns.emplace("touches", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::touched_bfs_counter)); });
+   columns.emplace("unswizzled", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::unswizzled_pages_counter)); });
+   columns.emplace("submit_ms", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::submit_ms) * 100.0 / total); });
+   columns.emplace("async_mb_ws", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::async_wb_ms)); });
    columns.emplace("w_mib", [&](Column& col) {
-      col << (sum(PPCounters::pp_counters, &PPCounters::flushed_pages_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
+      col << (sum_reset(PPCounters::pp_counters, &PPCounters::flushed_pages_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
    });
    // -------------------------------------------------------------------------------------
-   columns.emplace("allocate_ops", [&](Column& col) { col << (sum(WorkerCounters::worker_counters, &WorkerCounters::allocate_operations_counter)); });
+   columns.emplace("allocate_ops", [&](Column& col) { col << (sum_reset(WorkerCounters::worker_counters, &WorkerCounters::allocate_operations_counter)); });
    columns.emplace("r_mib", [&](Column& col) {
-      col << (sum(WorkerCounters::worker_counters, &WorkerCounters::read_operations_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
+      col << (sum_reset(WorkerCounters::worker_counters, &WorkerCounters::read_operations_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
    });
 }
 // -------------------------------------------------------------------------------------
 void BMTable::next()
 {
    clear();
-   local_phase_1_ms = sum(PPCounters::pp_counters, &PPCounters::phase_1_ms);
-   local_phase_2_ms = sum(PPCounters::pp_counters, &PPCounters::phase_2_ms);
-   local_phase_3_ms = sum(PPCounters::pp_counters, &PPCounters::phase_3_ms);
-   local_poll_ms = sum(PPCounters::pp_counters, &PPCounters::poll_ms);
+   local_phase_1_ms = sum_reset(PPCounters::pp_counters, &PPCounters::phase_1_ms);
+   local_phase_2_ms = sum_reset(PPCounters::pp_counters, &PPCounters::phase_2_ms);
+   local_phase_3_ms = sum_reset(PPCounters::pp_counters, &PPCounters::phase_3_ms);
+   local_poll_ms = sum_reset(PPCounters::pp_counters, &PPCounters::poll_ms);
    // -------------------------------------------------------------------------------------
    local_total_free = 0;
    for (u64 p_i = 0; p_i < bm.partitions_count; p_i++) {
