@@ -86,7 +86,7 @@ int main(int argc, char** argv)
             leanstore::utils::pinThisThread(t_i);
          }
          lm_db.startTX();
-         tpcc.prepare();
+         tpcc.prepareWorker();
          lm_db.commitTX();
          // -------------------------------------------------------------------------------------
          if (FLAGS_ch_a_delay_sec) {
@@ -119,7 +119,7 @@ int main(int argc, char** argv)
             leanstore::utils::pinThisThread(t_i);
          }
          lm_db.startTX();
-         tpcc.prepare();
+         tpcc.prepareWorker();
          lm_db.commitTX();
          while (keep_running) {
             jumpmuTry()

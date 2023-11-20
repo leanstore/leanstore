@@ -1,6 +1,8 @@
 #pragma once
 #include "Config.hpp"
 #include "leanstore/concurrency-recovery/HistoryTree.hpp"
+#include "leanstore/profiling/tables/CPUTable.hpp"
+#include "leanstore/profiling/tables/CRTable.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
 #include "leanstore/storage/btree/BTreeLL.hpp"
 #include "leanstore/storage/btree/BTreeVI.hpp"
@@ -38,9 +40,12 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    std::unique_ptr<cr::HistoryTree> history_tree;
    // -------------------------------------------------------------------------------------
+   void persist(string key, string value);
+   string recover(string key, string default_value);
   private:
    static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;
    static std::list<std::tuple<string, s64*>> persisted_s64_flags;
+   std::unordered_map<string, string> persist_values;
    void serializeFlags(rapidjson::Document& d);
    void deserializeFlags();
    void serializeState();

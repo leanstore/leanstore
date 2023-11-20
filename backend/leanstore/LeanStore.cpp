@@ -28,16 +28,16 @@
 
 #include <locale>
 #include <sstream>
+#include <variant>
 // -------------------------------------------------------------------------------------
 using namespace tabulate;
-using leanstore::utils::threadlocal::sum;
 namespace rs = rapidjson;
 namespace leanstore
 {
 // -------------------------------------------------------------------------------------
 LeanStore::LeanStore()
 {
-   // LeanStore::addStringFlag("ssd_path", &FLAGS_ssd_path);
+   LeanStore::addStringFlag("SSD_PATH", &FLAGS_ssd_path);
    if (FLAGS_recover_file != "./leanstore.json") {
       FLAGS_recover = true;
    }
@@ -371,6 +371,21 @@ LeanStore::GlobalStats LeanStore::getGlobalStats()
    return global_stats;
 }
 // -------------------------------------------------------------------------------------
+void LeanStore::persist(string key, string value){
+   if(persist_values.find(key) == persist_values.end()){
+      persist_values.insert({key, value});
+   }
+   persist_values[key] = value;
+
+   persist_values[key] = value;
+}
+string LeanStore::recover(string key, string default_value){
+   if(persist_values.find(key) == persist_values.end()){
+      return default_value;
+   }
+   return persist_values[key];
+}
+// -------------------------------------------------------------------------------------
 void LeanStore::serializeState()
 {
    // Serialize data structure instances
@@ -379,6 +394,15 @@ void LeanStore::serializeState()
    rs::Document d;
    rs::Document::AllocatorType& allocator = d.GetAllocator();
    d.SetObject();
+   // -------------------------------------------------------------------------------------
+   rs::Value values_serialized(rs::kObjectType);
+   for (const auto& [key, value] : persist_values) {
+      rs::Value k, v;
+      k.SetString(key.c_str(), key.length(), allocator);
+      v.SetString(value.c_str(), value.length(), allocator);
+      values_serialized.AddMember(k, v, allocator);
+   }
+   d.AddMember("values", values_serialized, allocator);
    // -------------------------------------------------------------------------------------
    std::unordered_map<std::string, std::string> serialized_cr_map = cr_manager->serialize();
    rs::Value cr_serialized(rs::kObjectType);
@@ -461,6 +485,11 @@ void LeanStore::deserializeState()
    rs::IStreamWrapper isw(json_file);
    rs::Document d;
    d.ParseStream(isw);
+   // -------------------------------------------------------------------------------------
+   const rs::Value& values = d["values"];
+   for (rs::Value::ConstMemberIterator itr = values.MemberBegin(); itr != values.MemberEnd(); ++itr) {
+      persist_values[itr->name.GetString()] = itr->value.GetString();
+   }
    // -------------------------------------------------------------------------------------
    const rs::Value& cr = d["cr_manager"];
    std::unordered_map<std::string, std::string> serialized_cr_map;

@@ -41,6 +41,8 @@ DEFINE_uint32(tpcc_threads, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
+void prepareWorker(leanstore::LeanStore& db);
+void finishWorker(leanstore::LeanStore& db);
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
@@ -111,6 +113,7 @@ int main(int argc, char** argv)
             while (true) {
                u32 w_id = g_w_id++;
                if (w_id > FLAGS_tpcc_warehouse_count) {
+                  finishWorker(db);
                   return;
                }
                cr::Worker::my().startTX(leanstore::TX_MODE::INSTANTLY_VISIBLE_BULK_INSERT);
@@ -166,7 +169,7 @@ int main(int argc, char** argv)
    for (u64 t_i = exec_threads - FLAGS_ch_a_threads; t_i < exec_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
-         tpcc.prepare();
+         prepareWorker(db);
          volatile u64 tx_acc = 0;
          const leanstore::TX_MODE tx_mode = leanstore::TX_MODE::OLAP;
          cr::Worker::my().startTX(tx_mode, isolation_level);
@@ -217,6 +220,7 @@ int main(int argc, char** argv)
          cr::Worker::my().shutdown();
          // -------------------------------------------------------------------------------------
          tx_per_thread[t_i] = tx_acc;
+         finishWorker(db);
          running_threads_counter--;
       });
    }
@@ -224,7 +228,7 @@ int main(int argc, char** argv)
    for (u64 t_i = 0; t_i < exec_threads - FLAGS_ch_a_threads; t_i++) {
       crm.scheduleJobAsync(t_i, [&, t_i]() {
          running_threads_counter++;
-         tpcc.prepare();
+         prepareWorker(db);
          volatile u64 tx_acc = 0;
          if (FLAGS_tmp4 && t_i == 0) {
             while (keep_running) {
@@ -274,6 +278,7 @@ int main(int argc, char** argv)
          cr::Worker::my().shutdown();
          // -------------------------------------------------------------------------------------
          tx_per_thread[t_i] = tx_acc;
+         finishWorker(db);
          running_threads_counter--;
       });
    }
@@ -316,4 +321,16 @@ int main(int argc, char** argv)
    gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << endl << "consumed space in GiB = " << gib << endl;
    return 0;
+}
+
+void prepareWorker(leanstore::LeanStore& db){
+   Integer t_id = Integer(leanstore::WorkerCounters::myCounters().t_id.load());
+   leanstore::WorkerCounters::myCounters().variable_for_workload =
+      std::stol(db.recover("tpcc-h-variable-" + std::to_string(t_id), "0"));;
+
+}
+
+void finishWorker(leanstore::LeanStore& db){
+   Integer t_id = Integer(leanstore::WorkerCounters::myCounters().t_id.load());
+   db.persist("tpcc-h-variable-" + std::to_string(t_id), std::to_string(leanstore::WorkerCounters::myCounters().variable_for_workload));
 }

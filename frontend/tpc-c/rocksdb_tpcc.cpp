@@ -115,7 +115,7 @@ int main(int argc, char** argv)
          if (FLAGS_pin_threads) {
             leanstore::utils::pinThisThread(t_i);
          }
-         tpcc.prepare();
+         tpcc.prepareWorker();
          while (keep_running) {
             jumpmuTry()
             {
@@ -141,7 +141,7 @@ int main(int argc, char** argv)
          if (FLAGS_pin_threads) {
             leanstore::utils::pinThisThread(t_i);
          }
-         tpcc.prepare();
+         tpcc.prepareWorker();
          while (keep_running) {
             jumpmuTry()
             {
