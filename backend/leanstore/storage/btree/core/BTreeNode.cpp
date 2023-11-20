@@ -144,50 +144,39 @@ u32 BTreeNode::spaceUsedBySlot(u16 s_i)
 // left(this) into right
 bool BTreeNode::merge(u16 slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right)
 {
-   if (is_leaf) {
-      assert(right->is_leaf);
-      assert(parent->isInner());
-      BTreeNode tmp(is_leaf);
-      tmp.setFences(getLowerFenceKey(), lower_fence.length, right->getUpperFenceKey(), right->upper_fence.length);
-      u16 leftGrow = (prefix_length - tmp.prefix_length) * count;
-      u16 rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
-      u16 spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow;
-      if (spaceUpperBound > EFFECTIVE_PAGE_SIZE) {
-         return false;
-      }
-      copyKeyValueRange(&tmp, 0, 0, count);
-      right->copyKeyValueRange(&tmp, count, 0, right->count);
-      parent->removeSlot(slotId);
-      // -------------------------------------------------------------------------------------
-      right->has_garbage |= has_garbage;
-      // -------------------------------------------------------------------------------------
-      memcpy(reinterpret_cast<u8*>(right.ptr()), &tmp, sizeof(BTreeNode));
-      right->makeHint();
-      return true;
-   } else {  // Inner node
-      assert(!right->is_leaf);
-      assert(parent->isInner());
-      BTreeNode tmp(is_leaf);
-      tmp.setFences(getLowerFenceKey(), lower_fence.length, right->getUpperFenceKey(), right->upper_fence.length);
-      u16 leftGrow = (prefix_length - tmp.prefix_length) * count;
-      u16 rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
-      u16 extraKeyLength = parent->getFullKeyLen(slotId);
-      u16 spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow +
-                            spaceNeeded(extraKeyLength, sizeof(SwipType), tmp.prefix_length);
-      if (spaceUpperBound > EFFECTIVE_PAGE_SIZE)
-         return false;
-      copyKeyValueRange(&tmp, 0, 0, count);
+   assert(right->is_leaf == is_leaf);
+   assert(parent->isInner());
+   BTreeNode tmp(is_leaf);
+   tmp.setFences(getLowerFenceKey(), lower_fence.length, right->getUpperFenceKey(), right->upper_fence.length);
+   u16 leftGrow = (prefix_length - tmp.prefix_length) * count;
+   u16 rightGrow = (right->prefix_length - tmp.prefix_length) * right->count;
+   u16 spaceUpperBound = space_used + right->space_used + (reinterpret_cast<u8*>(slot + count + right->count) - ptr()) + leftGrow + rightGrow;
+   u16 extraKeyLength = parent->getFullKeyLen(slotId);
+   if(!is_leaf){ // Inner Node
+      spaceUpperBound += spaceNeeded(extraKeyLength, sizeof(SwipType), tmp.prefix_length);
+   }
+   if (spaceUpperBound > EFFECTIVE_PAGE_SIZE) {
+      return false;
+   }
+   copyKeyValueRange(&tmp, 0, 0, count);
+   if(!is_leaf){
       u8 extraKey[extraKeyLength];
       parent->copyFullKey(slotId, extraKey);
       tmp.storeKeyValue(count, extraKey, extraKeyLength, reinterpret_cast<u8*>(&upper), sizeof(SwipType));
       tmp.count++;
-      right->copyKeyValueRange(&tmp, tmp.count, 0, right->count);
-      parent->removeSlot(slotId);
-      tmp.upper = right->upper;
-      tmp.makeHint();
-      memcpy(reinterpret_cast<u8*>(right.ptr()), &tmp, sizeof(BTreeNode));
-      return true;
    }
+   right->copyKeyValueRange(&tmp, tmp.count, 0, right->count);
+   parent->removeSlot(slotId);
+
+   if (is_leaf) {
+      right->has_garbage |= has_garbage;
+   } else {  // Inner node
+      tmp.upper = right->upper;
+   }
+
+   tmp.makeHint();
+   memcpy(reinterpret_cast<u8*>(right.ptr()), &tmp, sizeof(BTreeNode));
+   return true;
 }
 // -------------------------------------------------------------------------------------
 void BTreeNode::storeKeyValue(u16 slotId, const u8* key, u16 key_len, const u8* payload, const u16 payload_len)

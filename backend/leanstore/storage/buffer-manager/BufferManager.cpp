@@ -30,27 +30,25 @@ namespace storage
 // -------------------------------------------------------------------------------------
 thread_local BufferFrame* BufferManager::last_read_bf = nullptr;
 // -------------------------------------------------------------------------------------
-BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
+BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
+      dram_pool_size(FLAGS_dram_gib * 1024 * 1024 * 1024 / sizeof(BufferFrame)),
+      partitions_count(1<<FLAGS_partition_bits), partitions_mask(partitions_count -1)
 {
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
    {
-      dram_pool_size = FLAGS_dram_gib * 1024 * 1024 * 1024 / sizeof(BufferFrame);
       const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
       void* big_memory_chunk = mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
       if (big_memory_chunk == MAP_FAILED) {
          perror("Failed to allocate memory for the buffer pool");
          SetupFailed("Check the buffer pool size");
-      } else {
-         bfs = reinterpret_cast<BufferFrame*>(big_memory_chunk);
       }
+      bfs = reinterpret_cast<BufferFrame*>(big_memory_chunk);
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
       madvise(bfs, dram_total_size,
               MADV_DONTFORK);  // O_DIRECT does not work with forking.
       // -------------------------------------------------------------------------------------
       // Initialize partitions
-      partitions_count = (1 << FLAGS_partition_bits);
-      partitions_mask = partitions_count - 1;
       const u64 free_bfs_limit = std::ceil((FLAGS_free_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
       for (u64 p_i = 0; p_i < partitions_count; p_i++) {
          partitions.push_back(std::make_unique<Partition>(p_i, partitions_count, free_bfs_limit));
@@ -286,6 +284,7 @@ void BufferManager::reclaimPage(BufferFrame& bf)
 BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
 {
    if (swip_value.isHOT()) {
+      COUNTERS_BLOCK() {leanstore::WorkerCounters::myCounters().hot_hit_counter++;}
       BufferFrame& bf = swip_value.asBufferFrame();
       swip_guard.recheck();
       return bf;
@@ -443,7 +442,10 @@ void BufferManager::readPageSync(u64 pid, u8* destination)
       bytes_left -= bytes_read;
    } while (bytes_left > 0);
    // -------------------------------------------------------------------------------------
-   COUNTERS_BLOCK() { WorkerCounters::myCounters().read_operations_counter++; }
+   COUNTERS_BLOCK() {
+      WorkerCounters::myCounters().read_operations_counter++; 
+      WorkerCounters::myCounters().missed_hit_counter++; 
+   }
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()

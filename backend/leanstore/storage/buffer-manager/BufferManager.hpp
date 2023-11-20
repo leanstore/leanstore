@@ -80,14 +80,14 @@ class BufferManager
    // -------------------------------------------------------------------------------------
    // Free  Pages
    const u8 safety_pages = 10;               // we reserve these extra pages to prevent segfaults
-   u64 dram_pool_size;                       // total number of dram buffer frames
+   const u64 dram_pool_size;                 // total number of dram buffer frames
    atomic<u64> ssd_freed_pages_counter = 0;  // used to track how many pages did we really allocate
    // -------------------------------------------------------------------------------------
    // For cooling and inflight io
-   u64 partitions_count;
-   u64 partitions_mask;
+   const u64 partitions_count;
+   const u64 partitions_mask;
    std::vector<std::unique_ptr<Partition>> partitions;
-   std::atomic<u64> clock_cursor = 0;
+   std::atomic<u64> clock_cursor = {0};
 
    // -------------------------------------------------------------------------------------
    // Threads managements
