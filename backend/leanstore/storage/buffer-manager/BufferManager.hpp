@@ -3,6 +3,7 @@
 #include "BufferFrame.hpp"
 #include "DTRegistry.hpp"
 #include "FreeList.hpp"
+#include "AsyncWriteBuffer.hpp"
 #include "Partition.hpp"
 #include "Swip.hpp"
 #include "Units.hpp"
@@ -91,13 +92,33 @@ class BufferManager
 
    // -------------------------------------------------------------------------------------
    // Threads managements
-   void pageProviderThread(u64 p_begin, u64 p_end);  // [p_begin, p_end)
+   struct PageProviderThread{
+     private:
+      const u64 id;
+      BufferManager& bf_mgr;
+      AsyncWriteBuffer async_write_buffer;
+      std::vector<BufferFrame*> cool_candidate_bfs, evict_candidate_bfs;
+      FreedBfsBatch freed_bfs_batch;
+      void set_thread_config();
+      BufferFrame& randomBufferFrame();
+      void select_bf_range();
+      void phase1(Partition& partition);
+      void evict_bf(BufferFrame& bf, BMOptimisticGuard& c_guard, Partition& current_partition);
+      void phase2(Partition& current_partition);
+      void phase3(Partition& current_partition);
+     public:
+      PageProviderThread(u64 t_i, BufferManager* bf_mgr):
+         id(t_i),
+         bf_mgr(*bf_mgr),
+         async_write_buffer(bf_mgr->ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size){};
+      void run();
+   };
+
    atomic<u64> bg_threads_counter = 0;
    atomic<bool> bg_threads_keep_running = true;
    // -------------------------------------------------------------------------------------
    // Misc
    Partition& randomPartition();
-   BufferFrame& randomBufferFrame();
    Partition& getPartition(PID);
    u64 getPartitionID(PID);
    // -------------------------------------------------------------------------------------

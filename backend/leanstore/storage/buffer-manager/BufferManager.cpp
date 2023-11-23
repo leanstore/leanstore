@@ -70,27 +70,12 @@ void BufferManager::startBackgroundThreads()
    // Page Provider threads
    if (FLAGS_pp_threads) {  // make it optional for pure in-memory experiments
       std::vector<std::thread> pp_threads;
-      const u64 partitions_per_thread = partitions_count / FLAGS_pp_threads;
-      ensure(FLAGS_pp_threads <= partitions_count);
-      const u64 extra_partitions_for_last_thread = partitions_count % FLAGS_pp_threads;
       // -------------------------------------------------------------------------------------
       for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
          pp_threads.emplace_back(
-             [&, t_i](u64 p_begin, u64 p_end) {
-                if (FLAGS_pin_threads) {
-                   utils::pinThisThread(FLAGS_worker_threads + FLAGS_wal + t_i);
-                } else {
-                   utils::pinThisThread(FLAGS_wal + t_i);
-                }
-                CPUCounters::registerThread("pp_" + std::to_string(t_i));
-                // https://linux.die.net/man/2/setpriority
-                if (FLAGS_root) {
-                   posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
-                }
-                pageProviderThread(p_begin, p_end);
-             },
-             t_i * partitions_per_thread,
-             ((t_i + 1) * partitions_per_thread) + ((t_i == FLAGS_pp_threads - 1) ? extra_partitions_for_last_thread : 0));
+             [&, t_i]() {
+               PageProviderThread temp(t_i, this);
+               temp.run();});
          bg_threads_counter++;
       }
       for (auto& thread : pp_threads) {
@@ -165,14 +150,6 @@ Partition& BufferManager::randomPartition()
    return getPartition(rand_partition_i);
 }
 // -------------------------------------------------------------------------------------
-BufferFrame& BufferManager::randomBufferFrame()
-{
-   auto rand_buffer_i = utils::RandomGenerator::getRand<u64>(0, dram_pool_size);
-   COUNTERS_BLOCK() {
-      PPCounters::myCounters().touched_bfs_counter++;
-      PPCounters::myCounters().total_touches++;}
-   return bfs[rand_buffer_i];
-}
 // -------------------------------------------------------------------------------------
 // returns a *write locked* new buffer frame
 BufferFrame& BufferManager::allocatePage()
