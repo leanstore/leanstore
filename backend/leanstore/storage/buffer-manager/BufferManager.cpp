@@ -56,10 +56,15 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
       // -------------------------------------------------------------------------------------
       utils::Parallelize::parallelRange(dram_total_size, [&](u64 begin, u64 end) { memset(reinterpret_cast<u8*>(bfs) + begin, 0, end - begin); });
       utils::Parallelize::parallelRange(dram_pool_size, [&](u64 bf_b, u64 bf_e) {
+         FreedBfsBatch batches[partitions_count];
          u64 p_i = 0;
          for (u64 bf_i = bf_b; bf_i < bf_e; bf_i++) {
-            getPartition(p_i).dram_free_list.push(*new (bfs + bf_i) BufferFrame());
+            batches[p_i].add(*new (bfs + bf_i) BufferFrame());
             p_i = (p_i + 1) % partitions_count;
+         }
+         for (u64 i=0; i < partitions_count; i++){
+            batches[i].set_free_list(&getPartition(i).dram_free_list);
+            batches[i].push();
          }
       });
    }
@@ -227,9 +232,7 @@ void BufferManager::evictLastPage()
          last_read_bf->reset();
          last_read_bf->header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
          last_read_bf->header.latch.mutex.unlock();
-         FreedBfsBatch freed_bfs_batch;
-         freed_bfs_batch.add(*last_read_bf);
-         freed_bfs_batch.push(getPartition(last_pid));
+         getPartition(last_pid).dram_free_list.push(*last_read_bf);
       }
       jumpmuCatch() { last_read_bf = nullptr; }
    }

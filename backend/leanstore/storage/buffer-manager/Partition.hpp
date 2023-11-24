@@ -66,7 +66,6 @@ struct Partition {
    std::mutex ht_mutex;
    HashTable io_ht;
    // -------------------------------------------------------------------------------------
-   const u64 free_bfs_limit;
    FreeList dram_free_list;
    // -------------------------------------------------------------------------------------
    // SSD Pages

@@ -62,13 +62,13 @@ void BufferManager::PageProviderThread::select_bf_range() {
       return;
 }
 
-void BufferManager::PageProviderThread::phase1(Partition& current_partition){
+void BufferManager::PageProviderThread::phase1(FreeList& free_list){
    [[maybe_unused]] Time phase_1_begin, phase_1_end;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
       volatile u64 failed_attempts =
           0;  // [corner cases]: prevent starving when free list is empty and cooling to the required level can not be achieved
 
-      if ((current_partition.dram_free_list.counter < current_partition.free_bfs_limit) && failed_attempts < 10) {
+      if ((free_list.counter < free_list.free_bfs_limit) && failed_attempts < 10) {
          select_bf_range();
          while (cool_candidate_bfs.size()) {
             jumpmuTry()
@@ -180,7 +180,7 @@ void BufferManager::PageProviderThread::phase1(Partition& current_partition){
       }
 }
 
-void BufferManager::PageProviderThread::evict_bf(BufferFrame& bf, BMOptimisticGuard& c_guard, Partition& current_partition){
+void BufferManager::PageProviderThread::evict_bf(BufferFrame& bf, BMOptimisticGuard& c_guard){
             DTID dt_id = bf.page.dt_id;
          c_guard.recheck();
          ParentSwipHandler parent_handler = bf_mgr.getDTRegistry().findParent(dt_id, bf);
@@ -213,9 +213,6 @@ void BufferManager::PageProviderThread::evict_bf(BufferFrame& bf, BMOptimisticGu
          bf.header.latch.mutex.unlock();
          // -------------------------------------------------------------------------------------
          freed_bfs_batch.add(bf);
-         if (freed_bfs_batch.size() <= std::min<u64>(FLAGS_worker_threads, 128)) {
-            freed_bfs_batch.push(current_partition);
-         }
          // -------------------------------------------------------------------------------------
          if (FLAGS_pid_tracing) {
             Tracing::mutex.lock();
@@ -230,7 +227,7 @@ void BufferManager::PageProviderThread::evict_bf(BufferFrame& bf, BMOptimisticGu
          COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; PPCounters::myCounters().total_evictions++; }
 
 }
-void BufferManager::PageProviderThread::phase2(Partition& current_partition){
+void BufferManager::PageProviderThread::phase2(){
         for (volatile const auto& cooled_bf : evict_candidate_bfs) {
          jumpmuTry()
          {
@@ -272,14 +269,14 @@ void BufferManager::PageProviderThread::phase2(Partition& current_partition){
                   jumpmu_break;
                }
             } else {
-               evict_bf(*cooled_bf, o_guard, current_partition);
+               evict_bf(*cooled_bf, o_guard);
             }
          }
          jumpmuCatch() {}
       }
       evict_candidate_bfs.clear();
 }
-void BufferManager::PageProviderThread::phase3(Partition& current_partition){
+void BufferManager::PageProviderThread::phase3(){
    if (async_write_buffer.submit()) {
    const u32 polled_events = async_write_buffer.pollEventsSync();
    async_write_buffer.getWrittenBfs(
@@ -315,7 +312,7 @@ void BufferManager::PageProviderThread::phase3(Partition& current_partition){
             {
                BMOptimisticGuard o_guard(written_bf.header.latch);
                if (written_bf.header.state == BufferFrame::STATE::COOL && !written_bf.header.is_being_written_back && !written_bf.isDirty()) {
-                  evict_bf(written_bf, o_guard, current_partition);
+                  evict_bf(written_bf, o_guard);
                }
             }
             jumpmuCatch() {}
@@ -329,14 +326,13 @@ void BufferManager::PageProviderThread::run()
    set_thread_config();
 
    while (bf_mgr.bg_threads_keep_running) {
-      auto& current_partition = bf_mgr.randomPartition();
+      auto& current_free_list = bf_mgr.randomPartition().dram_free_list;
+      freed_bfs_batch.set_free_list(&current_free_list);
       // Phase 1: unswizzle pages (put in the cooling stage)
-      phase1(current_partition);
-      phase2(current_partition);
-      phase3(current_partition);
-      if (freed_bfs_batch.size()) {
-         freed_bfs_batch.push(current_partition);
-      }
+      phase1(current_free_list);
+      phase2();
+      phase3();
+      freed_bfs_batch.push();
       COUNTERS_BLOCK() { PPCounters::myCounters().pp_thread_rounds++; }
    }
    bf_mgr.bg_threads_counter--;

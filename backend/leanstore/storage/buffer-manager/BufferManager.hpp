@@ -34,6 +34,7 @@ namespace storage
 struct FreedBfsBatch {
    BufferFrame *freed_bfs_batch_head = nullptr, *freed_bfs_batch_tail = nullptr;
    u64 freed_bfs_counter = 0;
+   FreeList* free_list = nullptr;
    // -------------------------------------------------------------------------------------
    void reset()
    {
@@ -42,9 +43,12 @@ struct FreedBfsBatch {
       freed_bfs_counter = 0;
    }
    // -------------------------------------------------------------------------------------
-   void push(Partition& partition)
+   void push()
    {
-      partition.dram_free_list.batchPush(freed_bfs_batch_head, freed_bfs_batch_tail, freed_bfs_counter);
+      paranoid(free_list != nullptr);
+      if(freed_bfs_counter > 0){
+         free_list->batchPush(freed_bfs_batch_head, freed_bfs_batch_tail, freed_bfs_counter);
+      }
       reset();
    }
    // -------------------------------------------------------------------------------------
@@ -52,6 +56,9 @@ struct FreedBfsBatch {
    // -------------------------------------------------------------------------------------
    void add(BufferFrame& bf)
    {
+      if (freed_bfs_counter >= std::min<u64>(FLAGS_worker_threads, 128) && free_list != nullptr) {
+         push();
+      }
       bf.header.next_free_bf = freed_bfs_batch_head;
       if (freed_bfs_batch_head == nullptr) {
          freed_bfs_batch_tail = &bf;
@@ -59,6 +66,12 @@ struct FreedBfsBatch {
       freed_bfs_batch_head = &bf;
       freed_bfs_counter++;
       // -------------------------------------------------------------------------------------
+   }
+   void set_free_list(FreeList* list){
+      if(free_list != nullptr && size()>0){
+         push();
+      }
+      free_list = list;
    }
 };
 // -------------------------------------------------------------------------------------
@@ -89,7 +102,6 @@ class BufferManager
    const u64 partitions_mask;
    std::vector<std::unique_ptr<Partition>> partitions;
    std::atomic<u64> clock_cursor = {0};
-
    // -------------------------------------------------------------------------------------
    // Threads managements
    struct PageProviderThread{
@@ -97,20 +109,23 @@ class BufferManager
       const u64 id;
       BufferManager& bf_mgr;
       AsyncWriteBuffer async_write_buffer;
+      const u64 evictions_per_epoch;
+      u64 pages_evicted = 0;
       std::vector<BufferFrame*> cool_candidate_bfs, evict_candidate_bfs;
       FreedBfsBatch freed_bfs_batch;
       void set_thread_config();
       BufferFrame& randomBufferFrame();
       void select_bf_range();
-      void phase1(Partition& partition);
-      void evict_bf(BufferFrame& bf, BMOptimisticGuard& c_guard, Partition& current_partition);
-      void phase2(Partition& current_partition);
-      void phase3(Partition& current_partition);
+      void evict_bf(BufferFrame& bf, BMOptimisticGuard& c_guard);
+      void phase1(FreeList& free_list);
+      void phase2();
+      void phase3();
      public:
       PageProviderThread(u64 t_i, BufferManager* bf_mgr):
          id(t_i),
          bf_mgr(*bf_mgr),
-         async_write_buffer(bf_mgr->ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size){};
+         async_write_buffer(bf_mgr->ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size),
+         evictions_per_epoch(std::max((u64) 1, (u64) bf_mgr->dram_pool_size / FLAGS_epoch_size)){};
       void run();
    };
 
