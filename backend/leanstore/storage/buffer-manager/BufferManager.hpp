@@ -109,7 +109,6 @@ class BufferManager
       const u64 id;
       BufferManager& bf_mgr;
       AsyncWriteBuffer async_write_buffer;
-      const u64 evictions_per_epoch;
       u64 pages_evicted = 0;
       std::vector<BufferFrame*> cool_candidate_bfs, evict_candidate_bfs;
       FreedBfsBatch freed_bfs_batch;
@@ -124,8 +123,7 @@ class BufferManager
       PageProviderThread(u64 t_i, BufferManager* bf_mgr):
          id(t_i),
          bf_mgr(*bf_mgr),
-         async_write_buffer(bf_mgr->ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size),
-         evictions_per_epoch(std::max((u64) 1, (u64) bf_mgr->dram_pool_size / FLAGS_epoch_size)){};
+         async_write_buffer(bf_mgr->ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size){};
       void run();
    };
 
