@@ -1,0 +1,37 @@
+if(ENABLE_TESTING)
+  set(TEST_REQUIRED_LIBS leanstore leanstore_bm gtest gmock)
+  set(TEST_REQUIRED_HEADERS ${GTEST_INCLUDE_DIR}
+                            ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  function(LEANSTORE_ADD_TEST TEST_NAME)
+    add_executable(${ARGV})
+    target_link_libraries(${TEST_NAME} PUBLIC ${TEST_REQUIRED_LIBS})
+    target_include_directories(${TEST_NAME} PUBLIC ${TEST_REQUIRED_HEADERS})
+    gtest_discover_tests(${TEST_NAME})
+  endfunction()
+
+  leanstore_add_test(TestHybridLatch sync/test_latch.cc main.cc)
+  leanstore_add_test(TestHybridGuard sync/test_guard.cc main.cc)
+  leanstore_add_test(TestPageGuard sync/test_page_guard.cc)
+  leanstore_add_test(TestAioInterface storage/test_aio.cc main.cc)
+  leanstore_add_test(TestCompression storage/blob/test_compression.cc main.cc)
+  leanstore_add_test(TestExtentList storage/extent/test_extent_list.cc main.cc)
+  leanstore_add_test(TestBufferManager buffer/test_buffer_manager.cc)
+  leanstore_add_test(TestBlobManager storage/blob/test_blob_manager.cc main.cc)
+  leanstore_add_test(TestLogManager recovery/test_log_manager.cc main.cc)
+  leanstore_add_test(TestGroupCommit recovery/test_group_commit.cc)
+  leanstore_add_test(TestTransaction transaction/test_transaction.cc)
+  leanstore_add_test(TestBTreeNode storage/btree/test_node.cc main.cc)
+  leanstore_add_test(TestBTreeNodeWithBlob storage/btree/test_node_wblob.cc main.cc)
+  leanstore_add_test(TestBTreeLocking storage/btree/test_locking.cc main.cc)
+  leanstore_add_test(TestBTree storage/btree/test_tree.cc)
+  leanstore_add_test(TestLeanStoreAdapter adapters/test_leanstore_adapter.cc)
+  leanstore_add_test(TestWiredTigerAdapter adapters/test_wiredtiger_adapter.cc)
+  leanstore_add_test(TestFilesystemAdapter adapters/test_filesystem_adapter.cc)
+endif()
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+add_executable(LeanStoreFUSE fuse/fuse.cc)
+target_link_libraries(LeanStoreFUSE PUBLIC ${TEST_REQUIRED_LIBS})
+target_include_directories(LeanStoreFUSE PUBLIC ${TEST_REQUIRED_HEADERS})

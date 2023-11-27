@@ -1,0 +1,5 @@
+#include "benchmark/gitclone/config.h"
+
+DEFINE_string(git_workload_config_path, "${GIT_WORKLOAD_CSV}",
+              "The CSV file which contains Git-Clone workload characteristics");
+

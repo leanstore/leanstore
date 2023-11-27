@@ -1,0 +1,6 @@
+op,fd,size,flags
+SYS_write,2,8626703,0
+SYS_close,3,0,0
+SYS_newfstatat,100,0,0
+SYS_newfstatat,1,0,4096
+SYS_close,1,0,0
