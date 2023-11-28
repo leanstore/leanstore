@@ -154,15 +154,31 @@ Partition& BufferManager::randomPartition()
    auto rand_partition_i = utils::RandomGenerator::getRand<u64>(0, partitions_count);
    return getPartition(rand_partition_i);
 }
+FreeList& BufferManager::randomFreeList()
+{
+   auto rand_partition_i = utils::RandomGenerator::getRand<u64>(0, partitions_count);
+   return getPartition(rand_partition_i).dram_free_list;
+}
+BufferFrame& BufferManager::randomFreeFrame()
+{
+   return randomFreeList().tryPop();
+}
+PID BufferManager::randomFreePID()
+{
+   return randomPartition().nextPID();
+}
+
+HashTable& BufferManager::getIOTable(PID pid){
+   return getPartition(pid).io_table;
+}
+
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // returns a *write locked* new buffer frame
 BufferFrame& BufferManager::allocatePage()
 {
-   // Pick a pratition randomly
-   Partition& partition = randomPartition();
-   BufferFrame& free_bf = partition.dram_free_list.tryPop();
-   PID free_pid = partition.nextPID();
+   BufferFrame& free_bf = randomFreeFrame();
+   PID free_pid = randomFreePID();
    assert(free_bf.header.state == BufferFrame::STATE::FREE);
    // -------------------------------------------------------------------------------------
    // Initialize Buffer Frame
@@ -281,15 +297,15 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
    // -------------------------------------------------------------------------------------
    swip_guard.unlock();  // Otherwise we would get a deadlock, P->G, G->P
    const PID pid = swip_value.asPageID();
-   Partition& partition = getPartition(pid);
-   JMUW<std::unique_lock<std::mutex>> g_guard(partition.ht_mutex);
+   HashTable& io_table = getIOTable(pid);
+   JMUW<std::unique_lock<std::mutex>> g_guard(io_table.ht_mutex);
    swip_guard.recheck();
    paranoid(!swip_value.isHOT());
    // -------------------------------------------------------------------------------------
-   auto frame_handler = partition.io_ht.lookup(pid);
+   auto frame_handler = io_table.lookup(pid);
    if (!frame_handler) {
-      BufferFrame& bf = randomPartition().dram_free_list.tryPop();
-      IOFrame& io_frame = partition.io_ht.insert(pid);
+      BufferFrame& bf = randomFreeFrame();
+      IOFrame& io_frame = io_table.insert(pid);
       bf.header.latch.assertNotExclusivelyLatched();
       // -------------------------------------------------------------------------------------
       io_frame.state = IOFrame::STATE::READING;
@@ -323,7 +339,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       jumpmuTry()
       {
          swip_guard.recheck();
-         JMUW<std::unique_lock<std::mutex>> g_guard(partition.ht_mutex);
+         JMUW<std::unique_lock<std::mutex>> g_guard(io_table.ht_mutex);
          BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
          io_frame.mutex.unlock();
          swip_value.warm(&bf);
@@ -331,7 +347,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
                                                      // IT IS SWIZZLED IN
          // -------------------------------------------------------------------------------------
          if (io_frame.readers_counter.fetch_add(-1) == 1) {
-            partition.io_ht.remove(pid);
+            io_table.remove(pid);
          }
          // -------------------------------------------------------------------------------------
          last_read_bf = &bf;
@@ -361,7 +377,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       if (io_frame.readers_counter.fetch_add(-1) == 1) {
          g_guard->lock();
          if (io_frame.readers_counter == 0) {
-            partition.io_ht.remove(pid);
+            io_table.remove(pid);
          }
          g_guard->unlock();
       }
@@ -390,7 +406,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
                                                       // IT IS SWIZZLED IN
          // -------------------------------------------------------------------------------------
          if (io_frame.readers_counter.fetch_add(-1) == 1) {
-            partition.io_ht.remove(pid);
+            io_table.remove(pid);
          } else {
             io_frame.state = IOFrame::STATE::TO_DELETE;
          }
@@ -402,7 +418,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
    }
    if (io_frame.state == IOFrame::STATE::TO_DELETE) {
       if (io_frame.readers_counter == 0) {
-         partition.io_ht.remove(pid);
+         io_table.remove(pid);
       }
       g_guard->unlock();
       jumpmu::jump();

@@ -65,10 +65,8 @@ void BufferManager::PageProviderThread::select_bf_range() {
 void BufferManager::PageProviderThread::phase1(FreeList& free_list){
    [[maybe_unused]] Time phase_1_begin, phase_1_end;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
-      volatile u64 failed_attempts =
-          0;  // [corner cases]: prevent starving when free list is empty and cooling to the required level can not be achieved
 
-      if ((free_list.counter < free_list.free_bfs_limit) && failed_attempts < 10) {
+      if (free_list.counter < free_list.free_bfs_limit) {
          select_bf_range();
          while (cool_candidate_bfs.size()) {
             jumpmuTry()
@@ -78,22 +76,26 @@ void BufferManager::PageProviderThread::phase1(FreeList& free_list){
                COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
                // -------------------------------------------------------------------------------------
                BMOptimisticGuard r_guard(r_buffer->header.latch);
+               // Check if not evictable
                if(r_buffer->header.keep_in_memory || r_buffer->header.is_being_written_back || r_buffer->header.latch.isExclusivelyLatched()){
-                  failed_attempts = failed_attempts+1;jumpmu_continue;
+                  jumpmu_continue;
                }
                r_guard.recheck();
                // -------------------------------------------------------------------------------------
+               // check if already cool
                if (r_buffer->header.state == BufferFrame::STATE::COOL) {
                   evict_candidate_bfs.push_back(reinterpret_cast<BufferFrame*>(r_buffer));
-                  failed_attempts = failed_attempts+1; jumpmu_continue;  // TODO: maybe without failed_attempts
+                  jumpmu_continue;
                }
+               // Check if not hot (therefore loaded / free)
                if(r_buffer->header.state != BufferFrame::STATE::HOT){
-                  failed_attempts = failed_attempts+1; jumpmu_continue;
+                  jumpmu_continue;
                }
                r_guard.recheck();
                // -------------------------------------------------------------------------------------
                COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
                // -------------------------------------------------------------------------------------
+               // Check if child in RAM; Add first hot child to cooling queue
                bool all_children_evicted = true;
                bool picked_a_child_instead = false;
                [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
@@ -117,18 +119,20 @@ void BufferManager::PageProviderThread::phase1(FreeList& free_list){
                       (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
                }
                if(!all_children_evicted || picked_a_child_instead){
-                  failed_attempts = failed_attempts+1; jumpmu_continue;
+                  jumpmu_continue;
                }
                // -------------------------------------------------------------------------------------
                [[maybe_unused]] Time find_parent_begin, find_parent_end;
                COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
                DTID dt_id = r_buffer->page.dt_id;
                r_guard.recheck();
+               // get Parent
                ParentSwipHandler parent_handler = bf_mgr.getDTRegistry().findParent(dt_id, *r_buffer);
                // -------------------------------------------------------------------------------------
                if (FLAGS_optimistic_parent_pointer) {
                   if (parent_handler.is_bf_updated) {
-                     r_guard.guard.version += 2;
+                     // optimistic_parent_pointer was updated, therefore exclusive locked and unlocked (2 exclusive operations)
+                     r_guard.guard.version += 2 * LATCH_EXCLUSIVE_BIT;
                   }
                }
                // -------------------------------------------------------------------------------------
@@ -141,6 +145,7 @@ void BufferManager::PageProviderThread::phase1(FreeList& free_list){
                       (std::chrono::duration_cast<std::chrono::microseconds>(find_parent_end - find_parent_begin).count());
                }
                // -------------------------------------------------------------------------------------
+               // X-Merge
                r_guard.recheck();
                const SpaceCheckResult space_check_res = bf_mgr.getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);
                if (space_check_res == SpaceCheckResult::RESTART_SAME_BF || space_check_res == SpaceCheckResult::PICK_ANOTHER_BF) {
@@ -148,9 +153,9 @@ void BufferManager::PageProviderThread::phase1(FreeList& free_list){
                }
                r_guard.recheck();
                // -------------------------------------------------------------------------------------
-               // Suitable page founds, lets cool
+               // Suitable page founds, Lock and cool
                {
-                  const PID pid = r_buffer->header.pid;
+                  [[maybe_unused]] const PID pid = r_buffer->header.pid;
                   // r_x_guard can only be acquired and released while the partition mutex is locked
                   {
                      BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
@@ -168,7 +173,6 @@ void BufferManager::PageProviderThread::phase1(FreeList& free_list){
                   // -------------------------------------------------------------------------------------
                   COUNTERS_BLOCK() { PPCounters::myCounters().unswizzled_pages_counter++; }
                }
-               failed_attempts = 0;
             }
             jumpmuCatch() {}
          }
@@ -238,12 +242,11 @@ void BufferManager::PageProviderThread::phase2(){
                jumpmu_continue;
             }
             const PID cooled_bf_pid = cooled_bf->header.pid;
-            const u64 p_i = bf_mgr.getPartitionID(cooled_bf_pid);
             // Prevent evicting a page that already has an IO Frame with (possibly) threads working on it.
             {
-               Partition& partition = bf_mgr.getPartition(p_i);
-               JMUW<std::unique_lock<std::mutex>> io_guard(partition.ht_mutex);
-               if (partition.io_ht.lookup(cooled_bf_pid)) {
+               HashTable& io_table = bf_mgr.getIOTable(cooled_bf_pid);
+               JMUW<std::unique_lock<std::mutex>> io_guard(io_table.ht_mutex);
+               if (io_table.lookup(cooled_bf_pid)) {
                   jumpmu_continue;
                }
             }
@@ -259,6 +262,7 @@ void BufferManager::PageProviderThread::phase2(){
                      // TODO: preEviction callback according to DTID
                      PID wb_pid = cooled_bf_pid;
                      if (FLAGS_out_of_place) {
+                        [[maybe_unused]] u64 p_i = bf_mgr.getPartitionID(cooled_bf_pid);
                         wb_pid = bf_mgr.getPartition(cooled_bf_pid).nextPID();
                         paranoid(bf_mgr.getPartitionID(cooled_bf->header.pid) == p_i);
                         paranoid(bf_mgr.getPartitionID(wb_pid) == p_i);
@@ -326,7 +330,7 @@ void BufferManager::PageProviderThread::run()
    set_thread_config();
 
    while (bf_mgr.bg_threads_keep_running) {
-      auto& current_free_list = bf_mgr.randomPartition().dram_free_list;
+      auto& current_free_list = bf_mgr.randomFreeList();
       freed_bfs_batch.set_free_list(&current_free_list);
       // Phase 1: unswizzle pages (put in the cooling stage)
       phase1(current_free_list);

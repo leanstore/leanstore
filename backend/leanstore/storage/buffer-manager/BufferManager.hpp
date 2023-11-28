@@ -132,6 +132,10 @@ class BufferManager
    // -------------------------------------------------------------------------------------
    // Misc
    Partition& randomPartition();
+   FreeList& randomFreeList();
+   BufferFrame& randomFreeFrame();
+   PID randomFreePID();
+   HashTable& getIOTable(PID);
    Partition& getPartition(PID);
    u64 getPartitionID(PID);
    // -------------------------------------------------------------------------------------
