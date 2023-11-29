@@ -116,9 +116,14 @@ class BufferManager
       BufferFrame& randomBufferFrame();
       void select_bf_range();
       void evict_bf(BufferFrame& bf, BMOptimisticGuard& c_guard);
-      void phase1(FreeList& free_list);
-      void phase2();
-      void phase3();
+      bool pageIsNotEvictable(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
+      bool childInRam(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
+      ParentSwipHandler findParent(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
+      bool checkXMerge(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
+      void setCool(BufferFrame* r_buffer, BMOptimisticGuard& r_guard, ParentSwipHandler& parent_handler);
+      void firstChance();
+      void secondChance();
+      void handleWritten();
      public:
       PageProviderThread(u64 t_i, BufferManager* bf_mgr);
       void run();

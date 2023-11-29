@@ -76,113 +76,127 @@ void BufferManager::PageProviderThread::select_bf_range() {
       return;
 }
 
-void BufferManager::PageProviderThread::phase1(FreeList& free_list){
+bool BufferManager::PageProviderThread::pageIsNotEvictable(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
+      // Check if not evictable
+      if(r_buffer->header.keep_in_memory || r_buffer->header.is_being_written_back || r_buffer->header.latch.isExclusivelyLatched()){
+         return true;
+      }
+      // Check if not hot (therefore loaded / free)
+      if(r_buffer->header.state != BufferFrame::STATE::HOT){
+         return true;
+      }
+      r_guard.recheck();
+      return false;
+}
+
+bool BufferManager::PageProviderThread::childInRam(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
+      // Check if child in RAM; Add first hot child to cooling queue
+      bool all_children_evicted = true;
+      bool picked_a_child_instead = false;
+      [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
+      COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
+      bf_mgr.getDTRegistry().iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
+         all_children_evicted &= swip.isEVICTED();  // Ignore when it has a child in the cooling stage
+         if (swip.isHOT()) {
+            BufferFrame* picked_child_bf = &swip.asBufferFrame();
+            r_guard.recheck();
+            picked_a_child_instead = true;
+            cool_candidate_bfs.push_back(picked_child_bf);
+            return false;
+         }
+         r_guard.recheck();
+         return true;
+      });
+      COUNTERS_BLOCK()
+      {
+         iterate_children_begin = std::chrono::high_resolution_clock::now();
+         PPCounters::myCounters().iterate_children_ms +=
+             (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
+      }
+      if(!all_children_evicted || picked_a_child_instead){
+         return true;
+      }
+      r_guard.recheck();
+      return false;
+
+}
+
+ParentSwipHandler BufferManager::PageProviderThread::findParent(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
+      [[maybe_unused]] Time find_parent_begin, find_parent_end;
+      COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
+      DTID dt_id = r_buffer->page.dt_id;
+      r_guard.recheck();
+      // get Parent
+      ParentSwipHandler parent_handler = bf_mgr.getDTRegistry().findParent(dt_id, *r_buffer);
+      // -------------------------------------------------------------------------------------
+      paranoid(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
+      paranoid(parent_handler.parent_guard.latch != reinterpret_cast<HybridLatch*>(0x99));
+      COUNTERS_BLOCK()
+      {
+         find_parent_end = std::chrono::high_resolution_clock::now();
+         PPCounters::myCounters().find_parent_ms +=
+             (std::chrono::duration_cast<std::chrono::microseconds>(find_parent_end - find_parent_begin).count());
+      }
+      r_guard.recheck();
+      return parent_handler;
+
+}
+
+bool BufferManager::PageProviderThread::checkXMerge(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
+      const SpaceCheckResult space_check_res = bf_mgr.getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);
+      if (space_check_res == SpaceCheckResult::RESTART_SAME_BF || space_check_res == SpaceCheckResult::PICK_ANOTHER_BF) {
+         return false;
+      }
+      r_guard.recheck();
+      return true;
+}
+
+void BufferManager::PageProviderThread::setCool(BufferFrame* r_buffer, BMOptimisticGuard& r_guard, ParentSwipHandler& parent_handler){
+      {
+         [[maybe_unused]] const PID pid = r_buffer->header.pid;
+         // r_x_guard can only be acquired and released while the partition mutex is locked
+         {
+            BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
+            BMExclusiveGuard r_x_guard(r_guard);
+            // -------------------------------------------------------------------------------------
+            paranoid(r_buffer->header.pid == pid);
+            paranoid(r_buffer->header.state == BufferFrame::STATE::HOT);
+            paranoid(r_buffer->header.is_being_written_back == false);
+            paranoid(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
+            paranoid(parent_handler.swip.bf == r_buffer);
+            // -------------------------------------------------------------------------------------
+            r_buffer->header.state = BufferFrame::STATE::COOL;
+            parent_handler.swip.cool();  // Cool the pointing swip before unlocking the current bf
+         }
+         // -------------------------------------------------------------------------------------
+         COUNTERS_BLOCK() { PPCounters::myCounters().unswizzled_pages_counter++; }
+      }
+
+}
+void BufferManager::PageProviderThread::firstChance(){
    [[maybe_unused]] Time phase_1_begin, phase_1_end;
       COUNTERS_BLOCK() { phase_1_begin = std::chrono::high_resolution_clock::now(); }
-
-      if (free_list.counter < free_list.free_bfs_limit) {
-         select_bf_range();
-         while (cool_candidate_bfs.size()) {
-            jumpmuTry()
-            {
-               BufferFrame* r_buffer = cool_candidate_bfs.back();
-               cool_candidate_bfs.pop_back();
-               COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
-               // -------------------------------------------------------------------------------------
-               BMOptimisticGuard r_guard(r_buffer->header.latch);
-               // Check if not evictable
-               if(r_buffer->header.keep_in_memory || r_buffer->header.is_being_written_back || r_buffer->header.latch.isExclusivelyLatched()){
-                  jumpmu_continue;
-               }
-               r_guard.recheck();
-               // -------------------------------------------------------------------------------------
-               // check if already cool
-               if (r_buffer->header.state == BufferFrame::STATE::COOL) {
-                  evict_candidate_bfs.push_back(reinterpret_cast<BufferFrame*>(r_buffer));
-                  jumpmu_continue;
-               }
-               // Check if not hot (therefore loaded / free)
-               if(r_buffer->header.state != BufferFrame::STATE::HOT){
-                  jumpmu_continue;
-               }
-               r_guard.recheck();
-               // -------------------------------------------------------------------------------------
-               COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
-               // -------------------------------------------------------------------------------------
-               // Check if child in RAM; Add first hot child to cooling queue
-               bool all_children_evicted = true;
-               bool picked_a_child_instead = false;
-               [[maybe_unused]] Time iterate_children_begin, iterate_children_end;
-               COUNTERS_BLOCK() { iterate_children_begin = std::chrono::high_resolution_clock::now(); }
-               bf_mgr.getDTRegistry().iterateChildrenSwips(r_buffer->page.dt_id, *r_buffer, [&](Swip<BufferFrame>& swip) {
-                  all_children_evicted &= swip.isEVICTED();  // Ignore when it has a child in the cooling stage
-                  if (swip.isHOT()) {
-                     BufferFrame* picked_child_bf = &swip.asBufferFrame();
-                     r_guard.recheck();
-                     picked_a_child_instead = true;
-                     cool_candidate_bfs.push_back(picked_child_bf);
-                     return false;
-                  }
-                  r_guard.recheck();
-                  return true;
-               });
-               COUNTERS_BLOCK()
-               {
-                  iterate_children_begin = std::chrono::high_resolution_clock::now();
-                  PPCounters::myCounters().iterate_children_ms +=
-                      (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
-               }
-               if(!all_children_evicted || picked_a_child_instead){
-                  jumpmu_continue;
-               }
-               // -------------------------------------------------------------------------------------
-               [[maybe_unused]] Time find_parent_begin, find_parent_end;
-               COUNTERS_BLOCK() { find_parent_begin = std::chrono::high_resolution_clock::now(); }
-               DTID dt_id = r_buffer->page.dt_id;
-               r_guard.recheck();
-               // get Parent
-               ParentSwipHandler parent_handler = bf_mgr.getDTRegistry().findParent(dt_id, *r_buffer);
-               // -------------------------------------------------------------------------------------
-               paranoid(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
-               paranoid(parent_handler.parent_guard.latch != reinterpret_cast<HybridLatch*>(0x99));
-               COUNTERS_BLOCK()
-               {
-                  find_parent_end = std::chrono::high_resolution_clock::now();
-                  PPCounters::myCounters().find_parent_ms +=
-                      (std::chrono::duration_cast<std::chrono::microseconds>(find_parent_end - find_parent_begin).count());
-               }
-               // -------------------------------------------------------------------------------------
-               // X-Merge
-               r_guard.recheck();
-               const SpaceCheckResult space_check_res = bf_mgr.getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);
-               if (space_check_res == SpaceCheckResult::RESTART_SAME_BF || space_check_res == SpaceCheckResult::PICK_ANOTHER_BF) {
-                  jumpmu_continue;
-               }
-               r_guard.recheck();
-               // -------------------------------------------------------------------------------------
-               // Suitable page founds, Lock and cool
-               {
-                  [[maybe_unused]] const PID pid = r_buffer->header.pid;
-                  // r_x_guard can only be acquired and released while the partition mutex is locked
-                  {
-                     BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
-                     BMExclusiveGuard r_x_guard(r_guard);
-                     // -------------------------------------------------------------------------------------
-                     paranoid(r_buffer->header.pid == pid);
-                     paranoid(r_buffer->header.state == BufferFrame::STATE::HOT);
-                     paranoid(r_buffer->header.is_being_written_back == false);
-                     paranoid(parent_handler.parent_guard.version == parent_handler.parent_guard.latch->ref().load());
-                     paranoid(parent_handler.swip.bf == r_buffer);
-                     // -------------------------------------------------------------------------------------
-                     r_buffer->header.state = BufferFrame::STATE::COOL;
-                     parent_handler.swip.cool();  // Cool the pointing swip before unlocking the current bf
-                  }
-                  // -------------------------------------------------------------------------------------
-                  COUNTERS_BLOCK() { PPCounters::myCounters().unswizzled_pages_counter++; }
-               }
+      while (cool_candidate_bfs.size()) {
+         jumpmuTry()
+         {
+            COUNTERS_BLOCK() { PPCounters::myCounters().phase_1_counter++; }
+            BufferFrame* r_buffer = cool_candidate_bfs.back();
+            cool_candidate_bfs.pop_back();
+            // -------------------------------------------------------------------------------------
+            BMOptimisticGuard r_guard(r_buffer->header.latch);
+            if(pageIsNotEvictable(r_buffer, r_guard)){jumpmu_continue;}
+            // Second Chance was given and missed. Send to phase 2;
+            if (r_buffer->header.state == BufferFrame::STATE::COOL) {
+               evict_candidate_bfs.push_back(reinterpret_cast<BufferFrame*>(r_buffer));
+               jumpmu_continue;
             }
-            jumpmuCatch() {}
+            COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
+            if(childInRam(r_buffer, r_guard)){jumpmu_continue;}
+            ParentSwipHandler parent_handler = findParent(r_buffer, r_guard);
+            if(checkXMerge(r_buffer, r_guard)){jumpmu_continue;}
+            setCool(r_buffer, r_guard, parent_handler);
          }
+         jumpmuCatch() {}
       }
       COUNTERS_BLOCK()
       {
@@ -232,7 +246,7 @@ void BufferManager::PageProviderThread::evict_bf(BufferFrame& bf, BMOptimisticGu
          COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; PPCounters::myCounters().total_evictions++; }
 
 }
-void BufferManager::PageProviderThread::phase2(){
+void BufferManager::PageProviderThread::secondChance(){
         for (volatile const auto& cooled_bf : evict_candidate_bfs) {
          jumpmuTry()
          {
@@ -277,7 +291,7 @@ void BufferManager::PageProviderThread::phase2(){
       }
       evict_candidate_bfs.clear();
 }
-void BufferManager::PageProviderThread::phase3(){
+void BufferManager::PageProviderThread::handleWritten(){
    async_write_buffer.flush();
 }
 void BufferManager::PageProviderThread::run()
@@ -286,11 +300,14 @@ void BufferManager::PageProviderThread::run()
 
    while (bf_mgr.bg_threads_keep_running) {
       auto& current_free_list = bf_mgr.randomFreeList();
+      if (current_free_list.counter >= current_free_list.free_bfs_limit) {
+            continue;
+      }
       freed_bfs_batch.set_free_list(&current_free_list);
-      // Phase 1: unswizzle pages (put in the cooling stage)
-      phase1(current_free_list);
-      phase2();
-      phase3();
+      select_bf_range();
+      firstChance();
+      secondChance();
+      handleWritten();
       freed_bfs_batch.push();
       COUNTERS_BLOCK() { PPCounters::myCounters().pp_thread_rounds++; }
    }
