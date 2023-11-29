@@ -120,10 +120,7 @@ class BufferManager
       void phase2();
       void phase3();
      public:
-      PageProviderThread(u64 t_i, BufferManager* bf_mgr):
-         id(t_i),
-         bf_mgr(*bf_mgr),
-         async_write_buffer(bf_mgr->ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size){};
+      PageProviderThread(u64 t_i, BufferManager* bf_mgr);
       void run();
    };
 

@@ -25,6 +25,20 @@ namespace storage
 {
 using Time = decltype(std::chrono::high_resolution_clock::now());
 
+BufferManager::PageProviderThread::PageProviderThread(u64 t_i, BufferManager* bf_mgr): id(t_i), bf_mgr(*bf_mgr), 
+         async_write_buffer(bf_mgr->ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size,
+            [&](PID pid) -> Partition& {return bf_mgr->getPartition(pid);},
+            [&](BufferFrame& bf){
+               jumpmuTry()
+               {
+                  BMOptimisticGuard o_guard(bf.header.latch);
+                  if (bf.header.state == BufferFrame::STATE::COOL && !bf.header.is_being_written_back && !bf.isDirty()) {
+                     evict_bf(bf, o_guard);
+                  }
+               }
+               jumpmuCatch() {}
+            }){
+         };
 // -------------------------------------------------------------------------------------
 BufferFrame& BufferManager::PageProviderThread::randomBufferFrame()
 {
@@ -178,7 +192,7 @@ void BufferManager::PageProviderThread::phase1(FreeList& free_list){
 }
 
 void BufferManager::PageProviderThread::evict_bf(BufferFrame& bf, BMOptimisticGuard& c_guard){
-            DTID dt_id = bf.page.dt_id;
+         DTID dt_id = bf.page.dt_id;
          c_guard.recheck();
          ParentSwipHandler parent_handler = bf_mgr.getDTRegistry().findParent(dt_id, bf);
          // -------------------------------------------------------------------------------------
@@ -238,26 +252,22 @@ void BufferManager::PageProviderThread::phase2(){
                }
             }
             if (cooled_bf->isDirty()) {
-               if (!async_write_buffer.full()) {
-                  {
-                     BMExclusiveGuard ex_guard(o_guard);
-                     paranoid(!cooled_bf->header.is_being_written_back);
-                     cooled_bf->header.is_being_written_back.store(true, std::memory_order_release);
-                     if (FLAGS_crc_check) {
-                        cooled_bf->header.crc = utils::CRC(cooled_bf->page.dt, EFFECTIVE_PAGE_SIZE);
-                     }
-                     // TODO: preEviction callback according to DTID
-                     PID wb_pid = cooled_bf_pid;
-                     if (FLAGS_out_of_place) {
-                        [[maybe_unused]] u64 p_i = bf_mgr.getPartitionID(cooled_bf_pid);
-                        wb_pid = bf_mgr.getPartition(cooled_bf_pid).nextPID();
-                        paranoid(bf_mgr.getPartitionID(cooled_bf->header.pid) == p_i);
-                        paranoid(bf_mgr.getPartitionID(wb_pid) == p_i);
-                     }
-                     async_write_buffer.add(*cooled_bf, wb_pid);
+               {
+                  BMExclusiveGuard ex_guard(o_guard);
+                  paranoid(!cooled_bf->header.is_being_written_back);
+                  cooled_bf->header.is_being_written_back.store(true, std::memory_order_release);
+                  if (FLAGS_crc_check) {
+                     cooled_bf->header.crc = utils::CRC(cooled_bf->page.dt, EFFECTIVE_PAGE_SIZE);
                   }
-               } else {
-                  jumpmu_break;
+                  // TODO: preEviction callback according to DTID
+                  PID wb_pid = cooled_bf_pid;
+                  if (FLAGS_out_of_place) {
+                     [[maybe_unused]] u64 p_i = bf_mgr.getPartitionID(cooled_bf_pid);
+                     wb_pid = bf_mgr.getPartition(cooled_bf_pid).nextPID();
+                     paranoid(bf_mgr.getPartitionID(cooled_bf->header.pid) == p_i);
+                     paranoid(bf_mgr.getPartitionID(wb_pid) == p_i);
+                  }
+                  async_write_buffer.add(*cooled_bf, wb_pid);
                }
             } else {
                evict_bf(*cooled_bf, o_guard);
@@ -268,49 +278,7 @@ void BufferManager::PageProviderThread::phase2(){
       evict_candidate_bfs.clear();
 }
 void BufferManager::PageProviderThread::phase3(){
-   if (async_write_buffer.submit()) {
-   const u32 polled_events = async_write_buffer.pollEventsSync();
-   async_write_buffer.getWrittenBfs(
-      [&](BufferFrame& written_bf, u64 written_lsn, PID out_of_place_pid) {
-         jumpmuTry()
-         {
-            // When the written back page is being exclusively locked, we should rather waste the write and move on to another page
-            // Instead of waiting on its latch because of the likelihood that a data structure implementation keeps holding a parent latch
-            // while trying to acquire a new page
-            {
-               BMOptimisticGuard o_guard(written_bf.header.latch);
-               BMExclusiveGuard ex_guard(o_guard);
-               ensure(written_bf.header.is_being_written_back);
-               ensure(written_bf.header.last_written_plsn < written_lsn);
-               // -------------------------------------------------------------------------------------
-               if (FLAGS_out_of_place) {  // For recovery, so much has to be done here...
-                  bf_mgr.getPartition(written_bf.header.pid).freePage(written_bf.header.pid);
-                  written_bf.header.pid = out_of_place_pid;
-               }
-               written_bf.header.last_written_plsn = written_lsn;
-               written_bf.header.is_being_written_back = false;
-               PPCounters::myCounters().flushed_pages_counter++;
-            }
-         }
-         jumpmuCatch()
-         {
-            written_bf.header.crc = 0;
-            written_bf.header.is_being_written_back.store(false, std::memory_order_release);
-         }
-         // -------------------------------------------------------------------------------------
-         {
-            jumpmuTry()
-            {
-               BMOptimisticGuard o_guard(written_bf.header.latch);
-               if (written_bf.header.state == BufferFrame::STATE::COOL && !written_bf.header.is_being_written_back && !written_bf.isDirty()) {
-                  evict_bf(written_bf, o_guard);
-               }
-            }
-            jumpmuCatch() {}
-         }
-      },
-      polled_events);
-   }
+   async_write_buffer.flush();
 }
 void BufferManager::PageProviderThread::run()
 {
