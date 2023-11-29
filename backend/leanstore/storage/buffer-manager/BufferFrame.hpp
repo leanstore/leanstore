@@ -43,20 +43,26 @@ struct BufferFrame {
       ContentionTracker contention_tracker;
       // -------------------------------------------------------------------------------------
       struct OptimisticParentPointer {
+         HybridLatch latch = 0;
          BufferFrame* parent_bf = nullptr;
          PID parent_pid;
          LID parent_plsn = 0;
          BufferFrame** swip_ptr = nullptr;
          s64 pos_in_parent = -1;
-         void update(BufferFrame* new_parent_bf, PID new_parent_pid, LID new_parent_gsn, BufferFrame** new_swip_ptr, s64 new_pos_in_parent)
+         void update(BufferFrame* new_parent_bf, PID new_parent_pid, LID new_parent_gsn, BufferFrame** new_swip_ptr, s64 new_pos_in_parent, Guard& bf_guard)
          {
+            Guard guard(latch);
+            guard.toOptimisticOrJump();
+            bf_guard.recheck();
             if (parent_bf != new_parent_bf || parent_pid != new_parent_pid || parent_plsn != new_parent_gsn || swip_ptr != new_swip_ptr ||
                 pos_in_parent != new_pos_in_parent) {
+               guard.tryToExclusive();
                parent_bf = new_parent_bf;
                parent_pid = new_parent_pid;
                parent_plsn = new_parent_gsn;
                swip_ptr = new_swip_ptr;
                pos_in_parent = new_pos_in_parent;
+               guard.unlock();
             }
          }
       };

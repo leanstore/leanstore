@@ -229,12 +229,6 @@ void BufferManager::evictLastPage()
          // assert(!partition.io_ht.lookup(pid));
          ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, *last_read_bf);
          // -------------------------------------------------------------------------------------
-         if (FLAGS_optimistic_parent_pointer) {
-            if (parent_handler.is_bf_updated) {
-               o_guard.guard.version += 2;
-            }
-         }
-         // -------------------------------------------------------------------------------------
          assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
          o_guard.recheck();
          BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);

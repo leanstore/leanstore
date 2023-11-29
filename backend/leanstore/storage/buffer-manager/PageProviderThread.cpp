@@ -129,13 +129,6 @@ void BufferManager::PageProviderThread::phase1(FreeList& free_list){
                // get Parent
                ParentSwipHandler parent_handler = bf_mgr.getDTRegistry().findParent(dt_id, *r_buffer);
                // -------------------------------------------------------------------------------------
-               if (FLAGS_optimistic_parent_pointer) {
-                  if (parent_handler.is_bf_updated) {
-                     // optimistic_parent_pointer was updated, therefore exclusive locked and unlocked (2 exclusive operations)
-                     r_guard.guard.version += 2 * LATCH_EXCLUSIVE_BIT;
-                  }
-               }
-               // -------------------------------------------------------------------------------------
                paranoid(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
                paranoid(parent_handler.parent_guard.latch != reinterpret_cast<HybridLatch*>(0x99));
                COUNTERS_BLOCK()
@@ -188,12 +181,6 @@ void BufferManager::PageProviderThread::evict_bf(BufferFrame& bf, BMOptimisticGu
             DTID dt_id = bf.page.dt_id;
          c_guard.recheck();
          ParentSwipHandler parent_handler = bf_mgr.getDTRegistry().findParent(dt_id, bf);
-         // -------------------------------------------------------------------------------------
-         if (FLAGS_optimistic_parent_pointer) {
-            if (parent_handler.is_bf_updated) {
-               c_guard.guard.version += 2;
-            }
-         }
          // -------------------------------------------------------------------------------------
          paranoid(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
          BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);

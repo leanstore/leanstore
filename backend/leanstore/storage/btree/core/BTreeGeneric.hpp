@@ -134,14 +134,18 @@ class BTreeGeneric
    static struct ParentSwipHandler findParent(BTreeGeneric& btree, BufferFrame& to_find)
    {
       COUNTERS_BLOCK() { WorkerCounters::myCounters().dt_find_parent[btree.dt_id]++; }
+      // Try if optimistic_parent_pointer is valid
       if (FLAGS_optimistic_parent_pointer) {
          jumpmuTry()
          {
             Guard c_guard(to_find.header.latch);
             c_guard.toOptimisticOrJump();
-            BufferFrame::Header::OptimisticParentPointer optimistic_parent_pointer = to_find.header.optimistic_parent_pointer;
-            BufferFrame* parent_bf = optimistic_parent_pointer.parent_bf;
+            BufferFrame::Header::OptimisticParentPointer& optimistic_parent_pointer = to_find.header.optimistic_parent_pointer;
+            Guard pp_guard(optimistic_parent_pointer.latch);
+            pp_guard.toOptimisticOrJump();
             c_guard.recheck();
+            BufferFrame* parent_bf = optimistic_parent_pointer.parent_bf;
+            pp_guard.recheck();
             if (parent_bf != nullptr) {
                Guard p_guard(parent_bf->header.latch);
                p_guard.toOptimisticOrJump();
@@ -149,6 +153,7 @@ class BTreeGeneric
                   if (*(optimistic_parent_pointer.swip_ptr) == &to_find) {
                      p_guard.recheck();
                      c_guard.recheck();
+                     pp_guard.recheck();
                      ParentSwipHandler ret = {.swip = *reinterpret_cast<Swip<BufferFrame>*>(optimistic_parent_pointer.swip_ptr),
                                               .parent_guard = std::move(p_guard),
                                               .parent_bf = parent_bf,
@@ -232,12 +237,9 @@ class BTreeGeneric
          {
             Guard c_guard(to_find.header.latch);
             c_guard.toOptimisticOrJump();
-            c_guard.tryToExclusive();
             to_find.header.optimistic_parent_pointer.update(parent_handler.parent_bf, parent_handler.parent_bf->header.pid,
                                                             parent_handler.parent_bf->page.PLSN,
-                                                            reinterpret_cast<BufferFrame**>(&parent_handler.swip), parent_handler.pos);
-            c_guard.unlock();
-            parent_handler.is_bf_updated = true;
+                                                            reinterpret_cast<BufferFrame**>(&parent_handler.swip), parent_handler.pos, c_guard);
          }
          jumpmuCatch() {}
       }

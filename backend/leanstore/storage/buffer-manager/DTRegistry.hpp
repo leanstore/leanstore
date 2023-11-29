@@ -20,7 +20,6 @@ struct ParentSwipHandler {
    Guard parent_guard;
    BufferFrame* parent_bf;
    s64 pos = -2;  // meaning it is the root bf in the dt
-   bool is_bf_updated = false;
    // -------------------------------------------------------------------------------------
    template <typename T>
    HybridPageGuard<T> getParentReadPageGuard()
