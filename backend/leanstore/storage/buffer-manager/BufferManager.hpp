@@ -104,6 +104,8 @@ class BufferManager
    std::atomic<u64> clock_cursor = {0};
    // -------------------------------------------------------------------------------------
    // Threads managements
+   void evict_bf(FreedBfsBatch& batch, BufferFrame& bf, BMOptimisticGuard& c_guard);
+   bool pageIsNotEvictable(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
    struct PageProviderThread{
      private:
       const u64 id;
@@ -115,8 +117,6 @@ class BufferManager
       void set_thread_config();
       BufferFrame& randomBufferFrame();
       void select_bf_range();
-      void evict_bf(BufferFrame& bf, BMOptimisticGuard& c_guard);
-      bool pageIsNotEvictable(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
       bool childInRam(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
       ParentSwipHandler findParent(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
       bool checkXMerge(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);

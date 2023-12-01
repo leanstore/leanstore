@@ -1,4 +1,5 @@
 #include "BufferManager.hpp"
+#include "Tracing.hpp"
 
 #include "AsyncWriteBuffer.hpp"
 #include "BufferFrame.hpp"
@@ -200,52 +201,90 @@ BufferFrame& BufferManager::allocatePage()
 // -------------------------------------------------------------------------------------
 void BufferManager::evictLastPage()
 {
-   if (FLAGS_worker_page_eviction && last_read_bf) {
-      jumpmuTry()
-      {
-         BMOptimisticGuard o_guard(last_read_bf->header.latch);
-         const bool is_cooling_candidate = (!last_read_bf->header.keep_in_memory && !last_read_bf->header.is_being_written_back &&
-                                            !(last_read_bf->header.latch.isExclusivelyLatched()) &&
-                                            !last_read_bf->isDirty()
-                                            // && (partition_i) >= p_begin && (partition_i) <= p_end
-                                            && last_read_bf->header.state == BufferFrame::STATE::HOT);
-         if (!is_cooling_candidate) {
-            jumpmu::jump();
-         }
-         o_guard.recheck();
-         // -------------------------------------------------------------------------------------
-         bool picked_a_child_instead = false;
-         DTID dt_id = last_read_bf->page.dt_id;
-         PID last_pid = last_read_bf->header.pid;
-         o_guard.recheck();
-         getDTRegistry().iterateChildrenSwips(dt_id, *last_read_bf, [&](Swip<BufferFrame>&) {
-            picked_a_child_instead = true;
-            return false;
-         });
-         if (picked_a_child_instead) {
-            jumpmu::jump();
-         }
-         // assert(!partition.io_ht.lookup(last_read_bf->header.pid));
-         // assert(!partition.io_ht.lookup(pid));
-         ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, *last_read_bf);
-         // -------------------------------------------------------------------------------------
-         assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
-         o_guard.recheck();
-         BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
-         o_guard.guard.toExclusive();
-         // -------------------------------------------------------------------------------------
-         assert(!last_read_bf->header.is_being_written_back);
-         assert(last_read_bf->header.state != BufferFrame::STATE::FREE);
-         parent_handler.swip.evict(last_pid);
-         // -------------------------------------------------------------------------------------
-         // Reclaim buffer frame
-         last_read_bf->reset();
-         last_read_bf->header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
-         last_read_bf->header.latch.mutex.unlock();
-         getPartition(last_pid).dram_free_list.push(*last_read_bf);
-      }
-      jumpmuCatch() { last_read_bf = nullptr; }
+   if (!FLAGS_worker_page_eviction || !last_read_bf) {
+      return;
    }
+   jumpmuTry()
+   {
+      BMOptimisticGuard o_guard(last_read_bf->header.latch);
+      if (pageIsNotEvictable(last_read_bf, o_guard) || last_read_bf->isDirty() || last_read_bf->header.state != BufferFrame::STATE::HOT){
+         jumpmu::jump();
+      }
+      o_guard.recheck();
+      // -------------------------------------------------------------------------------------
+      bool picked_a_child_instead = false;
+      DTID dt_id = last_read_bf->page.dt_id;
+      PID last_pid = last_read_bf->header.pid;
+      o_guard.recheck();
+      getDTRegistry().iterateChildrenSwips(dt_id, *last_read_bf, [&](Swip<BufferFrame>&) {
+         picked_a_child_instead = true;
+         return false;
+      });
+      if (picked_a_child_instead) {
+         jumpmu::jump();
+      }
+      // assert(!partition.io_ht.lookup(last_read_bf->header.pid));
+      // assert(!partition.io_ht.lookup(pid));
+      FreedBfsBatch freed_bfs_batch = FreedBfsBatch();
+      evict_bf(freed_bfs_batch, *last_read_bf, o_guard);
+      freed_bfs_batch.set_free_list(&getPartition(last_pid).dram_free_list);
+      freed_bfs_batch.push();
+   }
+   jumpmuCatch() { last_read_bf = nullptr; }
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::evict_bf(FreedBfsBatch& batch, BufferFrame& bf, BMOptimisticGuard& c_guard){
+   DTID dt_id = bf.page.dt_id;
+   c_guard.recheck();
+   ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, bf);
+   // -------------------------------------------------------------------------------------
+   paranoid(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
+   BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
+   c_guard.guard.toExclusive();
+   // -------------------------------------------------------------------------------------
+   if (FLAGS_crc_check && bf.header.crc) {
+      ensure(utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE) == bf.header.crc);
+   }
+   // -------------------------------------------------------------------------------------
+   ensure(!bf.isDirty());
+   paranoid(!bf.header.is_being_written_back);
+   paranoid(bf.header.state == BufferFrame::STATE::COOL);
+   paranoid(parent_handler.swip.isCOOL());
+   // -------------------------------------------------------------------------------------
+   const PID evicted_pid = bf.header.pid;
+   parent_handler.swip.evict(evicted_pid);
+   // -------------------------------------------------------------------------------------
+   // Reclaim buffer frame
+   bf.reset();
+   bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
+   bf.header.latch.mutex.unlock();
+   // -------------------------------------------------------------------------------------
+   batch.add(bf);
+   // -------------------------------------------------------------------------------------
+   if (FLAGS_pid_tracing) {
+      Tracing::mutex.lock();
+      if (Tracing::ht.contains(evicted_pid)) {
+         std::get<1>(Tracing::ht[evicted_pid])++;
+      } else {
+         Tracing::ht[evicted_pid] = {dt_id, 1};
+      }
+      Tracing::mutex.unlock();
+   }
+   // -------------------------------------------------------------------------------------
+   COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; PPCounters::myCounters().total_evictions++; }
+}
+// -------------------------------------------------------------------------------------
+bool BufferManager::pageIsNotEvictable(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
+      // Check if not evictable
+      if(r_buffer->header.keep_in_memory || r_buffer->header.is_being_written_back || r_buffer->header.latch.isExclusivelyLatched()){
+         return true;
+      }
+      // Check if not hot (therefore loaded / free)
+      if(r_buffer->header.state != BufferFrame::STATE::HOT){
+         return true;
+      }
+      r_guard.recheck();
+      return false;
 }
 // -------------------------------------------------------------------------------------
 // Pre: bf is exclusively locked

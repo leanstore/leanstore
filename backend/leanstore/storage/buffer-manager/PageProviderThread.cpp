@@ -33,7 +33,7 @@ BufferManager::PageProviderThread::PageProviderThread(u64 t_i, BufferManager* bf
                {
                   BMOptimisticGuard o_guard(bf.header.latch);
                   if (bf.header.state == BufferFrame::STATE::COOL && !bf.header.is_being_written_back && !bf.isDirty()) {
-                     evict_bf(bf, o_guard);
+                     bf_mgr->evict_bf(freed_bfs_batch, bf, o_guard);
                   }
                }
                jumpmuCatch() {}
@@ -74,19 +74,6 @@ void BufferManager::PageProviderThread::select_bf_range() {
          cool_candidate_bfs.push_back(r_bf);
       }
       return;
-}
-
-bool BufferManager::PageProviderThread::pageIsNotEvictable(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
-      // Check if not evictable
-      if(r_buffer->header.keep_in_memory || r_buffer->header.is_being_written_back || r_buffer->header.latch.isExclusivelyLatched()){
-         return true;
-      }
-      // Check if not hot (therefore loaded / free)
-      if(r_buffer->header.state != BufferFrame::STATE::HOT){
-         return true;
-      }
-      r_guard.recheck();
-      return false;
 }
 
 bool BufferManager::PageProviderThread::childInRam(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
@@ -184,7 +171,7 @@ void BufferManager::PageProviderThread::firstChance(){
             cool_candidate_bfs.pop_back();
             // -------------------------------------------------------------------------------------
             BMOptimisticGuard r_guard(r_buffer->header.latch);
-            if(pageIsNotEvictable(r_buffer, r_guard)){jumpmu_continue;}
+            if(bf_mgr.pageIsNotEvictable(r_buffer, r_guard)){jumpmu_continue;}
             // Second Chance was given and missed. Send to phase 2;
             if (r_buffer->header.state == BufferFrame::STATE::COOL) {
                evict_candidate_bfs.push_back(reinterpret_cast<BufferFrame*>(r_buffer));
@@ -205,47 +192,6 @@ void BufferManager::PageProviderThread::firstChance(){
       }
 }
 
-void BufferManager::PageProviderThread::evict_bf(BufferFrame& bf, BMOptimisticGuard& c_guard){
-         DTID dt_id = bf.page.dt_id;
-         c_guard.recheck();
-         ParentSwipHandler parent_handler = bf_mgr.getDTRegistry().findParent(dt_id, bf);
-         // -------------------------------------------------------------------------------------
-         paranoid(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
-         BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
-         c_guard.guard.toExclusive();
-         // -------------------------------------------------------------------------------------
-         if (FLAGS_crc_check && bf.header.crc) {
-            ensure(utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE) == bf.header.crc);
-         }
-         // -------------------------------------------------------------------------------------
-         ensure(!bf.isDirty());
-         paranoid(!bf.header.is_being_written_back);
-         paranoid(bf.header.state == BufferFrame::STATE::COOL);
-         paranoid(parent_handler.swip.isCOOL());
-         // -------------------------------------------------------------------------------------
-         const PID evicted_pid = bf.header.pid;
-         parent_handler.swip.evict(evicted_pid);
-         // -------------------------------------------------------------------------------------
-         // Reclaim buffer frame
-         bf.reset();
-         bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
-         bf.header.latch.mutex.unlock();
-         // -------------------------------------------------------------------------------------
-         freed_bfs_batch.add(bf);
-         // -------------------------------------------------------------------------------------
-         if (FLAGS_pid_tracing) {
-            Tracing::mutex.lock();
-            if (Tracing::ht.contains(evicted_pid)) {
-               std::get<1>(Tracing::ht[evicted_pid])++;
-            } else {
-               Tracing::ht[evicted_pid] = {dt_id, 1};
-            }
-            Tracing::mutex.unlock();
-         }
-         // -------------------------------------------------------------------------------------
-         COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; PPCounters::myCounters().total_evictions++; }
-
-}
 void BufferManager::PageProviderThread::secondChance(){
         for (volatile const auto& cooled_bf : evict_candidate_bfs) {
          jumpmuTry()
@@ -284,7 +230,7 @@ void BufferManager::PageProviderThread::secondChance(){
                   async_write_buffer.add(*cooled_bf, wb_pid);
                }
             } else {
-               evict_bf(*cooled_bf, o_guard);
+               bf_mgr.evict_bf(freed_bfs_batch, *cooled_bf, o_guard);
             }
          }
          jumpmuCatch() {}
