@@ -100,12 +100,7 @@ bool BufferManager::PageProviderThread::childInRam(BufferFrame* r_buffer, BMOpti
          PPCounters::myCounters().iterate_children_ms +=
              (std::chrono::duration_cast<std::chrono::microseconds>(iterate_children_end - iterate_children_begin).count());
       }
-      if(!all_children_evicted || picked_a_child_instead){
-         return true;
-      }
-      r_guard.recheck();
-      return false;
-
+      return !all_children_evicted || picked_a_child_instead;
 }
 
 ParentSwipHandler BufferManager::PageProviderThread::findParent(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
@@ -131,11 +126,7 @@ ParentSwipHandler BufferManager::PageProviderThread::findParent(BufferFrame* r_b
 
 bool BufferManager::PageProviderThread::checkXMerge(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
       const SpaceCheckResult space_check_res = bf_mgr.getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);
-      if (space_check_res == SpaceCheckResult::RESTART_SAME_BF || space_check_res == SpaceCheckResult::PICK_ANOTHER_BF) {
-         return false;
-      }
-      r_guard.recheck();
-      return true;
+      return space_check_res == SpaceCheckResult::RESTART_SAME_BF || space_check_res == SpaceCheckResult::PICK_ANOTHER_BF;
 }
 
 void BufferManager::PageProviderThread::setCool(BufferFrame* r_buffer, BMOptimisticGuard& r_guard, ParentSwipHandler& parent_handler){
@@ -172,15 +163,22 @@ void BufferManager::PageProviderThread::firstChance(){
             // -------------------------------------------------------------------------------------
             BMOptimisticGuard r_guard(r_buffer->header.latch);
             if(bf_mgr.pageIsNotEvictable(r_buffer, r_guard)){jumpmu_continue;}
+            r_guard.recheck();
             // Second Chance was given and missed. Send to phase 2;
             if (r_buffer->header.state == BufferFrame::STATE::COOL) {
                evict_candidate_bfs.push_back(reinterpret_cast<BufferFrame*>(r_buffer));
                jumpmu_continue;
             }
+            // Check if not hot (therefore loaded / free)
+            if(r_buffer->header.state != BufferFrame::STATE::HOT){
+               jumpmu_continue;
+            }
             COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
             if(childInRam(r_buffer, r_guard)){jumpmu_continue;}
+            r_guard.recheck();
             ParentSwipHandler parent_handler = findParent(r_buffer, r_guard);
             if(checkXMerge(r_buffer, r_guard)){jumpmu_continue;}
+            r_guard.recheck();
             setCool(r_buffer, r_guard, parent_handler);
          }
          jumpmuCatch() {}

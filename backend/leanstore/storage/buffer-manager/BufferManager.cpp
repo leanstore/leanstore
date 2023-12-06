@@ -276,15 +276,7 @@ void BufferManager::evict_bf(FreedBfsBatch& batch, BufferFrame& bf, BMOptimistic
 // -------------------------------------------------------------------------------------
 bool BufferManager::pageIsNotEvictable(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
       // Check if not evictable
-      if(r_buffer->header.keep_in_memory || r_buffer->header.is_being_written_back || r_buffer->header.latch.isExclusivelyLatched()){
-         return true;
-      }
-      // Check if not hot (therefore loaded / free)
-      if(r_buffer->header.state != BufferFrame::STATE::HOT){
-         return true;
-      }
-      r_guard.recheck();
-      return false;
+      return r_buffer->header.keep_in_memory || r_buffer->header.is_being_written_back || r_buffer->header.latch.isExclusivelyLatched();
 }
 // -------------------------------------------------------------------------------------
 // Pre: bf is exclusively locked
