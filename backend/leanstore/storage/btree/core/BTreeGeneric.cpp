@@ -90,7 +90,8 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          // -------------------------------------------------------------------------------------
          new_left_node.init(c_x_guard->is_leaf);
          c_x_guard->getSep(sep_key, sep_info);
-         c_x_guard->split(new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
+         c_x_guard->split(c_x_guard, new_root, new_left_node, sep_info.slot, sep_key, sep_info.length);
+         new_root.bf()->header.tracker = c_x_guard.bf()->header.tracker;
       };
       if (config.enable_wal) {
          auto new_root_init_wal = new_root.reserveWALEntry<WALInitPage>(0);
@@ -159,7 +160,7 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
          auto exec = [&]() {
             new_left_node.init(c_x_guard->is_leaf);
             c_x_guard->getSep(sep_key, sep_info);
-            c_x_guard->split(p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
+            c_x_guard->split(c_x_guard, p_x_guard, new_left_node, sep_info.slot, sep_key, sep_info.length);
          };
          // -------------------------------------------------------------------------------------
          if (config.enable_wal) {
@@ -246,7 +247,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          // -------------------------------------------------------------------------------------
          ensure(c_x_guard->is_leaf == l_x_guard->is_leaf);
          // -------------------------------------------------------------------------------------
-         if (!l_x_guard->merge(pos_in_parent - 1, p_x_guard, c_x_guard)) {
+         if (!l_x_guard->merge(l_x_guard, pos_in_parent - 1, p_x_guard, c_x_guard)) {
             p_guard = std::move(p_x_guard);
             c_guard = std::move(c_x_guard);
             l_guard = std::move(l_x_guard);
@@ -281,7 +282,7 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
          // -------------------------------------------------------------------------------------
          ensure(c_x_guard->is_leaf == r_x_guard->is_leaf);
          // -------------------------------------------------------------------------------------
-         if (!c_x_guard->merge(pos_in_parent, p_x_guard, r_x_guard)) {
+         if (!c_x_guard->merge(c_x_guard, pos_in_parent, p_x_guard, r_x_guard)) {
             p_guard = std::move(p_x_guard);
             c_guard = std::move(c_x_guard);
             r_guard = std::move(r_x_guard);
@@ -348,7 +349,7 @@ s16 BTreeGeneric::mergeLeftIntoRight(ExclusivePageGuard<BTreeNode>& parent,
    // TODO: corner cases: new upper fence is larger than the older one.
    u32 space_upper_bound = from_left->mergeSpaceUpperBound(to_right);
    if (space_upper_bound <= EFFECTIVE_PAGE_SIZE) {  // Do a full merge TODO: threshold
-      bool succ = from_left->merge(left_pos, parent, to_right);
+      bool succ = from_left->merge(from_left, left_pos, parent, to_right);
       static_cast<void>(succ);
       assert(succ);
       from_left.reclaim();
@@ -484,7 +485,7 @@ BTreeGeneric::XMergeReturnCode BTreeGeneric::XMerge(HybridPageGuard<BTreeNode>& 
          left_x_guard.incrementGSN();
          max_right = left_hand;
          ret = mergeLeftIntoRight(p_x_guard, left_hand, left_x_guard, right_x_guard, left_hand == pos);
-         // we unlock only the left page, the right one should not be touched again
+         // we unlock only the right page, it should not be touched again
          if (ret == 1) {
             fully_merged[left_hand - pos] = true;
             WorkerCounters::myCounters().xmerge_full_counter[dt_id]++;

@@ -157,8 +157,7 @@ Partition& BufferManager::randomPartition()
 }
 FreeList& BufferManager::randomFreeList()
 {
-   auto rand_partition_i = utils::RandomGenerator::getRand<u64>(0, partitions_count);
-   return getPartition(rand_partition_i).dram_free_list;
+   return randomPartition().dram_free_list;
 }
 BufferFrame& BufferManager::randomFreeFrame()
 {
@@ -207,7 +206,7 @@ void BufferManager::evictLastPage()
    jumpmuTry()
    {
       BMOptimisticGuard o_guard(last_read_bf->header.latch);
-      if (pageIsNotEvictable(last_read_bf, o_guard) || last_read_bf->isDirty() || last_read_bf->header.state != BufferFrame::STATE::HOT){
+      if (pageIsNotEvictable(last_read_bf) || last_read_bf->isDirty()){
          jumpmu::jump();
       }
       o_guard.recheck();
@@ -248,8 +247,6 @@ void BufferManager::evict_bf(FreedBfsBatch& batch, BufferFrame& bf, BMOptimistic
    // -------------------------------------------------------------------------------------
    ensure(!bf.isDirty());
    paranoid(!bf.header.is_being_written_back);
-   paranoid(bf.header.state == BufferFrame::STATE::COOL);
-   paranoid(parent_handler.swip.isCOOL());
    // -------------------------------------------------------------------------------------
    const PID evicted_pid = bf.header.pid;
    parent_handler.swip.evict(evicted_pid);
@@ -274,9 +271,12 @@ void BufferManager::evict_bf(FreedBfsBatch& batch, BufferFrame& bf, BMOptimistic
    COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; PPCounters::myCounters().total_evictions++; }
 }
 // -------------------------------------------------------------------------------------
-bool BufferManager::pageIsNotEvictable(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
+bool BufferManager::pageIsNotEvictable(BufferFrame* r_buffer){
       // Check if not evictable
-      return r_buffer->header.keep_in_memory || r_buffer->header.is_being_written_back || r_buffer->header.latch.isExclusivelyLatched();
+      return r_buffer->header.state != BufferFrame::STATE::HOT
+         || r_buffer->header.keep_in_memory
+         || r_buffer->header.is_being_written_back
+         || r_buffer->header.latch.isExclusivelyLatched();
 }
 // -------------------------------------------------------------------------------------
 // Pre: bf is exclusively locked
@@ -309,15 +309,6 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       BufferFrame& bf = swip_value.asBufferFrame();
       swip_guard.recheck();
       return bf;
-   } else if (swip_value.isCOOL()) {
-      BufferFrame* bf = &swip_value.asBufferFrameMasked();
-      swip_guard.recheck();
-      BMOptimisticGuard bf_guard(bf->header.latch);
-      BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);  // parent
-      BMExclusiveGuard bf_x_guard(bf_guard);                // child
-      bf->header.state = BufferFrame::STATE::HOT;
-      swip_value.warm();
-      return *bf;
    }
    // -------------------------------------------------------------------------------------
    swip_guard.unlock();  // Otherwise we would get a deadlock, P->G, G->P
@@ -328,6 +319,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
    paranoid(!swip_value.isHOT());
    // -------------------------------------------------------------------------------------
    auto frame_handler = io_table.lookup(pid);
+   // The next section is locked by g_guard: Handling the IOFrame and readers_counter
    if (!frame_handler) {
       BufferFrame& bf = randomFreeFrame();
       IOFrame& io_frame = io_table.insert(pid);
@@ -357,6 +349,8 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       bf.header.last_written_plsn = bf.page.PLSN;
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
+      bf.header.tracker = BufferFrame::Header::Tracker();
+      bf.header.tracker.trackRead();
       if (FLAGS_crc_check) {
          bf.header.crc = utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE);
       }
@@ -367,7 +361,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
          JMUW<std::unique_lock<std::mutex>> g_guard(io_table.ht_mutex);
          BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
          io_frame.mutex.unlock();
-         swip_value.warm(&bf);
+         swip_value.setBF(&bf);
          bf.header.state = BufferFrame::STATE::HOT;  // ATTENTION: SET TO HOT AFTER
                                                      // IT IS SWIZZLED IN
          // -------------------------------------------------------------------------------------
@@ -424,7 +418,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
          // -------------------------------------------------------------------------------------
          io_frame.bf = nullptr;
          paranoid(bf->header.pid == pid);
-         swip_value.warm(bf);
+         swip_value.setBF(bf);
          paranoid(swip_value.isHOT());
          paranoid(bf->header.state == BufferFrame::STATE::LOADED);
          bf->header.state = BufferFrame::STATE::HOT;  // ATTENTION: SET TO HOT AFTER

@@ -191,11 +191,6 @@ class BTreeGeneric
          return {.swip = c_swip->cast<BufferFrame>(), .parent_guard = std::move(p_guard.guard), .parent_bf = &btree.meta_node_bf.asBufferFrame()};
       }
       // -------------------------------------------------------------------------------------
-      if (p_guard->upper.isCOOL()) {
-         // Root is cool => every node below is evicted
-         jumpmu::jump();
-      }
-      // -------------------------------------------------------------------------------------
       HybridPageGuard c_guard(p_guard, p_guard->upper,
                               latch_mode);  // The parent of the bf we are looking for (to_find)
       s16 pos = -1;

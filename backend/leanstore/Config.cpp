@@ -40,6 +40,10 @@ DEFINE_uint64(cm_update_on, 7, "as exponent of 2");
 DEFINE_uint64(cm_period, 14, "as exponent of 2");
 DEFINE_uint64(cm_slowpath_threshold, 1, "");
 // -------------------------------------------------------------------------------------
+DEFINE_uint32(epoch_size, 1000, "size of epoch: ram/epoch_size");
+DEFINE_uint32(write_costs, 1, "how much does one write should costs more then a read");
+DEFINE_uint32(watt_samples, 50, "How much samples for picking a page");
+// -------------------------------------------------------------------------------------
 DEFINE_bool(xmerge, false, "");
 DEFINE_uint64(xmerge_k, 5, "");
 DEFINE_double(xmerge_target_pct, 80, "");

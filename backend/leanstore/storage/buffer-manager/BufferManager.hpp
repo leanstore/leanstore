@@ -105,25 +105,29 @@ class BufferManager
    // -------------------------------------------------------------------------------------
    // Threads managements
    void evict_bf(FreedBfsBatch& batch, BufferFrame& bf, BMOptimisticGuard& c_guard);
-   bool pageIsNotEvictable(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
+   bool pageIsNotEvictable(BufferFrame* r_buffer);
    struct PageProviderThread{
      private:
       const u64 id;
       BufferManager& bf_mgr;
       AsyncWriteBuffer async_write_buffer;
+      const u64 evictions_per_epoch;
       u64 pages_evicted = 0;
-      std::vector<BufferFrame*> cool_candidate_bfs, evict_candidate_bfs;
+      std::vector<BufferFrame*> prefetched_bfs, second_chance_bfs;
       FreedBfsBatch freed_bfs_batch;
       void set_thread_config();
       BufferFrame& randomBufferFrame();
-      void select_bf_range();
-      bool childInRam(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
+      void prefetch_bf(u32 BATCH_SIZE);
+      bool childInRam(BufferFrame* r_buffer, BMOptimisticGuard& r_guard, bool pickChild);
       ParentSwipHandler findParent(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
       bool checkXMerge(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
-      void setCool(BufferFrame* r_buffer, BMOptimisticGuard& r_guard, ParentSwipHandler& parent_handler);
-      void firstChance();
-      void secondChance();
+      double findThresholds();
+      void evictPages(double threshold);
+      void handleDirty(leanstore::storage::BMOptimisticGuard& o_guard,
+                       leanstore::storage::BufferFrame* const volatile& cooled_bf,
+                       const PID cooled_bf_pid);
       void handleWritten();
+
      public:
       PageProviderThread(u64 t_i, BufferManager* bf_mgr);
       void run();
