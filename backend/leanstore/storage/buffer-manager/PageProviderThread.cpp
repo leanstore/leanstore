@@ -132,7 +132,7 @@ double BufferManager::PageProviderThread::findThresholds(){
       BufferFrame * r_buffer = prefetched_bfs.back();
       prefetched_bfs.pop_back();
       if(prefetched_bfs.empty()){
-         prefetch_bf((valid_tests - FLAGS_watt_samples)*2);
+         prefetch_bf((FLAGS_watt_samples - valid_tests)*2);
       }
       jumpmuTry()
       {
