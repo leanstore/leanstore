@@ -24,6 +24,7 @@ check `build/frontend/tpcc --help` for other options
 - [x] Scalable and robust out-of-memory Snapshot Isolation (OSIC protocol, Graveyard and FatTuple) [VLDB23]
 - [x] Distributed Logging with remote flush avoidance [SIGMOD20, BTW23]
 - [ ] Recovery [SIGMOD20]
+- [ ] What Modern NVMe Storage Can Do, And How To Exploit It: High-Performance {I/O} for High-Performance Storage Engines [VLDB23] [branch](https://github.com/leanstore/leanstore/tree/io)
 
 ## Cite
 
@@ -35,6 +36,17 @@ The code we used for our VLDB 2023 that covers alternative SI commit protocols i
     title     = {Scalable and Robust Snapshot Isolation for High-Performance Storage Engines},
     booktitle = {VLDB},
     year      = {2023}
+}
+```
+
+The code we used for our VLDB 2023 that covers the fast I/O implementation is in a different [branch](https://github.com/leanstore/leanstore/tree/io).
+
+```BibTeX
+@article{haas23,
+  author       = {Gabriel Haas and Viktor Leis},
+  title        = {What Modern NVMe Storage Can Do, And How To Exploit It: High-Performance {I/O} for High-Performance Storage Engines},
+  journal      = {Proc. {VLDB} Endow.},
+  year         = {2023}
 }
 ```
 
