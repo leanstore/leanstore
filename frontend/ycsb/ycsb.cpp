@@ -60,8 +60,12 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
-                                    : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
+                                    : (FLAGS_target_gib)
+                                       ? FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload))
+                                       : std::stol(db.recover("ycsb_tuple_count", "abc"));
    // Insert values
+   db.persist("ycsb_tuple_count", std::to_string(ycsb_tuple_count));
+
    const u64 n = ycsb_tuple_count;
    // -------------------------------------------------------------------------------------
    if (FLAGS_tmp4) {
