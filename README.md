@@ -16,6 +16,8 @@ Install dependencies:
 
 check `./frontend/tpcc --help` for other options
 
+To use multiple SSDs you can use semicolon to separate them, LeanStore will stripe data over all SSDs: `--ssd_path="/blk/k0;/blk/k1"`
+
 ## YCSB Example
 
 `./frontend/ycsb --ssd_path="/blk/k0" --ioengine=io_uring --partition_bits=12 --target_gib=20 --ycsb_read_ratio=100 --run_for_seconds=60 --dram_gib=2 --worker_tasks=128 --optimistic_parent_pointer=1 --xmerge=1 --contention_split=1 --nopp --worker_threads=20 --pp_threads=20`
