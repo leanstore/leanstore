@@ -1,4 +1,5 @@
 #include "BTreeGeneric.hpp"
+#include <cstdint>
 
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
@@ -60,6 +61,8 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
    if (isMetaNode(p_guard)) {  // root split
       auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
       auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+      p_x_guard.updateLastSwipInvalidation();
+      c_x_guard.updateLastSwipInvalidation();
       assert(height == 1 || !c_x_guard->is_leaf);
       // -------------------------------------------------------------------------------------
       // create new root
@@ -122,6 +125,8 @@ void BTreeGeneric::trySplit(BufferFrame& to_split, s16 favored_split_pos)
                                                                      // for the separator?
          auto p_x_guard = ExclusivePageGuard(std::move(p_guard));
          auto c_x_guard = ExclusivePageGuard(std::move(c_guard));
+         p_x_guard.updateLastSwipInvalidation();
+         c_x_guard.updateLastSwipInvalidation();
          p_x_guard->requestSpaceFor(space_needed_for_separator);
          assert(meta_node_bf != p_x_guard.bf());
          assert(!p_x_guard->is_leaf);
@@ -182,6 +187,12 @@ bool BTreeGeneric::tryMerge(BufferFrame& to_merge, bool swizzle_sibling)
    HybridPageGuard<BTreeNode> p_guard = parent_handler.getParentReadPageGuard<BTreeNode>();
    HybridPageGuard<BTreeNode> c_guard = HybridPageGuard(p_guard, parent_handler.swip->cast<BTreeNode>());
    int pos = parent_handler.pos;
+   if (pos < 0) {
+      const u16 key_length = c_guard->upper_fence.length;
+      u8* key = c_guard->getUpperFenceKey();
+      pos = p_guard->lowerBound<false>(key, key_length);
+   }
+   assert(pos >= 0);
    if (isMetaNode(p_guard) || c_guard->freeSpaceAfterCompaction() < BTreeNodeHeader::underFullSize) {
       p_guard.unlock();
       c_guard.unlock();
@@ -362,6 +373,12 @@ BTreeGeneric::XMergeReturnCode BTreeGeneric::XMerge(HybridPageGuard<BTreeNode>& 
    // -------------------------------------------------------------------------------------
    const u8 MAX_MERGE_PAGES = FLAGS_xmerge_k;
    s16 pos = parent_handler.pos;
+   if (pos < 0) {
+      const u16 key_length = c_guard->upper_fence.length;
+      u8* key = c_guard->getUpperFenceKey();
+      pos = p_guard->lowerBound<false>(key, key_length);
+   }
+   assert(pos >= 0);
    u8 pages_count = 1;
    s16 max_right;
    HybridPageGuard<BTreeNode> guards[MAX_MERGE_PAGES];
@@ -397,6 +414,7 @@ BTreeGeneric::XMergeReturnCode BTreeGeneric::XMerge(HybridPageGuard<BTreeNode>& 
    }
    // -------------------------------------------------------------------------------------
    ExclusivePageGuard<BTreeNode> p_x_guard = std::move(p_guard);
+   p_x_guard.updateLastSwipInvalidation();
    // -------------------------------------------------------------------------------------
    XMergeReturnCode ret_code = XMergeReturnCode::PARTIAL_MERGE;
    s16 left_hand, right_hand, ret;
@@ -417,6 +435,8 @@ BTreeGeneric::XMergeReturnCode BTreeGeneric::XMerge(HybridPageGuard<BTreeNode>& 
          ExclusivePageGuard<BTreeNode> right_x_guard(std::move(guards[right_hand - pos]));
          ExclusivePageGuard<BTreeNode> left_x_guard(std::move(guards[left_hand - pos]));
          max_right = left_hand;
+         right_x_guard.updateLastSwipInvalidation();
+         left_x_guard.updateLastSwipInvalidation();
          ret = mergeLeftIntoRight(p_x_guard, left_hand, left_x_guard, right_x_guard, left_hand == pos);
          // we unlock only the left page, the right one should not be touched again
          if (ret == 1) {
@@ -539,23 +559,50 @@ void BTreeGeneric::findParentSlowPath(BTreeGeneric& btree, BufferFrame& to_find,
       jumpmu::jump();
    }
    // -------------------------------------------------------------------------------------
-   parent_handler.swip = &c_swip->cast<BufferFrame>(); parent_handler.parent_guard = std::move(c_guard.guard); parent_handler.parent_bf = c_guard.bf; parent_handler.pos = pos;;
+   parent_handler.parent_guard = std::move(c_guard.guard);
+   parent_handler.swip = &c_swip->cast<BufferFrame>();
+   parent_handler.parent_bf = c_guard.bf;
+   parent_handler.pos = pos;
    if (opt) {
       jumpmuTry()
       {
-         Guard c_guard(to_find.header.latch);
-         c_guard.toOptimisticOrJump();
-         //c_guard.tryToExclusive();
-         if (to_find.header.optimistic_parent_pointer.child.updateRequired(parent_handler.parent_bf, parent_handler.parent_bf->header.pid,
+         PID parent_pid = parent_handler.parent_bf->header.pid;
+         LID v_on_update =  parent_handler.parent_bf->header.latch.version;
+         parent_handler.parent_guard.recheck();
+         Guard to_find_guard(to_find.header.latch); // child guard (outer c_guard is the parent)
+         to_find_guard.toOptimisticOrJump();
+         if (to_find.header.optimistic_parent_pointer.child.updateRequired(parent_handler.parent_bf, parent_pid,
                   reinterpret_cast<BufferFrame**>(parent_handler.swip),
                   parent_handler.pos, 
-                  parent_handler.parent_bf->header.optimistic_parent_pointer.parent.last_swip_invalidation_version)) { // check if last invalidation time is newer than set version
-               c_guard.toExclusive();
+                  v_on_update)) // check if last invalidation time is newer than set version
+         {
+               to_find_guard.toExclusive();
                assert(!parent_handler.swip->isEVICTED());
-               to_find.header.optimistic_parent_pointer.child.update(parent_handler.parent_bf, parent_handler.parent_bf->header.pid,
+               to_find.header.optimistic_parent_pointer.child.update(parent_handler.parent_bf, parent_pid,
                      reinterpret_cast<BufferFrame**>(parent_handler.swip),
-                     parent_handler.pos, parent_handler.parent_bf->header.latch.version); // set the newest version (not the invalidation)
-               c_guard.unlock();
+                     parent_handler.pos, v_on_update, "sl"); // set the newest version (not the invalidation)
+               ensure(to_find.header.optimistic_parent_pointer.child.pos_in_parent == parent_handler.pos);
+               to_find_guard.unlock();
+
+              /* 
+               ParentSwipHandler test;
+               volatile bool found = false;
+               while (!found) {
+                  jumpmuTry() {
+                     findParentSlowPath(btree, to_find, test, false);
+                     found = true;
+                     //to_find_guard.recheck();
+                     parent_handler.parent_guard.recheck();
+                     //if (to_find.header.optimistic_parent_pointer.child.parent_bf_version_on_update == to_find_guard.version) {
+                     if (test.pos != parent_handler.pos) { raise(SIGINT); }
+                     //if (test.pos == parent_handler.pos) { thread_local uint64_t ok = 0; ok++; if ((ok % 100000) == 0) {cout << "ok: " << ok << endl; }}
+                     //}
+                  } jumpmuCatch() {
+                     //cout << "not found" << endl;
+                     //raise(SIGINT);
+                  }
+               }
+               */
                parent_handler.is_bf_updated = true;
          }
       }

@@ -28,7 +28,11 @@ struct WorkerCounters {
    atomic<u64> tx_abort = 0;
    atomic<s32> tmp = 0;
    atomic<u64> total_tx_time = 0;
-   Hist<int, u64> tx_latency_hist{1000, 0, 100000};
+   atomic<u64> total_tx_time_inc_wait = 0;
+   Hist<int, u64> tx_latency_hist{100000, 0, 500000};
+   Hist<int, u64> tx_latency_hist_incwait{100000, 0, 500000};
+   Hist<int, u64> ssd_read_latency{5000, 0, 50000};
+   Hist<int, u64> ssd_write_latency{5000, 0, 50000};
    // -------------------------------------------------------------------------------------
    // Space and contention management
    atomic<u64> contention_split_succ_counter[max_dt_id] = {0};
@@ -49,8 +53,7 @@ struct WorkerCounters {
    atomic<u64> dt_find_parent_fast[max_dt_id] = {0};
    atomic<u64> dt_find_parent_slow[max_dt_id] = {0};
    atomic<u64> dt_find_parent_dbg[max_dt_id] = {0};
-   // -------------------------------------------------------------------------------------
-   atomic<u64> dt_find_parent_dbg2 = {0};
+   atomic<u64> dt_find_parent_dbg2[max_dt_id] = {0};
    // -------------------------------------------------------------------------------------
    constexpr static u64 VW_MAX_STEPS = 10;
    atomic<u64> vw_version_step[max_dt_id][VW_MAX_STEPS] = {0};
@@ -59,6 +62,9 @@ struct WorkerCounters {
    atomic<u64> wal_read_bytes = 0;
    atomic<u64> wal_buffer_hit = 0;
    atomic<u64> wal_buffer_miss = 0;
+   // -------------------------------------------------------------------------------------
+   atomic<u64> submit_calls = 0;
+   atomic<u64> submitted = 0;
    // -------------------------------------------------------------------------------------
    WorkerCounters() { t_id = workers_counter++; }
    // -------------------------------------------------------------------------------------

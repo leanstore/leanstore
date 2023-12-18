@@ -25,12 +25,12 @@ struct alignas(512) SSDMeta {
 // -------------------------------------------------------------------------------------
 void GroupCommiter::groupCommiter()
 {
+   /*
    using Time = decltype(std::chrono::high_resolution_clock::now());
    bool keep_running = true;  // FIXME maybe a mean task or environment function?
    int workers_count = mean::env::workerCount();
    u64 end_of_block_device = mean::IoInterface::instance().storageSize();
 
-   /*
    [[maybe_unused]] Time phase_1_begin, phase_1_end, phase_2_begin, phase_2_end, write_begin, write_end;
    // -------------------------------------------------------------------------------------
    std::string thread_name("group_committer");

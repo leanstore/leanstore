@@ -9,7 +9,7 @@ DEFINE_double(ssd_gib, 1700, "");
 DEFINE_uint32(cool_pct, 10, "Start cooling pages when <= x% are free");
 DEFINE_uint32(free_pct, 1, "pct");
 DEFINE_uint32(partition_bits, 6, "bits per partition");
-DEFINE_uint32(pp_threads, 1, "number of page provider threads");
+DEFINE_uint32(pp_threads, 10, "number of page provider threads");
 // -------------------------------------------------------------------------------------
 DEFINE_string(csv_path, "./log", "");
 DEFINE_bool(csv_truncate, false, "");
@@ -24,9 +24,9 @@ DEFINE_uint32(print_debug_interval_s, 1, "");
 DEFINE_bool(print_obj_stats, false, "");
 DEFINE_bool(profiling, false, "");
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(worker_threads, 20, "");
+DEFINE_uint32(worker_threads, 10, "");
 DEFINE_uint32(worker_tasks, 1, "");
-DEFINE_bool(nopp, false, "disables seperate exclusivie pp threads");
+DEFINE_bool(nopp, false, "Disables seperate dedicated page provider threads. If this option is set pp_threads should be equal to worker_threads.");
 DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
 // -------------------------------------------------------------------------------------
@@ -82,4 +82,5 @@ DEFINE_int64(io_uring_share_wq, 0, "enables IORING_SETUP_ATTACH_WQ with a single
 DEFINE_bool(raid5, false, "enable RAID 5");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(persist, false, "");
+DEFINE_uint64(tx_rate, 0, "");
 DEFINE_uint64(tmp, 0, "");

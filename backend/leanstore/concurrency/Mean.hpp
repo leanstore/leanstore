@@ -31,6 +31,7 @@ void init(int workerThreads, int exclusiveThreads, IoOptions ioOptions, int thre
 void start(TaskFunction fun);
 void shutdown();
 void join();
+void sleepAll(float sleep);
 int workerCount();
 void adjustWorkerCount(int workerThreads);
 void registerPageProvider(void* bm_ptr, u64 partitions_count);

@@ -38,6 +38,10 @@ void join()
 {
    _instance.join();
 }
+void sleepAll(float sleep)
+{
+   _instance.sleepAll(sleep);
+}
 int workerCount() {
    return _instance.workerCount();
 }

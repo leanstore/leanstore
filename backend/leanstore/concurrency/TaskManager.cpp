@@ -127,6 +127,12 @@ void TaskManager::join()
       exe->join();
    }
 }
+void TaskManager::sleepAll(float sleep)
+{
+   for (auto& exe : execs) {
+      exe->sleep = sleep;
+   }
+}
 // -------------------------------------------------------------------------------------
 IoChannelCounterAggregator TaskManager::printAggregateExecs(std::ostream& ss, int fromExcecId, int toExecId, bool printDetailed)
 {

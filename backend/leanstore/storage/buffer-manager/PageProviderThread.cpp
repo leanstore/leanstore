@@ -272,7 +272,7 @@ u64 BufferManager::pageProviderPhase1Vec(CoolingPartition& partition, const u64 
             auto& vec = *vecs[i];
             if (vec.parent_handler.is_bf_updated) {
                vec.bf->header.latch.version += 2; // TODO WHY?
-               auto& parent_handler = vec.parent_handler;
+               [[maybe_unused]]auto& parent_handler = vec.parent_handler;
                assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
                assert(parent_handler.parent_guard.latch != reinterpret_cast<HybridLatch*>(0x99));
             }
@@ -576,7 +576,7 @@ int BufferManager::pageProviderPhase2(CoolingPartition& partition, const u64 pag
                   }
                   io_partition.io_mutex.unlock();
                } else {
-                  //std::cout << "io_mutex" << std::endl;
+                  //std::cout << "io_mutex " << std::endl;
                   jumpmu::jump();
                }
             }

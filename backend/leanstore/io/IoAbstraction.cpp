@@ -37,6 +37,7 @@ void* RaidEnvironment::allocIoMemoryChecked(size_t size, size_t align)
    null_check(mem, "Memory allocation failed");
    return mem;
 };
+
 // -------------------------------------------------------------------------------------
 }  // namespace mean
 // -------------------------------------------------------------------------------------

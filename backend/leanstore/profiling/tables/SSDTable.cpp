@@ -37,8 +37,10 @@ void SSDTable::open()
    columns.emplace("writes_k", [&](Column& col) { col << sum(SSDCounters::ssd_counters, &SSDCounters::writes, ssd) / KILO;});
    columns.emplace("lat_read_50pm_us", [&](Column& col) { col << utils::threadlocal::thr_aggr_max(SSDCounters::ssd_counters, &SSDCounters::read_latncy50p, ssd); });
    columns.emplace("lat_read_99p9m_us", [&](Column& col) { col << utils::threadlocal::thr_aggr_max(SSDCounters::ssd_counters, &SSDCounters::read_latncy99p9, ssd); });
+   columns.emplace("lat_read_99pm_us", [&](Column& col) { col << utils::threadlocal::thr_aggr_max(SSDCounters::ssd_counters, &SSDCounters::read_latncy99p, ssd); });
    columns.emplace("lat_read_max_us", [&](Column& col) { col << utils::threadlocal::thr_aggr_max(SSDCounters::ssd_counters, &SSDCounters::read_latncy_max, ssd); });
    columns.emplace("lat_write_50pm_us", [&](Column& col) { col << utils::threadlocal::thr_aggr_max(SSDCounters::ssd_counters, &SSDCounters::write_latncy50p, ssd); });
+   columns.emplace("lat_write_99pm_us", [&](Column& col) { col << utils::threadlocal::thr_aggr_max(SSDCounters::ssd_counters, &SSDCounters::write_latncy99p, ssd); });
    columns.emplace("lat_write_99p9m_us", [&](Column& col) { col << utils::threadlocal::thr_aggr_max(SSDCounters::ssd_counters, &SSDCounters::write_latncy99p9, ssd); });
 }
 // -------------------------------------------------------------------------------------

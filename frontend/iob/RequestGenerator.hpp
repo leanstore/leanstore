@@ -1,10 +1,12 @@
 #pragma once
 
+
 #include "Time.hpp"
 #include "Units.hpp"
 #include "leanstore/concurrency/Mean.hpp"
 #include "leanstore/io/IoInterface.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
+#include "leanstore/io/impl/NvmeLog.hpp"
 
 #include <bits/stdint-uintn.h>
 #include <cstdio>
@@ -13,6 +15,7 @@
 #include <memory>
 #include <pthread.h>
 #include <sched.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <cstring>
 #include <cinttypes>
@@ -32,9 +35,29 @@
 #include <sstream>
 #include <mutex>
 #include <random>
+#include <algorithm>
 
 namespace mean {
 
+double beta_distribution(std::mt19937_64& gen, double alpha, double beta) {
+   std::gamma_distribution<> X(alpha, 1.0);
+   std::gamma_distribution<> Y(beta, 1.0);
+   double x = X(gen);
+   double y = Y(gen);
+   double beta_sample = x / (x + y);
+   return beta_sample;
+}
+
+struct HintZone {
+   int id = 0;
+   uint64_t offset = 0;
+   uint64_t count = 0;
+   int rel_size = 1;
+   int freq = 100;
+   void print() {
+      std::cout << "{hint: " << id <<  " o: "<< offset << " c: " << count << " f: " << freq << " rels: " << rel_size << "}";
+   }
+};
 struct JobOptions {
    std::string name;
 
@@ -57,6 +80,9 @@ struct JobOptions {
    bool printEverySecond = false;
 
    int fdatasync = 0;
+
+   int writeFreqDist = 0;
+   //float writeFrequencyAreaSize = 0.5;
 
    enum class IoPattern {
       Sequential,
@@ -176,9 +202,9 @@ struct JobStats {
    struct IoStat {
       int threadId;
       int reqId;
-      TimePoint begin;
-      TimePoint submit;
-      TimePoint end;
+      uint64_t begin;
+      uint64_t submit;
+      uint64_t end;
       u64 addr;
       u32 len;
       IoRequestType type;
@@ -187,7 +213,7 @@ struct JobStats {
          out << prefix << "threadid,reqId,type, begin, submit, end, addr, len";
       }
       void dumpIoStat(std::string prefix, std::ostream& out) {
-         out << prefix << threadId << "," << reqId << "," << (int)type << "," << nanoFromTimePoint(begin) << "," << nanoFromTimePoint(submit) << "," << nanoFromTimePoint(end) << ","  << addr << "," << len;
+         out << prefix << threadId << "," << reqId << "," << (int)type << "," << nanoFromTsc(begin) << "," << nanoFromTsc(submit) << "," << nanoFromTsc(end) << ","  << addr << "," << len;
       }
    };
    std::vector<IoStat> ioTrace;
@@ -229,7 +255,8 @@ public:
    std::mt19937_64 mersene{rd()};
    std::uniform_int_distribution<uint64_t> dist;
 
-   RequestGeneratorBase(std::string name, JobOptions options, int genId) : name(name), genId(genId), options(options), stats(options.bs), dist(0, options.totalMinusOffsetBlocks()){
+   RequestGeneratorBase(std::string name, JobOptions options, int genId) 
+      : name(name), genId(genId), options(options), stats(options.bs), dist(0, options.totalMinusOffsetBlocks()){
       stats.setIoTracing(options.enableIoTracing);
       //randgenId = readTSC() ^ genId ^ (std::hash<std::thread::id>{}(std::this_thread::get_id()) << 8 );
    }
@@ -465,21 +492,40 @@ public:
             //}
             */
 
+           NvmeLog nvmeLog;
+           nvmeLog.loadOCPSmartLog();
+
+
             if (options.printEverySecond) {
                std::stringstream ss;
-               ss << options.name << "," << stats.seconds << ",r," 
-                  << stats.readsPerSecond[stats.seconds-1] << ",w,"
-                  << stats.writesPerSecond[stats.seconds-1] << ",s,"
+               if (stats.seconds == 1) {
+                  ss << "stat,type,filesizeGib,writeFreqDistOn,writeFrequencyZones,time,writeMibs, physMibs,";
+                  ss << "readMibs, physicalMediaUnitsWrittenBytes, physicalMediaUnitsReadBytes, percentFreeBlocks,";
+                  ss << "softECCError, unalignedIO, maxUserDataEraseCount,minUserDataEraseCount, currentThrottlingStatus" << std::endl;
+               }
+               ss << "keep,ssd," << options.filesize/1024/1024/1024 << "," << options.writeFreqDist << "," << options.writeFreqDist;
+               ss << "," << (cycleEnd - start);
+               ss << "," << (unsigned long)stats.writesPerSecond[stats.seconds-1]*options.bs/1024/1024;
+               ss << ",0," << (unsigned long)stats.readsPerSecond[stats.seconds-1]*options.bs/1024/1024;
+               ss << "," << nvmeLog.physicalMediaUnitsWrittenBytes() << "," << nvmeLog.physicalMediaUnitsReadBytes() << "," << (int)nvmeLog.percentFreeBlocks();
+               ss << "," << nvmeLog.softECCError() << "," << nvmeLog.unalignedIO() << "," << nvmeLog.maxUserDataEraseCount();
+               ss << "," << nvmeLog.minUserDataEraseCount() << "," << (int)nvmeLog.currentThrottlingStatus();
+               /*
+               ss << "t: " << (cycleEnd - start);
+               ss << " " << stats.writesPerSecond[stats.seconds-1]*options.bs/1024/1024 << " MiB/s";
+               ss << " o: " << options.name << " sec: " << stats.seconds << " r: " 
+                  << stats.readsPerSecond[stats.seconds-1] << " w: "
+                  << stats.writesPerSecond[stats.seconds-1] << " s: "
                   << stats.fdatasyncs - lastFdatasync;
-               ss << ",r,";
+               ss << " rh: ";
                stats.readHistEverySecond.writePercentiles(ss);
-               ss << ",w,";
+               ss << " wh: ";
                stats.writeHistEverySecond.writePercentiles(ss);
-               ss << ",s,";
+               ss << " sh: ";
                stats.fdatasyncHistEverySecond.writePercentiles(ss);
+               */
                std::cout << ss.str() << std::endl;;
                //options.statsWriter->write(ss.str());
-               std::cout << ss.str();
             }
 
             // TODO rather expensive.
@@ -508,11 +554,67 @@ public:
       return 0;
    }
 
-   uint64_t patternGenerator(uint64_t prep, std::mt19937_64& mersene, std::uniform_int_distribution<uint64_t>& dist) const {
+
+   int sumFreq = 0;
+   std::vector<uint64_t> updatePattern;
+   std::vector<HintZone> hintZones;
+   uint64_t patternGenerator(uint64_t prep, std::mt19937_64& mersene, std::uniform_int_distribution<uint64_t>& dist) {
+      if (options.writeFreqDist != 0 && updatePattern.size() == 0) {
+         const auto pageCount = dist.max();
+         updatePattern.resize(pageCount);
+         for (uint64_t i = 0; i < updatePattern.size(); i++) {
+            updatePattern[i] = i;
+         }
+         std::random_device rd;
+         std::mt19937 g(rd());
+         std::shuffle(updatePattern.begin(), updatePattern.end(), g);
+         // write frequency zones
+         int wf_cnt = options.writeFreqDist;
+         int parts = std::pow(2, wf_cnt);
+         hintZones.resize(wf_cnt+1);
+         hintZones[0].rel_size = parts;
+         hintZones[0].freq = 0;
+         hintZones[0].id = 0;
+         for (int i = 1; i < wf_cnt +1; i ++) {
+            auto& h = hintZones[i];
+            parts /= 2;
+            assert(parts > 0);
+            h.rel_size = parts;
+            h.freq = 1;
+         }
+         int sumRelSizes = 0; 
+         for (auto& hz: hintZones) { sumRelSizes += hz.rel_size; }
+         std::cout << "hintZones: " << hintZones.size() << std::endl;;
+         uint64_t lastEnd = 0;
+         for(auto& h: hintZones) {
+            h.offset = lastEnd;
+            h.count = (float)h.rel_size/sumRelSizes*pageCount;
+            lastEnd += h.count;
+            h.print();
+            std::cout << std::endl;
+         }
+         std::cout << std::endl;
+         sumFreq = std::accumulate(hintZones.begin(), hintZones.end(), 0, [](int sum, HintZone& h){ return sum + h.freq; });
+      }
       assert(options.offset % options.bs == 0);
       uint64_t block = 0;
       if (options.ioPattern == JobOptions::IoPattern::Random) {
-         block = random_generator.getRandU64(0, max_blocks); //dist(mersene);
+         if (updatePattern.size() == 0) {
+            block = random_generator.getRandU64(0, max_blocks);
+            //block = beta_distribution(mersene, 0.95, 1) * (max_blocks-1);
+            //std::cout << block << endl;;
+         } else {
+            auto randFreq = random_generator.getRandU64(0, sumFreq);
+            int randZoneId = 0;
+            uint64_t freqCnt = 0;
+            // 0, 1, 1, 1, 1
+            while (freqCnt < randFreq || hintZones[randZoneId].freq == 0) {
+               freqCnt += hintZones[randZoneId].freq;
+               randZoneId++;
+            }
+            block = updatePattern[random_generator.getRandU64(hintZones[randZoneId].offset, hintZones[randZoneId].offset + hintZones[randZoneId].count)]; //dist(mersene);
+            //std::cout << "block: " << block << std::endl;
+         }
       } else {
          block = prep;
       }
@@ -534,7 +636,8 @@ public:
          assert(std::mt19937_64::min() == 0);
          if (options.writePercent > 0 && (float)mersene() / std::mt19937_64::max() < options.writePercent) {
             // write
-            req.addr = patternGenerator(preparedWrites, mersene, dist); 
+            req.addr = patternGenerator(preparedWrites, mersene, dist);
+            //std::cout << req.addr << std::endl;
             //req.write_back = true;
             req.type = IoRequestType::Write;
             req.data =  writeData[req.id];
@@ -584,7 +687,7 @@ public:
             raise(SIGTRAP);
          }
       } else {
-         const auto thisTime = timePointDifference(getTimePoint(), req.stats.push_time) / 1000;
+         const auto thisTime = tscDifferenceNs(readTSC(), req.stats.push_time) / 1000;
          if (req.type == IoRequestType::Fsync) {
             stats.fdatasyncTotalTime += thisTime;
             stats.fdatasyncHist.increaseSlot(thisTime);

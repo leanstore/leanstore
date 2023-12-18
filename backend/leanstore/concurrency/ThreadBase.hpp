@@ -37,7 +37,6 @@ class ThreadBase
       setCpuAffinityThisThread(cpuAffinity);
       int pid = getpid();
       int which = PRIO_PROCESS;
-      std::cout << "set prio: " << _id << std::endl;
       posix_check(setpriority(which, pid, 39) == 0, "prio could not be set");
 
       _ready = true;

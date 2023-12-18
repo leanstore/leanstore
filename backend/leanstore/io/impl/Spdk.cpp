@@ -1,5 +1,9 @@
+#if LEANSTORE_INCLUDE_SPDK
 #include "Spdk.hpp"
 #include "spdk/nvme_spec.h"
+#include "spdk/nvme_zns.h"
+#include <cstddef>
+#include <regex>
 
 bool SpdkEnvironment::initialized = false;
 cmd_fun SpdkEnvironment::spdk_req_type_fun_lookup[(int)SpdkIoReqType::COUNT+1];
@@ -20,6 +24,7 @@ void SpdkEnvironment::init() {
    }
    SpdkEnvironment::spdk_req_type_fun_lookup[(int)SpdkIoReqType::Read] = &spdk_nvme_ns_cmd_read;
    SpdkEnvironment::spdk_req_type_fun_lookup[(int)SpdkIoReqType::Write] = &spdk_nvme_ns_cmd_write;
+   SpdkEnvironment::spdk_req_type_fun_lookup[(int)SpdkIoReqType::ZnsAppend] = &spdk_nvme_zns_zone_append;
    SpdkEnvironment::spdk_req_type_fun_lookup[(int)SpdkIoReqType::COUNT] = nullptr;
 
    struct spdk_env_opts opts;
@@ -98,10 +103,18 @@ void NVMeController::connect(std::string pciefile)  {
    if (!ctrlr) {
       throw std::logic_error("spdk_nvme_connect() failed");
    }
-
    cdata = spdk_nvme_ctrlr_get_data(ctrlr);
 
-   nameSpace = spdk_nvme_ctrlr_get_ns(ctrlr, 1); // TODO
+   std::regex rns ("ns=(\\d+)");
+   std::smatch nsm;
+   std::regex_search(pciefile, nsm, rns);
+   int ns = 1;
+   if (nsm.size() > 1) {
+      std::cout << "nsm: " << nsm[1] << std::endl;
+      ns = stoi(nsm[1]);
+   }
+
+   nameSpace = spdk_nvme_ctrlr_get_ns(ctrlr, ns);
    assert(nameSpace);
    if (!spdk_nvme_ns_is_active(nameSpace)) {
       throw std::logic_error("namespace not active. spdk_nvme_ns_is_active");
@@ -115,6 +128,18 @@ void NVMeController::connect(std::string pciefile)  {
    std::cout << " sector size: " << spdk_nvme_ns_get_sector_size(nameSpace);
    std::cout << " namespaces: " << numberNamespaces();
    std::cout << " max_io_xfer_size: " << spdk_nvme_ns_get_max_io_xfer_size(nameSpace) << std::endl;
+
+
+   const struct spdk_nvme_ns_data*  ns_data = spdk_nvme_ns_get_data(spdk_nvme_ctrlr_get_ns(ctrlr, ns));
+   std::cout << "selected ns: " << ns << " active: " << spdk_nvme_ns_is_active(nameSpace) << " nsze: " << ns_data->nsze << " ncap: " << ns_data->ncap << " nuse: "<< ns_data->nuse << std::endl;
+	ns_capcity_lbas = ns_data->ncap;
+
+	/*
+   for (unsigned int i = 1; i < numberNamespaces() + 1; i++) {
+      const struct spdk_nvme_ns_data*  ns_data = spdk_nvme_ns_get_data(spdk_nvme_ctrlr_get_ns(ctrlr, i));
+      std::cout << "ns: " << i << " active: " << spdk_nvme_ns_is_active(spdk_nvme_ctrlr_get_ns(ctrlr, i)) << " nsze: " << ns_data->nsze << " ncap: " << ns_data->ncap << " nuse: "<< ns_data->nuse << std::endl;
+   }
+	*/
 }
 // -------------------------------------------------------------------------------------
 uint32_t NVMeController::nsLbaDataSize()  {
@@ -137,6 +162,7 @@ void NVMeController::completion(void *cb_arg, const struct spdk_nvme_cpl *cpl) {
             + std::string(spdk_nvme_cpl_get_status_string(&cpl->status)) 
             + "\nnote this often happens when buffers have not been allocated using spdk rte.");
    }
+	request->append_lba = cpl->cdw0; // new lba set by zone_append
    //std::cout << "completion: req: "<< std::hex << (uint64_t)request << " id: " << request->id << " buf: " << (uint64_t) request->buf << std::endl;
    request->callback(request);
 };
@@ -456,3 +482,4 @@ int32_t NVMeRaid0::process(int queue, int max)  {
 }
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
+#endif

@@ -17,7 +17,6 @@ class LiburingChannel;
 class LiburingEnv : public LinuxBaseEnv
 {
   public:
-  public:
    std::unordered_map<int, std::unique_ptr<LiburingChannel>> channels;
    // -------------------------------------------------------------------------------------
    LiburingChannel& getIoChannel(int channel);
@@ -34,6 +33,7 @@ class LiburingChannel : public LinuxBaseChannel
    std::vector<RaidRequest<LiburingIoRequest>*> request_stack;
    int outstanding = 0;
    int nothingPolledStarving = 0;
+   int lba_sz = -1;
 public:
    LiburingChannel(RaidController<int>& raidCtl, IoOptions ioOptions, LiburingEnv& env);
    ~LiburingChannel();

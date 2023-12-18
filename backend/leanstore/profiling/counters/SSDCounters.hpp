@@ -21,9 +21,11 @@ struct SSDCounters {
    atomic<s64> outstandingx_max[max_ssds] = {0};
    atomic<s64> outstandingx_min[max_ssds] = {0};
    atomic<u64> read_latncy50p[max_ssds] = {0};
+   atomic<u64> read_latncy99p[max_ssds] = {0};
    atomic<u64> read_latncy99p9[max_ssds] = {0};
    atomic<u64> read_latncy_max[max_ssds] = {0};
    atomic<u64> write_latncy50p[max_ssds] = {0};
+   atomic<u64> write_latncy99p[max_ssds] = {0};
    atomic<u64> write_latncy99p9[max_ssds] = {0};
    atomic<u64> writes[max_ssds] = {0};
    atomic<u64> reads[max_ssds] = {0};

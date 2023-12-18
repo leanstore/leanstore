@@ -34,14 +34,12 @@ void RemoteIoChannel::_push(const IoBaseRequest& req)
 {
    //int selfId = localMessageHandler.getSelfId();
    IoBaseRequest* localRequest;
-   RequestStack<IoBaseRequest>* s = stack.get();
-   if (!stack->pushToSubmitStack(localRequest)) {
+   if (!stack->moveFreeToSubmitStack(localRequest)) {
       throw "no";
    }
    if (!stack->popFromSubmitStack(localRequest)) {
       throw "no";
    }
-   localRequest->stats.push();
    localRequest->type = req.type;
    localRequest->data = req.data;
    localRequest->addr = req.addr;
@@ -78,7 +76,7 @@ int RemoteIoChannel::_poll(int)
    const u64 c = 0;
    IoBaseRequest* req;
    while (completion_ring.try_pop(req)) {
-      DEBUG_BLOCK() { counters.handleCompletedReq(*req); }
+      /*DEBUG_BLOCK()*/ { counters.handleCompletedReq(*req); }
       completed++;
       req->user.callback(req);
       stack->returnToFreeList(req);

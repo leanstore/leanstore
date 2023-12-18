@@ -21,6 +21,10 @@ class RemoteIoChannel : public IoChannel
    // -------------------------------------------------------------------------------------
    RemoteIoChannel(IoOptions options);
    // -------------------------------------------------------------------------------------
+   IoBaseRequest* getIoRequest() override { throw std::logic_error("not implemented");};
+   void pushIoRequest(IoBaseRequest* req) override {throw std::logic_error("not implemented");}
+   bool hasFreeIoRequests() override { throw std::logic_error("not implemented"); };
+   // -------------------------------------------------------------------------------------
    void _push(const IoBaseRequest& req) override;
    int _submit() override;
    int _poll(int min = 0) override;

@@ -9,6 +9,8 @@
 #include "leanstore/profiling/counters/PPCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/storage/buffer-manager/Swip.hpp"
+#include "leanstore/sync-primitives/Latch.hpp"
+#include "leanstore/sync-primitives/PlainGuard.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/Parallelize.hpp"
@@ -271,40 +273,24 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       assert(swip_value.bf >= bfs && swip_value.bf <= bfs + dram_pool_size + safety_pages);
       return swip_value.bfRef();
    }
-   auto setOptimisticParentPointer = [this](Guard& swip_guard, Swip<BufferFrame>& swip_value){
+   auto setOptimisticParentPointer = [this](Guard& swip_x_guard, Swip<BufferFrame>& swip_value){
       if (FLAGS_optimistic_parent_pointer) {
          jumpmuTry()
          {
-            // hacky, have to find parent bf from swip, pid and  pos. This should be okay as the parent should be locked, right?
+            // assumes parent and child are exclusively locked 
+            swip_value.bfRef().header.optimistic_parent_pointer.parent.last_swip_invalidation_version = swip_value.bfRef().header.latch.version;
+            // hacky, have to find parent bf from swip, pid and  pos. 
             static_assert(sizeof(BufferFrame) == 512+PAGE_SIZE);
-            u64 bf_index = ((u64)swip_guard.latch - (u64)this->bfs) / sizeof(BufferFrame);
+            u64 bf_index = ((u64)swip_x_guard.latch - (u64)this->bfs) / sizeof(BufferFrame);
             BufferFrame& parent_bf = this->bfs[bf_index];
-            ensure(&parent_bf.header.latch == swip_guard.latch);
-            // now how to find the pos
-            btree::BTreeNode* node = (btree::BTreeNode*)parent_bf.page.dt;
+            assert(&parent_bf.header.latch == swip_x_guard.latch); // the above calculation is correct
+            assert(swip_x_guard.state == GUARD_STATE::EXCLUSIVE); // the parent is exclusively locked.
+            assert((swip_value.bfRef().header.latch.version & LATCH_EXCLUSIVE_BIT) == LATCH_EXCLUSIVE_BIT); // the child is exclusively locked.
+            // the position is needed in xmerge and contention split. They can call lowerBound to find it, just retrun -1.
             s32 pos = -1; 
-            /*
-            // TODO the position is actually only needed in contetntion split.
-            // This is an unteste way to find the position, however it might be better 
-            // to just change the interface and not return the position at all.
-            // contetion split can find the postion with calling lowerbound
-            if (node->upper == swip_value) {
-               pos = node->count;
-            } else { 
-               // ptr() + slot[slotId].offset + slot[slotId].key_len
-               int i = 0;
-               while (i < node->count) {
-                  if (node->ptr() + node->slot[i].offset + node->slot[i].key_len == (u8*)&swip_value) {
-                     break;
-                  }
-                  i++;
-               }
-               ensure(i < node->count);
-               pos = i;
-            }*/
             swip_value.bfRef().header.optimistic_parent_pointer.child.update(&parent_bf, parent_bf.header.pid,
                   reinterpret_cast<BufferFrame**>(&swip_value),
-                  pos, parent_bf.header.latch.version);
+                  pos, parent_bf.header.latch.version, "bm"); // swip_guard == parent_bf.header.latch.version
             assert(swip_value.isHOT());
             //parent_handler.is_bf_updated = true;
          }
@@ -377,13 +363,17 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
          io_frame.mutex.unlock();
          swip_value.warm(&bf);
          bf.header.state = BufferFrame::STATE::HOT;  // ATTENTION: SET TO HOT AFTER
-                                                     // IT IS SWIZZLED IN
+                                                   // IT IS SWIZZLED IN
+         { // opp
+            OptimisticGuard bf_guard(bf.header.latch);
+            ExclusiveGuard bf_x_guard(bf_guard);
+            setOptimisticParentPointer(swip_guard, swip_value);
+         }
          // -------------------------------------------------------------------------------------
          if (io_frame.readers_counter.fetch_add(-1) == 1) {
             partition.io_ht.remove(pid);
          }
          // -------------------------------------------------------------------------------------
-         setOptimisticParentPointer(swip_guard, swip_value);
          // -------------------------------------------------------------------------------------
          jumpmu_return bf;
       }

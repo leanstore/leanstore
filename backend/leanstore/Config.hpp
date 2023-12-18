@@ -1,4 +1,5 @@
 #pragma once
+#include <gflags/gflags_declare.h>
 #include "Units.hpp"
 // -------------------------------------------------------------------------------------
 #include "gflags/gflags.h"
@@ -79,4 +80,5 @@ DECLARE_int64(io_uring_share_wq);
 DECLARE_bool(raid5);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(persist);
+DECLARE_uint64(tx_rate);
 DECLARE_uint64(tmp);

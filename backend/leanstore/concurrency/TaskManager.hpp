@@ -37,6 +37,7 @@ class TaskManager
    void start(TaskFunction taskFun);
    void shutdown();
    void join();
+   void sleepAll(float sleep);
    std::string printCountersHeader();
    std::string printCounters(int te_id);
    int workerCount();

@@ -62,6 +62,9 @@ class RaidController
    std::string name(int d) {
       return devices.at(d);
    }
+   DeviceType deviceTypeOrFd(int d) {
+      return fds.at(d);
+   }
    void forEach(std::function<void (std::string& dev, DeviceType& fd)> fun)
    {
       const int size = devices.size();

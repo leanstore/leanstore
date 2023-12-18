@@ -12,7 +12,7 @@ target_link_libraries(tpcc leanstore Threads::Threads )
 target_include_directories(tpcc PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
 add_executable(iob iob/iob.cpp)
-target_link_libraries(iob leanstore Threads::Threads )
+target_link_libraries(iob leanstore Threads::Threads)
 target_include_directories(iob PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
 
@@ -35,3 +35,19 @@ target_include_directories(smalllist PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 add_executable(ringbuffer ringbuffer/ringbuffer.cpp)
 target_link_libraries(ringbuffer leanstore Threads::Threads )
 target_include_directories(ringbuffer PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(znsmicro znsmicro/znsmicro.cpp)
+target_link_libraries(znsmicro leanstore Threads::Threads )
+target_include_directories(znsmicro PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(dsmdiscard dsmdiscard/dsmdiscard.cpp)
+target_link_libraries(dsmdiscard leanstore Threads::Threads )
+target_include_directories(dsmdiscard PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(contextmicro contextmicro/contextmicro.cpp)
+target_link_libraries(contextmicro leanstore Threads::Threads )
+target_include_directories(contextmicro PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(iotrace iotrace/iotrace.cpp)
+target_link_libraries(iotrace leanstore Threads::Threads )
+target_include_directories(iotrace PRIVATE ${SHARED_INCLUDE_DIRECTORY})

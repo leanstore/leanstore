@@ -39,7 +39,6 @@ DTID DTRegistry::registerDatastructureInstance(DTType type, void* root_object, s
 {
    std::unique_lock guard(mutex);
    DTID new_instance_id = instances_counter++;
-   std::cout << "meta: " << type << " name: " << name << std::endl;
    dt_instances_ht.insert({(long unsigned int)new_instance_id, {type, root_object, name, short_name}});
    return new_instance_id;
 }

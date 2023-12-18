@@ -9,9 +9,9 @@ ExternalProject_Add(
         GIT_REPOSITORY "https://github.com/OpenMPDK/xNVMe.git"
         GIT_TAG main
         TIMEOUT 10
-        CONFIGURE_COMMAND /home/haas/meson/meson.py setup builddir
+        CONFIGURE_COMMAND meson setup builddir
         BUILD_IN_SOURCE TRUE
-        BUILD_COMMAND /home/haas/meson/meson.py compile -C builddir
+        BUILD_COMMAND meson compile -C builddir
         UPDATE_COMMAND ""
         INSTALL_COMMAND ""
 )

@@ -62,6 +62,7 @@ bool BTreeNode::prepareInsert(u16 key_len, u16 payload_len)
 // -------------------------------------------------------------------------------------
 s16 BTreeNode::insertDoNotCopyPayload(const u8* key, u16 key_len, u16 payload_length)
 {
+   cout << "insertDoNotCopyPayload" << endl;
    assert(canInsert(key_len, payload_length));
    prepareInsert(key_len, payload_length);
    // -------------------------------------------------------------------------------------
@@ -362,7 +363,6 @@ void BTreeNode::split(ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<
    // PRE: current, parent and nodeLeft are x locked
    // assert(sepSlot > 0); TODO: really ?
    assert(sepSlot < (EFFECTIVE_PAGE_SIZE / sizeof(SwipType)));
-   parent.updateLastSwipInvalidation();
    // -------------------------------------------------------------------------------------
    nodeLeft->setFences(getLowerFenceKey(), lower_fence.length, sepKey, sepLength);
    BTreeNode tmp(is_leaf);

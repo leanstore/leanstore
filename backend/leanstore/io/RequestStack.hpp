@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <unordered_set>
 #include "Exceptions.hpp"
+#include "leanstore/io/IoRequest.hpp"
 // -------------------------------------------------------------------------------------
 namespace mean
 {
@@ -40,15 +41,33 @@ class RequestStack
    }
    int submitStackSize() {return pushed; }
    bool full() { return free == 0; }
-   /* free -> submit */
-   bool pushToSubmitStack(R*& out)
-   {
+
+   /* free -> to user (untracked)*/
+   bool popFromFreeStack(R*& out) {
       assert(free >= 0);
       if (free == 0) {
         return false; 
       }
       free--;
       out = free_stack[free];
+      return true;
+   }
+   /* user -> to submit */
+   void pushToSubmitStack(R* req) {
+      submit_stack[pushed] = req;
+      pushed++;
+   }
+   /* free -> submit / direct path (not like popFromFree and pushToSubmit ) */
+   bool moveFreeToSubmitStack(R*& out)
+   {
+      assert(free >= 0);
+      if (free == 0) {
+        return false; 
+      }
+      free--;
+      assert(free < max_entries);
+      out = free_stack[free];
+      assert(pushed < max_entries);
       submit_stack[pushed] = out;
       pushed++;
       return true;
@@ -59,8 +78,9 @@ class RequestStack
 #ifndef NDEBUG
       for (int i = 0; i < pushed; i++) {
          auto found = outstanding_set.find(submit_stack[i]);
-         ensure(found == outstanding_set.end());
-         outstanding_set.insert(submit_stack[i]);
+         if (found == outstanding_set.end()) {
+            outstanding_set.insert(submit_stack[i]);
+         }
          submit_stack[i] = nullptr;
       }
 #endif
@@ -76,8 +96,10 @@ class RequestStack
       out = submit_stack[pushed];
 #ifndef NDEBUG
       auto found = outstanding_set.find(out);
-      ensure(found == outstanding_set.end());
-      outstanding_set.insert(submit_stack[pushed]);
+      //ensure(found == outstanding_set.end());
+      if (found == outstanding_set.end()) {
+         outstanding_set.insert(submit_stack[pushed]);
+      }
 #endif
       return true;
    }

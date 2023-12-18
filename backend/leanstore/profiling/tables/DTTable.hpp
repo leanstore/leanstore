@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include "ProfilingTable.hpp"
 #include "leanstore/storage/buffer-manager/BufferManager.hpp"
 // -------------------------------------------------------------------------------------
@@ -15,6 +16,11 @@ class DTTable : public ProfilingTable
    string dt_name;
    u64 dt_id;
    BufferManager& bm;
+
+
+   uint64_t find_parent_total;
+   double find_parent_fast;
+   double find_parent_slow;
 
   public:
    DTTable(BufferManager& bm);

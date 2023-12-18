@@ -46,17 +46,17 @@ void DTTable::open()
                       [&, i](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::vw_version_step, dt_id, i); });
    }
    // -------------------------------------------------------------------------------------
-   columns.emplace("dt_find_parent", [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent, dt_id); });
+   columns.emplace("dt_find_parent", [&](Column& col) { col << find_parent_total; });
    columns.emplace("dt_find_parent_root",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_root, dt_id); });
    columns.emplace("dt_find_parent_fast",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_fast, dt_id); });
+                   [&](Column& col) { col << find_parent_fast; });
    columns.emplace("dt_find_parent_slow",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_slow, dt_id); });
+                   [&](Column& col) { col << find_parent_slow; });
    columns.emplace("dt_find_parent_dbg",
                    [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_dbg, dt_id); });
    columns.emplace("dt_find_parent_dbg2",
-                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_dbg2); });
+                   [&](Column& col) { col << sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_dbg2, dt_id); });
    // -------------------------------------------------------------------------------------
 }
 // -------------------------------------------------------------------------------------
@@ -66,6 +66,9 @@ void DTTable::next()
    for (const auto& dt : bm.getDTRegistry().dt_instances_ht) {
       dt_id = dt.first;
       dt_name = std::get<2>(dt.second);
+      find_parent_total = sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent, dt_id);
+      find_parent_slow = 100.0 * sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_slow, dt_id) / find_parent_total;
+      find_parent_fast = 100.0 * sum(WorkerCounters::worker_counters, &WorkerCounters::dt_find_parent_fast, dt_id) / find_parent_total;
       for (auto& c : columns) {
          c.second.generator(c.second);
       }

@@ -1,8 +1,10 @@
+#include "Time.hpp"
 #include "Units.hpp"
 #include "leanstore/BTreeAdapter.hpp"
 #include "leanstore/Config.hpp"
 #include "leanstore/LeanStore.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
+#include "leanstore/profiling/counters/ThreadCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Files.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
@@ -50,7 +52,6 @@ void run_ycsb() {
    mean::task::scheduleTaskSync([&]() {
          auto& vs_btree = db.registerBTreeLL("ycsb", "y");
          adapter.reset(new BTreeVSAdapter<YCSBKey, YCSBPayload>(vs_btree));
-         db.startProfilingThread();
          db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
          db.registerConfigEntry("ycsb_target_gib", FLAGS_target_gib);
    });
@@ -77,6 +78,10 @@ void run_ycsb() {
             utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
             auto& key = t_i;
             table.insert(key, payload);
+            YCSBPayload result; /// FIXME remove this check
+            table.lookup(t_i, result);
+            ensure(result == payload);
+
             mean::task::yield();
          }
       };
@@ -90,6 +95,7 @@ void run_ycsb() {
       cout << "Inserted volume: (pages, MiB) = (" << written_pages << ", " << mib << ")" << endl;
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
+   db.startProfilingThread();
    // -------------------------------------------------------------------------------------
    auto zipf_random = std::make_unique<utils::ScrambledZipfGenerator>(0, ycsb_tuple_count, FLAGS_zipf_factor);
    cout << setprecision(4);
@@ -127,10 +133,20 @@ void run_ycsb() {
    {
       auto start = mean::getSeconds();
       auto ycsb_tx = [&](mean::BlockedRange bb, std::atomic<bool>& cancelled){
+
+       thread_local auto nextStartTime = mean::readTSC();
+       thread_local u64 longLat = 0;
+       auto tx_start_time = nextStartTime;
+       const float rate = FLAGS_tx_rate / mean::env::workerCount();
+       std::random_device rd;
+       std::mt19937 gen(rd());
+       std::exponential_distribution<> expDist(rate);
+       volatile u64 i = bb.begin;
+
          running_threads_counter++;
          int timeCheck = 0;
-         while (keep_running) {
-            auto before = mean::getTimePoint();
+         while (i < bb.end && keep_running) {
+            auto before = mean::readTSC();
             timeCheck++;
             if (timeCheck % 32 == 0 && mean::getSeconds() - start > FLAGS_run_for_seconds) {
                cancelled = true;
@@ -146,24 +162,50 @@ void run_ycsb() {
                utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&payload), sizeof(YCSBPayload));
                table.update(key, payload);
             }
-            auto timeDiff = mean::timePointDifferenceUs(mean::getTimePoint(), before);
-            WorkerCounters::myCounters().total_tx_time += timeDiff;
-            WorkerCounters::myCounters().tx_latency_hist.increaseSlot(timeDiff);
-            WorkerCounters::myCounters().tx++;
+           i++;
+           auto now = mean::readTSC();
+           auto timeDiff = mean::tscDifferenceUs(now, before);
+           auto timeDiffIncWait = mean::tscDifferenceUs(now, tx_start_time);
+           WorkerCounters::myCounters().total_tx_time += timeDiff;
+           WorkerCounters::myCounters().tx_latency_hist.increaseSlot(timeDiff);
+           if (timeDiffIncWait < 10000000) {
+              WorkerCounters::myCounters().total_tx_time_inc_wait += timeDiffIncWait;
+           }
+           WorkerCounters::myCounters().tx_latency_hist_incwait.increaseSlot(timeDiffIncWait);
+           WorkerCounters::myCounters().tx++;
+           ThreadCounters::myCounters().tx++;
+           while (i < bb.end && keep_running) {
+              mean::task::yield();
+              now = mean::readTSC();
+              if (rate == 0) break;
+              if (now >= nextStartTime) {
+                 if (mean::tscDifferenceS(now, nextStartTime) > 5) {
+                     longLat++;
+                     nextStartTime = now;
+                     std::cout << "reset start time" << std::endl;
+                     if (longLat % 100000 == 0) {
+                        //std::cout << "thr: " << mean::exec::getId() << " long latency: " << longLat << std::endl;
+                    }
+                 }
+                 auto d = expDist(gen);
+                 tx_start_time = nextStartTime;
+                  nextStartTime += mean::nsToTSC(d*1e9);
+                  //std::cout << "next: " << nextStartTime << std::flush << std::endl;
+                  break;
+              }
+           }
          }
          running_threads_counter--;
       };
       mean::BlockedRange bb(0, (u64)1000000000000ul);
+      auto startTsc = mean::readTSC();
+      auto startTP = mean::getTimePoint();
       mean::task::parallelFor(bb, ycsb_tx, FLAGS_worker_tasks, 100000);
+      auto diffTSC = mean::tscDifferenceNs(mean::readTSC(), startTsc) / 1e9;
+      auto diffTP = mean::timePointDifference(mean::getTimePoint(), startTP) / 1e9;
+      std::cout << "done: time: " << diffTP << " tsc: " << diffTSC << std::endl;
    }
-   {
-      // Shutdown threads
-      sleep(FLAGS_run_for_seconds);
-      keep_running = false;
-      while (running_threads_counter) {
-         MYPAUSE();
-      }
-   }
+   mean::env::shutdown();
    cout << "-------------------------------------------------------------------------------------" << endl;
    // -------------------------------------------------------------------------------------
 }

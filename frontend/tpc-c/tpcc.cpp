@@ -21,6 +21,8 @@
 // -------------------------------------------------------------------------------------
 #include <unistd.h>
 
+#include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <set>
 #include <string>
@@ -83,7 +85,6 @@ void run_tpcc()
    for (auto& t: DTRegistry::global_dt_registry.dt_instances_ht) {
       std::cout << "dt_ids: " << t.first << " name: " << std::get<2>(t.second) << " short: " << std::get<3>(t.second) << std::endl;
    }
-   db.startProfilingThread();
    // -------------------------------------------------------------------------------------
    // const u64 load_threads = (FLAGS_tpcc_fast_load) ? thread::hardware_concurrency() : FLAGS_worker_threads;
    {
@@ -109,12 +110,13 @@ void run_tpcc()
       };
       mean::BlockedRange bb(1, (u64)FLAGS_tpcc_warehouse_count + 1);
       ensure((bool)((bb.end - bb.begin) > 0));
-         auto before = mean::getTimePoint();
+      auto before = mean::getTimePoint();
       mean::task::parallelFor(bb, load_fun, 1);
       auto timeDiff = mean::timePointDifference(mean::getTimePoint(), before);
       std::cout << "Loading done in: " + std::to_string(timeDiff/1e9f) + "s" << std::endl;
    }
    sleep(2);
+   db.startProfilingThread();
    // -------------------------------------------------------------------------------------
    double gib = (db.getBufferManager().consumedPages() * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0 / 1024.0);
    cout << "data loaded - consumed space in GiB = " << gib << endl;
@@ -125,27 +127,31 @@ void run_tpcc()
    vector<thread> threads;
    auto random = std::make_unique<leanstore::utils::ZipfGenerator>(FLAGS_tpcc_warehouse_count, FLAGS_zipf_factor);
    mean::env::adjustWorkerCount(FLAGS_worker_threads);
-   u64 tx_per_thread[FLAGS_worker_threads];
+   //u64 tx_per_thread[FLAGS_worker_threads];
    auto start = mean::getSeconds();
    auto tpcc_fun = [&running_threads_counter, &keep_running, &start](mean::BlockedRange bb, std::atomic<bool>& cancelled) {
+       thread_local auto nextStartTime = mean::readTSC();
+       auto tx_start_time = nextStartTime;
+       const float rate = FLAGS_tx_rate / mean::env::workerCount();
+       std::random_device rd;
+       std::mt19937 gen(rd());
+       std::exponential_distribution<> expDist(rate);
+
        int thr = running_threads_counter++;
        volatile u64 tx_acc = 0;
        //cr::Worker::my().refreshSnapshot();
        volatile u64 i = bb.begin;
-       char* buf = static_cast<char*>(mean::IoInterface::allocIoMemoryChecked(4*1024, 512));
 
-       int wc = FLAGS_tpcc_warehouse_count / (mean::env::workerCount() * FLAGS_worker_tasks);
-       int id = mean::exec::getId()*wc + 1;
-       u64 rateLimitngEveryNs =  1;///3*1000*1000;
-       u64 lastTsc = mean::readTSC();
+       //u64 rateLimitngEveryNs =  1;///3*1000*1000;
+       //u64 lastTsc = mean::readTSC();
 
        //std::cout << "w_i: " << id << " to: " << id+wc << std::endl;
        while (i < bb.end && keep_running) {
           if (mean::getSeconds() - start > FLAGS_run_for_seconds) {
-            cancelled = true;
-            break;
+             cancelled = true;
+             break;
           }
-           auto before = mean::getTimePoint();
+           auto before = mean::readTSC();
            jumpmuTry()
            {
               //cr::Worker::my().startTX();
@@ -158,13 +164,6 @@ void run_tpcc()
               }
               //std::cout << "run tx" << std::endl;
               tx(w_id);
-
-              //long len = 4*1024;
-              //long max = 10ul*1024*1024*1024/len;
-              //long addr =  urand(1, max) * len;
-              //mean::task::read(buf, urand(1, max), len);
-              //std::cout << "r: " << addr << " l: " << len << std::endl;
-
               //std::cout << "end tx" << std::endl;
               if (FLAGS_tpcc_abort_pct && urand(0, 100) <= FLAGS_tpcc_abort_pct) {
                  //cr::Worker::my().abortTX();
@@ -175,12 +174,33 @@ void run_tpcc()
            }
            jumpmuCatch() { WorkerCounters::myCounters().tx_abort++; ThreadCounters::myCounters().tx_abort++; }
            i++;
-           auto timeDiff = mean::timePointDifferenceUs(mean::getTimePoint(), before);
+           auto now = mean::readTSC();
+           auto timeDiff = mean::tscDifferenceUs(now, before);
+           auto timeDiffIncWait = mean::tscDifferenceUs(now, tx_start_time);
            WorkerCounters::myCounters().total_tx_time += timeDiff;
+           if (timeDiffIncWait < 10000000) {
+              WorkerCounters::myCounters().total_tx_time_inc_wait += timeDiffIncWait;
+           }
            WorkerCounters::myCounters().tx_latency_hist.increaseSlot(timeDiff);
+           WorkerCounters::myCounters().tx_latency_hist_incwait.increaseSlot(timeDiffIncWait);
            WorkerCounters::myCounters().tx++;
            ThreadCounters::myCounters().tx++;
-           mean::task::yield();
+           while (i < bb.end && keep_running) {
+              mean::task::yield();
+              now = mean::readTSC();
+              if (rate == 0) break;
+              if (now >= nextStartTime) {
+                 if (mean::tscDifferenceS(now, nextStartTime) > 5) {
+                    nextStartTime = now;
+                    std::cout << "reset start time" << std::endl;
+                 }
+                 auto d = expDist(gen);
+                 tx_start_time = nextStartTime;
+                  nextStartTime += mean::nsToTSC(d*1e9);
+                  //std::cout << "next: " << nextStartTime << std::flush << std::endl;
+                  break;
+              }
+           }
            /*
            while (true) { 
               mean::task::yield();
@@ -195,10 +215,16 @@ void run_tpcc()
      //tx_per_thread[t_i] = tx_acc; // fixme
      running_threads_counter--;
    };
-   mean::BlockedRange bb(0, (u64)FLAGS_run_until_tx);
+   uint64_t run_until = FLAGS_run_until_tx > 0 ? FLAGS_run_until_tx : std::numeric_limits<uint64_t>::max();
+   mean::BlockedRange bb(0, run_until);
    ensure((bool)((bb.end - bb.begin) > 1));
    start = mean::getSeconds();
+   auto startTsc = mean::readTSC();
+   auto startTP = mean::getTimePoint();
    mean::task::parallelFor(bb, tpcc_fun, FLAGS_worker_tasks, 100000);
+   auto diffTSC = mean::tscDifferenceNs(mean::readTSC(), startTsc) / 1e9;
+   auto diffTP = mean::timePointDifference(mean::getTimePoint(), startTP) / 1e9;
+   std::cout << "done: time: " << diffTP << " tsc: " << diffTSC << std::endl;
    if (FLAGS_persist) {
       db.getBufferManager().writeAllBufferFrames();
    }
@@ -226,7 +252,7 @@ int main(int argc, char** argv)
    ioOptions.ioUringPollMode = FLAGS_io_uring_poll_mode;
    ioOptions.ioUringShareWq = FLAGS_io_uring_share_wq;
    ioOptions.raid5 = FLAGS_raid5;
-   ioOptions.iodepth = (FLAGS_async_batch_size + FLAGS_worker_tasks); // hacky, how to take into account for remotes 
+   ioOptions.iodepth = 2*(FLAGS_async_batch_size + FLAGS_worker_tasks); // hacky, how to take into account for remotes 
    // -------------------------------------------------------------------------------------
    if (FLAGS_nopp) {
       ioOptions.channelCount = FLAGS_worker_threads;

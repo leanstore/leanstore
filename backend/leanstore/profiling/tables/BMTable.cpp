@@ -82,6 +82,10 @@ void BMTable::open()
    columns.emplace("io_outstanding_read", [&](Column& col) { col << (leanstore::utils::threadlocal::thr_aggr_max(PPCounters::pp_counters, &PPCounters::outstandinig_read)); });
    columns.emplace("io_outstanding_write", [&](Column& col) { col << (leanstore::utils::threadlocal::thr_aggr_max(PPCounters::pp_counters, &PPCounters::outstandinig_write)); });
    // -------------------------------------------------------------------------------------
+   columns.emplace("submitted", [&](Column& col) { col << local_submitted; });
+   columns.emplace("sumit_calls", [&](Column& col) { col << (local_submit_calls); });
+   columns.emplace("sumits_per_call", [&](Column& col) { col << (local_submit_calls > 0 ? local_submitted / local_submit_calls : 0); });
+   // -------------------------------------------------------------------------------------
    columns.emplace("timestamp", [](Column& col) {
       using std::chrono::system_clock;
       auto currentTime = std::chrono::system_clock::now();
@@ -114,6 +118,8 @@ void BMTable::next()
    local_pp_submit_cnt = sum(PPCounters::pp_counters, &PPCounters::submit_cnt);
    local_pp_submitted = sum(PPCounters::pp_counters, &PPCounters::submitted);
    local_pp_qlen_cnt = sum(PPCounters::pp_counters, &PPCounters::pp_qlen_cnt);
+   local_submitted = sum(WorkerCounters::worker_counters, &WorkerCounters::submitted);
+   local_submit_calls = sum(WorkerCounters::worker_counters, &WorkerCounters::submit_calls);
 
    total = local_phase_1_ms + local_phase_2_ms + local_phase_3_ms;
    for (auto& c : columns) {

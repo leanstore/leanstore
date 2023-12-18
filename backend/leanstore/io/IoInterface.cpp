@@ -16,8 +16,10 @@ RaidEnvironment& IoInterface::initInstance(IoOptions ioOptions)
 {
    if (ioOptions.engine == "libaio") {
       _instance = std::unique_ptr<RaidEnvironment>(new RaidEnv<LibaioEnv, LibaioChannel, LibaioIoRequest>(ioOptions));
+#ifdef LEANSTORE_INCLUDE_SPDK
    } else if (ioOptions.engine == "spdk") {
       _instance = std::unique_ptr<RaidEnvironment>(new RaidEnv<SpdkEnv, SpdkChannel, SpdkIoReq>(ioOptions));
+#endif
    } else if (ioOptions.engine == "io_uring") {
       _instance = std::unique_ptr<RaidEnvironment>(new RaidEnv<LiburingEnv, LiburingChannel, LiburingIoRequest>(ioOptions));
 #ifdef LEANSTORE_INCLUDE_XNVME

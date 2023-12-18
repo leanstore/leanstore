@@ -1,3 +1,4 @@
+#if LEANSTORE_INCLUDE_SPDK
 #include "SpdkImpl.hpp"
 // -------------------------------------------------------------------------------------
 #include <cstring>
@@ -83,7 +84,7 @@ DeviceInformation SpdkEnv::getDeviceInfo() {
 // Channel 
 // -------------------------------------------------------------------------------------
 SpdkChannel::SpdkChannel(IoOptions ioOptions, NVMeMultiController& controller, int queue) 
-   : options(ioOptions), controller(controller), queue(queue), lbaSize(controller.nsLbaDataSize())
+   : options(ioOptions), controller(controller), queue(queue), lbaSize(controller.nsLbaDataSize()), outstanding(controller.deviceCount())
 {
    write_request_stack.reserve(ioOptions.iodepth);
    int c = controller.deviceCount();
@@ -100,7 +101,6 @@ SpdkChannel::~SpdkChannel()
 void SpdkChannel::prepare_request(RaidRequest<SpdkIoReq>* req, SpdkIoReqCallback spdkCb)
 {
    // base
-   req->base.stats.push();
    switch (req->base.type) {
       case IoRequestType::Read:
          req->impl.type = SpdkIoReqType::Read;
@@ -197,3 +197,4 @@ int InterfaceBase::_syncReadsPollServer() override {
 // -------------------------------------------------------------------------------------
 }  // namespace mean
 // -------------------------------------------------------------------------------------
+#endif

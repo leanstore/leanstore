@@ -59,6 +59,8 @@ void ConfigsTable::open()
    columns.emplace("c_vw", [&](Column& col) { col << FLAGS_vw; });
    columns.emplace("c_vw_todo", [&](Column& col) { col << FLAGS_vw_todo; });
    // -------------------------------------------------------------------------------------
+   columns.emplace("c_tx_rate", [&](Column& col) { col << FLAGS_tx_rate; });
+   // -------------------------------------------------------------------------------------
    for (auto& c : columns) {
       c.second.generator(c.second);
    }

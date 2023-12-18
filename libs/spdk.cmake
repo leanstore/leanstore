@@ -8,7 +8,7 @@ ExternalProject_Add(
   spdk-ext
   PREFIX "vendor/spdk"
   GIT_REPOSITORY "https://github.com/spdk/spdk"
-  GIT_TAG "v22.09"
+  GIT_TAG "v23.09"
   #SOURCE_DIR "${PROJECT_SOURCE_DIR}/extern/spdk"
   #CONFIGURE_COMMAND ${PROJECT_SOURCE_DIR}/extern/spdk/configure --enable-debug 
   CONFIGURE_COMMAND ./configure --without-shared
@@ -19,7 +19,6 @@ ExternalProject_Add(
 )
 
 ExternalProject_Get_Property(spdk-ext source_dir)
-message(${source_dir})
 set(SPDK_INCLUDE_DIR ${source_dir}/build/include)
 set(SPDK_LIBRARY_PATH ${source_dir}/build/lib)
 set(DPDK_INCLUDE_DIR ${source_dir}/dpdk/build/include)

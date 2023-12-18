@@ -7,8 +7,8 @@
 #include <chrono>
 
 std::tuple<s64, s64> meassureRdTsc(int seconds) {
-   s64 start = __rdtsc(); 
    mean::TimePoint startChrono = mean::getTimePoint();
+   s64 start = __rdtsc(); 
    _mm_sfence();
 
    while (mean::timePointDifference(mean::getTimePoint(), startChrono) < seconds*1000000000ull -60)
@@ -25,13 +25,13 @@ int main(int , char** ) {
    std::cout << "start" << std::endl;
 
    // calibrate
-   auto cali = meassureRdTsc(1);
+   auto cali = meassureRdTsc(10);
    auto tscPerNs = (double)(std::get<0>(cali)/*Hz*/) /  std::get<1>(cali) /*ns*/ ;
 
    std::cout << "calibration done" << std::endl;
 
    // meassurement
-   auto mes = meassureRdTsc(10);
+   auto mes = meassureRdTsc(20);
    auto tsc = std::get<0>(cali);
    auto chr = std::get<1>(cali);
 

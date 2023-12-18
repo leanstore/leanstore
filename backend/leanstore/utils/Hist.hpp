@@ -8,6 +8,7 @@
 #include <numeric>
 #include <functional>
 #include <cmath>
+#include <mutex>
 
 template <typename storageType, typename valueType>
 class Hist
@@ -16,10 +17,12 @@ public:
 	const int size;
 	valueType from = 0;
 	valueType to = 1;
+   std::mutex lock;
 	
 	std::vector<storageType> histData;
-	Hist(storageType size = 1, valueType from = 0, valueType to = 1)  : size(size), from(from), to(to), histData(size) {
-
+	Hist(storageType size = 1, valueType from = 0, valueType to = 1)  : size(size), from(from), to(to) {
+      std::unique_lock<std::mutex> ul(lock);
+      histData.resize(size);
    }
 
 	Hist(const Hist&) = delete;
@@ -46,6 +49,7 @@ public:
 	}
 	
 	valueType getPercentile(float iThPercentile) {
+      std::unique_lock<std::mutex> ul(lock);
 		long sum = std::accumulate(histData.begin(), histData.end(), 0, std::plus<int>());
 		long sumUntilPercentile = 0;
 		const long percentile = sum * (iThPercentile / 100.0);

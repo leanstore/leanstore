@@ -207,7 +207,7 @@ void loadOrders(Integer w_id, Integer d_id)
    vector<Integer> c_ids;
    for (Integer i = 1; i <= 3000; i++)
       c_ids.push_back(i);
-   random_shuffle(c_ids.begin(), c_ids.end());
+   shuffle(c_ids.begin(), c_ids.end(), random_generator);
    Integer o_id = 1;
    for (Integer o_c_id : c_ids) {
       Integer o_carrier_id = (o_id < 2101) ? rnd(10) + 1 : 0;

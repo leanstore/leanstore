@@ -1,9 +1,8 @@
 # ---------------------------------------------------------------------------
 # Leanstore DB
 # ---------------------------------------------------------------------------
-
-project(leanstoredb)
 cmake_minimum_required(VERSION 3.7)
+project(leanstoredb)
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -18,15 +17,17 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -rdynamic")
 #set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=undefined")
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)")
-  add_compile_options(-Wall -Wextra -mavx2 -mcx16 -m64) # -fno-elide-constructors no need for now
+  add_compile_options(-Wall -mavx2 -mcx16 -m64) # -fno-elide-constructors no need for now
 else()
-  add_compile_options(-Wall -Wextra -march=native)
+  add_compile_options(-Wall -march=native)
 endif()
 
-add_compile_options(-Werror -Wno-error=unused-parameter -Wno-error=unused-variable -Wno-error=unused-local-typedefs -Wno-error=unused-but-set-variable) 
+add_compile_options(-Werror -Wno-error=unused-parameter -Wno-error=unused-variable -Wno-error=unused-local-typedefs -Wno-error=unused-but-set-variable -Wno-error=maybe-uninitialized -Wno-error=sign-compare -Wno-error=unused-function -Wno-error=missing-field-initializers) 
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -O3")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -O3")
+#set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fsanitize=address")
+#set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fsanitize=undefined")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3") # because we had behavior on aws arm without
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" AND CMAKE_BUILD_TYPE MATCHES Debug)
@@ -49,8 +50,18 @@ if(LEANSTORE_INCLUDE_XNVME)
    message("Including XNVME")
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DLEANSTORE_INCLUDE_XNVME")
 else()
+	message("NOT Including XNVME")
    # do nothing
 endif(LEANSTORE_INCLUDE_XNVME)
+
+option(LEANSTORE_INCLUDE_SPDK "include SPDK" OFF) #OFF by default
+if(LEANSTORE_INCLUDE_SPDK)
+   message("Including SPDK")
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DLEANSTORE_INCLUDE_SPDK")
+else()
+	message("NOT Including SPDK")
+   # do nothing
+endif(LEANSTORE_INCLUDE_SPDK)
 
 # ---------------------------------------------------------------------------
 # Dependencies
@@ -62,8 +73,11 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 include("${CMAKE_SOURCE_DIR}/libs/gflags.cmake")
 include("${CMAKE_SOURCE_DIR}/libs/tabluate.cmake")
-include("${CMAKE_SOURCE_DIR}/libs/spdk.cmake")
+if(LEANSTORE_INCLUDE_SPDK)
+	include("${CMAKE_SOURCE_DIR}/libs/spdk.cmake")
+endif()
 include("${CMAKE_SOURCE_DIR}/libs/uring.cmake")
+#include("${CMAKE_SOURCE_DIR}/libs/libnvme.cmake")
 if(LEANSTORE_INCLUDE_XNVME)
    include("${CMAKE_SOURCE_DIR}/libs/xnvme.cmake")
 endif()

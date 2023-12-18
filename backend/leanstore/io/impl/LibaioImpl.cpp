@@ -7,6 +7,8 @@
 #include <linux/fs.h>
 #include <sys/ioctl.h>
 #include <cassert>
+#include <filesystem>
+#include <regex>
 #include <libaio.h>
 // -------------------------------------------------------------------------------------
 namespace mean
@@ -20,12 +22,36 @@ LinuxBaseEnv::~LinuxBaseEnv() {
       fd = -1;
    });
 }
+
+std::string fileToNGDevice(std::string dev) {
+   std::filesystem::path p = dev;
+   std::cout << "dev: " << dev;
+   while (std::filesystem::is_symlink(p)) {
+      p = std::filesystem::read_symlink(p);
+      std::cout << " -> " << p;
+   }
+   if (p.u8string().find("nvme") == std::string::npos &&
+         p.u8string().find("ng") == std::string::npos) {
+      ensure(false, "\"" + dev +"\" not a block or character device");
+   }
+   std::regex r("nvme");
+   dev = std::regex_replace(p.u8string(), r, "ng");
+   std::regex r2("../../");
+   dev = std::regex_replace(dev, r2, "/dev/");
+   std::cout << " -> " << dev << std::endl;
+   return dev;
+}
 void LinuxBaseEnv::init(IoOptions ioOpts)
 {
    this->ioOptions = ioOpts;
    raidCtl = std::make_unique<RaidController<int>>(ioOptions.path);
    raidCtl->forEach([this](std::string& dev, int& fd) {
-      int flags = O_RDWR | O_DIRECT | O_NOATIME;
+      int flags = O_RDWR | O_NOATIME;
+      if (!ioOptions.ioUringNVMePassthrough) {
+         flags |= O_DIRECT;
+      } else {
+         dev = fileToNGDevice(dev);
+      }
       if (this->ioOptions.truncate) {
          flags |= O_TRUNC | O_CREAT;
       }
@@ -82,6 +108,7 @@ DeviceInformation LinuxBaseEnv::getDeviceInfo() {
    for (int i = 0; i < raidCtl->deviceCount(); i++) {
       d.devices[i].id = i;
       d.devices[i].name = raidCtl->name(i);
+      d.devices[i].fd = raidCtl->deviceTypeOrFd(i);
    }
    return d;
 }

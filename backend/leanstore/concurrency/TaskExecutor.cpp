@@ -10,6 +10,7 @@
 #include "leanstore/concurrency/Task.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/ThreadCounters.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include "boost/context/continuation.hpp"
@@ -144,8 +145,12 @@ void TaskExecutor::cycle()
    u64 delaySubmitUntilCycle = 0;
    auto counterUpdateTime = getSeconds();
    random_generator.seed(mean::exec::getId());
-   std::cout << "r: " << leanstore::utils::RandomGenerator::getRand(0, 1000) << std::endl;
    while (_keep_running) {
+      if (sleep != 0) {
+         float s = sleep.exchange(0);
+         std::cout << "sleep for: " << s << std::endl;
+         std::this_thread::sleep_for(std::chrono::nanoseconds((uint64_t)(s*1e9)));
+      }
       cycles++;
       // good for ycsb 60 thr: p: 2, pp: 32, d: 0
       constexpr int everyPoll = 64;
@@ -154,56 +159,56 @@ void TaskExecutor::cycle()
       DEBUG_TASK_COUNTERS_BLOCK(
          const auto ioPollEnd = readTSC(); counters.ioPollDuration += ioPollEnd - lastCycle; pushCyTrace('i', ioPollEnd);
          counters.taskCount = tasks.size(); counters.taskWaitingCount = waitingTaskCount;
-         )
-         // run poll Routines
-         // TODO for runs with >> 60 threads, this hast to be changed
-         if (cycles % (8*1024) == 0 || cyclesNothingRun > sleepIfNothingRunForCycles) {
-            messageHandler.poll(this);
-            counters.msgPollCalled++;
-         }
+      )
+      // run poll Routines
+      // TODO for runs with >> 60 threads, this hast to be changed
+      if (cycles % (8*1024) == 0 || cyclesNothingRun > sleepIfNothingRunForCycles) {
+         messageHandler.poll(this);
+         counters.msgPollCalled++;
+      }
       DEBUG_TASK_COUNTERS_BLOCK(
          const auto pollerStart = readTSC(); counters.msgPollDuration += (pollerStart - ioPollEnd) > 0 ? pollerStart - ioPollEnd : 0 ; pushCyTrace('m', pollerStart);
-         )
-         /*
-            if (pollers.size() > 0) {
-         // std::cout << "run pollers..." << std::endl;
-         for (auto& p : pollers) {
-         // std::cout << "run pollers i " << std::endl;
-         // p->poll();
-         runUserThread(*p);
-         //	std::cout << "done run pollers i " << std::endl;
-         }
-         }
-         */
-         if (cycles % everyPP  == 0) {
-            pageProviderCycle();
-         }
+      )
+      /*
+         if (pollers.size() > 0) {
+      // std::cout << "run pollers..." << std::endl;
+      for (auto& p : pollers) {
+      // std::cout << "run pollers i " << std::endl;
+      // p->poll();
+      runUserThread(*p);
+      //	std::cout << "done run pollers i " << std::endl;
+      }
+      }
+      */
+      if (cycles % everyPP  == 0) {
+         pageProviderCycle();
+      }
       DEBUG_TASK_COUNTERS_BLOCK(
          const auto ioSubStart = readTSC();
          const auto pollerDuration = ioSubStart - pollerStart;
          counters.pollerDuration += pollerDuration;
          pushCyTrace('p', ioSubStart);
          if (pollerDuration > leanstore::ThreadCounters::myCounters().exec_cycl_max_task_us) { leanstore::ThreadCounters::myCounters().exec_cycl_max_subm_us = pollerDuration; }
+      )
+      if (delaySubmit == 0) {
+         int submitted = ioChannel.submit();
+         DEBUG_TASK_COUNTERS_BLOCK(
+            counters.submitCalls++;
+            counters.submitted += submitted;
          )
-         if (delaySubmit == 0) {
-            int submitted = ioChannel.submit();
-            DEBUG_TASK_COUNTERS_BLOCK(
-               counters.submitCalls++;
-               counters.submitted += submitted;
-            )
-         } else {
-            if (ioChannel.submitable() > 0) {
-               if (delaySubmitUntilCycle < cycles) {
-                  delaySubmitUntilCycle = cycles + delaySubmit;
-               } else if (delaySubmitUntilCycle == cycles) { 
-                  int submitted = ioChannel.submit();
-                  DEBUG_TASK_COUNTERS_BLOCK(
-                     counters.submitCalls++;
-                     counters.submitted += submitted;
-                  )
-               }
+      } else {
+         if (ioChannel.submitable() > 0) {
+            if (delaySubmitUntilCycle < cycles) {
+               delaySubmitUntilCycle = cycles + delaySubmit;
+            } else if (delaySubmitUntilCycle == cycles) { 
+               int submitted = ioChannel.submit();
+               DEBUG_TASK_COUNTERS_BLOCK(
+                  counters.submitCalls++;
+                  counters.submitted += submitted;
+               )
             }
          }
+      }
       if (cycles % everyPoll == 0) {
          leanstore::ThreadCounters::myCounters().exec_cycles += everyPoll;
          counters.cycles = cycles;
@@ -212,8 +217,8 @@ void TaskExecutor::cycle()
             auto now = getSeconds();
             if (now - counterUpdateTime > 0.99999) {
                counterUpdateTime = now;
-               //COUNTERS_BLOCK() { ioChannel.counters.updateLeanStoreCounters(); }
-               //COUNTERS_BLOCK() { ioChannel.counters.reset(); }
+               /*COUNTERS_BLOCK()*/ { ioChannel.counters.updateLeanStoreCounters(); }
+               /*COUNTERS_BLOCK()*/ { ioChannel.counters.reset(); }
             }
          }
       }
@@ -224,10 +229,10 @@ void TaskExecutor::cycle()
          if (subDration > leanstore::ThreadCounters::myCounters().exec_cycl_max_task_us) { leanstore::ThreadCounters::myCounters().exec_cycl_max_subm_us = subDration; }
          counters.ioSubDuration += subDration;
          pushCyTrace('s', taskStart);
-         )
-         // -------------------------------------------------------------------------------------
-         // schedule next task
-         const int maxTasksRun = 1;
+      )
+      // -------------------------------------------------------------------------------------
+      // schedule next task
+      const int maxTasksRun = 1;
       int tasksRun = 0;
       //*
       Task* task;
@@ -305,7 +310,7 @@ void TaskExecutor::cycle()
       if (tasksRun == 0) {
          COUNTERS_BLOCK() { leanstore::ThreadCounters::myCounters().exec_no_tasks_run++; }
          cyclesNothingRun++;
-         ///*
+         /*
          if (cyclesNothingRun > sleepIfNothingRunForCycles) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             if (waitingTaskCount > 0 && cyclesNothingRun == sleepIfNothingRunForCycles + 5000) { // thread did not move in 5 seconds

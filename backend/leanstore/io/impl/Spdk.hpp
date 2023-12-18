@@ -1,4 +1,5 @@
 #pragma once
+#if LEANSTORE_INCLUDE_SPDK
 // -------------------------------------------------------------------------------------
 #include "../Raid.hpp"
 // -------------------------------------------------------------------------------------
@@ -6,6 +7,7 @@
 #include "spdk/vmd.h"
 #include "spdk/nvme_spec.h"
 // -------------------------------------------------------------------------------------
+#include <cstdint>
 #include <vector>
 #include <thread>
 #include <iomanip>
@@ -22,7 +24,8 @@
 enum class SpdkIoReqType {
 	Write = 0,
    Read = 1,
-   COUNT = 2// always last 
+   ZnsAppend = 2,
+   COUNT = 3// always last 
    // Don't forget to add pointers to  spdk_req_type_fun_lookup in SpdkEnv init
 };
 // -------------------------------------------------------------------------------------
@@ -31,6 +34,7 @@ using SpdkIoReqCallback = void(*)(SpdkIoReq* req);
 struct SpdkIoReq {
 	char* buf;
 	uint64_t lba;
+	uint64_t append_lba; //
 	SpdkIoReqCallback callback;
 	spdk_nvme_qpair* qpair;
 	uint32_t lba_count;
@@ -71,6 +75,8 @@ public:
 	struct spdk_nvme_transport_id trid;
 	struct spdk_nvme_ctrlr *ctrlr = nullptr;
 	struct spdk_nvme_ns* nameSpace;
+   // -------------------------------------------------------------------------------------
+   uint64_t ns_capcity_lbas = 0;
    // -------------------------------------------------------------------------------------
    uint64_t dones = 0;
    uint64_t submitted = 0;
@@ -183,3 +189,4 @@ public:
    void submit(int queue, SpdkIoReq* req) override; 
    int32_t process(int queue, int max) override; 
 };
+#endif

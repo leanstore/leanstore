@@ -43,6 +43,7 @@ class TaskExecutor : public ThreadBase
    boost::context::continuation main_process_context;
    // -------------------------------------------------------------------------------------
    // -------------------------------------------------------------------------------------
+   // -------------------------------------------------------------------------------------
    u64 waitingTaskCount = 0;
    u64 waitIoTaskCount = 0;
    // -------------------------------------------------------------------------------------
@@ -56,6 +57,7 @@ class TaskExecutor : public ThreadBase
    s64 pp_required = 0;
    bool local_pause_seen = false;
   public:
+   std::atomic<float> sleep;
    //static std::atomic<bool> pause;
    //static std::atomic<int> pause_seen;
    bool disableMessagePoller = false;

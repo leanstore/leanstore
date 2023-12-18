@@ -2,8 +2,10 @@
 // -------------------------------------------------------------------------------------
 #include "IoRequest.hpp"
 #include "IoOptions.hpp"
+#include "Time.hpp"
 #include "Units.hpp"
 #include "Exceptions.hpp"
+#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/utils/Hist.hpp"
 #include "RequestStack.hpp"
 #include "Raid.hpp"
@@ -38,14 +40,20 @@ struct IoChannelCounters {
    Hist<int, u64> outstandingHistRead{1000, 0, 2000};
    Hist<int, u64> outstandingHistWrite{1000, 0, 2000};
    // -------------------------------------------------------------------------------------
+#define IO_PER_SSD_LATENCY_COUNTERS
+#ifdef IO_PER_SSD_LATENCY_COUNTERS
    struct DeviceCounters {
       int outstanding = 0;
-      Hist<int, u64> readHist{1000, 0, 100000};
-      Hist<int, u64> writeHist{1000, 0, 100000};
+      Hist<int, u64> readHist{2000, 0, 100000};
+      Hist<int, u64> writeHist{2000, 0, 10000};
+      u64 maxReadLat = 0;
    };
    std::vector<DeviceCounters> device_counters;
    // -------------------------------------------------------------------------------------
    IoChannelCounters(int deviceCount) : device_counters(deviceCount) { }
+#else
+   IoChannelCounters(int deviceCount) { }
+#endif
    // -------------------------------------------------------------------------------------
    void reset()
    {
@@ -55,10 +63,13 @@ struct IoChannelCounters {
       readHist.resetData();
       writeHist.resetData();
       pollHist.resetData();
+#ifdef IO_PER_SSD_LATENCY_COUNTERS
       for (unsigned i = 0; i < device_counters.size(); i++) {
          device_counters[i].writeHist.resetData();
          device_counters[i].readHist.resetData();
+         device_counters[i].maxReadLat = 0;
       }
+#endif
       outstandingHist.resetData();
       outstandingHistRead.resetData();
       outstandingHistWrite.resetData();
@@ -78,25 +89,33 @@ struct IoChannelCounters {
    }
    void handleSubmitReq(IoBaseRequest& req)
    {
+#ifdef IO_PER_SSD_LATENCY_COUNTERS
       device_counters[req.device].outstanding++;
+#endif
    }
    void handleCompletedReq(IoBaseRequest& req)
    {
-      req.stats.completion_time = getTimePoint();
-      const auto diff = timePointDifferenceUs(req.stats.completion_time, req.stats.push_time);
+      req.stats.completion_time = readTSC();
+      const auto diff = tscDifferenceUs(req.stats.completion_time, req.stats.push_time);
+#ifdef IO_PER_SSD_LATENCY_COUNTERS
       device_counters[req.device].outstanding--;
+#endif
       if (req.type == IoRequestType::Read) {
          readHist.increaseSlot(diff);
+         leanstore::WorkerCounters::myCounters().ssd_read_latency.increaseSlot(diff);
+#ifdef IO_PER_SSD_LATENCY_COUNTERS
          device_counters[req.device].readHist.increaseSlot(diff);
+         device_counters[req.device].maxReadLat = std::max(device_counters[req.device].maxReadLat, diff);
+#endif
          leanstore::SSDCounters::myCounters().reads[req.device]++;
          outstandingHistRead.increaseSlot(outstandingRead);
          outstandingRead--;
-         if (outstandingRead < 0 ) {
-            raise(SIGINT);
-         }
       } else if (req.type == IoRequestType::Write) {
          writeHist.increaseSlot(diff);
+#ifdef IO_PER_SSD_LATENCY_COUNTERS
          device_counters[req.device].writeHist.increaseSlot(diff);
+#endif
+         leanstore::WorkerCounters::myCounters().ssd_write_latency.increaseSlot(diff);
          leanstore::SSDCounters::myCounters().writes[req.device]++;
          outstandingHistWrite.increaseSlot(outstandingWrite);
          outstandingWrite--;
@@ -116,19 +135,25 @@ struct IoChannelCounters {
    }
    void updateLeanStoreCounters() {
       auto& c = leanstore::SSDCounters::myCounters();
+#ifdef IO_PER_SSD_LATENCY_COUNTERS
       for (unsigned i = 0; i < device_counters.size(); i++) {
          c.read_latncy50p[i] = device_counters[i].readHist.getPercentile(50);
+         c.read_latncy99p[i] = device_counters[i].readHist.getPercentile(99);
          c.read_latncy99p9[i] = device_counters[i].readHist.getPercentile(99.9);
-         c.read_latncy_max[i] = device_counters[i].readHist.getPercentile(100);
+         c.read_latncy_max[i] = device_counters[i].maxReadLat;
          c.write_latncy50p[i] = device_counters[i].writeHist.getPercentile(50);
+         c.write_latncy99p[i] = device_counters[i].writeHist.getPercentile(99);
          c.write_latncy99p9[i] = device_counters[i].writeHist.getPercentile(99.9);
-         c.outstandingx_max[i] = std::max(device_counters[i].outstanding, (int)c.outstandingx_max[i].load());
-         c.outstandingx_min[i] = std::min(device_counters[i].outstanding, (int)c.outstandingx_min[i].load());
+         //c.outstandingx_max[i] = std::max(device_counters[i].outstanding, (int)c.outstandingx_max[i].load());
+         //c.outstandingx_min[i] = std::min(device_counters[i].outstanding, (int)c.outstandingx_min[i].load());
       }
+#endif
+      /*
       leanstore::PPCounters::myCounters().outstandinig_50p = outstandingHist.getPercentile(50);
       leanstore::PPCounters::myCounters().outstandinig_99p9 = outstandingHist.getPercentile(99.9);
       leanstore::PPCounters::myCounters().outstandinig_read= outstandingHistRead.getPercentile(50);
       leanstore::PPCounters::myCounters().outstandinig_write = outstandingHistWrite.getPercentile(50);
+      */
    }
 };
 struct IoChannelCounterAggregator {
@@ -174,6 +199,10 @@ class IoChannel
    void pushWrite(char* data, s64 addr, u64 len, UserIoCallback cb, bool write_back = false);
    void pushRead(char* data, s64 addr, u64 len, UserIoCallback cb, bool write_back = false);
    void push(IoRequestType type, char* data, s64 addr, u64 len, UserIoCallback cb, bool write_back = false);
+   // -------------------------------------------------------------------------------------
+   virtual IoBaseRequest* getIoRequest() = 0;
+   virtual void pushIoRequest(IoBaseRequest* req) = 0;
+   virtual bool hasFreeIoRequests() = 0;
    // -------------------------------------------------------------------------------------
    virtual void _push(const IoBaseRequest& req) = 0;
    virtual int _submit() = 0;

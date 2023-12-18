@@ -20,10 +20,12 @@
 #include "leanstore/concurrency/Mean.hpp"
 #include "tabulate/table.hpp"
 // -------------------------------------------------------------------------------------
+#include <chrono>
 #include <locale>
 #include <queue>
 #include <sstream>
 #include <string>
+#include <thread>
 // -------------------------------------------------------------------------------------
 using namespace tabulate;
 using leanstore::utils::threadlocal::sum;
@@ -40,12 +42,12 @@ LeanStore::LeanStore()
    DTRegistry::global_dt_registry.registerDatastructureType(1, storage::btree::BTreeVW::getMeta());
    DTRegistry::global_dt_registry.registerDatastructureType(2, storage::btree::BTreeVI::getMeta());
    // -------------------------------------------------------------------------------------
-   u64 end_of_block_device;
-   if (FLAGS_wal_offset_gib == 0) {
-      end_of_block_device = mean::IoInterface::instance().storageSize();
-   } else {
-      end_of_block_device = FLAGS_wal_offset_gib * 1024 * 1024 * 1024;
-   }
+   // u64 end_of_block_device;
+   // if (FLAGS_wal_offset_gib == 0) {
+   //    end_of_block_device = mean::IoInterface::instance().storageSize();
+   // } else {
+   //    end_of_block_device = FLAGS_wal_offset_gib * 1024 * 1024 * 1024;
+   // }
    // cr_manager = make_unique<cr::CRManager>(ssd_fd, end_of_block_device);
    // cr::CRManager::global = cr_manager.get();
 }  // namespace leanstore
@@ -111,7 +113,19 @@ void LeanStore::printObjStats() {
 void LeanStore::startProfilingThread()
 {
    std::thread profiling_thread([&]() {
-      mean::TimePoint startTime = mean::getTimePoint();
+      cpu_set_t cpuset;
+      CPU_ZERO(&cpuset);
+      CPU_SET(63, &cpuset);
+      auto thread = pthread_self();
+      int s = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+      if (s != 0) {
+         ensure(false, "Affinity could not be set.");
+      }
+      s = pthread_getaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
+      if (s != 0) {
+         ensure(false, "Affinity could not be set.");
+      }
+
       posix_check(pthread_setname_np(pthread_self(), "profiling") == 0);
       // -------------------------------------------------------------------------------------
       profiling::BMTable bm_table(*buffer_manager.get());
@@ -222,13 +236,13 @@ void LeanStore::startProfilingThread()
                std::cout << std::endl;
                printObjStats();
             }
-            auto now = mean::getTimePoint();
-            auto diff = mean::timePointDifferenceUs(now, lastTime);
-            std::this_thread::sleep_for(std::chrono::microseconds(1000*1000 - diff));
-            seconds += 1;
-            std::locale::global(std::locale::classic());
-            lastTime = mean::getTimePoint();
          }
+         auto now = mean::getTimePoint();
+         auto diff = mean::timePointDifferenceUs(now, lastTime);
+         std::this_thread::sleep_for(std::chrono::microseconds(1000*1000 - diff));
+         seconds += 1;
+         std::locale::global(std::locale::classic());
+         lastTime = mean::getTimePoint();
       }
       bg_threads_counter--;
    });
