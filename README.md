@@ -24,7 +24,7 @@ To use multiple SSDs you can use semicolon to separate them, LeanStore will stri
 
 ## SPDK
 
-You will have to install SPDK dependencies, see SPDK documentation to get started with it.
+You will have to install SPDK dependencies and setup the SSDs (i.e.: build/vendor/spdk/src/spdk-ext/scripts/setup.sh), see the [SPDK documentation](https://spdk.io/doc/getting_started.html) to get started with it.
 
 Compile with SPDK:
 
