@@ -6,7 +6,7 @@
 
 Install dependencies:
 
-`apt install cmake libtbb2-dev libaio-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev librocksdb-dev liblmdb-dev libwiredtiger-dev liburing-dev`
+`apt install cmake libtbb2-dev libaio-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev librocksdb-dev liblmdb-dev libwiredtiger-dev liburing-dev libboost-context-dev libnvme-dev`
 
 `mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make -j`
 
