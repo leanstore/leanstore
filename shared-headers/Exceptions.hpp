@@ -87,7 +87,7 @@ Generic_Exception(TODO);
 #ifdef MACRO_COUNTERS_ALL
 #define COUNTERS_BLOCK() if constexpr (true)
 #else
-#define COUNTERS_BLOCK() if constexpr (else)
+#define COUNTERS_BLOCK() if constexpr (false)
 #endif
 // -------------------------------------------------------------------------------------
 template <typename T>
