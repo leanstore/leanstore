@@ -10,16 +10,37 @@ Install dependencies:
 
 `mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j`
 
-## TPC-C Example
+## Benchmark Examples
+### TPC-C
 
-`build/frontend/tpcc --ssd_path=./ssd_block_device_or_file --worker_threads=120 --pp_threads=4 --dram_gib=240 --tpcc_warehouse_count=100 --notpcc_warehouse_affinity --csv_path=./log --cool_pct=40 --free_pct=1 --contention_split --xmerge --print_tx_console --run_for_seconds=60 --isolation_level=si`
+`build/frontend/tpcc --tpcc_warehouse_count=100 --notpcc_warehouse_affinity --ssd_path=./ssd_block_device_or_file --worker_threads=120 --pp_threads=4 --dram_gib=240 --csv_path=./log --free_pct=1 --contention_split --xmerge --print_tx_console --run_for_seconds=60 --isolation_level=si`
 
 check `build/frontend/tpcc --help` for other options
+
+### YCSB
+`build/frontend/tpcc --ycsb_read_ratio=50 --target_gib=10 --ssd_path=./ssd_block_device_or_file --worker_threads=120 --pp_threads=4 --dram_gib=5 --csv_path=./log --free_pct=1 --contention_split --xmerge --print_tx_console --run_for_seconds=60 --isolation_level=si`
+check `build/frontend/ycsb --help` for other options
+
+## Implement Your Own Workload
+
+LeanStore offers a flexible transactional Key/Value interface similar to WiredTiger and RocksDB.
+A table is a B-Tree index where keys and values are stored in a normalized format, i.e., lexicographically ordered strings.
+For convenience, frontend/shared offers templates that take care of (un)folding common types.
+The best starting points are frontend/minimal-example and frontend/ycsb.
+The required parameters at runtime are: `--ssd_path=/block_device/or/filesystem --dram_gib=fixed_in_gib`.
+The default tranasction isolation level is `--isolation_level=si`. You can lower it to Read Committed or Read Uncommitted by replaced `si` with `rc` or `ru` respectively.
+You can set the transaction isolation level using `--isolation_level=si` and enable the B-Tree techniques from CIDR202 with `--contention_split --xmerge`.
+
+### Metrics Reporting
+LeanStore emits several metrics per second in CSV files: `log_bm.csv, log_configs.csv, log_cpu.csv, log_cr.csv, log_dt.csv`.
+Each row has a c_hash value, which is calculated by chaining and hashing all the configurations that you passed to the binary at runtime.
+This gives you an easy way to identify your run and join all relevant information from the different CSV files using SQLite, for example."
 
 ## Implemented Featuers
 
 - [x] Lightweight buffer manager with pointer swizzling [ICDE18]
 - [x] Optimstic Lock Coupling with Hybrid Page Guard to synchronize paged data structures [IEEE19]
+- [x] Contention and Space Management in B-Trees [CIDR21]
 - [x] Variable-length key/values B-Tree with prefix compression and hints  [BTW23]
 - [x] Scalable and robust out-of-memory Snapshot Isolation (OSIC protocol, Graveyard and FatTuple) [VLDB23]
 - [x] Distributed Logging with remote flush avoidance [SIGMOD20, BTW23]
