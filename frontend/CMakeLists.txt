@@ -26,9 +26,13 @@ add_executable(queue micro-benchmarks/queue.cpp)
 target_link_libraries(queue leanstore Threads::Threads)
 target_include_directories(queue PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
-add_executable(min minimalExample/main.cpp)
-target_link_libraries(min leanstore Threads::Threads)
-target_include_directories(min PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+add_executable(minimal_example minimal-example/main.cpp)
+target_link_libraries(minimal_example leanstore Threads::Threads)
+target_include_directories(minimal_example PRIVATE ${SHARED_INCLUDE_DIRECTORY})
+
+add_executable(scaled_example scaled-example/main.cpp)
+target_link_libraries(scaled_example leanstore Threads::Threads)
+target_include_directories(scaled_example PRIVATE ${SHARED_INCLUDE_DIRECTORY})
 
 add_executable(rocksdb_tpcc tpc-c/rocksdb_tpcc.cpp shared/rocksdb.cpp)
 target_link_libraries(rocksdb_tpcc leanstore rocksdb Threads::Threads dl z libbz2.a lz4 snappy zstd uring)
