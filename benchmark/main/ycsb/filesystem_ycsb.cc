@@ -20,6 +20,7 @@ using YCSB4K   = ycsb::YCSBWorkloadNoBlobRep<FilesystemAdapter, benchmark::FileR
 using YCSB100K = ycsb::YCSBWorkloadNoBlobRep<FilesystemAdapter, benchmark::FileRelation<0, 102400>>;
 using YCSB1M   = ycsb::YCSBWorkloadNoBlobRep<FilesystemAdapter, benchmark::FileRelation<0, 1048576>>;
 using YCSB10M  = ycsb::YCSBWorkloadNoBlobRep<FilesystemAdapter, benchmark::FileRelation<0, 10485760>>;
+using YCSB1G   = ycsb::YCSBWorkloadNoBlobRep<FilesystemAdapter, benchmark::FileRelation<0, 1073741824>>;
 
 auto main(int argc, char **argv) -> int {
   gflags::SetUsageMessage("FileSystem YCSB");
@@ -62,6 +63,10 @@ auto main(int argc, char **argv) -> int {
     case 10485760:
       ycsb = std::make_unique<YCSB10M>(FLAGS_ycsb_record_count, FLAGS_ycsb_read_ratio, FLAGS_ycsb_zipf_theta, false,
                                        payloads, db.get());
+      break;
+    case 1073741824:
+      ycsb = std::make_unique<YCSB1G>(FLAGS_ycsb_record_count, FLAGS_ycsb_read_ratio, FLAGS_ycsb_zipf_theta, false,
+                                      payloads, db.get());
       break;
     default: UnreachableCode();
   }

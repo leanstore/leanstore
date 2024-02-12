@@ -339,7 +339,13 @@ auto BTree::Remove(std::span<u8> key) -> bool {
   }
 }
 
-auto BTree::Update(std::span<u8> key, std::span<const u8> payload) -> bool {
+/**
+ * @brief Atomically update the key-payload pair
+ * Return true/false whether the key exists and is updated successfully
+ *
+ * If `func` is provided, then func(previous payload) is triggered
+ */
+auto BTree::Update(std::span<u8> key, std::span<const u8> payload, const PayloadFunc &func) -> bool {
   assert((key.size() + payload.size()) <= BTreeNode::MAX_RECORD_SIZE);
 
   while (true) {
@@ -364,14 +370,15 @@ auto BTree::Update(std::span<u8> key, std::span<const u8> payload) -> bool {
         // only lock leaf
         GuardX<BTreeNode> node_locked(std::move(node));
         parent.ValidateOrRestart();
+
+        // Log previos payload, trigger func utility if provided, and remove the entry
+        if (FLAGS_wal_enable) { WalNewTuple(node_locked, WALRemove, key, curr_payload); }
+        if (func) { func(curr_payload); }
         node_locked->RemoveSlot(slot_id);
+
+        // Insert new payload and add log entry
         node_locked->InsertKeyValue(key, payload, cmp_lambda_);
-        // --------------------------------------------------------------------------
-        // WAL Insert
-        if (FLAGS_wal_enable) {
-          WalNewTuple(node_locked, WALRemove, key, curr_payload);
-          WalNewTuple(node_locked, WALInsert, key, payload);
-        }
+        if (FLAGS_wal_enable) { WalNewTuple(node_locked, WALInsert, key, payload); }
         // --------------------------------------------------------------------------
         return true;  // success
       }

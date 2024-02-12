@@ -31,7 +31,7 @@ class BTree : public KVInterface {
   auto LookUp(std::span<u8> key, const PayloadFunc &read_cb) -> bool override;
   void Insert(std::span<u8> key, std::span<const u8> payload) override;
   auto Remove(std::span<u8> key) -> bool override;
-  auto Update(std::span<u8> key, std::span<const u8> payload) -> bool override;
+  auto Update(std::span<u8> key, std::span<const u8> payload, const PayloadFunc &func) -> bool override;
   auto UpdateInPlace(std::span<u8> key, const PayloadFunc &func) -> bool override;
   void ScanAscending(std::span<u8> key, const AccessRecordFunc &fn) override;
   void ScanDescending(std::span<u8> key, const AccessRecordFunc &fn) override;

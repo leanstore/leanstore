@@ -30,15 +30,15 @@ class KVInterface {
   virtual void SetComparisonOperator(ComparisonLambda cmp) = 0;
 
   // -------------------------------------------------------------------------------------
-  virtual auto LookUp(std::span<u8> key, const PayloadFunc &read_cb) -> bool     = 0;
-  virtual void Insert(std::span<u8> key, std::span<const u8> payload)            = 0;
-  virtual auto Remove(std::span<u8> key) -> bool                                 = 0;
-  virtual auto Update(std::span<u8> key, std::span<const u8> payload) -> bool    = 0;
-  virtual auto UpdateInPlace(std::span<u8> key, const PayloadFunc &func) -> bool = 0;
-  virtual void ScanAscending(std::span<u8> key, const AccessRecordFunc &fn)      = 0;
-  virtual void ScanDescending(std::span<u8> key, const AccessRecordFunc &fn)     = 0;
-  virtual auto CountEntries() -> u64                                             = 0;
-  virtual auto SizeInMB() -> float                                               = 0;
+  virtual auto LookUp(std::span<u8> key, const PayloadFunc &read_cb) -> bool                           = 0;
+  virtual void Insert(std::span<u8> key, std::span<const u8> payload)                                  = 0;
+  virtual auto Remove(std::span<u8> key) -> bool                                                       = 0;
+  virtual auto Update(std::span<u8> key, std::span<const u8> payload, const PayloadFunc &func) -> bool = 0;
+  virtual auto UpdateInPlace(std::span<u8> key, const PayloadFunc &func) -> bool                       = 0;
+  virtual void ScanAscending(std::span<u8> key, const AccessRecordFunc &fn)                            = 0;
+  virtual void ScanDescending(std::span<u8> key, const AccessRecordFunc &fn)                           = 0;
+  virtual auto CountEntries() -> u64                                                                   = 0;
+  virtual auto SizeInMB() -> float                                                                     = 0;
 
   // -------------------------------------------------------------------------------------
   virtual auto LookUpBlob(std::span<const u8> blob_payload, const ComparisonLambda &cmp, const PayloadFunc &read_cb)

@@ -11,7 +11,7 @@
 namespace ycsb {
 
 // Supported sizes: 120 Bytes, 4KB, 100KB, 1MB, 10MB
-static constexpr uint32_t SUPPORTED_PAYLOAD_SIZE[] = {120, 4096, 102400, 1048576, 10485760};
+static constexpr uint32_t SUPPORTED_PAYLOAD_SIZE[] = {120, 4096, 102400, 1048576, 10485760, 1073741824};
 static constexpr uint32_t BLOB_NORMAL_PAYLOAD      = SUPPORTED_PAYLOAD_SIZE[0];
 static constexpr uint32_t MAX_BLOB_REPRESENT_SIZE  = leanstore::BlobState::MAX_MALLOC_SIZE;
 

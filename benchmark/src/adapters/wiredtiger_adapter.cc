@@ -266,3 +266,4 @@ template class WiredTigerAdapter<ycsb::Relation<BytesPayload<120>, 0>>;
 template class WiredTigerAdapter<ycsb::Relation<BytesPayload<4096>, 0>>;
 template class WiredTigerAdapter<ycsb::Relation<BytesPayload<102400>, 0>>;
 template class WiredTigerAdapter<ycsb::Relation<BytesPayload<10485760>, 0>>;
+template class WiredTigerAdapter<ycsb::Relation<BytesPayload<1073741824>, 0>>;

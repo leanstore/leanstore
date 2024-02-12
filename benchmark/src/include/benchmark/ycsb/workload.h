@@ -73,15 +73,15 @@ struct YCSBWorkloadNoBlobRep : public YCSBWorkloadInterface {
 
   void LoadInitialData(UInteger w_id, const tbb::blocked_range<Integer> &range) override {
     auto payload = payloads[w_id].get();
-    auto record  = *reinterpret_cast<YCSBRelation *>(payload);
+    auto record  = reinterpret_cast<YCSBRelation *>(payload);
 
     for (auto key = range.begin(); key < range.end(); key++) {
       // Generate key-value
-      auto r_key            = YCSBKey{static_cast<UInteger>(key)};
-      auto payload_sz       = YCSBWorkloadInterface::PayloadSize();
-      record.payload.length = payload_sz;
-      RandomGenerator::GetRandRepetitiveString(reinterpret_cast<uint8_t *>(record.payload.data), 100UL, payload_sz);
-      relation.Insert({r_key}, record);
+      auto r_key             = YCSBKey{static_cast<UInteger>(key)};
+      auto payload_sz        = YCSBWorkloadInterface::PayloadSize();
+      record->payload.length = payload_sz;
+      RandomGenerator::GetRandRepetitiveString(reinterpret_cast<uint8_t *>(record->payload.data), 100UL, payload_sz);
+      relation.Insert({r_key}, *record);
     }
   }
 
@@ -198,38 +198,41 @@ struct YCSBWorkload : public YCSBWorkloadInterface {
       return;
     }
 
-    // Read Blob Rep
-    auto found = relation.LookUp({access_key}, [&](const YCSBRelation &rec) {
-      blob_rep_size = rec.PayloadSize();
-      std::memcpy(blob_rep, const_cast<YCSBRelation &>(rec).my_payload.Data(), rec.PayloadSize());
-    });
-    if (found) {
-      if (is_read_txn) {
-        // Read Blob data using Blob Rep
-        relation.LoadBlob(
-          blob_rep,
-          [&](std::span<const u8> blob_data) {
-            Ensure((blob_data.size() >= FLAGS_ycsb_payload_size) && (blob_data.size() <= FLAGS_ycsb_max_payload_size));
-            std::memcpy(payload, blob_data.data(), blob_data.size());
-          },
-          false);
-      } else {
-        // If is a write txn, update the content
-        auto payload_sz = YCSBWorkloadInterface::PayloadSize();
-        RandomGenerator::GetRandRepetitiveString(payload, 100UL, payload_sz);
-        auto new_blob_rep = relation.RegisterBlob({payloads[w_id].get(), payload_sz}, {}, false);
-        // UpdateInPlace() is slightly cheaper than Update()/UpdateRawPayload(),
-        //  but only works when payload size doesn't change
-        if (new_blob_rep.size() == blob_rep_size) [[likely]] {
-          relation.UpdateInPlace({access_key}, [&](YCSBRelation &rec) {
-            std::memcpy(rec.my_payload.Data(), new_blob_rep.data(), new_blob_rep.size());
-          });
-        } else {
-          relation.UpdateRawPayload({access_key}, new_blob_rep);
-        }
+    if (is_read_txn) {
+      // Read Blob Rep
+      auto found = relation.LookUp({access_key}, [&](const YCSBRelation &rec) {
+        blob_rep_size = rec.PayloadSize();
+        std::memcpy(blob_rep, const_cast<YCSBRelation &>(rec).my_payload.Data(), rec.PayloadSize());
+      });
+      Ensure(found);
+      // Read Blob data using Blob Rep
+      relation.LoadBlob(
+        blob_rep,
+        [&](std::span<const u8> blob_data) {
+          Ensure((blob_data.size() >= FLAGS_ycsb_payload_size) && (blob_data.size() <= FLAGS_ycsb_max_payload_size));
+          std::memcpy(payload, blob_data.data(), blob_data.size());
+        },
+        false);
+    } else {
+      // Generate a new random BLOB
+      auto payload_sz = YCSBWorkloadInterface::PayloadSize();
+      RandomGenerator::GetRandRepetitiveString(payload, 128UL, payload_sz);
+      auto new_blob_rep = relation.RegisterBlob({payloads[w_id].get(), payload_sz}, {}, false);
 
-        relation.RemoveBlob(blob_rep);
+      // UpdateInPlace() is slightly cheaper than Update()/UpdateRawPayload(),
+      //  but only works when payload size doesn't change
+      if (new_blob_rep.size() == blob_rep_size) [[likely]] {
+        relation.UpdateInPlace({access_key}, [&](YCSBRelation &rec) {
+          std::memcpy(blob_rep, const_cast<YCSBRelation &>(rec).my_payload.Data(), rec.PayloadSize());
+          std::memcpy(rec.my_payload.Data(), new_blob_rep.data(), new_blob_rep.size());
+        });
+      } else {
+        relation.UpdateRawPayload({access_key}, new_blob_rep, [&](const YCSBRelation &prev) {
+          std::memcpy(blob_rep, const_cast<YCSBRelation &>(prev).my_payload.Data(), prev.PayloadSize());
+        });
       }
+
+      relation.RemoveBlob(blob_rep);
     }
   }
 };

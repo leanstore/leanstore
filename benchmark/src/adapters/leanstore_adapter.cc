@@ -78,15 +78,17 @@ template <class RecordBase>
 void LeanStoreAdapter<RecordBase>::Update(const typename RecordBase::Key &r_key, const RecordBase &record) {
   u8 key[RecordBase::MaxFoldLength()];
   auto len = RecordBase::FoldKey(key, r_key);
-  tree_->Update({key, len}, {reinterpret_cast<const u8 *>(&record), record.PayloadSize()});
+  tree_->Update({key, len}, {reinterpret_cast<const u8 *>(&record), record.PayloadSize()}, {});
 }
 
 template <class RecordBase>
-void LeanStoreAdapter<RecordBase>::UpdateRawPayload(const typename RecordBase::Key &r_key, std::span<const u8> record) {
+void LeanStoreAdapter<RecordBase>::UpdateRawPayload(const typename RecordBase::Key &r_key, std::span<const u8> record,
+                                                    const typename Adapter<RecordBase>::AccessRecordFunc &fn) {
   Ensure(record.size() == reinterpret_cast<const RecordBase *>(record.data())->PayloadSize());
   u8 key[RecordBase::MaxFoldLength()];
   auto len = RecordBase::FoldKey(key, r_key);
-  tree_->Update({key, len}, record);
+  tree_->Update({key, len}, record,
+                [&](std::span<u8> payload) { fn(*reinterpret_cast<RecordBase *>(payload.data())); });
 }
 
 template <class RecordBase>

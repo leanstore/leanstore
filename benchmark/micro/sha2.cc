@@ -1,3 +1,4 @@
+#include "common/sha256.h"
 #include "storage/blob/blob_state.h"
 
 #include "benchmark/benchmark.h"
@@ -5,9 +6,7 @@
 #include "gcrypt.h"
 #include "openssl/evp.h"
 #include "prototype/git_sha256.h"
-#include "prototype/random_sha256.h"
 #include "share_headers/logger.h"
-#include "share_headers/picosha2.h"
 
 #include <iostream>
 
@@ -22,10 +21,6 @@
  *
  * IsaCrypto's SHA is slower than this SHA2 SIMD, about 35%
  * https://github.com/intel/isa-l_crypto
- *
- * PicoSHA 256
- * https://github.com/okdshin/PicoSHA2
- * Non-SIMD + extra memcpy() + malloc() -> Support slow
  *
  * Random SHA retrieved from the Internet
  * https://www.officedaytime.com/simd512e/simdimg/sha256.html
@@ -50,19 +45,10 @@ static void BM_SHA2SIMD(benchmark::State &state) {
   state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * static_cast<int64_t>(state.range(0)));
 }
 
-static void BM_PicoSHA(benchmark::State &state) {
-  std::array<uint8_t, SHA256_DIGEST_SIZE> sha2_val;
-  uint8_t data[state.range(0)]     = {0};
-  std::span<const uint8_t> payload = {data, static_cast<size_t>(state.range(0))};
-
-  for (auto _ : state) { picosha2::hash256(payload.begin(), payload.end(), sha2_val); }
-  state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * static_cast<int64_t>(state.range(0)));
-}
-
 static void BM_RandomSHA(benchmark::State &state) {
   std::array<uint8_t, SHA256_DIGEST_SIZE> sha2_val;
   uint8_t data[state.range(0)] = {0};
-  SHA256H msg;
+  leanstore::SHA256H msg;
 
   for (auto _ : state) {
     msg.Update(data, static_cast<size_t>(state.range(0)));
@@ -112,7 +98,6 @@ static void BM_GcryptSHA(benchmark::State &state) {
 }
 
 BENCHMARK(BM_SHA2SIMD)->Range(64, 64 << 10);
-BENCHMARK(BM_PicoSHA)->Range(64, 64 << 10);
 BENCHMARK(BM_RandomSHA)->Range(64, 64 << 10);
 BENCHMARK(BM_OpenSSL)->Range(64, 64 << 10);
 BENCHMARK(BM_GitSHA)->Range(64, 64 << 10);

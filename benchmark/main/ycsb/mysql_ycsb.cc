@@ -34,7 +34,7 @@ auto main(int argc, char **argv) -> int {
     stmt->execute(fmt::format("CREATE TABLE YCSB_TABLE (my_key INTEGER PRIMARY KEY, my_payload VARCHAR({}));",
                               FLAGS_ycsb_max_payload_size));
   } else {
-    stmt->execute("CREATE TABLE YCSB_TABLE (my_key INTEGER PRIMARY KEY, my_payload MEDIUMBLOB);");
+    stmt->execute("CREATE TABLE YCSB_TABLE (my_key INTEGER PRIMARY KEY, my_payload LONGBLOB);");
   }
   stmt->execute("ALTER TABLE YCSB_TABLE COMPRESSION='None';");
   db->CommitTransaction();

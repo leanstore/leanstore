@@ -1,7 +1,18 @@
-﻿---
-BasedOnStyle: Chromium
-BreakBeforeBraces: Linux
-SpaceInEmptyParentheses: 'false'
-ColumnLimit: 150
-IndentWidth: 3
-...
+BasedOnStyle: Google
+DerivePointerAlignment: false
+PointerAlignment: Right
+UseTab: Never
+ColumnLimit: 120
+IndentWidth: 2
+ContinuationIndentWidth: 2
+
+IncludeBlocks: Preserve
+AlignConsecutiveAssignments: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortBlocksOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+SeparateDefinitionBlocks: Always
+SortIncludes: CaseSensitive

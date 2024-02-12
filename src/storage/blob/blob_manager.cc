@@ -35,17 +35,17 @@ namespace leanstore::storage::blob {
     Ensure(pid == (blob)->extents.special_blk.start_pid + (blob)->extents.special_blk.page_cnt); \
   })
 
-#define SHA2_CALC_LP(extent)                                                                               \
-  ({                                                                                                       \
-    auto remaining_bytes = std::min(out_blob->blob_size - offset, (extent).page_cnt * PAGE_SIZE);          \
-    if (FLAGS_blob_normal_buffer_pool) {                                                                   \
-      buffer_->ChunkOperation((extent).start_pid, remaining_bytes, [&](u64, std::span<u8> page) {          \
-        EVP_DigestUpdate(BlobState::sha_context.get(), page.data(), page.size());                          \
-      });                                                                                                  \
-    } else {                                                                                               \
-      EVP_DigestUpdate(BlobState::sha_context.get(), buffer_->ToPtr((extent).start_pid), remaining_bytes); \
-    }                                                                                                      \
-    offset += remaining_bytes;                                                                             \
+#define SHA2_CALC_LP(extent)                                                                      \
+  ({                                                                                              \
+    auto remaining_bytes = std::min(out_blob->blob_size - offset, (extent).page_cnt * PAGE_SIZE); \
+    if (FLAGS_blob_normal_buffer_pool) {                                                          \
+      buffer_->ChunkOperation((extent).start_pid, remaining_bytes, [&](u64, std::span<u8> page) { \
+        BlobState::sha_context.Update(page.data(), page.size());                                  \
+      });                                                                                         \
+    } else {                                                                                      \
+      BlobState::sha_context.Update(buffer_->ToPtr((extent).start_pid), remaining_bytes);         \
+    }                                                                                             \
+    offset += remaining_bytes;                                                                    \
   })
 
 /**
@@ -73,8 +73,7 @@ namespace leanstore::storage::blob {
     buffer_->PrepareExtentEviction((out_blob)->extents.extent_pid[(ext_id)]);                                 \
   })
 
-thread_local std::unique_ptr<EVP_MD_CTX, EvlDeleter> BlobState::sha_context =
-  std::unique_ptr<EVP_MD_CTX, EvlDeleter>{EVP_MD_CTX_create()};
+thread_local SHA256H BlobState::sha_context      = {};
 thread_local BlobState *BlobManager::active_blob = nullptr;
 thread_local roaring::Roaring64Map BlobManager::extent_loaded{};
 thread_local std::array<u8, BlobState::MallocSize(ExtentList::EXTENT_CNT_MASK)> BlobManager::blob_handler_storage;
@@ -114,15 +113,19 @@ PageAliasGuard::PageAliasGuard(buffer::BufferManager *buffer, const BlobState &b
   u64 alias_size = 0;
   size_t idx     = 0;
   for (; (idx < blob.extents.NumberOfExtents()) && (alias_size < required_load_size); idx++) {
-    auto pg_cnt                                               = ExtentList::ExtentSize(idx);
+    auto pg_cnt = ExtentList::ExtentSize(idx);
+    assert(pg_cnt <= EXMAP_PAGE_MAX_PAGES);
     buffer->exmap_interface_[worker_thread_id]->iov[idx].page = blob.extents.extent_pid[idx];
     buffer->exmap_interface_[worker_thread_id]->iov[idx].len  = pg_cnt;
+    assert(buffer->exmap_interface_[worker_thread_id]->iov[idx].len == pg_cnt);
     alias_size += pg_cnt * PAGE_SIZE;
   }
   if (blob.extents.special_blk.in_used && alias_size < required_load_size) {
-    Ensure(idx++ == blob.extents.NumberOfExtents());
+    idx++;
+    assert(blob.extents.special_blk.page_cnt <= EXMAP_PAGE_MAX_PAGES);
     buffer->exmap_interface_[worker_thread_id]->iov[idx - 1].page = blob.extents.special_blk.start_pid;
     buffer->exmap_interface_[worker_thread_id]->iov[idx - 1].len  = blob.extents.special_blk.page_cnt;
+    assert(buffer->exmap_interface_[worker_thread_id]->iov[idx - 1].page == blob.extents.special_blk.start_pid);
     alias_size += blob.extents.special_blk.page_cnt * PAGE_SIZE;
   }
   Ensure(alias_size >= required_load_size);
@@ -441,7 +444,7 @@ auto BlobManager::AllocateBlob(std::span<const u8> payload, const BlobState *pre
   }
 
   // Calculate SHA-256 value for the Blob Handler
-  EVP_DigestInit_ex(BlobState::sha_context.get(), EVP_sha256(), nullptr);
+  BlobState::sha_context.Initialize();
   auto offset = 0UL;
   for (auto &extent : out_blob->extents) { SHA2_CALC_LP(extent); }
   if (offset < out_blob->blob_size) {
@@ -449,7 +452,8 @@ auto BlobManager::AllocateBlob(std::span<const u8> payload, const BlobState *pre
     Ensure(out_blob->extents.special_blk.in_used);
     SHA2_CALC_LP(out_blob->extents.special_blk);
   }
-  EVP_DigestFinal_ex(BlobState::sha_context.get(), out_blob->sha2_val, nullptr);
+  BlobState::sha_context.Serialize(&out_blob->sha256_intermediate[0]);
+  BlobState::sha_context.Final(out_blob->sha2_val);
 
   return out_blob;
 }

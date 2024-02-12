@@ -1,9 +1,9 @@
 #pragma once
 
 #include "common/constants.h"
+#include "common/sha256.h"
 #include "storage/extent/extent_list.h"
 
-#include "openssl/evp.h"
 #include "share_headers/db_types.h"
 #include "share_headers/logger.h"
 
@@ -14,11 +14,6 @@
 #include <span>
 
 namespace leanstore::storage::blob {
-
-/** Helper deleter for EVP_MD_CTX */
-struct EvlDeleter {
-  void operator()(EVP_MD_CTX *ptr) const { EVP_MD_CTX_destroy(ptr); }
-};
 
 /**
  * @brief The data struct to be stored within DB tuple, which refers to the Blob
@@ -40,15 +35,18 @@ struct EvlDeleter {
  */
 struct BlobState {
   static constexpr uint8_t PREFIX_LENGTH         = 32;
-  static constexpr uint16_t MIN_MALLOC_SIZE      = 84UL;    // MallocSize(0)
-  static constexpr uint16_t MAX_MALLOC_SIZE      = 1100UL;  // MallocSize(ExtentList::EXTENT_CNT_MASK)
+  static constexpr uint16_t MIN_MALLOC_SIZE      = 120UL;   // MallocSize(0)
+  static constexpr uint16_t MAX_MALLOC_SIZE      = 1136UL;  // MallocSize(ExtentList::EXTENT_CNT_MASK)
   static constexpr uint16_t SHA256_DIGEST_LENGTH = 32;
-  static thread_local std::unique_ptr<EVP_MD_CTX, EvlDeleter> sha_context;
+  static thread_local SHA256H sha_context;
 
   // Having `blob_prefix` as the 1st property eases B-Tree impl
   uint8_t blob_prefix[PREFIX_LENGTH] = {0};      // Prefix of the BLOB for ordered/range operators
   uint64_t blob_size;                            // Size of this blob in bytes
   uint8_t sha2_val[SHA256_DIGEST_LENGTH] = {0};  // SHA-2 value, used for hash operators
+
+  // Intermediate SHA value for resumable SHA-256 calculation
+  uint64_t sha256_intermediate[4];
 
   // Information about Blob physical content
   ExtentList extents;
@@ -80,9 +78,9 @@ struct BlobState {
   }
 
   static void CalculateSHA256(uint8_t *sha2_digest, std::span<const uint8_t> payload) {
-    EVP_DigestInit_ex(sha_context.get(), EVP_sha256(), nullptr);
-    EVP_DigestUpdate(sha_context.get(), payload.data(), payload.size());
-    EVP_DigestFinal_ex(sha_context.get(), sha2_digest, nullptr);
+    sha_context.Initialize();
+    sha_context.Update(payload.data(), payload.size());
+    sha_context.Final(sha2_digest);
   }
 
   // -------------------------------------------------------------------------------------
@@ -95,11 +93,10 @@ struct BlobState {
   }
 
   void CalculateSHA256(std::span<const uint8_t> payload) {
-    EVP_DigestInit_ex(sha_context.get(), EVP_sha256(), nullptr);
-    EVP_DigestUpdate(sha_context.get(), payload.data(), payload.size());
-    EVP_DigestFinal_ex(sha_context.get(), sha2_val, nullptr);
+    CalculateSHA256(sha2_val, payload);
+    sha_context.Serialize(&sha256_intermediate[0]);
   }
-} __attribute__((packed));
+};
 
 struct BlobLookupKey {
   std::span<const u8> blob;

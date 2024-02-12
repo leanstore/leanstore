@@ -37,7 +37,8 @@ struct LeanStoreAdapter : Adapter<RecordBase> {
   void Insert(const typename RecordBase::Key &r_key, const RecordBase &record) override;
   void InsertRawPayload(const typename RecordBase::Key &r_key, std::span<const u8> record);
   void Update(const typename RecordBase::Key &r_key, const RecordBase &record) override;
-  void UpdateRawPayload(const typename RecordBase::Key &r_key, std::span<const u8> record);
+  void UpdateRawPayload(const typename RecordBase::Key &r_key, std::span<const u8> record,
+                        const typename Adapter<RecordBase>::AccessRecordFunc &fn);
   auto LookUp(const typename RecordBase::Key &r_key, const typename Adapter<RecordBase>::AccessRecordFunc &fn)
     -> bool override;
   void UpdateInPlace(const typename RecordBase::Key &r_key,

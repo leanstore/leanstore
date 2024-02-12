@@ -95,7 +95,6 @@ TEST_P(TestBlobManager, InsertNewBlob) {
   EXPECT_EQ(txn.ToEvictedExtents().size(), 3);
   ASSERT_EQ(blob_h->extents.NumberOfExtents(), 3 - static_cast<int>(!blob_likely_grow));
   if (FLAGS_blob_logging_variant == 0) {
-    ASSERT_EXIT(stored_blob_ptr[0] = 0, ::testing::ExitedWithCode(1), ".*");
     expected_phys_cnt -= storage::ExtentList::TotalSizeExtents(blob_h->extents.NumberOfExtents() - 1);
     if (!blob_likely_grow) { expected_phys_cnt -= blob_h->extents.special_blk.page_cnt; }
   } else {

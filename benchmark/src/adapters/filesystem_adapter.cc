@@ -285,6 +285,7 @@ template class FilesystemAdapter<benchmark::FileRelation<0, 4096>>;
 template class FilesystemAdapter<benchmark::FileRelation<0, 102400>>;
 template class FilesystemAdapter<benchmark::FileRelation<0, 1048576>>;
 template class FilesystemAdapter<benchmark::FileRelation<0, 10485760>>;
+template class FilesystemAdapter<benchmark::FileRelation<0, 1073741824>>;
 
 // For Wikipedia Read-Only workload
 template class FilesystemAdapter<wiki::FileRelation>;

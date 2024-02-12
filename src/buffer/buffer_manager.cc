@@ -292,6 +292,7 @@ void BufferManager::EnsureFreePages() {
 void BufferManager::ExmapAlloc(pageid_t pid, size_t mem_alloc_sz) {
   // TODO(Duy): Support ExmapAlloc with `mem_alloc_sz > EXMAP_PAGE_MAX_PAGES * EXMAP_USER_INTERFACE_PAGES`
   int idx = 0;
+  Ensure(mem_alloc_sz <= EXMAP_PAGE_MAX_PAGES * EXMAP_USER_INTERFACE_PAGES);
   for (; mem_alloc_sz > 0; idx++) {
     auto alloc_sz = std::min(static_cast<size_t>(EXMAP_PAGE_MAX_PAGES - 1), mem_alloc_sz);
     exmap_interface_[worker_thread_id]->iov[idx].page = pid;

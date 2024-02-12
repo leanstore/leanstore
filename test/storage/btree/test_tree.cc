@@ -121,7 +121,7 @@ TEST_F(TestBTree, UpdateAndQuery) {
     std::span key{reinterpret_cast<u8 *>(&ordered_key), sizeof(int)};
     std::span payload{reinterpret_cast<u8 *>(&idx), sizeof(int)};
 
-    auto success = tree_->Update(key, payload);
+    auto success = tree_->Update(key, payload, {});
     ASSERT_TRUE(success);
 
     auto found = tree_->LookUp(key, [&payload](std::span<u8> found_payload) {
