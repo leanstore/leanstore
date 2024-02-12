@@ -73,7 +73,7 @@ struct JobOptions {
    int iodepth_batch_complete_max = 0;
    int bs = 4096;
    int io_alignment = 0;
-   int64_t io_size = filesize; // neg value means no restrictions
+   int64_t io_size = filesize; // 0 means no restrictions
    float writePercent = 0; // 0.0 - 1.0
    float requestsPerSecond = 0;
    int threads = 1;
@@ -121,7 +121,7 @@ struct JobOptions {
 
    int64_t io_operations() const {
       if (io_size < 0) {
-         return -1;
+         return 0;
       }
       return io_size / bs;
    }
@@ -129,7 +129,7 @@ struct JobOptions {
    std::string print() const {
       std::ostringstream ss;
       ss << "filesize: " << filesize/(float)GIBI << " GB";
-      ss << ", io_size: " << io_size/(float)GIBI << " GB";
+      ss << ", io_size: " << (io_size > 0 ? io_size/(float)GIBI : -1) << " GB";
       ss << ", bs: " << bs;
       ss << ", io_align: " << io_alignment;
       ss << ", totalBlocks: " << totalBlocks();
@@ -386,13 +386,7 @@ public:
    }
 
    int runIo() {
-      // setup I/O control block
       uint64_t countGets = 0;
-      //uint64_t lastOps = 0;
-      //uint64_t lastReads = 0;
-      //uint64_t lastWrites = 0;
-      //uint64_t lastFdatasync = 0;
-
       //std::cout << options.name << " ready: ops:" <<  ops << " bs: " << options.bs << std::endl;
 
       getSeconds();
@@ -495,7 +489,6 @@ public:
            NvmeLog nvmeLog;
            nvmeLog.loadOCPSmartLog();
 
-
             if (options.printEverySecond) {
                std::stringstream ss;
                if (stats.seconds == 1) {
@@ -524,8 +517,9 @@ public:
                ss << " sh: ";
                stats.fdatasyncHistEverySecond.writePercentiles(ss);
                */
-               std::cout << ss.str() << std::endl;;
+               ss << std::endl;
                //options.statsWriter->write(ss.str());
+               std::cout << ss.str();
             }
 
             // TODO rather expensive.
@@ -540,7 +534,6 @@ public:
             //*/
          }
       }
-      std::cout << std::endl;
       stats.time = (getSeconds() - start);
 
       // done. get the remaining events.
@@ -548,9 +541,11 @@ public:
          ioChannel.submit();
          polled += ioChannel.poll();
       }
-      ioChannel.printCounters(std::cout);
+      std::stringstream ss;
+      ioChannel.printCounters(ss);
+      ss << endl;
+      cout << ss.str() << std::flush;
 
-      // 
       return 0;
    }
 

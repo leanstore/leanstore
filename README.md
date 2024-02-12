@@ -6,7 +6,7 @@
 
 Install dependencies:
 
-`apt install cmake libtbb2-dev libaio-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev librocksdb-dev liblmdb-dev libwiredtiger-dev liburing-dev libboost-context-dev libnvme-dev`
+`apt install cmake libtbb2-dev libaio-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev librocksdb-dev liblmdb-dev libwiredtiger-dev liburing-dev`
 
 `mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make -j`
 
@@ -24,7 +24,7 @@ To use multiple SSDs you can use semicolon to separate them, LeanStore will stri
 
 ## SPDK
 
-You will have to install SPDK dependencies and setup the SSDs (i.e.: build/vendor/spdk/src/spdk-ext/scripts/setup.sh), see the [SPDK documentation](https://spdk.io/doc/getting_started.html) to get started with it.
+You will have to install SPDK dependencies, see SPDK documentation to get started with it.
 
 Compile with SPDK:
 
@@ -54,3 +54,11 @@ The code in this branch we used for our [VLDB 2023 paper](https://www.vldb.org/p
 }
 ```
 
+
+## I/O Benchmarking Tool
+
+`make iob`
+
+Example (careful, this will WRITE to your block devices):
+
+`FILENAME="/blk/k0;/blk/k1;/blk/k2;/blk/k3;/blk/k4;/blk/k5;/blk/k6;/blk/k7" IOENGINE=libaio INIT=auto FILESIZE="1000G" IO_SIZE="100G" RUNTIME=10 IO_DEPTH=128 BS="4K" THREADS=8 RW=0 IOUPOLL=1 IOUPT=0 frontend/iob`

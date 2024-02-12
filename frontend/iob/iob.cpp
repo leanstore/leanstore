@@ -60,7 +60,7 @@ static void initializeSSDIfNecessary(long maxPage, long bufSize, std::string ini
          initOptions.io_size = iniOps*initBufSize;
          initOptions.writePercent = 1;
          initOptions.iodepth = iodepth;
-         initOptions.printEverySecond = true;
+         initOptions.printEverySecond = false;
          RequestGenerator init("", initOptions, IoInterface::instance().getIoChannel(0), 0);
          init.runIo();
          std::cout << std::endl;
@@ -126,7 +126,7 @@ int main(int , char** ) {
    int writeFreqDist = getEnv("WF_ON", 0);
 
    if (runtimeLimit > 0) {
-      ioSize = -1;
+      ioSize = 0;
    }
 
    std::cout << "FILENAME: " << filename << std::endl;
@@ -162,7 +162,7 @@ int main(int , char** ) {
    jobOptions.io_size = ioSize;
    jobOptions.writePercent = writePercent;
    jobOptions.threads = threads;
-   jobOptions.printEverySecond = true;
+   jobOptions.printEverySecond = false;
 
    jobOptions.writeFreqDist = writeFreqDist;
    //jobOptions.writeFrequencyAreaSize = writeFrequencyAreaSize;
@@ -174,6 +174,7 @@ int main(int , char** ) {
       jobOptions.name = "gen " + std::to_string(thr);
       threadVec.emplace_back(std::move(std::make_unique<RequestGeneratorThread>(jobOptions, thr)));
    }
+   std::cout << "run" << endl;
    std::this_thread::sleep_for(std::chrono::milliseconds(1));
    for (auto& t: threadVec) {
       t->start();
@@ -181,6 +182,7 @@ int main(int , char** ) {
 
    long maxRead = 0;
    if (runtimeLimit > 0) {
+      cout << "runtime: " << runtimeLimit << " s" << endl;
       auto start = getSeconds();
       std::this_thread::sleep_for(std::chrono::seconds(1));
       for (int time = 1; time < runtimeLimit; time++) {
@@ -223,6 +225,10 @@ int main(int , char** ) {
    float totalTime = 0;
    for (auto& t: threadVec) {
       t->join();
+   }
+   for (int i = 0; i < threadVec.size(); i++) {
+      cout << "thread " << i << endl;
+      auto& t = threadVec[i];
       t->gen.stats.printStats(std::cout);
       reads += t->gen.stats.reads;
       writes += t->gen.stats.writes;
@@ -236,7 +242,6 @@ int main(int , char** ) {
       rTotalTime += t->gen.stats.readTotalTime;
       wTotalTime += t->gen.stats.writeTotalTime;
       t->gen.stats.dumpIoTrace(dump, std::to_string(jobOptions.iodepth) + "," + std::to_string(jobOptions.bs) + "," + std::to_string(jobOptions.io_alignment) + ",");
-      std::cout << std::endl;
    }
    totalTime /= threads;
    r50p /= threads; r99p /= threads; r99p9 /= threads;
@@ -247,13 +252,15 @@ int main(int , char** ) {
    dump << reads/totalTime << "," << writes/totalTime << "," << reads/totalTime*bufSize/MEBI << "," << writes/totalTime *bufSize/MEBI<< ",";
    dump <<  std::setprecision(6) << (float)reads/rTotalTime*1e6 << "," << (float)writes/wTotalTime*1e6 << "," << r50p << "," << r99p << ","<< r99p9 << ","<< w50p << ","<< w99p << ","<< w99p9 << "," << std::endl;
    dump.close();
+
    std::cout << "summary ";
    std::cout << std::setprecision(4);
-   std::cout <<  "[Miops] total: " << (reads+writes)/totalTime/MEGA; 
-   std::cout << " reads: " << reads/totalTime/MEGA << " write: " << writes/totalTime/MEGA;
-   std::cout << " [GiB/s] total: " << (reads+writes)/totalTime*bufSize/GIBI << " GiB/s";
-   std::cout << " reads: " << reads/totalTime*bufSize/GIBI << " write: " << writes/totalTime *bufSize/GIBI;
-   std::cout << " max read: " << maxRead/1e6 << "M" << std::endl;
+   std::cout <<  "total: " << (reads+writes)/totalTime/MEGA << " MIOPS"; 
+   std::cout << " (reads: " << reads/totalTime/MEGA << " write: " << writes/totalTime/MEGA << ")";
+   std::cout << " total: " << (reads+writes)/totalTime*bufSize/GIBI << " GiB/s";
+   std::cout << " (reads: " << reads/totalTime*bufSize/GIBI << " write: " << writes/totalTime *bufSize/GIBI << ")";
+   if (maxRead > 0) {std::cout << " max read: " << maxRead/1e6 << "M"; };
+   std::cout << std::endl;
 
 
    std::this_thread::sleep_for(std::chrono::seconds(1));

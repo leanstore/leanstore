@@ -54,6 +54,7 @@ enum {
 };
 
 class NvmeLog {
+   bool ocpSupported = false;
    std::array<uint8_t, sizeof(__u8) * C0_SMART_CLOUD_ATTR_LEN> log_data;
 
    uint64_t toBigEndian(uint64_t value) {
@@ -72,10 +73,10 @@ public:
    void loadOCPSmartLog() {
       int fd = IoInterface::instance().getDeviceInfo().devices[0].fd;
       int ret = nvme_get_log_simple(fd, (nvme_cmd_get_log_lid)C0_SMART_CLOUD_ATTR_OPCODE, C0_SMART_CLOUD_ATTR_LEN, &log_data);
-      //ensure(ret == 0); // ocp not supported
+      ocpSupported = (ret == 0); // ocp not supported
    }
    uint64_t physicalMediaUnitsWrittenBytes() {
-      ensure(toBigEndian(*(uint64_t *)&log_data[SCAO_PMUW + 8] & 0xFFFFFFFFFFFFFFFF) == 0);
+      ensure(!ocpSupported || toBigEndian(*(uint64_t *)&log_data[SCAO_PMUW + 8] & 0xFFFFFFFFFFFFFFFF) == 0);
       return (toBigEndian(*(uint64_t *)&log_data[SCAO_PMUW] & 0xFFFFFFFFFFFFFFFF));
    }
    uint64_t physicalMediaUnitsReadBytes() {
