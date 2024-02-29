@@ -28,7 +28,7 @@ A table is a B-Tree index where keys and values are stored in a normalized forma
 For convenience, frontend/shared offers templates that take care of (un)folding common types.
 The best starting points are frontend/minimal-example and frontend/ycsb.
 The required parameters at runtime are: `--ssd_path=/block_device/or/filesystem --dram_gib=fixed_in_gib`.
-The default tranasction isolation level is `--isolation_level=si`. You can lower it to Read Committed or Read Uncommitted by replaced `si` with `rc` or `ru` respectively.
+The default transaction isolation level is `--isolation_level=si`. You can lower it to Read Committed or Read Uncommitted by replaced `si` with `rc` or `ru` respectively.
 You can set the transaction isolation level using `--isolation_level=si` and enable the B-Tree techniques from CIDR202 with `--contention_split --xmerge`.
 
 ### Metrics Reporting
@@ -36,10 +36,10 @@ LeanStore emits several metrics per second in CSV files: `log_bm.csv, log_config
 Each row has a c_hash value, which is calculated by chaining and hashing all the configurations that you passed to the binary at runtime.
 This gives you an easy way to identify your run and join all relevant information from the different CSV files using SQLite, for example."
 
-## Implemented Featuers
+## Implemented Features
 
 - [x] Lightweight buffer manager with pointer swizzling [ICDE18]
-- [x] Optimstic Lock Coupling with Hybrid Page Guard to synchronize paged data structures [IEEE19]
+- [x] Optimistic Lock Coupling with Hybrid Page Guard to synchronize paged data structures [IEEE19]
 - [x] Contention and Space Management in B-Trees [CIDR21]
 - [x] Variable-length key/values B-Tree with prefix compression and hints  [BTW23]
 - [x] Scalable and robust out-of-memory Snapshot Isolation (OSIC protocol, Graveyard and FatTuple) [VLDB23]
