@@ -376,8 +376,6 @@ void LeanStore::persist(string key, string value){
       persist_values.insert({key, value});
    }
    persist_values[key] = value;
-
-   persist_values[key] = value;
 }
 string LeanStore::recover(string key, string default_value){
    if(persist_values.find(key) == persist_values.end()){
