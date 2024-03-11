@@ -19,7 +19,7 @@ std::atomic<u64> CRManager::g_ssd_offset = 0;
 CRManager::CRManager(HistoryTreeInterface& versions_space, s32 ssd_fd, u64 end_of_block_device)
     : ssd_fd(ssd_fd), end_of_block_device(end_of_block_device), versions_space(versions_space)
 {
-   workers_count = FLAGS_worker_threads;
+   workers_count = std::max(FLAGS_worker_threads, FLAGS_creator_threads);
    g_ssd_offset = end_of_block_device;
    ensure(workers_count < MAX_WORKER_THREADS);
    // -------------------------------------------------------------------------------------

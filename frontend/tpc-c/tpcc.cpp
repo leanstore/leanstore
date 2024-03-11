@@ -37,7 +37,6 @@ DEFINE_uint64(ch_a_start_delay_sec, 0, "");
 DEFINE_uint64(ch_a_process_delay_sec, 0, "");
 DEFINE_bool(ch_a_infinite, false, "");
 DEFINE_bool(ch_a_once, false, "");
-DEFINE_uint32(tpcc_threads, 0, "");
 // -------------------------------------------------------------------------------------
 using namespace std;
 using namespace leanstore;
@@ -84,7 +83,6 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    db.registerConfigEntry("tpcc_warehouse_count", FLAGS_tpcc_warehouse_count);
    db.registerConfigEntry("tpcc_warehouse_affinity", FLAGS_tpcc_warehouse_affinity);
-   db.registerConfigEntry("tpcc_threads", FLAGS_tpcc_threads);
    db.registerConfigEntry("ch_a_threads", FLAGS_ch_a_threads);
    db.registerConfigEntry("ch_a_rounds", FLAGS_ch_a_rounds);
    db.registerConfigEntry("ch_a_query", FLAGS_ch_a_query);
@@ -108,7 +106,7 @@ int main(int argc, char** argv)
          cr::Worker::my().commitTX();
       });
       std::atomic<u32> g_w_id = 1;
-      for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+      for (u32 t_i = 0; t_i < FLAGS_creator_threads; t_i++) {
          crm.scheduleJobAsync(t_i, [&]() {
             while (true) {
                u32 w_id = g_w_id++;
@@ -137,7 +135,7 @@ int main(int argc, char** argv)
             cr::Worker::my().commitTX();
          });
          g_w_id = 1;
-         for (u32 t_i = 0; t_i < FLAGS_worker_threads; t_i++) {
+         for (u32 t_i = 0; t_i < FLAGS_creator_threads; t_i++) {
             crm.scheduleJobAsync(t_i, [&]() {
                while (true) {
                   u32 w_id = g_w_id++;
@@ -166,8 +164,7 @@ int main(int argc, char** argv)
       db.startProfilingThread();
       u64 tx_per_thread[FLAGS_worker_threads];
       // -------------------------------------------------------------------------------------
-      const u32 exec_threads = FLAGS_tpcc_threads ? FLAGS_tpcc_threads : FLAGS_worker_threads;
-      for (u64 t_i = exec_threads - FLAGS_ch_a_threads; t_i < exec_threads; t_i++) {
+      for (u64 t_i = FLAGS_worker_threads - FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
          crm.scheduleJobAsync(t_i, [&, t_i]() {
             running_threads_counter++;
             prepareWorker(db);
@@ -226,7 +223,7 @@ int main(int argc, char** argv)
          });
       }
       // -------------------------------------------------------------------------------------
-      for (u64 t_i = 0; t_i < exec_threads - FLAGS_ch_a_threads; t_i++) {
+      for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_ch_a_threads; t_i++) {
          crm.scheduleJobAsync(t_i, [&, t_i]() {
             running_threads_counter++;
             prepareWorker(db);
@@ -305,14 +302,14 @@ int main(int argc, char** argv)
       cout << endl;
       {
          u64 total = 0;
-         for (u64 t_i = 0; t_i < exec_threads - FLAGS_ch_a_threads; t_i++) {
+         for (u64 t_i = 0; t_i < FLAGS_worker_threads - FLAGS_ch_a_threads; t_i++) {
             total += tx_per_thread[t_i];
             cout << tx_per_thread[t_i] << ",";
          }
          cout << endl;
          cout << "TPC-C = " << total << endl;
          total = 0;
-         for (u64 t_i = exec_threads - FLAGS_ch_a_threads; t_i < exec_threads; t_i++) {
+         for (u64 t_i = FLAGS_worker_threads - FLAGS_ch_a_threads; t_i < FLAGS_worker_threads; t_i++) {
             total += tx_per_thread[t_i];
             cout << tx_per_thread[t_i] << ",";
          }
