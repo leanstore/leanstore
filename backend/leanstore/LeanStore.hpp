@@ -43,7 +43,7 @@ class LeanStore
    void persist(string key, string value);
    string recover(string key, string default_value);
   private:
-   HybridLatch persist_latch;
+   mutex persist_mutex;
    static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;
    static std::list<std::tuple<string, s64*>> persisted_s64_flags;
    std::unordered_map<string, string> persist_values;

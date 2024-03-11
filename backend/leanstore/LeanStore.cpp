@@ -372,26 +372,25 @@ LeanStore::GlobalStats LeanStore::getGlobalStats()
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::persist(string key, string value){
-   Guard persist_guard(&persist_latch);
-   persist_guard.toExclusive();
+   persist_mutex.lock();
    if(persist_values.find(key) == persist_values.end()){
       persist_values.insert({key, value});
    }
    persist_values[key] = value;
+   persist_mutex.unlock();
+
 }
 string LeanStore::recover(string key, string default_value){
-   Guard persist_guard(&persist_latch);
-   persist_guard.toExclusive();
-   if(persist_values.find(key) == persist_values.end()){
-      return default_value;
-   }
-   return persist_values[key];
+   persist_mutex.lock();
+   string return_value = persist_values.find(key) == persist_values.end()? default_value : persist_values[key];
+   persist_mutex.unlock();
+
+   return return_value;
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::serializeState()
 {
-   Guard persist_guard(&persist_latch);
-   persist_guard.toExclusive();
+   persist_mutex.lock();
    // Serialize data structure instances
    std::ofstream json_file;
    json_file.open(FLAGS_persist_file, ios::trunc);
@@ -460,6 +459,7 @@ void LeanStore::serializeState()
    rs::PrettyWriter<rs::StringBuffer> writer(sb);
    d.Accept(writer);
    json_file << sb.GetString();
+   persist_mutex.unlock();
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::serializeFlags(rs::Document& d)
@@ -484,8 +484,7 @@ void LeanStore::serializeFlags(rs::Document& d)
 // -------------------------------------------------------------------------------------
 void LeanStore::deserializeState()
 {
-   Guard persist_guard(&persist_latch);
-   persist_guard.toExclusive();
+   persist_mutex.lock();
    std::ifstream json_file;
    json_file.open(FLAGS_recover_file);
    rs::IStreamWrapper isw(json_file);
@@ -535,6 +534,7 @@ void LeanStore::deserializeState()
       }
       DTRegistry::global_dt_registry.deserialize(dt_id, serialized_dt_map);
    }
+   persist_mutex.unlock();
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::deserializeFlags()
