@@ -373,6 +373,7 @@ LeanStore::GlobalStats LeanStore::getGlobalStats()
 // -------------------------------------------------------------------------------------
 void LeanStore::persist(string key, string value){
    Guard persist_guard(&persist_latch);
+   persist_guard.toExclusive();
    if(persist_values.find(key) == persist_values.end()){
       persist_values.insert({key, value});
    }
@@ -380,6 +381,7 @@ void LeanStore::persist(string key, string value){
 }
 string LeanStore::recover(string key, string default_value){
    Guard persist_guard(&persist_latch);
+   persist_guard.toExclusive();
    if(persist_values.find(key) == persist_values.end()){
       return default_value;
    }
@@ -389,6 +391,7 @@ string LeanStore::recover(string key, string default_value){
 void LeanStore::serializeState()
 {
    Guard persist_guard(&persist_latch);
+   persist_guard.toExclusive();
    // Serialize data structure instances
    std::ofstream json_file;
    json_file.open(FLAGS_persist_file, ios::trunc);
@@ -482,6 +485,7 @@ void LeanStore::serializeFlags(rs::Document& d)
 void LeanStore::deserializeState()
 {
    Guard persist_guard(&persist_latch);
+   persist_guard.toExclusive();
    std::ifstream json_file;
    json_file.open(FLAGS_recover_file);
    rs::IStreamWrapper isw(json_file);
