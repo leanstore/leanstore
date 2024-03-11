@@ -89,6 +89,8 @@ int main(int argc, char** argv)
    db.registerConfigEntry("ch_a_start_delay_sec", FLAGS_ch_a_start_delay_sec);
    db.registerConfigEntry("ch_a_process_delay_sec", FLAGS_ch_a_process_delay_sec);
    db.registerConfigEntry("run_until_tx", FLAGS_run_until_tx);
+   // set creator_threads to worker_threads if == 0
+   FLAGS_creator_threads = FLAGS_creator_threads ? FLAGS_creator_threads : FLAGS_worker_threads;
    // -------------------------------------------------------------------------------------
    leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
    // -------------------------------------------------------------------------------------

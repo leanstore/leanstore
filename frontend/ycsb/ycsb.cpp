@@ -51,6 +51,8 @@ int main(int argc, char** argv)
    crm.scheduleJobSync(0, [&]() { table = LeanStoreAdapter<KVTable>(db, "YCSB"); });
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
    db.registerConfigEntry("ycsb_ops_per_tx", FLAGS_ycsb_ops_per_tx);
+   // set creator_threads to worker_threads if == 0
+   FLAGS_creator_threads = FLAGS_creator_threads ? FLAGS_creator_threads : FLAGS_worker_threads;
    // -------------------------------------------------------------------------------------
    leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
    const TX_MODE tx_type = TX_MODE::OLTP;

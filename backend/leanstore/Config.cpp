@@ -22,7 +22,7 @@ DEFINE_bool(profile_latency, false, "");
 DEFINE_bool(crc_check, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(worker_threads, 4, "");
-DEFINE_uint32(creator_threads, 4, "");
+DEFINE_uint32(creator_threads, 0, "");
 DEFINE_bool(cpu_counters, true, "Disable if HW does not have enough counters for all threads");
 DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
