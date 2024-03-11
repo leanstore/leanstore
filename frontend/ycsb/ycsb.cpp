@@ -146,10 +146,9 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    cout << "~Transactions" << endl;
    db.startProfilingThread();
-   atomic<bool> keep_running = true;
-   atomic<u64> running_threads_counter = 0;
-   const u32 exec_threads = FLAGS_worker_threads;
-   for (u64 t_i = 0; t_i < exec_threads - ((FLAGS_ycsb_sleepy_thread) ? 1 : 0); t_i++) {
+   atomic<bool> keep_running = {true};
+   atomic<u64> running_threads_counter = {0};
+   for (u64 t_i = 0; t_i < FLAGS_worker_threads - ((FLAGS_ycsb_sleepy_thread) ? 1 : 0); t_i++) {
       crm.scheduleJobAsync(t_i, [&]() {
          running_threads_counter++;
          while (keep_running) {
@@ -189,7 +188,7 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    if (FLAGS_ycsb_sleepy_thread) {
       const leanstore::TX_MODE tx_type = FLAGS_olap_mode ? leanstore::TX_MODE::OLAP : leanstore::TX_MODE::OLTP;
-      crm.scheduleJobAsync(exec_threads - 1, [&]() {
+      crm.scheduleJobAsync(FLAGS_worker_threads - 1, [&]() {
          running_threads_counter++;
          while (keep_running) {
             jumpmuTry()
