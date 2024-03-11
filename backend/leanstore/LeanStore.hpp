@@ -43,6 +43,7 @@ class LeanStore
    void persist(string key, string value);
    string recover(string key, string default_value);
   private:
+   HybridLatch persist_latch;
    static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;
    static std::list<std::tuple<string, s64*>> persisted_s64_flags;
    std::unordered_map<string, string> persist_values;
@@ -81,7 +82,7 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
    // -------------------------------------------------------------------------------------
-   static void addStringFlag(string name, fLS::clstring* flag) { persisted_string_flags.push_back(std::make_tuple(name, flag)); }
+   static void addStringFlag(string name, fLS::clstring* flag) {persisted_string_flags.push_back(std::make_tuple(name, flag));}
    static void addS64Flag(string name, s64* flag) { persisted_s64_flags.push_back(std::make_tuple(name, flag)); }
   private:
    static void printStats(bool reset = true);
