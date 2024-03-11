@@ -69,6 +69,7 @@ The code we used for our VLDB 2023 that covers the fast I/O implementation is in
   title        = {What Modern NVMe Storage Can Do, And How To Exploit It: High-Performance {I/O} for High-Performance Storage Engines},
   journal      = {Proc. {VLDB} Endow.},
   year         = {2023}
+}
 ```
 
 VLDB 2023 [branch](https://github.com/leanstore/leanstore/tree/WATT) that covers Write-Aware Timestamp Tracking.
