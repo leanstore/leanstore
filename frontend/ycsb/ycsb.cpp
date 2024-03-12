@@ -99,12 +99,12 @@ int main(int argc, char** argv)
             begin = chrono::high_resolution_clock::now();
             utils::Parallelize::range(FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
                crm.scheduleJobAsync(t_i, [&, begin, end]() {
+                  cr::Worker::my().startTX(tx_type, isolation_level);
                   for (u64 i = begin; i < end; i++) {
                      YCSBPayload result;
-                     // cr::Worker::my().startTX(tx_type, isolation_level);
                      table.lookup1({static_cast<YCSBKey>(i)}, [&](const KVTable& record) { result = record.my_payload; });
-                     // cr::Worker::my().commitTX();
                   }
+                  cr::Worker::my().commitTX();
                });
             });
             crm.joinAll();
