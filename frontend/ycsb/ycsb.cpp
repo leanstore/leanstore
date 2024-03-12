@@ -141,7 +141,7 @@ int main(int argc, char** argv)
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
-   if(FLAGS_run_until_tx==0 && FLAGS_run_for_seconds==0) {
+   if(FLAGS_run_for_seconds==0) {
       return 0;
    }
    auto zipf_random = std::make_unique<utils::ScrambledZipfGenerator>(0, ycsb_tuple_count, FLAGS_zipf_factor);
