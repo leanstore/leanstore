@@ -46,7 +46,7 @@ class HybridPageGuard
    // -------------------------------------------------------------------------------------
    // Constructors
    HybridPageGuard() : bf(nullptr), guard(nullptr) { jumpmu_registerDestructor(); }  // use with caution
-   HybridPageGuard(Guard&& guard, BufferFrame* bf) : bf(bf), guard(std::move(guard)) { jumpmu_registerDestructor(); }
+   HybridPageGuard(Guard&& guard, BufferFrame* bf) : bf(bf), guard(std::move(guard)) { bf->header.tracker.trackRead(); jumpmu_registerDestructor(); }
    // -------------------------------------------------------------------------------------
    HybridPageGuard(HybridPageGuard& other) = delete;   // Copy constructor
    HybridPageGuard(HybridPageGuard&& other) = delete;  // Move constructor
@@ -58,6 +58,7 @@ class HybridPageGuard
       assert(BMC::global_bf != nullptr);
       bf->page.dt_id = dt_id;
       markAsDirty();
+      bf->header.tracker.trackRead();
       jumpmu_registerDestructor();
    }
    // -------------------------------------------------------------------------------------
@@ -67,6 +68,7 @@ class HybridPageGuard
    {
       latchAccordingToFallbackMode(guard, if_contended);
       syncGSN();
+      bf->header.tracker.trackRead();
       jumpmu_registerDestructor();
    }
    // -------------------------------------------------------------------------------------
@@ -77,6 +79,7 @@ class HybridPageGuard
    {
       latchAccordingToFallbackMode(guard, if_contended);
       syncGSN();
+      bf->header.tracker.trackRead();
       jumpmu_registerDestructor();
       // -------------------------------------------------------------------------------------
       PARANOID_BLOCK()
@@ -119,12 +122,16 @@ class HybridPageGuard
       return *this;
    }
    // -------------------------------------------------------------------------------------
-   inline void markAsDirty() { bf->page.PLSN++; }
+   inline void markAsDirty() {
+      bf->page.PLSN++;
+      bf->header.tracker.trackWrite();
+   }
    inline void incrementGSN()
    {
       assert(bf != nullptr);
       assert(bf->page.GSN <= cr::Worker::my().logging.getCurrentGSN());
       bf->page.PLSN++;
+      bf->header.tracker.trackWrite();
       bf->page.GSN = cr::Worker::my().logging.getCurrentGSN() + 1;
       bf->header.last_writer_worker_id = cr::Worker::my().worker_id;  // RFA
       cr::Worker::my().logging.setCurrentGSN(std::max<LID>(cr::Worker::my().logging.getCurrentGSN(), bf->page.GSN));

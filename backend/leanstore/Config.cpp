@@ -22,6 +22,7 @@ DEFINE_bool(profile_latency, false, "");
 DEFINE_bool(crc_check, false, "");
 // -------------------------------------------------------------------------------------
 DEFINE_uint32(worker_threads, 4, "");
+DEFINE_uint32(creator_threads, 0, "");
 DEFINE_bool(cpu_counters, true, "Disable if HW does not have enough counters for all threads");
 DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
@@ -39,6 +40,10 @@ DEFINE_bool(contention_split, true, "");
 DEFINE_uint64(cm_update_on, 7, "as exponent of 2");
 DEFINE_uint64(cm_period, 14, "as exponent of 2");
 DEFINE_uint64(cm_slowpath_threshold, 1, "");
+// -------------------------------------------------------------------------------------
+DEFINE_uint32(epoch_size, 1000, "size of epoch: ram/epoch_size");
+DEFINE_uint32(write_costs, 1, "how much does one write should costs more then a read");
+DEFINE_uint32(watt_samples, 50, "How much samples for picking a page");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(xmerge, false, "");
 DEFINE_uint64(xmerge_k, 5, "");

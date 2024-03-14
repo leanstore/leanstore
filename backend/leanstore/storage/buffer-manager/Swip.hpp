@@ -20,8 +20,6 @@ class Swip
    // 1xxxxxxxxxxxx evicted, 01xxxxxxxxxxx cooling, 00xxxxxxxxxxx hot
    static const u64 evicted_bit = u64(1) << 63;
    static const u64 evicted_mask = ~(u64(1) << 63);
-   static const u64 cool_bit = u64(1) << 62;
-   static const u64 cool_mask = ~(u64(1) << 62);
    static const u64 hot_mask = ~(u64(3) << 62);
    static_assert(evicted_bit == 0x8000000000000000, "");
    static_assert(evicted_mask == 0x7FFFFFFFFFFFFFFF, "");
@@ -42,8 +40,7 @@ class Swip
    // -------------------------------------------------------------------------------------
    bool operator==(const Swip& other) const { return (raw() == other.raw()); }
    // -------------------------------------------------------------------------------------
-   bool isHOT() { return (pid & (evicted_bit | cool_bit)) == 0; }
-   bool isCOOL() { return pid & cool_bit; }
+   bool isHOT() { return !isEVICTED();}
    bool isEVICTED() { return pid & evicted_bit; }
    // -------------------------------------------------------------------------------------
    u64 asPageID() { return pid & evicted_mask; }
@@ -52,17 +49,10 @@ class Swip
    u64 raw() const { return pid; }
    // -------------------------------------------------------------------------------------
    template <typename T2>
-   void warm(T2* bf)
+   void setBF(T2* bf)
    {
       this->bf = bf;
    }
-   void warm()
-   {
-      assert(isCOOL());
-      this->pid = pid & ~cool_bit;
-   }
-   // -------------------------------------------------------------------------------------
-   void cool() { this->pid = pid | cool_bit; }
    // -------------------------------------------------------------------------------------
    void evict(PID pid) { this->pid = pid | evicted_bit; }
    // -------------------------------------------------------------------------------------

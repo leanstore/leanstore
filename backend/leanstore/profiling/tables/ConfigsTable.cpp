@@ -21,6 +21,7 @@ void ConfigsTable::add(string name, string value)
 // -------------------------------------------------------------------------------------
 void ConfigsTable::open()
 {
+   columns.emplace("cmd_name", [&](Column& col) { col << gflags::GetArgv0(); });
    columns.emplace("c_tag", [&](Column& col) { col << FLAGS_tag; });
    columns.emplace("c_worker_threads", [&](Column& col) { col << FLAGS_worker_threads; });
    columns.emplace("c_pin_threads", [&](Column& col) { col << FLAGS_pin_threads; });
