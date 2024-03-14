@@ -60,7 +60,7 @@ int main(int argc, char** argv)
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
                                     : (FLAGS_target_gib)
-                                       ? FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload))
+                                       ? FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 6.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload))
                                        : std::stol(db.recover("ycsb_tuple_count", "abc"));
    // Insert values
    db.persist("ycsb_tuple_count", std::to_string(ycsb_tuple_count));
@@ -103,6 +103,7 @@ int main(int argc, char** argv)
                      cr::Worker::my().startTX(tx_type, isolation_level);
                      YCSBPayload result;
                      table.lookup1({static_cast<YCSBKey>(i)}, [&](const KVTable& record) { result = record.my_payload; });
+                     leanstore::storage::BMC::global_bf->evictLastPage();  // keep only inner nodes
                      cr::Worker::my().commitTX();
                   }
                });
@@ -169,14 +170,12 @@ int main(int argc, char** argv)
                for (u64 op_i = 0; op_i < FLAGS_ycsb_ops_per_tx; op_i++) {
                   if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
                      table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
-                     leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
                   } else {
                      UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
                      utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));
                      // -------------------------------------------------------------------------------------
                      table.update1(
                          {key}, [&](KVTable& rec) { rec.my_payload = result; }, tabular_update_descriptor);
-                     leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
                   }
                }
                cr::Worker::my().commitTX();
