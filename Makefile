@@ -3,6 +3,7 @@
 #
 BUILD_DIR?=builddir
 TOOLBOX_DIR?=toolbox
+BDEV_PATH?=/dev/nullb0
 
 define default-help
 # Invoke: 'make help'
@@ -85,6 +86,73 @@ _require_builddir:
 		echo "";						\
 		false;							\
 	fi
+
+
+define _require_bdev-help
+# This helper is not intended to be invoked via the command-line-interface.
+endef
+.PHONY: _require_bdev
+_require_bdev:
+	@if [ ! -b "$(BDEV_PATH)" ]; then				\
+		echo "";						\
+		echo "+================================================+"; \
+		echo "                                                  "; \
+		echo " ERR: missing bdev: '$(BDEV_PATH)'                "; \
+		echo "                                                  "; \
+		echo " Set 'BDEV_PATH' to block-device path             "; \
+		echo " suitable for testing, e.g. using null_blk run:   "; \
+		echo "                                                  "; \
+		echo " sudo modprobe null_blk                           "; \
+		echo "                                                  "; \
+		echo "+================================================+"; \
+		echo "";						\
+		false;							\
+	fi
+
+define check-setup-help
+# Setup nullblk instance suitable for running 'check-tpcc' and 'check-ycsb'
+endef
+.PHONY: check-setup
+check-setup:
+	sudo ./toolbox/setup_nullblk.sh
+
+define check-tpcc-help
+# Run the tpcc frontend/benchmark using a null-block device
+endef
+.PHONY: check-tpcc
+check-tpcc: _require_bdev
+	./$(BUILD_DIR)/frontend/tpcc --ssd_path=$(BDEV_PATH) \
+	--tpcc_warehouse_count=100 \
+	--notpcc_warehouse_affinity \
+	--worker_threads=8 \
+	--pp_threads=4 \
+	--dram_gib=8 \
+	--csv_path=./log \
+	--free_pct=1 \
+	--contention_split \
+	--xmerge \
+	--print_tx_console \
+	--run_for_seconds=10 \
+	--isolation_level=si
+
+define check-ycsb-help
+# Run the ycsb frontend/benchmark using a null-block device
+endef
+.PHONY: check-ycsb
+check-ycsb: _require_bdev
+	./$(BUILD_DIR)/frontend/ycsb --ssd_path=$(BDEV_PATH) \
+	--ycsb_read_ratio=50 \
+	--target_gib=10 \
+	--worker_threads=4 \
+	--pp_threads=4 \
+	--dram_gib=5 \
+	--csv_path=./log \
+	--free_pct=1 \
+	--contention_split \
+	--xmerge \
+	--print_tx_console \
+	--run_for_seconds=10 \
+	--isolation_level=si
 
 define help-help
 # Print the description of every target
