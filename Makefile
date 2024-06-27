@@ -154,6 +154,13 @@ check-ycsb: _require_bdev
 	--run_for_seconds=10 \
 	--isolation_level=si
 
+define format-help
+# Format the code via pre-commit-framework
+endef
+.PHONY: format
+format:
+	pre-commit run --all-files
+	
 define help-help
 # Print the description of every target
 endef
