@@ -6,9 +6,21 @@
 
 Install dependencies:
 
-`sudo apt-get install cmake libtbb2-dev libaio-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev librocksdb-dev liblmdb-dev libwiredtiger-dev liburing-dev`
+```
+sudo ./toolbox/pkgs/ubuntu-focal.sh
+```
 
-`mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j`
+Build LeanStore using the mk-utility:
+
+```
+make common
+```
+
+or instrument CMake directly:
+
+```
+mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j
+```
 
 ## Benchmark Examples
 ### TPC-C
@@ -18,7 +30,9 @@ Install dependencies:
 check `build/frontend/tpcc --help` for other options
 
 ### YCSB
+
 `build/frontend/tpcc --ycsb_read_ratio=50 --target_gib=10 --ssd_path=./ssd_block_device_or_file --worker_threads=120 --pp_threads=4 --dram_gib=5 --csv_path=./log --free_pct=1 --contention_split --xmerge --print_tx_console --run_for_seconds=60 --isolation_level=si`
+
 check `build/frontend/ycsb --help` for other options
 
 ## Implement Your Own Workload

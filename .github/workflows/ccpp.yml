@@ -2,18 +2,40 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches:
+      - '*'
   pull_request:
-    branches: [ master ]
+    types: [opened, reopened, synchronize, labeled]
+    branches: [master]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        container:
+        - {os: 'fedora', ver: '40'}
+        - {os: 'ubuntu', ver: 'noble'}
+        - {os: 'ubuntu', ver: 'jammy'}
+        - {os: 'debian', ver: 'bookworm'}
+
+    container:
+      image: ${{ matrix.container.os }}:${{ matrix.container.ver }}
+
     steps:
-    - uses: actions/checkout@v2
+    - name: Install git
+      run: |
+        apt-get -qy install git || true
+        dnf install -y git || true
+
+    - uses: actions/checkout@v4
+
     - name: Install dependencies
-      run: sudo apt install -y libtbb2-dev libaio-dev libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev librocksdb-dev liblmdb++-dev libwiredtiger-dev liburing-dev
-    - name: cmake
-      run: mkdir release && cd release && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && make -j
+      run: |
+        ./toolbox/pkgs/${{ matrix.container.os }}-${{ matrix.container.ver }}.sh
+
+    - name: Build
+      run: |
+        make common

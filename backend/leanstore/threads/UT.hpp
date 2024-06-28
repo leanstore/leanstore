@@ -6,13 +6,9 @@
 #include "leanstore/utils/RandomGenerator.hpp"
 // -------------------------------------------------------------------------------------
 #include <emmintrin.h>
-#include <errno.h>
 #include <fcntl.h>
-#include <libaio.h>
 #include <linux/futex.h>
 #include <pthread.h>
-#include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -24,7 +20,6 @@
 
 #include <atomic>
 #include <functional>
-#include <iostream>
 #include <mutex>
 #include <thread>
 #include <vector>
