@@ -52,6 +52,8 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, HistoryTr
 Worker::~Worker()
 {
    delete[] cc.commit_tree.array;
+   std::free(logging.wal_buffer);
+   logging.wal_buffer = nullptr;
 }
 // -------------------------------------------------------------------------------------
 void Worker::startTX(TX_MODE next_tx_type, TX_ISOLATION_LEVEL next_tx_isolation_level, bool read_only)
