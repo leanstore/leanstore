@@ -2,4 +2,7 @@
 
 using namespace rocksdb;
 
-rocksdb::DB::~DB() {};
+// Force the compiler to include type information for rocksdb::DB
+void ensureTypeInfo() {
+    const std::type_info& ti = typeid(DB);
+}
