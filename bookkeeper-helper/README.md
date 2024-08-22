@@ -29,6 +29,8 @@ We introduced the following flags to support BookKeeper.
 + `--bookkeeper_ensemble`: BookKeeper ledger ensemble size
 + `--bookkeeper_quorum`: BookKeeper ledger quorum size
 
+BookKeeper WAL is enable with the flag `--wal_variant 3`.
+
 ## Benchmark examples
 
 From the project root directory, we can run the minimal TPC-C benchmark using the following commands.
@@ -36,3 +38,7 @@ From the project root directory, we can run the minimal TPC-C benchmark using th
 ```
 touch leanstore && ./build/frontend/tpcc --bookkeeper_jar_directories=bookkeeper-helper/target:bookkeeper-helper/target/maven-dependencies --wal_pwrite --wal_variant 3
 ```
+
+## BookKeeper configuration
+
+A minimal BookKeeper configuration can be found in `bookkeeper-helper/docker-compose.yaml`. The most important parameters are `byteBufAllocatorSizeMax` and `nettyMaxFrameSizeBytes`, which have to configured to be at least the size of the workers' in-memory WAL buffer.
