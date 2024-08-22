@@ -79,6 +79,11 @@ DECLARE_int64(wal_variant);
 DECLARE_uint64(wal_log_writers);
 DECLARE_uint64(wal_buffer_size);
 // -------------------------------------------------------------------------------------
+DECLARE_string(bookkeeper_jar_directories);
+DECLARE_string(bookkeeper_metadata_uri);
+DECLARE_int32(bookkeeper_ensemble);
+DECLARE_int32(bookkeeper_quorum);
+// -------------------------------------------------------------------------------------
 DECLARE_string(isolation_level);
 DECLARE_bool(mv);
 DECLARE_uint64(si_refresh_rate);
