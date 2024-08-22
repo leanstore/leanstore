@@ -1,0 +1,65 @@
+services:
+  zookeeper:
+    image: zookeeper:latest
+    restart: always
+    networks:
+      - bookkeeper-internal
+    ports:
+      - 2181:2181/tcp
+  bookie-01:
+    image: apache/bookkeeper:latest
+    restart: always
+    networks:
+      - bookkeeper-internal
+    ports:
+      - 3181:3181/tcp
+      - 8081:8080/tcp
+    links:
+      - zookeeper
+    depends_on:
+      - zookeeper
+    environment:
+      BK_zkServers: zookeeper:2181
+      BK_enableStatistics: true
+      BK_statsProviderClass: org.apache.bookkeeper.stats.prometheus.PrometheusMetricsProvider
+      BK_byteBufAllocatorSizeMax: 20482258
+      BK_nettyMaxFrameSizeBytes: 15482258
+  bookie-02:
+    image: apache/bookkeeper:latest
+    restart: always
+    networks:
+      - bookkeeper-internal
+    ports:
+      - 3182:3181/tcp
+      - 8082:8080/tcp
+    links:
+      - zookeeper
+    depends_on:
+      - zookeeper
+    environment:
+      BK_zkServers: zookeeper:2181
+      BK_enableStatistics: true
+      BK_statsProviderClass: org.apache.bookkeeper.stats.prometheus.PrometheusMetricsProvider
+      BK_byteBufAllocatorSizeMax: 20482258
+      BK_nettyMaxFrameSizeBytes: 15482258
+  bookie-03:
+    image: apache/bookkeeper:latest
+    restart: always
+    networks:
+      - bookkeeper-internal
+    ports:
+      - 3183:3181/tcp
+      - 8083:8080/tcp
+    links:
+      - zookeeper
+    depends_on:
+      - zookeeper
+    environment:
+      BK_zkServers: zookeeper:2181
+      BK_enableStatistics: true
+      BK_statsProviderClass: org.apache.bookkeeper.stats.prometheus.PrometheusMetricsProvider
+      BK_byteBufAllocatorSizeMax: 20482258
+      BK_nettyMaxFrameSizeBytes: 15482258
+
+networks:
+  bookkeeper-internal:
