@@ -31,8 +31,8 @@ We introduced the following flags to support BookKeeper.
 
 ## Benchmark examples
 
-From the `build` directory, we can run the following commands to benchmark LeanStore with BookKeeper integration.
+From the project root directory, we can run the minimal TPC-C benchmark using the following commands.
 
 ```
-build/frontend/tpcc --bookkeeper_jar_directories=../bookkeeper-wal/target:../bookkeeper-wal/target/maven-dependencies --wal_pwrite --wal_fsync --wal_variant 3
+touch leanstore && ./build/frontend/tpcc --bookkeeper_jar_directories=bookkeeper-helper/target:bookkeeper-helper/target/maven-dependencies --wal_pwrite --wal_variant 3
 ```
