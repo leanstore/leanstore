@@ -98,6 +98,7 @@ class CRManager
    void groupCommitCordinator();
    void groupCommiter1();
    void groupCommiter2();
+   void groupCommiter3();
    // -------------------------------------------------------------------------------------
    /**
     * @brief Set the Job to specific worker.

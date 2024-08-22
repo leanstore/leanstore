@@ -2,6 +2,7 @@
 
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
+#include "leanstore/utils/JNI.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <mutex>
@@ -78,6 +79,21 @@ CRManager::CRManager(HistoryTreeInterface& versions_space, s32 ssd_fd, u64 end_o
                utils::pinThisThread(workers_count);
             }
             groupCommiter();
+         });
+         group_commiter.detach();
+      } else if (FLAGS_wal_variant == 3) {
+         std::string classpath = "-Djava.class.path=";
+         classpath.append(collectJarPaths());
+         jni::init(classpath);
+
+         std::thread group_commiter([&]() {
+            if (FLAGS_pin_threads) {
+               utils::pinThisThread(workers_count);
+            }
+            jni::attachThread();
+            groupCommiter3();
+            jni::detachThread();
+            jni::deinit();
          });
          group_commiter.detach();
       } else {
