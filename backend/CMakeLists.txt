@@ -22,7 +22,7 @@ IF(SANI)
   target_link_libraries(leanstore asan)
 ENDIF(SANI)
 
-target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic tabluate rapidjson ${Boost_LIBRARIES}) #tbb
+target_link_libraries(leanstore gflags Threads::Threads aio tbb atomic tabluate rapidjson ${Boost_LIBRARIES} ${JNI_LIBRARIES}) #tbb
 
 # ---------------------------------------------------------------------------
 OPTION(PARANOID "Enable sanity checks in release mode" OFF)
@@ -51,7 +51,7 @@ ELSEIF(CHECKS_LEVEL STREQUAL "benchmark")
 ENDIF()
 # ---------------------------------------------------------------------------
 target_include_directories(leanstore PUBLIC ${SHARED_INCLUDE_DIRECTORY})
-target_include_directories(leanstore PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+target_include_directories(leanstore PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${JNI_INCLUDE_DIRS})
 # ---------------------------------------------------------------------------
-set(LEANSTORE_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR})
+set(LEANSTORE_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR} ${JNI_INCLUDE_DIRS})
 set_property(TARGET leanstore APPEND PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${LEANSTORE_INCLUDE_DIR})
