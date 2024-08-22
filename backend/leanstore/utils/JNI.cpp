@@ -283,13 +283,6 @@ void jni::detachThread()
 
 jni::JObjectRef::JObjectRef(jobject object) : object(object) {}
 
-template <typename... Args>
-jobject jni::JObjectRef::callNonVirtualObjectMethod(jclass clazz, jmethodID methodID, Args... args)
-{
-   JNIEnv* env = jni::JVM_REF->getEnv();
-   return env->CallNonvirtualObjectMethod(object, clazz, methodID, args...);
-}
-
 jni::LocalRef::LocalRef(jobject object) : JObjectRef(object) {}
 jni::LocalRef::LocalRef(LocalRef&& ref) : JObjectRef(std::move(ref.object))
 {
@@ -340,7 +333,8 @@ java::lang::LocalThrowable::LocalThrowable(jni::LocalRef ref) : ref(std::move(re
 std::string java::lang::LocalThrowable::getMessage()
 {
    JNIEnv* env = jni::JVM_REF->getEnv();
-   jstring message = reinterpret_cast<jstring>(ref.callNonVirtualObjectMethod(java::lang::jc_Throwable, java::lang::jm_Throwable_getMessage));
+   jstring message =
+       reinterpret_cast<jstring>(env->CallNonvirtualObjectMethod(getJObject(ref), java::lang::jc_Throwable, java::lang::jm_Throwable_getMessage));
    const char* message_data = env->GetStringUTFChars(message, nullptr);
    std::string message_str(message_data, env->GetStringUTFLength(message));
    env->ReleaseStringUTFChars(message, message_data);
@@ -357,7 +351,8 @@ bookkeeper::LocalClientConfiguration& bookkeeper::LocalClientConfiguration::setM
 {
    JNIEnv* env = jni::JVM_REF->getEnv();
    jstring uri_jstring = env->NewStringUTF(uri.c_str());
-   ref.callNonVirtualObjectMethod(bookkeeper::jc_ClientConfiguration, bookkeeper::jm_ClientConfiguration_setMetadataServiceUri, uri_jstring);
+   env->CallNonvirtualObjectMethod(getJObject(ref), bookkeeper::jc_ClientConfiguration, bookkeeper::jm_ClientConfiguration_setMetadataServiceUri,
+                                   uri_jstring);
    env->DeleteLocalRef(uri_jstring);
    return *this;
 }
@@ -397,7 +392,8 @@ bookkeeper::GlobalBookKeeper::GlobalBookKeeper(bookkeeper::LocalClientConfigurat
 
 bookkeeper::GlobalBookKeeper::~GlobalBookKeeper()
 {
-   ref.callNonVirtualObjectMethod(bookkeeper::jc_BookKeeper, bookkeeper::jm_BookKeeper_close);
+   JNIEnv* env = jni::JVM_REF->getEnv();
+   env->CallNonvirtualObjectMethod(getJObject(ref), bookkeeper::jc_BookKeeper, bookkeeper::jm_BookKeeper_close);
    jni::check_java_exception(jni::JVM_REF->getEnv());
 }
 
@@ -408,8 +404,8 @@ jni::LocalRef bookkeeper::GlobalBookKeeper::createLedger(int ensemble, int quoru
    jbyte* password_bytes = env->GetByteArrayElements(password_jbyte_array, nullptr);
    memcpy(password_bytes, password, password_length);
    env->ReleaseByteArrayElements(password_jbyte_array, password_bytes, 0);
-   jobject ledger = ref.callNonVirtualObjectMethod(bookkeeper::jc_BookKeeper, bookkeeper::jm_BookKeeper_createLedger, ensemble, quorum,
-                                                   jni::getJObject(digest.ref), password_jbyte_array);
+   jobject ledger = env->CallNonvirtualObjectMethod(getJObject(ref), bookkeeper::jc_BookKeeper, bookkeeper::jm_BookKeeper_createLedger, ensemble,
+                                                    quorum, jni::getJObject(digest.ref), password_jbyte_array);
    env->DeleteLocalRef(password_jbyte_array);
    jni::check_java_exception(env);
    return jni::LocalRef(ledger);
@@ -423,7 +419,8 @@ bookkeeper::GlobalAsyncLedgerContext::GlobalAsyncLedgerContext(jni::LocalRef led
 
 bookkeeper::GlobalAsyncLedgerContext::~GlobalAsyncLedgerContext()
 {
-   ref.callNonVirtualObjectMethod(bookkeeper::jc_AsyncLedgerContext, bookkeeper::jm_AsyncLedgerContext_close);
+   JNIEnv* env = jni::JVM_REF->getEnv();
+   env->CallNonvirtualObjectMethod(getJObject(ref), bookkeeper::jc_AsyncLedgerContext, bookkeeper::jm_AsyncLedgerContext_close);
    jni::check_java_exception(jni::JVM_REF->getEnv());
 }
 
@@ -434,7 +431,8 @@ void bookkeeper::GlobalAsyncLedgerContext::appendAsync(unsigned char* payload, i
    jbyte* payload_bytes = env->GetByteArrayElements(payload_jbyte_array, nullptr);
    memcpy(payload_bytes, payload, payload_length);
    env->ReleaseByteArrayElements(payload_jbyte_array, payload_bytes, 0);
-   ref.callNonVirtualObjectMethod(bookkeeper::jc_AsyncLedgerContext, bookkeeper::jm_AsyncLedgerContext_appendAsync, payload_jbyte_array);
+   env->CallNonvirtualObjectMethod(getJObject(ref), bookkeeper::jc_AsyncLedgerContext, bookkeeper::jm_AsyncLedgerContext_appendAsync,
+                                   payload_jbyte_array);
    env->DeleteLocalRef(payload_jbyte_array);
    jni::check_java_exception(jni::JVM_REF->getEnv());
 }
@@ -442,8 +440,8 @@ void bookkeeper::GlobalAsyncLedgerContext::appendAsync(unsigned char* payload, i
 std::vector<long> bookkeeper::GlobalAsyncLedgerContext::awaitAll()
 {
    JNIEnv* env = jni::JVM_REF->getEnv();
-   jlongArray entry_ids_jlong_array =
-       reinterpret_cast<jlongArray>(ref.callNonVirtualObjectMethod(bookkeeper::jc_AsyncLedgerContext, bookkeeper::jm_AsyncLedgerContext_awaitAll));
+   jlongArray entry_ids_jlong_array = reinterpret_cast<jlongArray>(
+       env->CallNonvirtualObjectMethod(getJObject(ref), bookkeeper::jc_AsyncLedgerContext, bookkeeper::jm_AsyncLedgerContext_awaitAll));
    jlong* entry_ids_jlong = env->GetLongArrayElements(entry_ids_jlong_array, nullptr);
    jlong entry_ids_length = env->GetArrayLength(entry_ids_jlong_array);
    std::vector<long> entry_ids(entry_ids_length);

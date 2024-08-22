@@ -26,11 +26,7 @@ class JObjectRef
    friend class LocalRef;
    friend class GlobalRef;
    friend jobject getJObject(JObjectRef&);
-
    virtual ~JObjectRef() = default;
-
-   template <typename... Args>
-   jobject callNonVirtualObjectMethod(jclass, jmethodID, Args...);
 };
 
 class LocalRef : public JObjectRef
