@@ -1,0 +1,189 @@
+---
+- name: Install Zookeeper on Zookeeper Servers
+  hosts: zookeepers
+  become: yes
+  vars:
+    java_version: "17"
+    zookeeper_version: "3.8.4"
+    zookeeper_install_dir: "/opt/zookeeper"
+    zookeeper_tarball: "/opt/apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+    zookeeper_dir: "/opt/apache-zookeeper-{{ zookeeper_version }}-bin"
+    data_dir: "/var/lib/zookeeper"
+  tasks:
+    - name: Remove old Zookeeper installation files and directories
+      file:
+        path: "{{ zookeeper_install_dir }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Remove old Zookeeper tarball
+      file:
+        path: "{{ zookeeper_tarball }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Remove old data directory for Zookeeper
+      file:
+        path: "{{ data_dir }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Update APT cache
+      apt:
+        update_cache: yes
+
+    - name: Install required dependencies
+      apt:
+        name:
+          - openjdk-{{ java_version }}-jdk
+          - wget
+          - tar
+        state: present
+
+    - name: Download Zookeeper
+      get_url:
+        url: "https://downloads.apache.org/zookeeper/zookeeper-{{ zookeeper_version }}/apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+        dest: "{{ zookeeper_tarball }}"
+
+    - name: Extract Zookeeper
+      unarchive:
+        src: "{{ zookeeper_tarball }}"
+        dest: /opt/
+        remote_src: yes
+
+    - name: Create symbolic link for Zookeeper
+      file:
+        src: "{{ zookeeper_dir }}"
+        dest: "{{ zookeeper_install_dir }}"
+        state: link
+
+    - name: Create data directory for Zookeeper
+      file:
+        path: "{{ data_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Set myid for the server
+      copy:
+        content: "{{ inventory_hostname.split('-')[1] }}"
+        dest: "{{ data_dir }}/myid"
+
+    - name: Configure zoo.cfg
+      copy:
+        content: |
+          tickTime=2000
+          dataDir={{ data_dir }}
+          clientPort=2181
+          initLimit=5
+          syncLimit=2
+          server.1=10.0.0.4:2888:3888
+          server.2=10.0.0.5:2888:3888
+          server.3=10.0.0.6:2888:3888
+        dest: "{{ zookeeper_install_dir }}/conf/zoo.cfg"
+
+    - name: Start Zookeeper
+      shell: "{{ zookeeper_install_dir }}/bin/zkServer.sh start"
+
+
+
+- name: Install Apache BookKeeper on Bookie Servers
+  hosts: bookies
+  become: yes
+  vars:
+    java_version: "17"
+    bookkeeper_version: "4.17.1"
+    bookkeeper_install_dir: "/opt/bookkeeper"
+    bookkeeper_tarball: "/opt/apache-bookkeeper-{{ bookkeeper_version }}-bin.tar.gz"
+    bookkeeper_dir: "/opt/bookkeeper-server-{{ bookkeeper_version }}"
+    bookkeeper_data_dirs:
+      - "/var/lib/bookkeeper/ledger"
+    bookkeeper_journal_dir: "/var/lib/bookkeeper/journal"
+    zookeeper_servers: "10.0.0.4:2181;10.0.0.5:2181;10.0.0.6:2181"
+  tasks:
+    - name: Remove old BookKeeper installation files and directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      ignore_errors: yes
+      loop:
+        - "{{ bookkeeper_install_dir }}"
+        - "{{ bookkeeper_tarball }}"
+        - "{{ bookkeeper_journal_dir }}"
+        - "{{ bookkeeper_data_dirs }}"
+
+    - name: Update APT cache
+      apt:
+        update_cache: yes
+
+    - name: Install required dependencies
+      apt:
+        name:
+          - openjdk-{{ java_version }}-jdk
+          - wget
+          - tar
+        state: present
+
+    - name: Download BookKeeper
+      get_url:
+        url: "https://downloads.apache.org/bookkeeper/bookkeeper-{{ bookkeeper_version }}/bookkeeper-server-{{ bookkeeper_version }}-bin.tar.gz"
+        dest: "{{ bookkeeper_tarball }}"
+
+    - name: Extract BookKeeper
+      unarchive:
+        src: "{{ bookkeeper_tarball }}"
+        dest: /opt/
+        remote_src: yes
+
+    - name: Create symbolic link for BookKeeper
+      file:
+        src: "{{ bookkeeper_dir }}"
+        dest: "{{ bookkeeper_install_dir }}"
+        state: link
+
+    - name: Create data directories for BookKeeper
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      loop:
+        - "{{ bookkeeper_journal_dir }}"
+        - "{{ bookkeeper_data_dirs }}"
+
+    - name: Replace metadataServiceUri in bk_server.conf
+      replace:
+        path: "{{ bookkeeper_install_dir }}/conf/bk_server.conf"
+        regexp: '^metadataServiceUri=zk\+hierarchical://localhost:2181/ledgers$'
+        replace: 'metadataServiceUri=zk+hierarchical://{{ zookeeper_servers }}/ledgers'
+
+    - name: Run metaformat command (only on the first bookie)
+      shell: "{{ bookkeeper_install_dir }}/bin/bookkeeper shell metaformat"
+      when: inventory_hostname == groups['bookies'][0]
+    
+ 
+    - name: Start BookKeeper bookie service
+      shell: "{{ bookkeeper_install_dir }}/bin/bookkeeper-daemon.sh start bookie"
+      become: yes
+
+- name: Install BookKeeper Clients
+  hosts: clients
+  become: yes
+  vars:
+      java_version: "17"
+
+  tasks:
+    - name: Update APT cache
+      apt:
+        update_cache: yes
+
+    - name: Install required dependencies
+      apt:
+        name:
+          - openjdk-{{ java_version }}-jdk
+          - wget
+          - tar
+        state: present
+  
+  
+

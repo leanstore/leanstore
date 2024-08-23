@@ -1,0 +1,19 @@
+- name: Manage Bookies
+  hosts: bookies
+  tasks:
+    - name: Ping my hosts
+      ansible.builtin.ping:
+    - name: Print message
+      ansible.builtin.debug:
+        msg: Hello world
+
+- name: Install ping package
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Ensure ping is installed
+      apt:
+        name: iputils-ping
+        state: present
+

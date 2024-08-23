@@ -1,0 +1,94 @@
+version: "3.8"
+
+services:
+  localstack:
+    container_name: "${LOCALSTACK_DOCKER_NAME:-localstack-main}"
+    image: localstack/localstack
+    ports:
+      - "127.0.0.1:4566:4566"            # LocalStack Gateway
+      - "127.0.0.1:4510-4559:4510-4559"  # external services port range
+    environment:
+      # LocalStack configuration: https://docs.localstack.cloud/references/configuration/
+      - DEBUG=${DEBUG:-0}
+    volumes:
+      - "${LOCALSTACK_VOLUME_DIR:-./volume}:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+  
+  bookie-1:
+    image: mock-ec2
+    container_name: bookie-1
+    hostname: bookie-1
+    networks:
+      bookkeeper_network:
+        ipv4_address: 10.0.0.9
+    command: /usr/sbin/sshd -D
+
+  bookie-2:
+    image: mock-ec2
+    container_name: bookie-2
+    hostname: bookie-2
+    networks:
+      bookkeeper_network:
+        ipv4_address: 10.0.0.2
+    command: /usr/sbin/sshd -D
+
+  bookie-3:
+    image: mock-ec2
+    container_name: bookie-3
+    hostname: bookie-3
+    networks:
+      bookkeeper_network:
+        ipv4_address: 10.0.0.3
+    command: /usr/sbin/sshd -D
+
+  zk-1:
+    image: mock-ec2
+    container_name: zk-1
+    hostname: zk-1
+    networks:
+      bookkeeper_network:
+        ipv4_address: 10.0.0.4
+    command: /usr/sbin/sshd -D
+
+  zk-2:
+    image: mock-ec2
+    container_name: zk-2
+    hostname: zk-2
+    networks:
+      bookkeeper_network:
+        ipv4_address: 10.0.0.5
+    command: /usr/sbin/sshd -D
+
+  zk-3:
+    image: mock-ec2
+    container_name: zk-3
+    hostname: zk-3
+    networks:
+      bookkeeper_network:
+        ipv4_address: 10.0.0.6
+    command: /usr/sbin/sshd -D
+
+  bookkeeper-client-1:
+    image: mock-ec2
+    container_name: bookkeeper-client-1
+    hostname: bookkeeper-client-1
+    networks:
+      bookkeeper_network:
+        ipv4_address: 10.0.0.7
+    command: /usr/sbin/sshd -D
+
+  bookkeeper-client-2:
+    image: mock-ec2
+    container_name: bookkeeper-client-2
+    hostname: bookkeeper-client-2
+    networks:
+      bookkeeper_network:
+        ipv4_address: 10.0.0.8
+    command: /usr/sbin/sshd -D
+
+networks:
+  bookkeeper_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.0.0/16
