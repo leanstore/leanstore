@@ -1,7 +1,7 @@
 # testdeploy
 DM lab aws test deployment
 
-# intall 
+# install 
     terrafrom 
     aws cli - sudo apt-get install awscli
     ansible
