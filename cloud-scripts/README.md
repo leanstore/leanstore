@@ -40,6 +40,7 @@ DM lab aws test deployment
 
 # BK and Zk
 /opt/bookkeeper/bin/bookkeeper shell listbookies -rw
+
 /opt/zookeeper/bin/zkServer.sh status
 
 

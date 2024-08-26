@@ -1,0 +1,195 @@
+---
+- name: Install and Configure Zookeeper
+  hosts: zookeepers
+  become: yes
+  vars:
+    java_version: "17"
+    zookeeper_version: "3.8.4"
+    zookeeper_install_dir: "/opt/zookeeper"
+    zookeeper_data_dir: "/var/lib/zookeeper"
+  tasks:
+    - name: Remove old Zookeeper installation
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ zookeeper_install_dir }}"
+        - "/opt/apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+        - "{{ zookeeper_data_dir }}"
+    
+    - name: Install dependencies
+      apt:
+        name: 
+          - openjdk-{{ java_version }}-jdk
+          - wget
+          - tar
+        state: present
+        update_cache: yes
+
+    - name: Download and extract Zookeeper
+      unarchive:
+        src: "https://downloads.apache.org/zookeeper/zookeeper-{{ zookeeper_version }}/apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+        dest: /opt/
+        remote_src: yes
+        creates: "/opt/apache-zookeeper-{{ zookeeper_version }}-bin"
+
+    - name: Create symbolic link and data directory
+      file:
+        path: "{{ item.path }}"
+        state: "{{ item.state }}"
+        src: "{{ item.src | default(omit) }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      loop:
+        - { path: "{{ zookeeper_install_dir }}", state: link, src: "/opt/apache-zookeeper-{{ zookeeper_version }}-bin" }
+        - { path: "{{ zookeeper_data_dir }}", state: directory }
+
+    - name: Configure Zookeeper
+      template:
+        src: zoo.cfg.j2
+        dest: "{{ zookeeper_install_dir }}/conf/zoo.cfg"
+      notify: Restart Zookeeper
+
+    - name: Set myid
+      copy:
+        content: "{{ inventory_hostname.split('-')[1] }}"
+        dest: "{{ zookeeper_data_dir }}/myid"
+      notify: Restart Zookeeper
+
+  handlers:
+    - name: Restart Zookeeper
+      shell: "{{ zookeeper_install_dir }}/bin/zkServer.sh restart"
+
+- name: Install and Configure BookKeeper
+  hosts: bookies
+  become: yes
+  vars:
+    java_version: "17"
+    bookkeeper_version: "4.17.1"
+    bookkeeper_install_dir: "/opt/bookkeeper"
+    bookkeeper_data_dirs:
+      - "/var/lib/bookkeeper/ledger"
+    bookkeeper_journal_dir: "/var/lib/bookkeeper/journal"
+    zookeeper_servers: "{{ groups['zookeepers'] | map('extract', hostvars, ['ansible_host']) | join(':2181;') }}:2181"
+  tasks:
+    - name: Remove old BookKeeper installation
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ bookkeeper_install_dir }}"
+        - "/opt/bookkeeper-server-{{ bookkeeper_version }}-bin.tar.gz"
+        - "{{ bookkeeper_journal_dir }}"
+        - "{{ bookkeeper_data_dirs[0] }}"
+    
+    - name: Install dependencies
+      apt:
+        name: 
+          - openjdk-{{ java_version }}-jdk
+          - wget
+          - tar
+        state: present
+        update_cache: yes
+
+    - name: Download and extract BookKeeper
+      unarchive:
+        src: "https://downloads.apache.org/bookkeeper/bookkeeper-{{ bookkeeper_version }}/bookkeeper-server-{{ bookkeeper_version }}-bin.tar.gz"
+        dest: /opt/
+        remote_src: yes
+        creates: "/opt/bookkeeper-server-{{ bookkeeper_version }}"
+
+    - name: Create symbolic link and directories
+      file:
+        path: "{{ item.path }}"
+        state: "{{ item.state }}"
+        src: "{{ item.src | default(omit) }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      loop:
+        - { path: "{{ bookkeeper_install_dir }}", state: link, src: "/opt/bookkeeper-server-{{ bookkeeper_version }}" }
+        - { path: "{{ bookkeeper_journal_dir }}", state: directory }
+        - { path: "{{ bookkeeper_data_dirs[0] }}", state: directory }
+
+    - name: Configure BookKeeper
+      template:
+        src: bk_server.conf.j2
+        dest: "{{ bookkeeper_install_dir }}/conf/bk_server.conf"
+      notify: Restart BookKeeper
+
+    - name: Run metaformat command
+      shell: "{{ bookkeeper_install_dir }}/bin/bookkeeper shell metaformat"
+      when: inventory_hostname == groups['bookies'][0]
+
+  handlers:
+    - name: Restart BookKeeper
+      shell: "{{ bookkeeper_install_dir }}/bin/bookkeeper-daemon.sh restart bookie"
+
+- name: Install BookKeeper Clients
+  hosts: clients
+  become: yes
+  vars:
+    java_version: "17"
+  tasks:
+    - name: Install Java
+      apt:
+        name:
+          - openjdk-{{ java_version }}-jdk
+          - wget
+          - tar
+        state: present
+        update_cache: yes
+
+- name: Deploy and Run Benchmark
+  hosts: bookkeeper-client-1
+  become: yes
+  vars:
+    remote_dir: /root/lab24-log-service-benchmark/workload-generator
+    local_workload_dir: /home/nati/Desktop/DMLAB/lab24-log-service-benchmark/workload-generator
+  tasks:
+    - name: Ensure Maven is installed
+      apt:
+        name: maven
+        state: present
+
+    - name: Prepare benchmark directory
+      file:
+        path: "{{ remote_dir }}"
+        state: directory
+
+    - name: Copy benchmark files
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ remote_dir }}/{{ item.dest }}"
+        mode: '0755'
+      loop:
+        - { src: '/home/nati/Desktop/DMLAB/lab24-log-service-benchmark/workload-generator/target/bookkeeper-workload-generator-1.0.jar', dest: 'bookkeeper-workload-generator-1.0.jar' }
+        - { src: '{{ local_workload_dir }}/runsync.sh', dest: 'runsync.sh' }
+
+    - name: Run benchmark
+      shell: ./runsync.sh
+      args:
+        chdir: "{{ remote_dir }}"
+
+- name: Copy remote folder to local directory
+  hosts: bookkeeper-client-1
+  become: yes
+  vars:
+    remote_dir: /root/lab24-log-service-benchmark/workload-generator/ExperimentResult
+    archive_name: ExperimentResult.tar.gz
+  tasks:
+    - name: Create archive of ExperimentResult folder
+      archive:
+        path: "{{ remote_dir }}"
+        dest: "/tmp/{{ archive_name }}"
+        format: gz
+
+    - name: Fetch the archive
+      fetch:
+        src: "/tmp/{{ archive_name }}"
+        dest: "./{{ archive_name }}"
+        flat: yes
+
+    - name: Remove temporary archive on remote
+      file:
+        path: "/tmp/{{ archive_name }}"
+        state: absent

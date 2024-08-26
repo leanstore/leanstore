@@ -1,0 +1,5 @@
+bookiePort=3181
+journalDirectory={{ bookkeeper_journal_dir }}
+ledgerDirectories={{ bookkeeper_data_dirs | join(',') }}
+metadataServiceUri=zk+hierarchical://{{ zookeeper_servers }}/ledgers
+zkServers={{ zookeeper_servers }}
