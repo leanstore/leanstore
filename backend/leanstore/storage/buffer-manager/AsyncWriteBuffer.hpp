@@ -1,6 +1,8 @@
 #pragma once
 #include "BufferFrame.hpp"
+#include "Partition.hpp"
 #include "Units.hpp"
+#include "BMPlainGuard.hpp"
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 #include <libaio.h>
@@ -23,24 +25,25 @@ class AsyncWriteBuffer
    io_context_t aio_context;
    int fd;
    u64 page_size, batch_max_size;
-   u64 pending_requests = 0;
-
-  public:
+   std::function<Partition&(PID)> getPartition;
+   std::function<void(BufferFrame& write_command)> pageCallback;
+   std::vector<std::pair<BufferFrame*, PID>> pagesToWrite;
    std::unique_ptr<BufferFrame::Page[]> write_buffer;
    std::unique_ptr<WriteCommand[]> write_buffer_commands;
    std::unique_ptr<struct iocb[]> iocbs;
    std::unique_ptr<struct iocb*[]> iocbs_ptr;
    std::unique_ptr<struct io_event[]> events;
-   // -------------------------------------------------------------------------------------
-   // Debug
-   // -------------------------------------------------------------------------------------
-   AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size);
-   // Caller takes care of sync
-   bool full();
+  public:
+   AsyncWriteBuffer(int fd, u64 page_size, u64 batch_max_size, std::function<Partition&(PID)> getPartition,
+      std::function<void(BufferFrame& write_command)> pageCallback);
+   void flush();
    void add(BufferFrame& bf, PID pid);
+  private:
+   void ensureNotFull();
+   bool full();
+   bool empty();
    u64 submit();
-   u64 pollEventsSync();
-   void getWrittenBfs(std::function<void(BufferFrame&, u64, PID)> callback, u64 n_events);
+   void waitAndHandle(u64 submitted_pages);
 };
 // -------------------------------------------------------------------------------------
 }  // namespace storage

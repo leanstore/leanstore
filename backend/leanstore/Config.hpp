@@ -5,6 +5,7 @@ DECLARE_double(dram_gib);
 DECLARE_double(ssd_gib);
 DECLARE_string(ssd_path);
 DECLARE_uint32(worker_threads);
+DECLARE_uint32(creator_threads);
 DECLARE_bool(cpu_counters);
 DECLARE_bool(pin_threads);
 DECLARE_bool(smt);
@@ -29,6 +30,10 @@ DECLARE_bool(contention_split);
 DECLARE_uint64(cm_update_on);
 DECLARE_uint64(cm_period);
 DECLARE_uint64(cm_slowpath_threshold);
+// -------------------------------------------------------------------------------------
+DECLARE_uint32(epoch_size);
+DECLARE_uint32(write_costs);
+DECLARE_uint32(watt_samples);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(xmerge);
 DECLARE_uint64(xmerge_k);
