@@ -21,8 +21,8 @@ DEFINE_bool(profiling, false, "");
 DEFINE_bool(profile_latency, false, "");
 DEFINE_bool(crc_check, false, "");
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(worker_threads, 4, "");
-DEFINE_uint32(creator_threads, 0, "");
+DEFINE_uint32(worker_threads, 4, "Number of threads for benchmarking");
+DEFINE_uint32(creator_threads, 0, "Number of threads for dataset creation (prior to benchmarking)");
 DEFINE_bool(cpu_counters, true, "Disable if HW does not have enough counters for all threads");
 DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
