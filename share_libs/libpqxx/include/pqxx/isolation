@@ -1,0 +1,6 @@
+/** Transaction isolation levels.
+ *
+ * Policies and traits describing SQL transaction isolation levels
+ */
+// Actual definitions in .hxx file so editors and such recognize file type.
+#include "pqxx/isolation.hxx"

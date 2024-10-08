@@ -1,0 +1,56 @@
+# CircleCI config for automated test builds triggered from Github.
+version: 2
+jobs:
+  build:
+    docker:
+      - image: debian:buster
+#      - image: postgres:latest
+    environment:
+      - PGHOST: "/tmp"
+    steps:
+      - checkout
+      - run:
+          name: Configure apt archives
+          command: apt update && apt install -y wget # && echo >/etc/apt/sources.list.d/clang-upstream.list 'deb http://apt.llvm.org/stretch/ llvm-toolchain-stretch main' && wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -
+      - run:
+          name: Install
+          command: apt update && apt install -y python python3 cmake libpq-dev postgresql libpq-dev postgresql-server-dev-all build-essential autoconf dh-autoreconf autoconf-archive automake cppcheck # clang
+      - run:
+          name: Identify
+          command: lsb_release -a && c++ --version # && clang++ --version
+      - run:
+          name: Prepare postgres
+          command: |
+              mkdir /tmp/db &&
+              chown postgres /tmp/db &&
+              su postgres -c '/usr/lib/postgresql/*/bin/initdb --pgdata /tmp/db --auth trust --nosync'
+      - run:
+          name: Run postgres
+          command: (su postgres -c '/usr/lib/postgresql/*/bin/postgres -D /tmp/db -k /tmp' &) && sleep 5
+      - run:
+          name: Create postgres user
+          command: su postgres -c "createuser -w -d root"
+      - run:
+          name: Set up database
+          command: createdb root
+#      - run:
+#          name: Build using CMake
+#          command: (SRC="$(pwd)" && mkdir /tmp/build && cd /tmp/build && cmake "$SRC" -DBUILD_SHARED_LIBS=1 && make -j4)
+      - run:
+          name: Autogen
+          command: NOCONFIGURE=1 ./autogen.sh
+      - run:
+          name: Configure
+          command: |
+              ./configure \
+                  --disable-documentation \
+                  --enable-maintainer-mode \
+                  --enable-audit \
+                  --enable-shared --disable-static \
+                  CXXFLAGS=-O3
+      - run:
+          name: Make
+          command: make -j$(nproc)
+      - run:
+          name: Test
+          command: PGDATA=db/data make check

@@ -1,0 +1,5 @@
+/**
+ * Basic typedefs and forward declarations.
+ */
+// Actual definitions in .hxx file so editors and such recognize file type.
+#include "pqxx/types.hxx"
