@@ -26,7 +26,7 @@ struct exmap_ioctl_setup {
 #define EXMAP_IOCTL_SETUP _IOC(_IOC_WRITE, 'k', 1, sizeof(struct exmap_ioctl_setup))
 
 // Maximum Range of exmap_page.len
-#define EXMAP_PAGE_LEN_BITS 20
+#define EXMAP_PAGE_LEN_BITS 12
 #define EXMAP_PAGE_MAX_PAGES (1 << EXMAP_PAGE_LEN_BITS)
 
 struct exmap_iov {

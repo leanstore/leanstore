@@ -30,13 +30,13 @@ int main() {
 
 	std::cout << "Preparing to test ExMap functionality." << std::endl;
 
-	// Try to open /dev/exmap
-	exmap_fd = open("/dev/exmap", O_RDWR);
+	// Try to open /dev/exmap0
+	exmap_fd = open("/dev/exmap0", O_RDWR);
 	if (exmap_fd < 0) {
-		OOPS("Couldn't open /dev/exmap, did you load the module?");
+		OOPS("Couldn't open /dev/exmap0, did you load the module?");
 		PERR("exmap open");
 	}
-	SUCC("1. Opened /dev/exmap.");
+	SUCC("1. Opened /dev/exmap0.");
 
 	// Try to mmap the exmap
 	const size_t exmap_size = thread_count * 8 * 1024 * 1024;

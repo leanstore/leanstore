@@ -26,13 +26,18 @@
 
 #include "linux/exmap.h"
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+#include <linux/io_uring/cmd.h>
+#endif
+
 #include "driver.h"
 #include "ksyms.h"
 #include "config.h"
 
+#define MAX_EXMAP_DEVICES	5
 
-static dev_t first;
-static struct cdev cdev;
+static dev_t device_number;
+static struct cdev cdev[MAX_EXMAP_DEVICES];
 static struct class *cl; // Global variable for the device class
 
 struct exmap_interface;
@@ -417,6 +422,7 @@ static void vm_close(struct vm_area_struct *vma) {
 		}
 	}
 
+	flush_tlb_mm(vma->vm_mm);
 	add_mm_counter(vma->vm_mm, MM_FILEPAGES, -1 * ctx->buffer_size);
 
 	// Raise the locked_vm_pages again
@@ -505,10 +511,18 @@ static void exmap_notifier_release(struct mmu_notifier *mn,
 static int exmap_notifier_invalidate_range_start(struct mmu_notifier *mn, const struct mmu_notifier_range *range) {
 	struct exmap_ctx *ctx = mmu_notifier_to_exmap(mn);
 
-    // Only cleanup the exmap_vma when it is the one being unmapped
+  // Only cleanup the exmap_vma when it is the one being unmapped
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+	struct vm_area_struct *vma;
+	vma = find_vma_intersection(range->mm, range->start, range->end);
+	if (ctx->interfaces && ctx->exmap_vma && ctx->exmap_vma == vma) {
+		exmap_vma_cleanup(ctx, range->start, range->end);
+	}
+#else
 	if (ctx->interfaces && ctx->exmap_vma && ctx->exmap_vma == range->vma) {
 		exmap_vma_cleanup(ctx, range->start, range->end);
 	}
+#endif
 	return 0;
 }
 
@@ -544,8 +558,16 @@ static int exmap_mmap(struct file *file, struct vm_area_struct *vma) {
 
 		ctx->exmap_vma = vma;
 		vma->vm_ops   = &vm_ops;
+		#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+		vm_flags_set(vma, VM_DONTEXPAND);
+		vm_flags_set(vma, VM_DONTDUMP);
+		vm_flags_set(vma, VM_NOHUGEPAGE);
+		vm_flags_set(vma, VM_DONTCOPY);
+		vm_flags_set(vma, VM_MIXEDMAP);
+#else
 		vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP | VM_NOHUGEPAGE | VM_DONTCOPY;
 		vma->vm_flags |= VM_MIXEDMAP; // required for vm_insert_page
+#endif
 		vma->vm_private_data = ctx;
 		vm_open(vma);
 	} else if (offset >= EXMAP_OFF_INTERFACE_BASE && offset <= EXMAP_OFF_INTERFACE_MAX) {
@@ -1145,9 +1167,18 @@ ssize_t exmap_alloc_iter(struct exmap_ctx *ctx, struct exmap_interface *interfac
 
 	iov_iter_save_state(iter, &iter_state);
 	while (iov_iter_count(iter)) {
+		char __user* addr;
+		ssize_t size;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+		addr = iter_iov_addr(iter);
+		size = iter_iov_len(iter);
+#else
 		struct iovec iovec = iov_iter_iovec(iter);
-		char __user* addr = iovec.iov_base;
-		ssize_t size = iovec.iov_len;
+		addr = iovec.iov_base;
+		size = iovec.iov_len;
+#endif
+
 
 		//if (iovec.iov_len != iov_iter_count(iter)) {
 		//	pr_info("exmap: BUG we currently support only iovectors of length 1\n");
@@ -1179,7 +1210,7 @@ ssize_t exmap_alloc_iter(struct exmap_ctx *ctx, struct exmap_interface *interfac
 		if (rc < 0) return rc;
 		rc_all += rc;
 
-		iov_iter_advance(iter, iovec.iov_len);
+		iov_iter_advance(iter, size);
 	}
 
 	if (free_pages.count > 0) { // Free the leftover pages
@@ -1227,9 +1258,17 @@ ssize_t exmap_read_iter(struct kiocb* kiocb, struct iov_iter *iter) {
 	}
 
 	while (iov_iter_count(iter)) {
+		char __user* addr;
+		ssize_t size;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+		addr = iter_iov_addr(iter);
+		size = iter_iov_len(iter);
+#else
 		struct iovec iovec = iov_iter_iovec(iter);
-		char __user* addr = iovec.iov_base;
-		ssize_t size = iovec.iov_len;
+		addr = iovec.iov_base;
+		size = iovec.iov_len;
+#endif
 		loff_t  disk_offset = (uintptr_t)addr - ctx->exmap_vma->vm_start;
 		struct iov_iter_state iter_state;
 
@@ -1247,7 +1286,7 @@ ssize_t exmap_read_iter(struct kiocb* kiocb, struct iov_iter *iter) {
 
 		rc_all += rc;
 
-		iov_iter_advance(iter, iovec.iov_len);
+		iov_iter_advance(iter, size);
 	}
 
 	return rc_all;
@@ -1275,37 +1314,56 @@ static int exmap_init_module(void) {
 	if (exmap_acquire_ksyms())
 		goto out;
 
-	if (alloc_chrdev_region(&first, 0, 1, "exmap") < 0)
+	if (alloc_chrdev_region(&device_number, 0, 2, "exmap") < 0)
 		goto out;
+
+	// Create two devices for two mapping
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
+	if ((cl = class_create("exmap")) == NULL)
+		goto out_unregister_chrdev_region;
+#else
 	if ((cl = class_create(THIS_MODULE, "exmap")) == NULL)
 		goto out_unregister_chrdev_region;
+#endif
 	cl->dev_uevent = dev_uevent_perms;
-	if (device_create(cl, NULL, first, NULL, "exmap") == NULL)
-		goto out_class_destroy;
 
-	cdev_init(&cdev, &fops);
-	if (cdev_add(&cdev, first, 1) == -1)
-		goto out_device_destroy;
-
+	int major = MAJOR(device_number);
+	dev_t my_device;
+	for (int i = 0; i < MAX_EXMAP_DEVICES; i++) {
+		my_device = MKDEV(major, i);
+		cdev_init(&cdev[i], &fops);
+		if (cdev_add(&cdev[i], my_device, 1) == -1)
+			goto out_device_destroy;
+		if (device_create(cl, NULL, my_device, NULL, "exmap%d", i) == NULL)
+			goto out_class_destroy;
+	}
 	printk(KERN_INFO "exmap registered");
-
 	return 0;
 
  out_device_destroy:
-	device_destroy(cl, first);
+	for (int i = 0; i < MAX_EXMAP_DEVICES; i++) {
+		my_device = MKDEV(major, i);
+		cdev_del(&cdev[i]);
+		device_destroy(cl, my_device);
+	}
  out_class_destroy:
 	class_destroy(cl);
  out_unregister_chrdev_region:
-	unregister_chrdev_region(first, 1);
+	unregister_chrdev_region(device_number, MAX_EXMAP_DEVICES);
  out:
 	return -1;
 }
 
 static void exmap_cleanup_module(void) {
-	cdev_del(&cdev);
-	device_destroy(cl, first);
+	int major = MAJOR(device_number);
+	dev_t my_device;
+	for (int i = 0; i < MAX_EXMAP_DEVICES; i++) {
+		my_device = MKDEV(major, i);
+		cdev_del(&cdev[i]);
+		device_destroy(cl, my_device);
+	}
 	class_destroy(cl);
-	unregister_chrdev_region(first, 1);
+	unregister_chrdev_region(device_number, MAX_EXMAP_DEVICES);
 	printk(KERN_INFO "exmap unregistered");
 }
 

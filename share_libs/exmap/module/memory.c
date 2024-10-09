@@ -9,6 +9,17 @@
 #include "driver.h"
 #include "config.h"
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+#define pte_offset_map pte_offset_kernel
+#define pte_offset_map_lock(mm, pmd, address, ptlp)	\
+({							\
+	spinlock_t *__ptl = pte_lockptr(mm, pmd);	\
+	pte_t *__pte = pte_offset_kernel(pmd, address);	\
+	*(ptlp) = __ptl;				\
+	spin_lock(__ptl);				\
+	__pte;						\
+})
+#endif
 
 /**
  * exmap_pte_alloc_one - allocate a page for PTE-level user page table
@@ -29,7 +40,11 @@ static inline pgtable_t exmap_pte_alloc_one(struct mm_struct *mm)
 	pte = alloc_page(GFP_PGTABLE_USER);
 	if (!pte)
 		return NULL;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+	if (!pagetable_pte_ctor(page_ptdesc(pte))) {
+#else
 	if (!pgtable_pte_page_ctor(pte)) {
+#endif
 		__free_page(pte);
 		return NULL;
 	}
@@ -95,7 +110,11 @@ static inline pmd_t *exmap_pmd_alloc_one(struct mm_struct *mm, unsigned long add
 	page = alloc_pages(GFP_PGTABLE_USER, 0);
 	if (!page)
 		return NULL;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
+	if (!pagetable_pmd_ctor(page_ptdesc(page))) {
+#else
 	if (!pgtable_pmd_page_ctor(page)) {
+#endif
 		__free_pages(page, 0);
 		return NULL;
 	}
@@ -455,7 +474,11 @@ int exmap_insert_pages(struct vm_area_struct *vma, unsigned long addr,
 	if (!(vma->vm_flags & VM_MIXEDMAP)) {
 		BUG_ON(mmap_read_trylock(vma->vm_mm));
 		BUG_ON(vma->vm_flags & VM_PFNMAP);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+		vm_flags_set(vma, VM_MIXEDMAP);
+#else
 		vma->vm_flags |= VM_MIXEDMAP;
+#endif
 	}
 	/* Defer page refcount checking till we're about to map that page. */
 	return insert_pages(vma, addr, num_pages, pages,
