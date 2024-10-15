@@ -383,7 +383,7 @@ auto LogWorker::TryStealLogs(wid_t peer_id, WorkerConsistentState &out_state) ->
         log_buffer.wal_cursor += total_copy_size;
         assert(log_buffer.wal_cursor < FLAGS_wal_buffer_size_mb * MB);
       } else {
-        parking_lot_log_flush.pop_back();
+        peer_logger.parking_lot_log_flush.pop_back();
       }
     }
   }
