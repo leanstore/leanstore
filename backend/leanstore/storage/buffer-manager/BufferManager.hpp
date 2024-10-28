@@ -157,7 +157,9 @@ class BufferManager
    inline BufferFrame& tryFastResolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
    {
       if (swip_value.isHOT()) {
-         COUNTERS_BLOCK() {leanstore::WorkerCounters::myCounters().hot_hit_counter++;}
+         if(FLAGS_profile_hits){
+            COUNTERS_BLOCK() {leanstore::WorkerCounters::myCounters().hot_hit_counter++;}
+         }
          BufferFrame& bf = swip_value.asBufferFrame();
          swip_guard.recheck();
          return bf;
