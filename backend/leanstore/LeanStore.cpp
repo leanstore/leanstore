@@ -153,8 +153,9 @@ void LeanStore::doProfiling()
    // -------------------------------------------------------------------------------------
    config_hash = configs_table.hash();
    // -------------------------------------------------------------------------------------
-   // Timd tables: every second
+   // Timed tables: every second
    u64 seconds = 0;
+   auto start_time = std::chrono::high_resolution_clock::now();
    while (bg_threads_keep_running) {
       for (u64 t_i = 0; t_i < timed_tables.size(); t_i++) {
          printTable(timed_tables[t_i], timedCsvs[t_i], seconds);
@@ -168,7 +169,8 @@ void LeanStore::doProfiling()
       // Console
       // -------------------------------------------------------------------------------------
       print_tx_console(bm_table, cpu_table, cr_table, seconds, tx, console_csv);
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      start_time += std::chrono::seconds{1};
+      std::this_thread::sleep_until(start_time);
       seconds += 1;
       std::locale::global(std::locale::classic());
    }
@@ -269,7 +271,7 @@ void LeanStore::print_tx_console(profiling::BMTable& bm_table,
             if (str[i] == '\n') {
                line_n++;
             }
-            if((line_n!=0 && line_n!=length-1) || printAllLines) {
+            if((line_n!=0 && line_n< length-2) || printAllLines) {
                cout << str[i];
             }
          }
