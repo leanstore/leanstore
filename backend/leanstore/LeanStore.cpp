@@ -332,8 +332,7 @@ void LeanStore::printStats(bool reset)
    cout << "total newPages: " << sum(WorkerCounters::worker_counters, &WorkerCounters::new_pages_counter) << endl;
    cout << "total misses: " << sum(WorkerCounters::worker_counters, &WorkerCounters::missed_hit_counter) << endl;
    if(FLAGS_profile_hits){
-      cout << "total hits: " << sum(WorkerCounters::worker_counters, &WorkerCounters::hot_hit_counter) +
-         sum(WorkerCounters::worker_counters, &WorkerCounters::cold_hit_counter) << endl;
+      cout << "total hits: " << sum(WorkerCounters::worker_counters, &WorkerCounters::hot_hit_counter) << endl;
    }
    cout << "total jumps: " << sum(WorkerCounters::worker_counters, &WorkerCounters::jumps) << endl;
    cout << "total tx: " << sum(WorkerCounters::worker_counters, &WorkerCounters::tx_counter) << endl;
