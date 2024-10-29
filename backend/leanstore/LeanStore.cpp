@@ -162,17 +162,19 @@ void LeanStore::doProfiling()
             // TODO: Websocket, CLI
       }
       // -------------------------------------------------------------------------------------
-      const u64 tx = std::stoi(cr_table.get("0", "tx"));
       // Global Stats
-      global_stats.accumulated_tx_counter += tx;
+      global_stats.accumulated_tx_counter += std::stoi(cr_table.get("0", "tx"));
       // -------------------------------------------------------------------------------------
       // Console
       // -------------------------------------------------------------------------------------
-      print_tx_console(bm_table, cpu_table, cr_table, seconds, tx, console_csv);
+      print_tx_console(bm_table, cpu_table, cr_table, seconds, console_csv);
       start_time += std::chrono::seconds{1};
       std::this_thread::sleep_until(start_time);
       seconds += 1;
       std::locale::global(std::locale::classic());
+   }
+   for(auto table: timed_tables){
+      table->next();
    }
    printStats(false);
    if(seconds > 0){
@@ -205,9 +207,9 @@ void LeanStore::print_tx_console(profiling::BMTable& bm_table,
                                  profiling::CPUTable& cpu_table,
                                  profiling::CRTable& cr_table,
                                  u64 seconds,
-                                 const u64 tx,
                                  ofstream& console_csv) const{
    if (FLAGS_print_tx_console) {
+      const u64 tx = std::stoi(cr_table.get("0", "tx"));
       const u64 olap_tx = std::stoi(cr_table.get("0", "olap_tx"));
       const double tx_abort = std::stoi(cr_table.get("0", "tx_abort"));
       const double tx_abort_pct = tx_abort * 100.0 / (tx_abort + tx);

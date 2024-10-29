@@ -71,7 +71,6 @@ int main(int argc, char** argv)
                 [&]() {});
             ensure(counter == N);
             WorkerCounters::myCounters().tx++;
-            WorkerCounters::myCounters().tx_counter++;
          }
          cr::Worker::my().commitTX();
       }

@@ -19,6 +19,17 @@ T sum_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterTyp
    }
    return local_c;
 }
+template <class CountersClass, class CounterType, typename T = u64>
+T sum_reset_add_to(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType CountersClass::*c, CounterType CountersClass::*c2)
+{
+   T local_c = 0;
+   for (typename tbb::enumerable_thread_specific<CountersClass>::iterator i = counters.begin(); i != counters.end(); ++i) {
+      T temp = ((*i).*c).exchange(0);
+      ((*i).*c2) += temp;
+      local_c += temp;
+   }
+   return local_c;
+}
 // -------------------------------------------------------------------------------------
 template <class CountersClass, class CounterType, typename T = u64>
 T sum_reset(tbb::enumerable_thread_specific<CountersClass>& counters, CounterType CountersClass::*c, u64 index)

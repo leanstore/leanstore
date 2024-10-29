@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 using leanstore::utils::threadlocal::sum_reset;
+using leanstore::utils::threadlocal::sum_reset_add_to;
 namespace leanstore
 {
 namespace profiling
@@ -45,7 +46,7 @@ void BMTable::open()
    columns.emplace("free_pct", [&](Column& col) { col << (local_total_free * 100.0 / bm.getPoolSize()); });
    columns.emplace("evicted_pages", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::evicted_pages)); });
    columns.emplace("rounds", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::pp_thread_rounds)); });
-   columns.emplace("touches", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::touched_bfs_counter)); });
+   columns.emplace("touches", [&](Column& col) { col << (sum_reset_add_to(PPCounters::pp_counters, &PPCounters::touched_bfs_counter, &PPCounters::total_touches)); });
    columns.emplace("submit_ms", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::submit_ms) * 100.0 / total); });
    columns.emplace("async_mb_ws", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::async_wb_ms)); });
    columns.emplace("w_mib", [&](Column& col) {

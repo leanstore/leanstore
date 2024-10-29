@@ -98,7 +98,6 @@ int main(int argc, char** argv)
             cr::Worker::my().commitTX();
             COUNTERS_BLOCK() {
                WorkerCounters::myCounters().tx++;
-               WorkerCounters::myCounters().tx_counter++;
              }
          }
          jumpmuCatch() { ensure(false); }

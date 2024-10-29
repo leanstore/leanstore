@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 using leanstore::utils::threadlocal::sum_reset;
+using leanstore::utils::threadlocal::sum_reset_add_to;
 namespace leanstore
 {
 namespace profiling
@@ -28,9 +29,9 @@ void CRTable::open()
    columns.emplace("gct_write_pct", [&](Column& col) { col << 100.0 * write / total; });
    columns.emplace("gct_committed_tx", [&](Column& col) { col << sum_reset(CRCounters::cr_counters, &CRCounters::gct_committed_tx); });
    columns.emplace("gct_rounds", [&](Column& col) { col << sum_reset(CRCounters::cr_counters, &CRCounters::gct_rounds); });
-   columns.emplace("tx", [](Column& col) { col << sum_reset(WorkerCounters::worker_counters, &WorkerCounters::tx); });
+   columns.emplace("tx", [](Column& col) { col << sum_reset_add_to(WorkerCounters::worker_counters, &WorkerCounters::tx, &WorkerCounters::tx_counter); });
    columns.emplace("tx_abort", [](Column& col) { col << sum_reset(WorkerCounters::worker_counters, &WorkerCounters::tx_abort); });
-   columns.emplace("olap_tx", [](Column& col) { col << sum_reset(WorkerCounters::worker_counters, &WorkerCounters::olap_tx); });
+   columns.emplace("olap_tx", [](Column& col) { col << sum_reset_add_to(WorkerCounters::worker_counters, &WorkerCounters::olap_tx, &WorkerCounters::tx_counter); });
    columns.emplace("olap_scanned_tuples", [](Column& col) { col << sum_reset(WorkerCounters::worker_counters, &WorkerCounters::olap_scanned_tuples); });
    columns.emplace("olap_tx_abort", [](Column& col) { col << sum_reset(WorkerCounters::worker_counters, &WorkerCounters::olap_tx_abort); });
    columns.emplace("rfa_committed_tx", [&](Column& col) { col << sum_reset(CRCounters::cr_counters, &CRCounters::rfa_committed_tx); });

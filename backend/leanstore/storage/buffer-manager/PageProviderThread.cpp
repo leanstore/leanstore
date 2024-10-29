@@ -35,9 +35,7 @@ BufferManager::PageProviderThread::PageProviderThread(u64 t_i, BufferManager* bf
 BufferFrame& BufferManager::PageProviderThread::randomBufferFrame()
 {
    auto rand_buffer_i = utils::RandomGenerator::getRand<u64>(0, bf_mgr.dram_pool_size);
-   COUNTERS_BLOCK() {
-      PPCounters::myCounters().touched_bfs_counter++;
-      PPCounters::myCounters().total_touches++;}
+   COUNTERS_BLOCK() {PPCounters::myCounters().touched_bfs_counter++;}
    return bf_mgr.bfs[rand_buffer_i];
 }
 // -------------------------------------------------------------------------------------
