@@ -42,7 +42,6 @@ void BMTable::open()
                    [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::iterate_children_ms) * 100.0 / total); });
    columns.emplace("t_t", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::threshold_tests)); });
    columns.emplace("e_t", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::eviction_tests)); });
-
    columns.emplace("free_pct", [&](Column& col) { col << (local_total_free * 100.0 / bm.getPoolSize()); });
    columns.emplace("evicted_pages", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::evicted_pages)); });
    columns.emplace("rounds", [&](Column& col) { col << (sum_reset(PPCounters::pp_counters, &PPCounters::pp_thread_rounds)); });

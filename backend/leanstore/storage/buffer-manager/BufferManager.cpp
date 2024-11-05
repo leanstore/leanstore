@@ -302,9 +302,10 @@ void BufferManager::reclaimPage(BufferFrame& bf)
 BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
 {
    if (swip_value.isHOT()) {
-      if(FLAGS_count_hits){
-         COUNTERS_BLOCK() {leanstore::WorkerCounters::myCounters().hot_hit_counter++;}
-      }
+      COUNTERS_BLOCK() {
+         if(FLAGS_count_hits){
+            leanstore::WorkerCounters::myCounters().hot_hit_counter++;
+      }}
       BufferFrame& bf = swip_value.asBufferFrame();
       swip_guard.recheck();
       return bf;

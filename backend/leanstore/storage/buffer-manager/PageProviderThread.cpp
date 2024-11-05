@@ -28,7 +28,7 @@ using Time = decltype(std::chrono::high_resolution_clock::now());
 BufferManager::PageProviderThread::PageProviderThread(u64 t_i, BufferManager* bf_mgr): id(t_i), bf_mgr(*bf_mgr), 
          async_write_buffer(bf_mgr->ssd_fd, PAGE_SIZE, FLAGS_write_buffer_size,
             [&](PID pid) -> Partition& {return bf_mgr->getPartition(pid);},
-            [&](BufferFrame& bf){}),
+            [&]([[maybe_unused]] BufferFrame& bf){}),
          evictions_per_epoch(std::max((u64) 1, (u64) bf_mgr->dram_pool_size / FLAGS_epoch_size)){
          };
 // -------------------------------------------------------------------------------------
@@ -115,7 +115,7 @@ ParentSwipHandler BufferManager::PageProviderThread::findParent(BufferFrame* r_b
       return parent_handler;
 }
 
-bool BufferManager::PageProviderThread::checkXMerge(BufferFrame* r_buffer, BMOptimisticGuard& r_guard){
+bool BufferManager::PageProviderThread::checkXMerge(BufferFrame* r_buffer){
       const SpaceCheckResult space_check_res = bf_mgr.getDTRegistry().checkSpaceUtilization(r_buffer->page.dt_id, *r_buffer);
       return space_check_res == SpaceCheckResult::RESTART_SAME_BF || space_check_res == SpaceCheckResult::PICK_ANOTHER_BF;
 }
@@ -159,10 +159,10 @@ double BufferManager::PageProviderThread::findThresholds(){
       threshold_tests_end = std::chrono::high_resolution_clock::now();
       PPCounters::myCounters().threshold_tests_ms += (std::chrono::duration_cast<std::chrono::microseconds>(threshold_tests_end - threshold_tests_begin).count());
    }
-   double calculated_min = min;
+   // double calculated_min = min;
    double second_value = min*1.3;
    if(valid_tests>1){
-      calculated_min = (min + second_min) / 2.0;
+      //calculated_min = (min + second_min) / 2.0;
       second_value = second_min;
    }
    // last_min = calculated_min;
@@ -190,7 +190,7 @@ void BufferManager::PageProviderThread::evictPages(double min){
             COUNTERS_BLOCK() { PPCounters::myCounters().touched_bfs_counter++; }
             if(childInRam(r_buffer, r_guard, false)){jumpmu_continue;}
             r_guard.recheck();
-            if(checkXMerge(r_buffer, r_guard)){jumpmu_continue;}
+            if(checkXMerge(r_buffer)){jumpmu_continue;}
             r_guard.recheck();
             double value = r_buffer->header.tracker.getValue();
             r_guard.recheck();

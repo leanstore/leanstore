@@ -32,9 +32,9 @@ void jump()
    }
    auto& env_to_jump = jumpmu::env[jumpmu::checkpoint_counter - 1];
    checkpoint_counter--;
-   if(FLAGS_count_jumps){
-      COUNTERS_BLOCK() {leanstore::WorkerCounters::myCounters().jumps++;}
-   }
+   COUNTERS_BLOCK() {
+      if(FLAGS_count_jumps){
+         leanstore::WorkerCounters::myCounters().jumps++; }}
    longjmp(env_to_jump, 1);
 }
 }  // namespace jumpmu

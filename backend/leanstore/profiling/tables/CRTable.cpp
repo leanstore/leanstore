@@ -41,11 +41,10 @@ void CRTable::open()
    columns.emplace("wal_read_gib", [&](Column& col) {
       col << (sum_reset(WorkerCounters::worker_counters, &WorkerCounters::wal_read_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0;
    });
-   columns.emplace("gct_write_gib",
-                   [&](Column& col) { col << (sum_reset(CRCounters::cr_counters, &CRCounters::gct_write_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0; });
+   columns.emplace("gct_write_gib", [&](Column& col) {
+      col << (sum_reset(CRCounters::cr_counters, &CRCounters::gct_write_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0; });
    columns.emplace("wal_write_gib", [&](Column& col) {
-      col << (sum_reset(WorkerCounters::worker_counters, &WorkerCounters::wal_write_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0;
-   });
+      col << (sum_reset(WorkerCounters::worker_counters, &WorkerCounters::wal_write_bytes) * 1.0) / 1024.0 / 1024.0 / 1024.0; });
    columns.emplace("wal_miss_pct", [&](Column& col) { col << wal_miss_pct; });
    columns.emplace("wal_hit_pct", [&](Column& col) { col << wal_hit_pct; });
    columns.emplace("wal_miss", [&](Column& col) { col << wal_miss; });

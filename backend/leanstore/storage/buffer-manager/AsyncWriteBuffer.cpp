@@ -74,8 +74,6 @@ void AsyncWriteBuffer::add(BufferFrame& bf, PID pid)
    // Make copy of page, because we want to write the page in its current stage (and it is locked right now)
    std::memcpy(&write_buffer[slot], bf.page, page_size);
    write_buffer[slot].magic_debugging_number=pid;
-
-
 }
 // -------------------------------------------------------------------------------------
 u64 AsyncWriteBuffer::submit()

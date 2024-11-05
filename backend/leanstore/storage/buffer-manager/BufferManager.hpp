@@ -120,7 +120,7 @@ class BufferManager
       void prefetch_bf(u32 BATCH_SIZE);
       bool childInRam(BufferFrame* r_buffer, BMOptimisticGuard& r_guard, bool pickChild);
       ParentSwipHandler findParent(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
-      bool checkXMerge(BufferFrame* r_buffer, BMOptimisticGuard& r_guard);
+      bool checkXMerge(BufferFrame* r_buffer);
       double findThresholds();
       void evictPages(double threshold);
       void handleDirty(leanstore::storage::BMOptimisticGuard& o_guard,
@@ -157,9 +157,9 @@ class BufferManager
    inline BufferFrame& tryFastResolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
    {
       if (swip_value.isHOT()) {
-         if(FLAGS_count_hits){
-            COUNTERS_BLOCK() {leanstore::WorkerCounters::myCounters().hot_hit_counter++;}
-         }
+         COUNTERS_BLOCK() {
+            if(FLAGS_count_hits){
+               leanstore::WorkerCounters::myCounters().hot_hit_counter++;}}
          BufferFrame& bf = swip_value.asBufferFrame();
          swip_guard.recheck();
          return bf;

@@ -30,7 +30,7 @@ void Parallelize::parallelRange(u64 n, std::function<void(u64 begin, u64 end)> c
 {
    const u64 hw_threads = std::thread::hardware_concurrency();
    std::vector<std::thread> threads;
-   range(hw_threads, n, [&](u64 t_i, u64 begin, u64 end) {
+   range(hw_threads, n, [&]([[maybe_unused]] u64 t_i, u64 begin, u64 end) {
       threads.emplace_back([&](u64 inner_begin, u64 inner_end) { callback(inner_begin, inner_end); }, begin, end);
    });
    for (auto& thread : threads) {

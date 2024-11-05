@@ -28,7 +28,6 @@
 
 #include <locale>
 #include <sstream>
-#include <variant>
 // -------------------------------------------------------------------------------------
 using namespace tabulate;
 namespace rs = rapidjson;
@@ -245,10 +244,6 @@ void LeanStore::print_tx_console(profiling::BMTable& bm_table,
       entries.emplace_back(std::forward_as_tuple("GCT GiB/s",        cr_table.get("0", "gct_write_gib"),                   10));
       entries.emplace_back(std::forward_as_tuple("Space G",          bm_table.get("0", "space_usage_gib"),                 10));
       entries.emplace_back(std::forward_as_tuple("GCT Rounds",       cr_table.get("0", "gct_rounds"),                      10));
-      //entries.emplace_back(std::forward_as_tuple("FreeListLength", std::to_string(free), 10));
-      //entries.emplace_back(std::forward_as_tuple("Part0", std::to_string(part0), 10));
-      //entries.emplace_back(std::forward_as_tuple("Part1", std::to_string(part1), 10));
-      //entries.emplace_back(std::forward_as_tuple("last_min", std::to_string(buffer_manager->last_min), 10));
       entries.emplace_back(std::forward_as_tuple("touches",          bm_table.get("0", "touches"),                         10));
       entries.emplace_back(std::forward_as_tuple("evictions",        bm_table.get("0", "evicted_pages"),                   10));
       std::vector<fancy_type> head_row = {}, table_row = {};
