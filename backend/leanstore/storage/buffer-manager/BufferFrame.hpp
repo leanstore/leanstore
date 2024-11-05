@@ -71,8 +71,8 @@ struct BufferFrame {
       OptimisticParentPointer optimistic_parent_pointer;
       // -------------------------------------------------------------------------------------
       struct alignas(64) Tracker {
-         static std::atomic<WATT_TIME> globalTrackerTime;
-         static const u8 kw = 4, kr = 8;
+         alignas(64) static std::atomic<WATT_TIME> globalTrackerTime;
+         alignas(64) static const u8 kw = 4, kr = 8;
          static const WATT_TIME security_distance = 1000;
          static constexpr float table_r[8][8] = {
              {0.2,8,7,6,5,4,3,2},
@@ -148,19 +148,30 @@ struct BufferFrame {
             u8 start = write? 0 : kw;
             u8 k = write? kw: kr;
             for (u8 i=0; i< k; i++){
-               local.insert(now - myArray[start + i].load());
-               local.insert(now - otherArray[start + i].load());
+               auto value = now - myArray[start + i].load();
+               if(value < security_distance){
+                  local.insert(value);
+               }
             }
+            for (u8 i=0; i< k; i++){
+               auto value = now - otherArray[start + i].load();
+               if(value < security_distance){
+                  local.insert(value);
+               }
+            }
+            // Reduce size to the maximum size
             while(local.size() > k){
                local.erase(std::prev(local.end()));
             }
+            // Transfer Timestamps to my Array
             u8 kWalk = 0;
-            for(; kWalk < k; kWalk++){
+            for(u8 i=0; i < k; i++){
                if(!local.empty()) {
-                  myArray[start + kWalk].store(now - *std::prev(local.end()), std::memory_order_release);
+                  myArray[start + i].store(now - *std::prev(local.end()), std::memory_order_release);
                   local.erase(std::prev(local.end()));
+                  kWalk = i;
                } else {
-                  myArray[start + kWalk].store(now - security_distance, std::memory_order_release);
+                  myArray[start + i].store(now - security_distance, std::memory_order_release);
                }
             }
             return kWalk;
