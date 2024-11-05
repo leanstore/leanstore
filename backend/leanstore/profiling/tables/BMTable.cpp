@@ -53,9 +53,9 @@ void BMTable::open()
       col << (sum_reset(PPCounters::pp_counters, &PPCounters::flushed_pages_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
    });
    // -------------------------------------------------------------------------------------
-   columns.emplace("allocate_ops", [&](Column& col) { col << (sum_reset(WorkerCounters::worker_counters, &WorkerCounters::allocate_operations_counter)); });
+   columns.emplace("allocate_ops", [&](Column& col) { col << (sum_reset_add_to(WorkerCounters::worker_counters, &WorkerCounters::allocate_operations_counter, &WorkerCounters::new_pages_counter)); });
    columns.emplace("r_mib", [&](Column& col) {
-      col << (sum_reset(WorkerCounters::worker_counters, &WorkerCounters::read_operations_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
+      col << (sum_reset_add_to(WorkerCounters::worker_counters, &WorkerCounters::read_operations_counter, &WorkerCounters::missed_hit_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
    });
 }
 // -------------------------------------------------------------------------------------

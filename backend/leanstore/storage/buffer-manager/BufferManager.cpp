@@ -190,10 +190,7 @@ BufferFrame& BufferManager::allocatePage()
    free_bf.header.last_written_plsn = free_bf.page.PLSN = free_bf.page.GSN = 0;
    free_bf.header.latch.assertExclusivelyLatched();
    // -------------------------------------------------------------------------------------
-   COUNTERS_BLOCK() {
-      WorkerCounters::myCounters().allocate_operations_counter++;
-      WorkerCounters::myCounters().new_pages_counter++;
-   }
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().allocate_operations_counter++; }
    // -------------------------------------------------------------------------------------
    return free_bf;
 }
@@ -459,10 +456,7 @@ void BufferManager::readPageSync(u64 pid, u8* destination)
       bytes_left -= bytes_read;
    } while (bytes_left > 0);
    // -------------------------------------------------------------------------------------
-   COUNTERS_BLOCK() {
-      WorkerCounters::myCounters().read_operations_counter++; 
-      WorkerCounters::myCounters().missed_hit_counter++; 
-   }
+   COUNTERS_BLOCK() { WorkerCounters::myCounters().read_operations_counter++; }
 }
 // -------------------------------------------------------------------------------------
 void BufferManager::fDataSync()
