@@ -417,7 +417,7 @@ struct BTreeNode : public BTreeNodeHeader {
    u32 mergeSpaceUpperBound(ExclusivePageGuard<BTreeNode>& right);
    u32 spaceUsedBySlot(u16 slot_id);
    // -------------------------------------------------------------------------------------
-   bool merge(ExclusivePageGuard<BTreeNode>& self, u16 slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
+   bool merge(leanstore::storage::BufferFrame::Header& ownHeader, u16 slotId, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& right);
    // store key/value pair at slotId
    void storeKeyValue(u16 slotId, const u8* key, u16 key_len, const u8* payload, u16 payload_len);
    // ATTENTION: dstSlot then srcSlot !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -425,7 +425,7 @@ struct BTreeNode : public BTreeNodeHeader {
    void copyKeyValue(u16 srcSlot, BTreeNode* dst, u16 dstSlot);
    void insertFence(FenceKey& fk, u8* key, u16 keyLength);
    void setFences(u8* lowerKey, u16 lowerLen, u8* upperKey, u16 upperLen);
-   void split(ExclusivePageGuard<BTreeNode>& self, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& new_node, u16 sepSlot, u8* sepKey, u16 sepLength);
+   void split(leanstore::storage::BufferFrame::Header& ownHeader, ExclusivePageGuard<BTreeNode>& parent, ExclusivePageGuard<BTreeNode>& new_node, u16 sepSlot, u8* sepKey, u16 sepLength);
    u16 commonPrefix(u16 aPos, u16 bPos);
    SeparatorInfo findSep();
    void getSep(u8* sepKeyOut, SeparatorInfo info);
