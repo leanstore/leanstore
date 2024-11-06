@@ -56,6 +56,7 @@ void BMTable::open()
    columns.emplace("r_mib", [&](Column& col) {
       col << (sum_reset_add_to(WorkerCounters::worker_counters, &WorkerCounters::read_operations_counter, &WorkerCounters::missed_hit_counter) * EFFECTIVE_PAGE_SIZE / 1024.0 / 1024.0);
    });
+   columns.emplace("epoch", [&](Column& col)  { col << BufferFrame::Header::Tracker::globalTrackerTime.load();});
 }
 // -------------------------------------------------------------------------------------
 void BMTable::next()
