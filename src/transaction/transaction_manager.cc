@@ -175,12 +175,18 @@ void TransactionManager::DurableCommit(T &txn, timestamp_t queue_phase_start) {
  *  This dummy transaction doesn't generate any log entry
  */
 auto TransactionManager::AddBarrierTransaction() -> timestamp_t {
+  /* Retrieve latest GSN */
+  auto &logger          = log_manager_->LocalLogWorker();
+  const auto sync_point = LogManager::global_sync_to_this_gsn.load();
+  if (sync_point > logger.GetCurrentGSN()) { logger.SetCurrentGSN(sync_point); }
+  /* Append a new barrier txn */
   auto dummy = Transaction();
   dummy.Initialize(this, global_clock.load(), Transaction::Type::SYSTEM, IsolationLevel::READ_UNCOMMITTED,
                    Transaction::Mode::OLTP, false);
   dummy.commit_ts          = dummy.start_ts;
+  dummy.max_observed_gsn   = sync_point;
   dummy.state              = Transaction::State::BARRIER;
-  dummy.needs_remote_flush = true;
+  dummy.needs_remote_flush = true;  // Require global synchronization
   QueueTransaction(dummy);
   return dummy.commit_ts;
 }

@@ -2,6 +2,7 @@ set(CMAKE_C_VISIBILITY_PRESET hidden)
 
 add_subdirectory(cpptrace)
 add_subdirectory(croaring)
+add_subdirectory(fmt)
 add_subdirectory(fsst)
 add_subdirectory(libpqxx)
 add_subdirectory(lz4)

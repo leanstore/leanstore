@@ -160,14 +160,11 @@ void LeanStore::CheckDuringIdle() {
         log_manager->LocalLogWorker().WorkerWritesLog(true);
       } else {
         /* Generate a barrier transaction to synchronize the global order */
-        auto commit_ts = transaction_manager->AddBarrierTransaction();
-        auto &logger   = log_manager->LocalLogWorker();
-        logger.WorkerStealsLog(true, true);
-        /* Synchronize latest worker state */
-        logger.SetCurrentGSN(recovery::LogManager::global_sync_to_this_gsn.load());
-        logger.last_unharden_commit_ts = commit_ts;
+        auto &logger                   = log_manager->LocalLogWorker();
+        logger.last_unharden_commit_ts = transaction_manager->AddBarrierTransaction();
         logger.PublicCommitTS();
-        /* Trigger group commit */
+        /* Trigger force commit */
+        logger.WorkerStealsLog(true, true);
         log_manager->TriggerGroupCommit(worker_thread_id / FLAGS_txn_commit_group_size);
       }
     }

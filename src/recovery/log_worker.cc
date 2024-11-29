@@ -292,14 +292,14 @@ void LogWorker::WorkerWritesLog(bool force_commit) {
 void LogWorker::WorkerStealsLog(bool write_only, bool force_commit) {
   assert(FLAGS_txn_commit_variant == CommitProtocol::WILO_STEAL);
   if (write_only) {
-    if (log_buffer.wal_cursor != log_buffer.write_cursor.load()) {
-      {
-        sync::HybridGuard guard(&parking_latch, sync::GuardMode::EXCLUSIVE);
-        parking_lot_log_flush.emplace_back(*w_state);
-      }
-      log_buffer.PersistLog(this, (force_commit) ? FLAGS_wal_force_commit_alignment : BLK_BLOCK_SIZE);
-      TryPublishCommitState(worker_thread_id, *w_state);
+    {
+      sync::HybridGuard guard(&parking_latch, sync::GuardMode::EXCLUSIVE);
+      parking_lot_log_flush.emplace_back(*w_state);
     }
+    if (log_buffer.wal_cursor != log_buffer.write_cursor.load()) {
+      log_buffer.PersistLog(this, (force_commit) ? FLAGS_wal_force_commit_alignment : BLK_BLOCK_SIZE);
+    }
+    TryPublishCommitState(worker_thread_id, *w_state);
     return;
   }
 

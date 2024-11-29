@@ -29,7 +29,8 @@ auto main(int argc, char **argv) -> int {
 
   // Initialize LeanStore
   auto db   = std::make_unique<leanstore::LeanStore>();
-  auto tpcc = std::make_unique<tpcc::TPCCWorkload<LeanStoreAdapter>>(FLAGS_tpcc_warehouse_count, true, true, true, *db);
+  auto tpcc = std::make_unique<tpcc::TPCCWorkload<LeanStoreAdapter>>(
+    FLAGS_tpcc_warehouse_count, true, true, true, static_cast<double>(FLAGS_txn_rate) / FLAGS_worker_count, *db);
   tpcc->customer.ToggleAppendBiasMode(true);
   tpcc->history.ToggleAppendBiasMode(true);
   tpcc->order.ToggleAppendBiasMode(true);
@@ -97,7 +98,7 @@ auto main(int argc, char **argv) -> int {
       while (keep_running.load()) {
         int w_id = (FLAGS_tpcc_warehouse_affinity) ? (thread_id % FLAGS_tpcc_warehouse_count) + 1
                                                    : UniformRand(1, FLAGS_tpcc_warehouse_count);
-        db->StartTransaction();
+        db->StartTransaction(tpcc->NextTransactionArrivalTime([&]() { db->CheckDuringIdle(); }));
         tpcc->ExecuteTransaction(w_id);
         db->CommitTransaction();
       }

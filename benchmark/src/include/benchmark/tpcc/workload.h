@@ -1,6 +1,7 @@
 #pragma once
 
 #include "benchmark/tpcc/schema.h"
+#include "benchmark/utils/scheduler.h"
 #include "common/rand.h"
 #include "leanstore/leanstore.h"
 
@@ -56,6 +57,8 @@ struct TPCCWorkload {
   // handle isolation anomalies manually (mostly for LeanStore)
   //  a hack because of the missing transaction and concurrency control
   const bool manually_handle_isolation_anomalies = true;
+  // rate limit
+  benchmark::PoissonScheduler scheduler;
 
   // Run-time TPC-C counters
   inline static thread_local Integer history_pk_counter     = 0;
@@ -108,7 +111,7 @@ struct TPCCWorkload {
   // Constructor
   template <typename... Params>
   TPCCWorkload(Integer warehouse_count, bool enable_order_wdc_index, bool enable_cross_warehouses,
-               bool manually_handle_isolation_anomalies, Params &&...params)
+               bool manually_handle_isolation_anomalies, double txn_rate_per_worker, Params &&...params)
       : warehouse(AdapterType<WarehouseType>(std::forward<Params>(params)...)),
         district(AdapterType<DistrictType>(std::forward<Params>(params)...)),
         customer(AdapterType<CustomerType>(std::forward<Params>(params)...)),
@@ -123,7 +126,8 @@ struct TPCCWorkload {
         warehouse_count(warehouse_count),
         enable_order_wdc_index(enable_order_wdc_index),
         enable_cross_warehouses(enable_cross_warehouses),
-        manually_handle_isolation_anomalies(manually_handle_isolation_anomalies) {}
+        manually_handle_isolation_anomalies(manually_handle_isolation_anomalies),
+        scheduler(txn_rate_per_worker) {}
 
   // -------------------------------------------------------------------------------------
   // Workload operation
@@ -157,6 +161,7 @@ struct TPCCWorkload {
   // -------------------------------------------------------------------------------------
   void InitializeThread();
   auto ExecuteTransaction(Integer w_id) -> int;
+  auto NextTransactionArrivalTime(const std::function<void()> &idle_fn) -> uint64_t;
 };
 
 }  // namespace tpcc

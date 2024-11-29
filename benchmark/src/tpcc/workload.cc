@@ -568,6 +568,11 @@ void TPCCWorkload<AdapterType>::LoadWarehouse() {
 
 // -------------------------------------------------------------------------------------
 template <template <typename> class AdapterType>
+auto TPCCWorkload<AdapterType>::NextTransactionArrivalTime(const std::function<void()> &idle_fn) -> uint64_t {
+  return scheduler.Wait(idle_fn);
+}
+
+template <template <typename> class AdapterType>
 void TPCCWorkload<AdapterType>::InitializeThread() {
   if (tpcc_thread_id > 0) { return; }
   tpcc_thread_id = tpcc_thread_id_counter++;
