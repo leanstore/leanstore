@@ -4,10 +4,11 @@
 
 ## Implemented Featuers
 
-- [x] Virtual-memory assisted buffer manager with explicit OS pagetable management  [SIDMOG'23]
+- [x] Virtual-memory assisted buffer manager with explicit OS pagetable management [SIDMOG'23]
 - [x] Optimstic Lock Coupling with Hybrid Page Guard to synchronize paged data structures [IEEE'19]
-- [x] Variable-length key/values B-Tree with prefix compression and hints  [BTW'23]
+- [x] Variable-length key/values B-Tree with prefix compression and hints [BTW'23]
 - [x] Distributed Logging with remote flush avoidance [SIGMOD'20]
+- [x] Variable-sized objects, File system interface, and virtual-memory aliasing [ICDE'24]
 - [ ] Recovery [SIGMOD'20]
 
 ## Dependencies
