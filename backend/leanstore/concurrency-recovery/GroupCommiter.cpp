@@ -4,13 +4,9 @@
 #include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/utils/Misc.hpp"
 // -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
 #include <libaio.h>
-#include <unistd.h>
-
 #include <chrono>
 #include <cstring>
-#include <thread>
 // -------------------------------------------------------------------------------------
 using namespace std::chrono_literals;
 namespace leanstore

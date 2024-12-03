@@ -5,10 +5,6 @@
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/Parallelize.hpp"
 // -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
-#include <libaio.h>
-#include <unistd.h>
-
 #include <chrono>
 #include <cstring>
 #include <thread>

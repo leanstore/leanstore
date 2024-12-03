@@ -1,6 +1,5 @@
 #include "BufferManager.hpp"
 
-#include "AsyncWriteBuffer.hpp"
 #include "BufferFrame.hpp"
 #include "Exceptions.hpp"
 #include "leanstore/Config.hpp"
@@ -18,11 +17,7 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <unistd.h>
-
-#include <chrono>
-#include <fstream>
-#include <iomanip>
-#include <set>
+#include <thread>
 // -------------------------------------------------------------------------------------
 namespace leanstore
 {
