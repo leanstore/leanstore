@@ -8,6 +8,7 @@
 #include "leanstore/profiling/tables/CRTable.hpp"
 #include "leanstore/profiling/tables/DTTable.hpp"
 #include "leanstore/profiling/tables/LatencyTable.hpp"
+#include "leanstore/profiling/tables/ResultsTable.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/ThreadLocalAggregator.hpp"
 // -------------------------------------------------------------------------------------
@@ -29,14 +30,13 @@
 #include <sstream>
 // -------------------------------------------------------------------------------------
 using namespace tabulate;
-using leanstore::utils::threadlocal::sum;
 namespace rs = rapidjson;
 namespace leanstore
 {
 // -------------------------------------------------------------------------------------
 LeanStore::LeanStore()
 {
-   // LeanStore::addStringFlag("ssd_path", &FLAGS_ssd_path);
+   LeanStore::addStringFlag("SSD_PATH", &FLAGS_ssd_path);
    if (FLAGS_recover_file != "./leanstore.json") {
       FLAGS_recover = true;
    }
@@ -114,128 +114,231 @@ LeanStore::LeanStore()
 // -------------------------------------------------------------------------------------
 void LeanStore::startProfilingThread()
 {
-   std::thread profiling_thread([&]() {
-      utils::pinThisThread(((FLAGS_pin_threads) ? FLAGS_worker_threads : 0) + FLAGS_wal + FLAGS_pp_threads);
-      if (FLAGS_root) {
-         posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
-      }
-      // -------------------------------------------------------------------------------------
-      profiling::BMTable bm_table(*buffer_manager.get());
-      profiling::DTTable dt_table(*buffer_manager.get());
-      profiling::CPUTable cpu_table;
-      profiling::CRTable cr_table;
-      profiling::LatencyTable latency_table;
-      std::vector<profiling::ProfilingTable*> tables = {&configs_table, &bm_table, &dt_table, &cpu_table, &cr_table};
-      if (FLAGS_profile_latency) {
-         tables.push_back(&latency_table);
-      }
-      // -------------------------------------------------------------------------------------
-      std::vector<std::ofstream> csvs;
-      std::ofstream::openmode open_flags;
-      if (FLAGS_csv_truncate) {
-         open_flags = ios::trunc;
-      } else {
-         open_flags = ios::app;
-      }
-      for (u64 t_i = 0; t_i < tables.size(); t_i++) {
-         tables[t_i]->open();
-         // -------------------------------------------------------------------------------------
-         csvs.emplace_back();
-         auto& csv = csvs.back();
-         csv.open(FLAGS_csv_path + "_" + tables[t_i]->getName() + ".csv", open_flags);
-         csv.seekp(0, ios::end);
-         csv << std::setprecision(2) << std::fixed;
-         if (csv.tellp() == 0) {
-            csv << "t,c_hash";
-            for (auto& c : tables[t_i]->getColumns()) {
-               csv << "," << c.first;
-            }
-            csv << endl;
-         }
-      }
-      // -------------------------------------------------------------------------------------
-      config_hash = configs_table.hash();
-      // -------------------------------------------------------------------------------------
-      u64 seconds = 0;
-      while (bg_threads_keep_running) {
-         for (u64 t_i = 0; t_i < tables.size(); t_i++) {
-            tables[t_i]->next();
-            if (tables[t_i]->size() == 0)
-               continue;
-            // -------------------------------------------------------------------------------------
-            // CSV
-            auto& csv = csvs[t_i];
-            for (u64 r_i = 0; r_i < tables[t_i]->size(); r_i++) {
-               csv << seconds << "," << config_hash;
-               for (auto& c : tables[t_i]->getColumns()) {
-                  csv << "," << c.second.values[r_i];
-               }
-               csv << endl;
-            }
-            // -------------------------------------------------------------------------------------
-            // TODO: Websocket, CLI
-         }
-         // -------------------------------------------------------------------------------------
-         const u64 tx = std::stoi(cr_table.get("0", "tx"));
-         const u64 olap_tx = std::stoi(cr_table.get("0", "olap_tx"));
-         const double tx_abort = std::stoi(cr_table.get("0", "tx_abort"));
-         const double tx_abort_pct = tx_abort * 100.0 / (tx_abort + tx);
-         const double rfa_pct = std::stod(cr_table.get("0", "rfa_committed_tx")) * 100.0 / tx;
-         const double remote_flushes_pct = 100.0 - rfa_pct;
-         // const double committed_gct_pct = std::stoi(cr_table.get("0", "gct_committed_tx")) * 100.0 / committed_tx;
-         // Global Stats
-         global_stats.accumulated_tx_counter += tx;
-         // -------------------------------------------------------------------------------------
-         // Console
-         // -------------------------------------------------------------------------------------
-         const double instr_per_tx = cpu_table.workers_agg_events["instr"] / tx;
-         const double cycles_per_tx = cpu_table.workers_agg_events["cycle"] / tx;
-         const double l1_per_tx = cpu_table.workers_agg_events["L1-miss"] / tx;
-         const double llc_per_tx = cpu_table.workers_agg_events["LLC-miss"] / tx;
-         // using RowType = std::vector<variant<std::string, const char*, Table>>;
-         if (FLAGS_print_tx_console) {
-            tabulate::Table table;
-            table.add_row({"t", "OLTP TX", "RF %", "Abort%", "OLAP TX", "W MiB", "R MiB", "Instrs/TX", "Cycles/TX", "CPUs", "L1/TX", "LLC/TX", "GHz",
-                           "WAL GiB/s", "GCT GiB/s", "Space G", "GCT Rounds"});
-            table.add_row({std::to_string(seconds), std::to_string(tx), std::to_string(remote_flushes_pct), std::to_string(tx_abort_pct),
-                           std::to_string(olap_tx), bm_table.get("0", "w_mib"), bm_table.get("0", "r_mib"), std::to_string(instr_per_tx),
-                           std::to_string(cycles_per_tx), std::to_string(cpu_table.workers_agg_events["CPU"]), std::to_string(l1_per_tx),
-                           std::to_string(llc_per_tx), std::to_string(cpu_table.workers_agg_events["GHz"]), cr_table.get("0", "wal_write_gib"),
-                           cr_table.get("0", "gct_write_gib"), bm_table.get("0", "space_usage_gib"), cr_table.get("0", "gct_rounds")});
-            // -------------------------------------------------------------------------------------
-            table.format().width(10);
-            table.column(0).format().width(5);
-            table.column(1).format().width(12);
-            // -------------------------------------------------------------------------------------
-            auto print_table = [](tabulate::Table& table, std::function<bool(u64)> predicate) {
-               std::stringstream ss;
-               table.print(ss);
-               string str = ss.str();
-               u64 line_n = 0;
-               for (u64 i = 0; i < str.size(); i++) {
-                  if (str[i] == '\n') {
-                     line_n++;
-                  }
-                  if (predicate(line_n)) {
-                     cout << str[i];
-                  }
-               }
-            };
-            if (seconds == 0) {
-               print_table(table, [](u64 line_n) { return (line_n < 3) || (line_n == 4); });
-            } else {
-               print_table(table, [](u64 line_n) { return line_n == 4; });
-            }
-            // -------------------------------------------------------------------------------------
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            seconds += 1;
-            std::locale::global(std::locale::classic());
-         }
-      }
-      bg_threads_counter--;
-   });
+   std::thread profiling_thread([&]() { doProfiling();});
    bg_threads_counter++;
    profiling_thread.detach();
+   printStats(true);
+}
+void LeanStore::doProfiling()
+{
+   utils::pinThisThread(((FLAGS_pin_threads) ? FLAGS_worker_threads : 0) + FLAGS_wal + FLAGS_pp_threads);
+   if (FLAGS_root) {
+      posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
+   }
+   // -------------------------------------------------------------------------------------
+   profiling::BMTable bm_table(*buffer_manager.get());
+   profiling::DTTable dt_table(*buffer_manager.get());
+   profiling::CPUTable cpu_table;
+   profiling::CRTable cr_table;
+   profiling::ResultsTable results_table;
+   profiling::LatencyTable latency_table;
+   std::vector<profiling::ProfilingTable*> timed_tables = {&bm_table, &dt_table, &cpu_table, &cr_table};
+   std::vector<profiling::ProfilingTable*> untimed_tables = {&configs_table, &results_table};
+   if (FLAGS_profile_latency) {
+      timed_tables.push_back(&latency_table);
+   }
+   // -------------------------------------------------------------------------------------
+   std::vector<std::ofstream> timedCsvs, untimedCsvs;
+   ofstream console_csv;
+   for (u64 t_i = 0; t_i < timed_tables.size(); t_i++) {
+      timedCsvs.emplace_back();
+      prepareCSV(timed_tables[t_i], timedCsvs.back());
+   }
+   for (u64 t_i = 0; t_i < untimed_tables.size(); t_i++) {
+      untimedCsvs.emplace_back();
+      prepareCSV(untimed_tables[t_i], untimedCsvs.back(), false);
+   }
+
+   // -------------------------------------------------------------------------------------
+   config_hash = configs_table.hash();
+   // -------------------------------------------------------------------------------------
+   // Timed tables: every second
+   u64 seconds = 0;
+   auto start_time = std::chrono::high_resolution_clock::now();
+   while (bg_threads_keep_running) {
+      for (u64 t_i = 0; t_i < timed_tables.size(); t_i++) {
+         printTable(timed_tables[t_i], timedCsvs[t_i], seconds);
+            // TODO: Websocket, CLI
+      }
+      // -------------------------------------------------------------------------------------
+      // Global Stats
+      global_stats.accumulated_tx_counter += std::stoi(cr_table.get("0", "tx"));
+      // -------------------------------------------------------------------------------------
+      // Console
+      // -------------------------------------------------------------------------------------
+      print_tx_console(bm_table, cpu_table, cr_table, seconds, console_csv);
+      start_time += std::chrono::seconds{1};
+      std::this_thread::sleep_until(start_time);
+      seconds += 1;
+      std::locale::global(std::locale::classic());
+   }
+   for(auto table: timed_tables){
+      table->next();
+   }
+   printStats(false);
+   if(seconds > 0){
+      results_table.setSeconds(seconds -1);
+   }
+   for (u64 t_i = 0; t_i < untimed_tables.size(); t_i++) {
+      printTable(untimed_tables[t_i], untimedCsvs[t_i], 0, false);
+   }
+   bg_threads_counter--;
+}
+// -------------------------------------------------------------------------------------
+void LeanStore::prepareCSV(profiling::ProfilingTable* table, ofstream& csv, bool print_seconds) const
+{
+   table->open();
+   csv.open(FLAGS_csv_path + "_" + table->getName() + ".csv", FLAGS_csv_truncate ? ios::trunc : ios::app);
+   csv.seekp(0, ios::end);
+   csv << setprecision(2) << fixed;
+   if (csv.tellp() == 0) {
+      if(print_seconds){
+         csv << "t,";
+      }
+      csv << "c_hash";
+      for (auto& c : table->getColumns()) {
+         csv << "," << c.first;
+      }
+      csv << endl;
+   }
+}
+void LeanStore::print_tx_console(profiling::BMTable& bm_table,
+                                 profiling::CPUTable& cpu_table,
+                                 profiling::CRTable& cr_table,
+                                 u64 seconds,
+                                 ofstream& console_csv) const{
+   if (FLAGS_print_tx_console) {
+      const u64 tx = std::stoi(cr_table.get("0", "tx"));
+      const u64 olap_tx = std::stoi(cr_table.get("0", "olap_tx"));
+      const double tx_abort = std::stoi(cr_table.get("0", "tx_abort"));
+      const double tx_abort_pct = tx_abort * 100.0 / (tx_abort + tx);
+      const double rfa_pct = std::stod(cr_table.get("0", "rfa_committed_tx")) * 100.0 / tx;
+      const double remote_flushes_pct = 100.0 - rfa_pct;
+      // const double committed_gct_pct = std::stoi(cr_table.get("0", "gct_committed_tx")) * 100.0 / committed_tx;
+
+      const double instr_per_tx = cpu_table.workers_agg_events["instr"] / tx;
+      const double br_per_tx = cpu_table.workers_agg_events["br-miss"] / tx;
+      const double cycles_per_tx = cpu_table.workers_agg_events["cycle"] / tx;
+      const double l1_per_tx = cpu_table.workers_agg_events["L1-miss"] / tx;
+      const double llc_per_tx = cpu_table.workers_agg_events["LLC-miss"] / tx;
+      //const u64 free = buffer_manager->free_list.counter, part0 = buffer_manager->getPartition(0).partition_size, part1 = buffer_manager->getPartition(1).partition_size;
+   
+      using fancy_type = variant<std::string, const char *, Table> ;
+      using fancy_tuple_type = std::tuple<fancy_type, fancy_type, size_t>;
+      std::vector<fancy_tuple_type> entries;
+      entries.emplace_back(std::forward_as_tuple<fancy_type, fancy_type>("t", std::to_string(seconds),                     5));
+      entries.emplace_back(std::forward_as_tuple("OLTP TX",          std::to_string(tx),                                   12));
+      entries.emplace_back(std::forward_as_tuple("RF %",             std::to_string(remote_flushes_pct),                   10));
+      entries.emplace_back(std::forward_as_tuple("Abort%",           std::to_string(tx_abort_pct),                         10));
+      entries.emplace_back(std::forward_as_tuple("OLAP TX",          std::to_string(olap_tx),                              10));
+      entries.emplace_back(std::forward_as_tuple("W MiB",            bm_table.get("0", "w_mib"),                           10));
+      entries.emplace_back(std::forward_as_tuple("R MiB",            bm_table.get("0", "r_mib"),                           10));
+      entries.emplace_back(std::forward_as_tuple("Instrs/TX",        std::to_string(instr_per_tx),                         10));
+      entries.emplace_back(std::forward_as_tuple("Branch miss/TX",   std::to_string(br_per_tx),                            10));
+      entries.emplace_back(std::forward_as_tuple("Cycles/TX",        std::to_string(cycles_per_tx),                        10));
+      entries.emplace_back(std::forward_as_tuple("CPUs",             std::to_string(cpu_table.workers_agg_events["CPU"]),  10));
+      entries.emplace_back(std::forward_as_tuple("L1/TX",            std::to_string(l1_per_tx),                            10));
+      entries.emplace_back(std::forward_as_tuple("LLC/TX",           std::to_string(llc_per_tx),                           10));
+      entries.emplace_back(std::forward_as_tuple("GHz",              std::to_string(cpu_table.workers_agg_events["GHz"]),  10));
+      entries.emplace_back(std::forward_as_tuple("WAL GiB/s",        cr_table.get("0", "wal_write_gib"),                   10));
+      entries.emplace_back(std::forward_as_tuple("GCT GiB/s",        cr_table.get("0", "gct_write_gib"),                   10));
+      entries.emplace_back(std::forward_as_tuple("Space G",          bm_table.get("0", "space_usage_gib"),                 10));
+      entries.emplace_back(std::forward_as_tuple("GCT Rounds",       cr_table.get("0", "gct_rounds"),                      10));
+      entries.emplace_back(std::forward_as_tuple("touches",          bm_table.get("0", "touches"),                         10));
+      entries.emplace_back(std::forward_as_tuple("evictions",        bm_table.get("0", "evicted_pages"),                   10));
+      std::vector<fancy_type> head_row = {}, table_row = {};
+      for(auto& entry: entries){
+         head_row.emplace_back(std::get<0>(entry));
+         table_row.emplace_back(std::get<1>(entry));
+      }
+      tabulate::Table head, table;
+      head.add_row(head_row);
+      table.add_row(table_row);
+      for(size_t i = 0; i < entries.size(); i++){
+         head.column(i).format().width(std::get<2>(entries[i]));
+         table.column(i).format().width(std::get<2>(entries[i]));
+      }
+      auto print_table = [](Table& table, bool printAllLines = false) {
+         stringstream ss;
+         table.print(ss);
+         u64 length = table.shape().second;
+         string str = ss.str();
+         u64 line_n = 0;
+         for (u64 i = 0; i < str.size(); i++) {
+            if (str[i] == '\n') {
+               line_n++;
+            }
+            if((line_n!=0 && line_n< length-2) || printAllLines) {
+               cout << str[i];
+            }
+         }
+      };
+      if (seconds == 0) {
+         print_table(head, true);
+         console_csv.open(FLAGS_csv_path + "_console.csv", FLAGS_csv_truncate ? ios::trunc : ios::app);
+         console_csv.seekp(0, ios::end);
+         console_csv << setprecision(2) << fixed;
+         if (console_csv.tellp() == 0) {
+            console_csv << "c_hash";
+            for (auto& c : head.row(0).cells()) {
+               console_csv << "," << c.get()->get_text();
+            }
+            console_csv << endl;
+         }
+
+      } else {
+         print_table(table);
+         console_csv << config_hash;
+         for (auto& c : table.row(0).cells()) {
+            console_csv << "," << c.get()->get_text();
+         }
+         console_csv << endl;
+      }
+
+      // -------------------------------------------------------------------------------------
+   }
+
+}
+// -------------------------------------------------------------------------------------
+void LeanStore::printTable(profiling::ProfilingTable* table, basic_ofstream<char>& csv, u64 seconds, bool print_seconds) const
+{
+   table->next();
+   if (table->size() == 0)
+      return;
+   // -------------------------------------------------------------------------------------
+   // CSV
+   for (u64 r_i = 0; r_i < table->size(); r_i++) {
+      if(print_seconds)
+         csv << seconds << ",";
+      csv << config_hash;
+      for (auto& c : table->getColumns()) {
+         csv << "," << c.second.values[r_i];
+      }
+      csv << endl;
+   }
+}
+// -------------------------------------------------------------------------------------
+void LeanStore::printStats(bool reset)
+{
+   auto sum = [reset]<class CountersClass, class CounterType> (tbb::enumerable_thread_specific<CountersClass>& counters, CounterType CountersClass::*c){
+      if(reset){
+         return utils::threadlocal::sum_reset(counters, c);
+      }else{
+         return utils::threadlocal::sum_no_reset(counters, c);
+      }
+   };
+
+   cout << "total newPages: " << sum(WorkerCounters::worker_counters, &WorkerCounters::new_pages_counter) << endl;
+   cout << "total misses: " << sum(WorkerCounters::worker_counters, &WorkerCounters::missed_hit_counter) << endl;
+   if(FLAGS_count_hits){
+      cout << "total hits: " << sum(WorkerCounters::worker_counters, &WorkerCounters::hot_hit_counter) << endl;
+   }
+   if(FLAGS_count_jumps){
+      cout << "total jumps: " << sum(WorkerCounters::worker_counters, &WorkerCounters::jumps) << endl;
+   }
+   cout << "total tx: " << sum(WorkerCounters::worker_counters, &WorkerCounters::tx_counter) << endl;
+   cout << "total writes: " << sum(PPCounters::pp_counters, &PPCounters::total_writes) << endl;
+   cout << "total evictions: " << sum(PPCounters::pp_counters, &PPCounters::total_evictions) << endl;
 }
 // -------------------------------------------------------------------------------------
 storage::btree::BTreeLL& LeanStore::registerBTreeLL(string name, storage::btree::BTreeGeneric::Config config)
@@ -268,14 +371,41 @@ LeanStore::GlobalStats LeanStore::getGlobalStats()
    return global_stats;
 }
 // -------------------------------------------------------------------------------------
+void LeanStore::persist(string key, string value){
+   persist_mutex.lock();
+   if(persist_values.find(key) == persist_values.end()){
+      persist_values.insert({key, value});
+   }
+   persist_values[key] = value;
+   persist_mutex.unlock();
+
+}
+string LeanStore::recover(string key, string default_value){
+   persist_mutex.lock();
+   string return_value = persist_values.find(key) == persist_values.end()? default_value : persist_values[key];
+   persist_mutex.unlock();
+
+   return return_value;
+}
+// -------------------------------------------------------------------------------------
 void LeanStore::serializeState()
 {
+   persist_mutex.lock();
    // Serialize data structure instances
    std::ofstream json_file;
    json_file.open(FLAGS_persist_file, ios::trunc);
    rs::Document d;
    rs::Document::AllocatorType& allocator = d.GetAllocator();
    d.SetObject();
+   // -------------------------------------------------------------------------------------
+   rs::Value values_serialized(rs::kObjectType);
+   for (const auto& [key, value] : persist_values) {
+      rs::Value k, v;
+      k.SetString(key.c_str(), key.length(), allocator);
+      v.SetString(value.c_str(), value.length(), allocator);
+      values_serialized.AddMember(k, v, allocator);
+   }
+   d.AddMember("values", values_serialized, allocator);
    // -------------------------------------------------------------------------------------
    std::unordered_map<std::string, std::string> serialized_cr_map = cr_manager->serialize();
    rs::Value cr_serialized(rs::kObjectType);
@@ -329,6 +459,7 @@ void LeanStore::serializeState()
    rs::PrettyWriter<rs::StringBuffer> writer(sb);
    d.Accept(writer);
    json_file << sb.GetString();
+   persist_mutex.unlock();
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::serializeFlags(rs::Document& d)
@@ -353,11 +484,17 @@ void LeanStore::serializeFlags(rs::Document& d)
 // -------------------------------------------------------------------------------------
 void LeanStore::deserializeState()
 {
+   persist_mutex.lock();
    std::ifstream json_file;
    json_file.open(FLAGS_recover_file);
    rs::IStreamWrapper isw(json_file);
    rs::Document d;
    d.ParseStream(isw);
+   // -------------------------------------------------------------------------------------
+   const rs::Value& values = d["values"];
+   for (rs::Value::ConstMemberIterator itr = values.MemberBegin(); itr != values.MemberEnd(); ++itr) {
+      persist_values[itr->name.GetString()] = itr->value.GetString();
+   }
    // -------------------------------------------------------------------------------------
    const rs::Value& cr = d["cr_manager"];
    std::unordered_map<std::string, std::string> serialized_cr_map;
@@ -397,6 +534,7 @@ void LeanStore::deserializeState()
       }
       DTRegistry::global_dt_registry.deserialize(dt_id, serialized_dt_map);
    }
+   persist_mutex.unlock();
 }
 // -------------------------------------------------------------------------------------
 void LeanStore::deserializeFlags()

@@ -20,8 +20,6 @@ DEFINE_uint32(ycsb_read_ratio, 100, "");
 DEFINE_uint64(ycsb_tuple_count, 0, "");
 DEFINE_uint32(ycsb_payload_size, 100, "tuple size in bytes");
 DEFINE_uint32(ycsb_warmup_rounds, 0, "");
-DEFINE_uint32(ycsb_insert_threads, 0, "");
-DEFINE_uint32(ycsb_threads, 0, "");
 DEFINE_bool(ycsb_count_unique_lookup_keys, true, "");
 DEFINE_bool(ycsb_warmup, true, "");
 DEFINE_uint32(ycsb_sleepy_thread, 0, "");
@@ -52,16 +50,21 @@ int main(int argc, char** argv)
    LeanStoreAdapter<KVTable> table;
    crm.scheduleJobSync(0, [&]() { table = LeanStoreAdapter<KVTable>(db, "YCSB"); });
    db.registerConfigEntry("ycsb_read_ratio", FLAGS_ycsb_read_ratio);
-   db.registerConfigEntry("ycsb_threads", FLAGS_ycsb_threads);
    db.registerConfigEntry("ycsb_ops_per_tx", FLAGS_ycsb_ops_per_tx);
+   // set creator_threads to worker_threads if == 0
+   FLAGS_creator_threads = FLAGS_creator_threads ? FLAGS_creator_threads : FLAGS_worker_threads;
    // -------------------------------------------------------------------------------------
    leanstore::TX_ISOLATION_LEVEL isolation_level = leanstore::parseIsolationLevel(FLAGS_isolation_level);
    const TX_MODE tx_type = TX_MODE::OLTP;
    // -------------------------------------------------------------------------------------
    const u64 ycsb_tuple_count = (FLAGS_ycsb_tuple_count)
                                     ? FLAGS_ycsb_tuple_count
-                                    : FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 2.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload));
+                                    : (FLAGS_target_gib)
+                                       ? FLAGS_target_gib * 1024 * 1024 * 1024 * 1.0 / 6.0 / (sizeof(YCSBKey) + sizeof(YCSBPayload))
+                                       : std::stol(db.recover("ycsb_tuple_count", "abc"));
    // Insert values
+   db.persist("ycsb_tuple_count", std::to_string(ycsb_tuple_count));
+
    const u64 n = ycsb_tuple_count;
    // -------------------------------------------------------------------------------------
    if (FLAGS_tmp4) {
@@ -97,10 +100,11 @@ int main(int argc, char** argv)
             utils::Parallelize::range(FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
                crm.scheduleJobAsync(t_i, [&, begin, end]() {
                   for (u64 i = begin; i < end; i++) {
+                     cr::Worker::my().startTX(tx_type, isolation_level);
                      YCSBPayload result;
-                     // cr::Worker::my().startTX(tx_type, isolation_level);
                      table.lookup1({static_cast<YCSBKey>(i)}, [&](const KVTable& record) { result = record.my_payload; });
-                     // cr::Worker::my().commitTX();
+                     leanstore::storage::BMC::global_bf->evictLastPage();  // keep only inner nodes
+                     cr::Worker::my().commitTX();
                   }
                });
             });
@@ -115,7 +119,7 @@ int main(int argc, char** argv)
    } else {
       cout << "Inserting " << ycsb_tuple_count << " values" << endl;
       begin = chrono::high_resolution_clock::now();
-      utils::Parallelize::range(FLAGS_ycsb_insert_threads ? FLAGS_ycsb_insert_threads : FLAGS_worker_threads, n, [&](u64 t_i, u64 begin, u64 end) {
+      utils::Parallelize::range(FLAGS_creator_threads, n, [&](u64 t_i, u64 begin, u64 end) {
          crm.scheduleJobAsync(t_i, [&, begin, end]() {
             for (u64 i = begin; i < end; i++) {
                YCSBPayload payload;
@@ -138,15 +142,17 @@ int main(int argc, char** argv)
       cout << "-------------------------------------------------------------------------------------" << endl;
    }
    // -------------------------------------------------------------------------------------
+   if(FLAGS_run_for_seconds==0) {
+      return 0;
+   }
    auto zipf_random = std::make_unique<utils::ScrambledZipfGenerator>(0, ycsb_tuple_count, FLAGS_zipf_factor);
    cout << setprecision(4);
    // -------------------------------------------------------------------------------------
    cout << "~Transactions" << endl;
    db.startProfilingThread();
-   atomic<bool> keep_running = true;
-   atomic<u64> running_threads_counter = 0;
-   const u32 exec_threads = FLAGS_ycsb_threads ? FLAGS_ycsb_threads : FLAGS_worker_threads;
-   for (u64 t_i = 0; t_i < exec_threads - ((FLAGS_ycsb_sleepy_thread) ? 1 : 0); t_i++) {
+   atomic<bool> keep_running = {true};
+   atomic<u64> running_threads_counter = {0};
+   for (u64 t_i = 0; t_i < FLAGS_worker_threads - ((FLAGS_ycsb_sleepy_thread) ? 1 : 0); t_i++) {
       crm.scheduleJobAsync(t_i, [&]() {
          running_threads_counter++;
          while (keep_running) {
@@ -164,14 +170,12 @@ int main(int argc, char** argv)
                for (u64 op_i = 0; op_i < FLAGS_ycsb_ops_per_tx; op_i++) {
                   if (FLAGS_ycsb_read_ratio == 100 || utils::RandomGenerator::getRandU64(0, 100) < FLAGS_ycsb_read_ratio) {
                      table.lookup1({key}, [&](const KVTable&) {});  // result = record.my_payload;
-                     leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
                   } else {
                      UpdateDescriptorGenerator1(tabular_update_descriptor, KVTable, my_payload);
                      utils::RandomGenerator::getRandString(reinterpret_cast<u8*>(&result), sizeof(YCSBPayload));
                      // -------------------------------------------------------------------------------------
                      table.update1(
                          {key}, [&](KVTable& rec) { rec.my_payload = result; }, tabular_update_descriptor);
-                     leanstore::storage::BMC::global_bf->evictLastPage();  // to ignore the replacement strategy effect on MVCC experiment
                   }
                }
                cr::Worker::my().commitTX();
@@ -185,7 +189,7 @@ int main(int argc, char** argv)
    // -------------------------------------------------------------------------------------
    if (FLAGS_ycsb_sleepy_thread) {
       const leanstore::TX_MODE tx_type = FLAGS_olap_mode ? leanstore::TX_MODE::OLAP : leanstore::TX_MODE::OLTP;
-      crm.scheduleJobAsync(exec_threads - 1, [&]() {
+      crm.scheduleJobAsync(FLAGS_worker_threads - 1, [&]() {
          running_threads_counter++;
          while (keep_running) {
             jumpmuTry()

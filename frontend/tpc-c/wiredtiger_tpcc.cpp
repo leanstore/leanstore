@@ -114,7 +114,7 @@ int main(int argc, char** argv)
          }
          wiredtiger_db.prepareThread();
          wiredtiger_db.startTX(false);
-         tpcc.prepare();
+         tpcc.prepareWorker();
          wiredtiger_db.commitTX();
          // -------------------------------------------------------------------------------------
          if (FLAGS_ch_a_start_delay_sec) {
@@ -147,7 +147,7 @@ int main(int argc, char** argv)
             leanstore::utils::pinThisThread(t_i);
          }
          wiredtiger_db.prepareThread();
-         tpcc.prepare();
+         tpcc.prepareWorker();
          while (keep_running) {
             jumpmuTry()
             {

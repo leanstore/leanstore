@@ -96,7 +96,7 @@ bool HashTable::has(u64 key)
 }
 // -------------------------------------------------------------------------------------
 Partition::Partition(u64 first_pid, u64 pid_distance, u64 free_bfs_limit)
-    : io_ht(utils::getBitsNeeded(free_bfs_limit)), free_bfs_limit(free_bfs_limit), pid_distance(pid_distance)
+    : io_table(utils::getBitsNeeded(free_bfs_limit)), dram_free_list(free_bfs_limit), pid_distance(pid_distance)
 {
    next_pid = first_pid;
 }

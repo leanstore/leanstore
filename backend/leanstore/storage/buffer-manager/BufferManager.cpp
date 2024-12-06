@@ -1,4 +1,5 @@
 #include "BufferManager.hpp"
+#include "Tracing.hpp"
 
 #include "AsyncWriteBuffer.hpp"
 #include "BufferFrame.hpp"
@@ -6,7 +7,6 @@
 #include "leanstore/Config.hpp"
 #include "leanstore/profiling/counters/CPUCounters.hpp"
 #include "leanstore/profiling/counters/PPCounters.hpp"
-#include "leanstore/profiling/counters/WorkerCounters.hpp"
 #include "leanstore/utils/FVector.hpp"
 #include "leanstore/utils/Misc.hpp"
 #include "leanstore/utils/Parallelize.hpp"
@@ -31,27 +31,25 @@ namespace storage
 // -------------------------------------------------------------------------------------
 thread_local BufferFrame* BufferManager::last_read_bf = nullptr;
 // -------------------------------------------------------------------------------------
-BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
+BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd),
+      dram_pool_size(FLAGS_dram_gib * 1024 * 1024 * 1024 / sizeof(BufferFrame)),
+      partitions_count(1<<FLAGS_partition_bits), partitions_mask(partitions_count -1)
 {
    // -------------------------------------------------------------------------------------
    // Init DRAM pool
    {
-      dram_pool_size = FLAGS_dram_gib * 1024 * 1024 * 1024 / sizeof(BufferFrame);
       const u64 dram_total_size = sizeof(BufferFrame) * (dram_pool_size + safety_pages);
       void* big_memory_chunk = mmap(NULL, dram_total_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
       if (big_memory_chunk == MAP_FAILED) {
          perror("Failed to allocate memory for the buffer pool");
          SetupFailed("Check the buffer pool size");
-      } else {
-         bfs = reinterpret_cast<BufferFrame*>(big_memory_chunk);
       }
+      bfs = reinterpret_cast<BufferFrame*>(big_memory_chunk);
       madvise(bfs, dram_total_size, MADV_HUGEPAGE);
       madvise(bfs, dram_total_size,
               MADV_DONTFORK);  // O_DIRECT does not work with forking.
       // -------------------------------------------------------------------------------------
       // Initialize partitions
-      partitions_count = (1 << FLAGS_partition_bits);
-      partitions_mask = partitions_count - 1;
       const u64 free_bfs_limit = std::ceil((FLAGS_free_pct * 1.0 * dram_pool_size / 100.0) / static_cast<double>(partitions_count));
       for (u64 p_i = 0; p_i < partitions_count; p_i++) {
          partitions.push_back(std::make_unique<Partition>(p_i, partitions_count, free_bfs_limit));
@@ -59,10 +57,15 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
       // -------------------------------------------------------------------------------------
       utils::Parallelize::parallelRange(dram_total_size, [&](u64 begin, u64 end) { memset(reinterpret_cast<u8*>(bfs) + begin, 0, end - begin); });
       utils::Parallelize::parallelRange(dram_pool_size, [&](u64 bf_b, u64 bf_e) {
+         FreedBfsBatch batches[partitions_count];
          u64 p_i = 0;
          for (u64 bf_i = bf_b; bf_i < bf_e; bf_i++) {
-            getPartition(p_i).dram_free_list.push(*new (bfs + bf_i) BufferFrame());
+            batches[p_i].add(*new (bfs + bf_i) BufferFrame());
             p_i = (p_i + 1) % partitions_count;
+         }
+         for (u64 i=0; i < partitions_count; i++){
+            batches[i].set_free_list(&getPartition(i).dram_free_list);
+            batches[i].push();
          }
       });
    }
@@ -73,27 +76,12 @@ void BufferManager::startBackgroundThreads()
    // Page Provider threads
    if (FLAGS_pp_threads) {  // make it optional for pure in-memory experiments
       std::vector<std::thread> pp_threads;
-      const u64 partitions_per_thread = partitions_count / FLAGS_pp_threads;
-      ensure(FLAGS_pp_threads <= partitions_count);
-      const u64 extra_partitions_for_last_thread = partitions_count % FLAGS_pp_threads;
       // -------------------------------------------------------------------------------------
       for (u64 t_i = 0; t_i < FLAGS_pp_threads; t_i++) {
          pp_threads.emplace_back(
-             [&, t_i](u64 p_begin, u64 p_end) {
-                if (FLAGS_pin_threads) {
-                   utils::pinThisThread(FLAGS_worker_threads + FLAGS_wal + t_i);
-                } else {
-                   utils::pinThisThread(FLAGS_wal + t_i);
-                }
-                CPUCounters::registerThread("pp_" + std::to_string(t_i));
-                // https://linux.die.net/man/2/setpriority
-                if (FLAGS_root) {
-                   posix_check(setpriority(PRIO_PROCESS, 0, -20) == 0);
-                }
-                pageProviderThread(p_begin, p_end);
-             },
-             t_i * partitions_per_thread,
-             ((t_i + 1) * partitions_per_thread) + ((t_i == FLAGS_pp_threads - 1) ? extra_partitions_for_last_thread : 0));
+             [&, t_i]() {
+               PageProviderThread temp(t_i, this);
+               temp.run();});
          bg_threads_counter++;
       }
       for (auto& thread : pp_threads) {
@@ -167,20 +155,30 @@ Partition& BufferManager::randomPartition()
    auto rand_partition_i = utils::RandomGenerator::getRand<u64>(0, partitions_count);
    return getPartition(rand_partition_i);
 }
-// -------------------------------------------------------------------------------------
-BufferFrame& BufferManager::randomBufferFrame()
+FreeList& BufferManager::randomFreeList()
 {
-   auto rand_buffer_i = utils::RandomGenerator::getRand<u64>(0, dram_pool_size);
-   return bfs[rand_buffer_i];
+   return randomPartition().dram_free_list;
 }
+BufferFrame& BufferManager::randomFreeFrame()
+{
+   return randomFreeList().tryPop();
+}
+PID BufferManager::randomFreePID()
+{
+   return randomPartition().nextPID();
+}
+
+HashTable& BufferManager::getIOTable(PID pid){
+   return getPartition(pid).io_table;
+}
+
+// -------------------------------------------------------------------------------------
 // -------------------------------------------------------------------------------------
 // returns a *write locked* new buffer frame
 BufferFrame& BufferManager::allocatePage()
 {
-   // Pick a pratition randomly
-   Partition& partition = randomPartition();
-   BufferFrame& free_bf = partition.dram_free_list.tryPop();
-   PID free_pid = partition.nextPID();
+   BufferFrame& free_bf = randomFreeFrame();
+   PID free_pid = randomFreePID();
    assert(free_bf.header.state == BufferFrame::STATE::FREE);
    // -------------------------------------------------------------------------------------
    // Initialize Buffer Frame
@@ -199,60 +197,83 @@ BufferFrame& BufferManager::allocatePage()
 // -------------------------------------------------------------------------------------
 void BufferManager::evictLastPage()
 {
-   if (FLAGS_worker_page_eviction && last_read_bf) {
-      jumpmuTry()
-      {
-         BMOptimisticGuard o_guard(last_read_bf->header.latch);
-         const bool is_cooling_candidate = (!last_read_bf->header.keep_in_memory && !last_read_bf->header.is_being_written_back &&
-                                            !(last_read_bf->header.latch.isExclusivelyLatched()) &&
-                                            !last_read_bf->isDirty()
-                                            // && (partition_i) >= p_begin && (partition_i) <= p_end
-                                            && last_read_bf->header.state == BufferFrame::STATE::HOT);
-         if (!is_cooling_candidate) {
-            jumpmu::jump();
-         }
-         o_guard.recheck();
-         // -------------------------------------------------------------------------------------
-         bool picked_a_child_instead = false;
-         DTID dt_id = last_read_bf->page.dt_id;
-         PID last_pid = last_read_bf->header.pid;
-         o_guard.recheck();
-         getDTRegistry().iterateChildrenSwips(dt_id, *last_read_bf, [&](Swip<BufferFrame>&) {
-            picked_a_child_instead = true;
-            return false;
-         });
-         if (picked_a_child_instead) {
-            jumpmu::jump();
-         }
-         // assert(!partition.io_ht.lookup(last_read_bf->header.pid));
-         // assert(!partition.io_ht.lookup(pid));
-         ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, *last_read_bf);
-         // -------------------------------------------------------------------------------------
-         if (FLAGS_optimistic_parent_pointer) {
-            if (parent_handler.is_bf_updated) {
-               o_guard.guard.version += 2;
-            }
-         }
-         // -------------------------------------------------------------------------------------
-         assert(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
-         o_guard.recheck();
-         BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
-         o_guard.guard.toExclusive();
-         // -------------------------------------------------------------------------------------
-         assert(!last_read_bf->header.is_being_written_back);
-         assert(last_read_bf->header.state != BufferFrame::STATE::FREE);
-         parent_handler.swip.evict(last_pid);
-         // -------------------------------------------------------------------------------------
-         // Reclaim buffer frame
-         last_read_bf->reset();
-         last_read_bf->header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
-         last_read_bf->header.latch.mutex.unlock();
-         FreedBfsBatch freed_bfs_batch;
-         freed_bfs_batch.add(*last_read_bf);
-         freed_bfs_batch.push(getPartition(last_pid));
-      }
-      jumpmuCatch() { last_read_bf = nullptr; }
+   if (!FLAGS_worker_page_eviction || !last_read_bf) {
+      return;
    }
+   jumpmuTry()
+   {
+      BMOptimisticGuard o_guard(last_read_bf->header.latch);
+      if (pageIsNotEvictable(last_read_bf) || last_read_bf->isDirty()){
+         jumpmu::jump();
+      }
+      o_guard.recheck();
+      // -------------------------------------------------------------------------------------
+      bool picked_a_child_instead = false;
+      DTID dt_id = last_read_bf->page.dt_id;
+      PID last_pid = last_read_bf->header.pid;
+      o_guard.recheck();
+      getDTRegistry().iterateChildrenSwips(dt_id, *last_read_bf, [&](Swip<BufferFrame>&) {
+         picked_a_child_instead = true;
+         return false;
+      });
+      if (picked_a_child_instead) {
+         jumpmu::jump();
+      }
+      // assert(!partition.io_ht.lookup(last_read_bf->header.pid));
+      // assert(!partition.io_ht.lookup(pid));
+      FreedBfsBatch freed_bfs_batch = FreedBfsBatch();
+      evict_bf(freed_bfs_batch, *last_read_bf, o_guard);
+      freed_bfs_batch.set_free_list(&getPartition(last_pid).dram_free_list);
+      freed_bfs_batch.push();
+   }
+   jumpmuCatch() { last_read_bf = nullptr; }
+}
+// -------------------------------------------------------------------------------------
+void BufferManager::evict_bf(FreedBfsBatch& batch, BufferFrame& bf, BMOptimisticGuard& c_guard){
+   DTID dt_id = bf.page.dt_id;
+   c_guard.recheck();
+   ParentSwipHandler parent_handler = getDTRegistry().findParent(dt_id, bf);
+   // -------------------------------------------------------------------------------------
+   paranoid(parent_handler.parent_guard.state == GUARD_STATE::OPTIMISTIC);
+   BMExclusiveUpgradeIfNeeded p_x_guard(parent_handler.parent_guard);
+   c_guard.guard.toExclusive();
+   // -------------------------------------------------------------------------------------
+   if (FLAGS_crc_check && bf.header.crc) {
+      ensure(utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE) == bf.header.crc);
+   }
+   // -------------------------------------------------------------------------------------
+   ensure(!bf.isDirty());
+   paranoid(!bf.header.is_being_written_back);
+   // -------------------------------------------------------------------------------------
+   const PID evicted_pid = bf.header.pid;
+   parent_handler.swip.evict(evicted_pid);
+   // -------------------------------------------------------------------------------------
+   // Reclaim buffer frame
+   bf.reset();
+   bf.header.latch->fetch_add(LATCH_EXCLUSIVE_BIT, std::memory_order_release);
+   bf.header.latch.mutex.unlock();
+   // -------------------------------------------------------------------------------------
+   batch.add(bf);
+   // -------------------------------------------------------------------------------------
+   if (FLAGS_pid_tracing) {
+      Tracing::mutex.lock();
+      if (Tracing::ht.contains(evicted_pid)) {
+         std::get<1>(Tracing::ht[evicted_pid])++;
+      } else {
+         Tracing::ht[evicted_pid] = {dt_id, 1};
+      }
+      Tracing::mutex.unlock();
+   }
+   // -------------------------------------------------------------------------------------
+   COUNTERS_BLOCK() { PPCounters::myCounters().evicted_pages++; PPCounters::myCounters().total_evictions++; }
+}
+// -------------------------------------------------------------------------------------
+bool BufferManager::pageIsNotEvictable(BufferFrame* r_buffer){
+      // Check if not evictable
+      return r_buffer->header.state != BufferFrame::STATE::HOT
+         || r_buffer->header.keep_in_memory
+         || r_buffer->header.is_being_written_back
+         || r_buffer->header.latch.isExclusivelyLatched();
 }
 // -------------------------------------------------------------------------------------
 // Pre: bf is exclusively locked
@@ -281,31 +302,27 @@ void BufferManager::reclaimPage(BufferFrame& bf)
 BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& swip_value)
 {
    if (swip_value.isHOT()) {
+      COUNTERS_BLOCK() {
+         if(FLAGS_count_hits){
+            leanstore::WorkerCounters::myCounters().hot_hit_counter++;
+      }}
       BufferFrame& bf = swip_value.asBufferFrame();
       swip_guard.recheck();
       return bf;
-   } else if (swip_value.isCOOL()) {
-      BufferFrame* bf = &swip_value.asBufferFrameMasked();
-      swip_guard.recheck();
-      BMOptimisticGuard bf_guard(bf->header.latch);
-      BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);  // parent
-      BMExclusiveGuard bf_x_guard(bf_guard);                // child
-      bf->header.state = BufferFrame::STATE::HOT;
-      swip_value.warm();
-      return *bf;
    }
    // -------------------------------------------------------------------------------------
    swip_guard.unlock();  // Otherwise we would get a deadlock, P->G, G->P
    const PID pid = swip_value.asPageID();
-   Partition& partition = getPartition(pid);
-   JMUW<std::unique_lock<std::mutex>> g_guard(partition.ht_mutex);
+   HashTable& io_table = getIOTable(pid);
+   JMUW<std::unique_lock<std::mutex>> g_guard(io_table.ht_mutex);
    swip_guard.recheck();
    paranoid(!swip_value.isHOT());
    // -------------------------------------------------------------------------------------
-   auto frame_handler = partition.io_ht.lookup(pid);
+   auto frame_handler = io_table.lookup(pid);
+   // The next section is locked by g_guard: Handling the IOFrame and readers_counter
    if (!frame_handler) {
-      BufferFrame& bf = randomPartition().dram_free_list.tryPop();
-      IOFrame& io_frame = partition.io_ht.insert(pid);
+      BufferFrame& bf = randomFreeFrame();
+      IOFrame& io_frame = io_table.insert(pid);
       bf.header.latch.assertNotExclusivelyLatched();
       // -------------------------------------------------------------------------------------
       io_frame.state = IOFrame::STATE::READING;
@@ -332,6 +349,8 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       bf.header.last_written_plsn = bf.page.PLSN;
       bf.header.state = BufferFrame::STATE::LOADED;
       bf.header.pid = pid;
+      bf.header.tracker = BufferFrame::Header::Tracker();
+      bf.header.tracker.trackRead();
       if (FLAGS_crc_check) {
          bf.header.crc = utils::CRC(bf.page.dt, EFFECTIVE_PAGE_SIZE);
       }
@@ -339,15 +358,15 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       jumpmuTry()
       {
          swip_guard.recheck();
-         JMUW<std::unique_lock<std::mutex>> g_guard(partition.ht_mutex);
+         JMUW<std::unique_lock<std::mutex>> g_guard(io_table.ht_mutex);
          BMExclusiveUpgradeIfNeeded swip_x_guard(swip_guard);
          io_frame.mutex.unlock();
-         swip_value.warm(&bf);
+         swip_value.setBF(&bf);
          bf.header.state = BufferFrame::STATE::HOT;  // ATTENTION: SET TO HOT AFTER
                                                      // IT IS SWIZZLED IN
          // -------------------------------------------------------------------------------------
          if (io_frame.readers_counter.fetch_add(-1) == 1) {
-            partition.io_ht.remove(pid);
+            io_table.remove(pid);
          }
          // -------------------------------------------------------------------------------------
          last_read_bf = &bf;
@@ -377,7 +396,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
       if (io_frame.readers_counter.fetch_add(-1) == 1) {
          g_guard->lock();
          if (io_frame.readers_counter == 0) {
-            partition.io_ht.remove(pid);
+            io_table.remove(pid);
          }
          g_guard->unlock();
       }
@@ -399,14 +418,14 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
          // -------------------------------------------------------------------------------------
          io_frame.bf = nullptr;
          paranoid(bf->header.pid == pid);
-         swip_value.warm(bf);
+         swip_value.setBF(bf);
          paranoid(swip_value.isHOT());
          paranoid(bf->header.state == BufferFrame::STATE::LOADED);
          bf->header.state = BufferFrame::STATE::HOT;  // ATTENTION: SET TO HOT AFTER
                                                       // IT IS SWIZZLED IN
          // -------------------------------------------------------------------------------------
          if (io_frame.readers_counter.fetch_add(-1) == 1) {
-            partition.io_ht.remove(pid);
+            io_table.remove(pid);
          } else {
             io_frame.state = IOFrame::STATE::TO_DELETE;
          }
@@ -418,7 +437,7 @@ BufferFrame& BufferManager::resolveSwip(Guard& swip_guard, Swip<BufferFrame>& sw
    }
    if (io_frame.state == IOFrame::STATE::TO_DELETE) {
       if (io_frame.readers_counter == 0) {
-         partition.io_ht.remove(pid);
+         io_table.remove(pid);
       }
       g_guard->unlock();
       jumpmu::jump();

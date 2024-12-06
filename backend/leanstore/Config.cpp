@@ -20,8 +20,11 @@ DEFINE_uint32(print_debug_interval_s, 1, "");
 DEFINE_bool(profiling, false, "");
 DEFINE_bool(profile_latency, false, "");
 DEFINE_bool(crc_check, false, "");
+DEFINE_bool(count_hits, false, "If you want to record total hits into the results_file, use this. WARNING: this costs arount 10 \% tx/sec!");
+DEFINE_bool(count_jumps, false, "If you want to record total jumps into the results_file, use this. WARNING: this can cost some tx/sec!");
 // -------------------------------------------------------------------------------------
-DEFINE_uint32(worker_threads, 4, "");
+DEFINE_uint32(worker_threads, 4, "Number of threads for benchmarking");
+DEFINE_uint32(creator_threads, 0, "Number of threads for dataset creation (prior to benchmarking)");
 DEFINE_bool(cpu_counters, true, "Disable if HW does not have enough counters for all threads");
 DEFINE_bool(pin_threads, false, "Responsibility of the driver");
 DEFINE_bool(smt, true, "Simultaneous multithreading");
@@ -39,6 +42,10 @@ DEFINE_bool(contention_split, true, "");
 DEFINE_uint64(cm_update_on, 7, "as exponent of 2");
 DEFINE_uint64(cm_period, 14, "as exponent of 2");
 DEFINE_uint64(cm_slowpath_threshold, 1, "");
+// -------------------------------------------------------------------------------------
+DEFINE_uint32(epoch_size, 1000, "size of epoch: ram/epoch_size");
+DEFINE_uint32(write_costs, 1, "how much does one write should costs more then a read");
+DEFINE_uint32(watt_samples, 50, "How much samples for picking a page");
 // -------------------------------------------------------------------------------------
 DEFINE_bool(xmerge, false, "");
 DEFINE_uint64(xmerge_k, 5, "");

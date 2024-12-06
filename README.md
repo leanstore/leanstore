@@ -44,6 +44,7 @@ This gives you an easy way to identify your run and join all relevant informatio
 - [x] Variable-length key/values B-Tree with prefix compression and hints  [BTW23]
 - [x] Scalable and robust out-of-memory Snapshot Isolation (OSIC protocol, Graveyard, and FatTuple) [VLDB23]
 - [x] Distributed Logging with remote flush avoidance [SIGMOD20, BTW23]
+- [x] Write-Aware Timestamp Tracking [VLDB23]
 - [ ] Recovery [SIGMOD20]
 - [ ] What Modern NVMe Storage Can Do, And How To Exploit It: High-Performance {I/O} for High-Performance Storage Engines [VLDB23] [branch](https://github.com/leanstore/leanstore/tree/io)
 - [ ] Why Files If You Have a DBMS? [ICDE24] [branch](https://github.com/leanstore/leanstore/tree/blob)
@@ -91,6 +92,17 @@ The code we used for our VLDB 2023 that covers the fast I/O implementation is in
   title        = {What Modern NVMe Storage Can Do, And How To Exploit It: High-Performance {I/O} for High-Performance Storage Engines},
   journal      = {Proc. {VLDB} Endow.},
   year         = {2023}
+}
+```
+
+VLDB 2023 [branch](https://github.com/leanstore/leanstore/tree/WATT) that covers Write-Aware Timestamp Tracking.
+
+```BibTeX
+@inproceedings{WATT23,
+    author = {Demian V\"{o}hringer and Viktor Leis},
+    title = {Write-Aware Timestamp Tracking: Effective and Efficient Page Replacement for Modern Hardware},
+    booktitle = {VLDB},
+    year      = {2023}
 }
 ```
 

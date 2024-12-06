@@ -1,6 +1,8 @@
 #pragma once
 #include "Config.hpp"
 #include "leanstore/concurrency-recovery/HistoryTree.hpp"
+#include "leanstore/profiling/tables/CPUTable.hpp"
+#include "leanstore/profiling/tables/CRTable.hpp"
 #include "leanstore/profiling/tables/ConfigsTable.hpp"
 #include "leanstore/storage/btree/BTreeLL.hpp"
 #include "leanstore/storage/btree/BTreeVI.hpp"
@@ -38,9 +40,13 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    std::unique_ptr<cr::HistoryTree> history_tree;
    // -------------------------------------------------------------------------------------
+   void persist(string key, string value);
+   string recover(string key, string default_value);
   private:
+   mutex persist_mutex;
    static std::list<std::tuple<string, fLS::clstring*>> persisted_string_flags;
    static std::list<std::tuple<string, s64*>> persisted_s64_flags;
+   std::unordered_map<string, string> persist_values;
    void serializeFlags(rapidjson::Document& d);
    void deserializeFlags();
    void serializeState();
@@ -76,8 +82,18 @@ class LeanStore
    // -------------------------------------------------------------------------------------
    void startProfilingThread();
    // -------------------------------------------------------------------------------------
-   static void addStringFlag(string name, fLS::clstring* flag) { persisted_string_flags.push_back(std::make_tuple(name, flag)); }
+   static void addStringFlag(string name, fLS::clstring* flag) {persisted_string_flags.push_back(std::make_tuple(name, flag));}
    static void addS64Flag(string name, s64* flag) { persisted_s64_flags.push_back(std::make_tuple(name, flag)); }
+  private:
+   void printStats(bool reset = true);
+   void doProfiling();
+   void printTable(profiling::ProfilingTable* table, basic_ofstream<char>& csv, u64 seconds, bool print_seconds = true) const;
+   void print_tx_console(profiling::BMTable& bm_table,
+                         profiling::CPUTable& cpu_table,
+                         profiling::CRTable& cr_table,
+                         u64 seconds,
+                         ofstream& console_csv) const;
+   void prepareCSV(profiling::ProfilingTable* table, ofstream& csv, bool print_seconds = true) const;
 };
 
 // -------------------------------------------------------------------------------------

@@ -857,7 +857,7 @@ class TPCCWorkload
    // [low, high]
    Integer urand(Integer low, Integer high) { return rnd(high - low + 1) + low; }
    // -------------------------------------------------------------------------------------
-   void prepare()
+   void prepareWorker()
    {
       Integer t_id = Integer(leanstore::WorkerCounters::myCounters().t_id.load());
       Integer h_id = 0;
