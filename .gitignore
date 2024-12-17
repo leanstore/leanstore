@@ -6,6 +6,7 @@ cmake-*/
 zipf_cache_*
 a.out
 data/
+.vscode/
 log/
 adhoc/
 #release/

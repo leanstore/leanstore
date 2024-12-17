@@ -84,6 +84,7 @@ LeanStore::LeanStore()
    // -------------------------------------------------------------------------------------
    DTRegistry::global_dt_registry.registerDatastructureType(0, storage::btree::BTreeLL::getMeta());
    DTRegistry::global_dt_registry.registerDatastructureType(2, storage::btree::BTreeVI::getMeta());
+   DTRegistry::global_dt_registry.registerDatastructureType(3, storage::inmemory::IMStore::getMeta());
    // -------------------------------------------------------------------------------------
    if (FLAGS_recover) {
       deserializeState();
@@ -457,5 +458,16 @@ LeanStore::~LeanStore()
 // Static members
 std::list<std::tuple<string, fLS::clstring*>> LeanStore::persisted_string_flags = {};
 std::list<std::tuple<string, s64*>> LeanStore::persisted_s64_flags = {};
+// -------------------------------------------------------------------------------------
+storage::inmemory::IMStore& LeanStore::registerIMStore(string name, 
+    storage::inmemory::IMStore::Config config)
+{
+   assert(imstores.find(name) == imstores.end());
+   auto& store = imstores[name];
+   DTID dtid = DTRegistry::global_dt_registry.registerDatastructureInstance(3, 
+       reinterpret_cast<void*>(&store), name);
+   store.create(dtid, config);
+   return store;
+}
 // -------------------------------------------------------------------------------------
 }  // namespace leanstore
