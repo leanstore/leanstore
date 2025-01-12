@@ -91,7 +91,7 @@ class TPCCWorkload
    Numeric randomNumeric(Numeric min, Numeric max)
    {
       double range = (max - min);
-      double div = RAND_MAX / range;
+      double div = UINT64_MAX / range;
       return min + (leanstore::utils::RandomGenerator::getRandU64() / div);
    }
 
