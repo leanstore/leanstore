@@ -38,15 +38,16 @@ This gives you an easy way to identify your run and join all relevant informatio
 
 ## Implemented Features
 
-- [x] Lightweight buffer manager with pointer swizzling [ICDE18]
-- [x] Optimstic Lock Coupling with Hybrid Page Guard to synchronize paged data structures [IEEE19]
-- [x] Contention and Space Management in B-Trees [CIDR21]
-- [x] Variable-length key/values B-Tree with prefix compression and hints  [BTW23]
-- [x] Scalable and robust out-of-memory Snapshot Isolation (OSIC protocol, Graveyard, and FatTuple) [VLDB23]
-- [x] Distributed Logging with remote flush avoidance [SIGMOD20, BTW23]
-- [ ] Recovery [SIGMOD20]
-- [ ] What Modern NVMe Storage Can Do, And How To Exploit It: High-Performance {I/O} for High-Performance Storage Engines [VLDB23] [branch](https://github.com/leanstore/leanstore/tree/io)
-- [ ] Why Files If You Have a DBMS? [ICDE24] [branch](https://github.com/leanstore/leanstore/tree/blob)
+- [x] Lightweight buffer manager with pointer swizzling [ICDE'18]
+- [x] Optimstic Lock Coupling with Hybrid Page Guard to synchronize paged data structures [IEEE'19]
+- [x] Contention and Space Management in B-Trees [CIDR'21]
+- [x] Variable-length key/values B-Tree with prefix compression and hints  [BTW'23]
+- [x] Scalable and robust out-of-memory Snapshot Isolation (OSIC protocol, Graveyard, and FatTuple) [VLDB'23]
+- [x] Distributed Logging with remote flush avoidance [SIGMOD'20, BTW'23]
+- [ ] Recovery [SIGMOD'20]
+- [ ] What Modern NVMe Storage Can Do, And How To Exploit It: High-Performance {I/O} for High-Performance Storage Engines [VLDB'23] [branch](https://github.com/leanstore/leanstore/tree/io)
+- [ ] Why Files If You Have a DBMS? [ICDE'24] [branch](https://github.com/leanstore/leanstore/tree/blob)
+- [ ] Moving on From Group Commit: Autonomous Commit Enables High Throughput and Low Latency on NVMe SSDs [SIGMOD'25] [branch](https://github.com/leanstore/leanstore/tree/latency)
 
 ## Cite
 
@@ -67,6 +68,21 @@ You can find the citations for different versions (which include different featu
   pages        = {3878--3892},
   publisher    = {{IEEE}},
   year         = {2024}
+}
+```
+
+[Branch `latency`](https://github.com/leanstore/leanstore/tree/latency) covers the autonomous commit technique that delivers high-throughput, low-latency commits.
+
+```BibTeX
+@inproceedings{DBLP:journals/pacmmod/NguyenL25,
+  author       = {Lam{-}Duy Nguyen and
+                  Adnan Alhomssi and
+                  Tobias Ziegler and
+                  Viktor Leis},
+  title        = {Moving on From Group Commit: Autonomous Commit Enables High Throughput and Low Latency on NVMe SSDs},
+  journal      = {Proc. {ACM} Manag. Data},
+  volume       = {3},
+  year         = {2025}
 }
 ```
 
