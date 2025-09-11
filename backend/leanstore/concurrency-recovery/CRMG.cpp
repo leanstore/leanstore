@@ -95,6 +95,11 @@ void CRManager::registerMeAsSpecialWorker()
 {
    cr::Worker::tls_ptr = new Worker(std::numeric_limits<WORKERID>::max(), workers, workers_count, versions_space, ssd_fd, true);
 }
+
+void CRManager::deleteSpecialWorker()
+{
+   delete cr::Worker::tls_ptr;
+}
 // -------------------------------------------------------------------------------------
 void CRManager::scheduleJobSync(u64 t_i, std::function<void()> job)
 {
