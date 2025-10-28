@@ -2,7 +2,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/isolation instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -11,8 +11,9 @@
 #ifndef PQXX_H_ISOLATION
 #define PQXX_H_ISOLATION
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include "pqxx/util.hxx"
 
@@ -71,6 +72,4 @@ enum isolation_level
   serializable,
 };
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

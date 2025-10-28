@@ -12,13 +12,13 @@ namespace
 {
 std::string GetDatestyle(transaction_base &T)
 {
-  return T.get_variable("DATESTYLE");
+  return T.conn().get_var("DATESTYLE");
 }
 
 
 std::string SetDatestyle(transaction_base &T, std::string style)
 {
-  T.set_variable("DATESTYLE", style);
+  T.conn().set_session_var("DATESTYLE", style);
   std::string const fullname{GetDatestyle(T)};
   PQXX_CHECK(
     not std::empty(fullname),
@@ -29,7 +29,7 @@ std::string SetDatestyle(transaction_base &T, std::string style)
 
 
 void RedoDatestyle(
-  transaction_base &T, std::string style, std::string expected)
+  transaction_base &T, std::string const &style, std::string const &expected)
 {
   PQXX_CHECK_EQUAL(SetDatestyle(T, style), expected, "Set wrong datestyle.");
 }
@@ -37,8 +37,8 @@ void RedoDatestyle(
 
 void test_061()
 {
-  connection conn;
-  work tx{conn};
+  connection cx;
+  work tx{cx};
 
   PQXX_CHECK(not std::empty(GetDatestyle(tx)), "Initial datestyle not set.");
 
@@ -50,9 +50,11 @@ void test_061()
   RedoDatestyle(tx, "SQL", SQLname);
 
   // Prove that setting an unknown variable causes an error, as expected
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
   quiet_errorhandler d(tx.conn());
+#include "pqxx/internal/ignore-deprecated-post.hxx"
   PQXX_CHECK_THROWS(
-    tx.set_variable("NONEXISTENT_VARIABLE_I_HOPE", "1"), sql_error,
+    cx.set_session_var("NONEXISTENT_VARIABLE_I_HOPE", 1), sql_error,
     "Setting unknown variable failed to fail.");
 }
 

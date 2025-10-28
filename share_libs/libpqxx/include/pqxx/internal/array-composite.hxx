@@ -3,23 +3,32 @@
 
 #  include <cassert>
 
+#  include "pqxx/internal/encodings.hxx"
 #  include "pqxx/strconv.hxx"
 
 namespace pqxx::internal
 {
 // Find the end of a double-quoted string.
-/** @c input[pos] must be the opening double quote.
+/** `input[pos]` must be the opening double quote.
+ *
+ * The backend double-quotes strings in composites or arrays, when needed.
+ * Special characters are escaped using backslashes.
  *
  * Returns the offset of the first position after the closing quote.
  */
+template<encoding_group ENC>
 inline std::size_t scan_double_quoted_string(
-  char const input[], std::size_t size, std::size_t pos,
-  pqxx::internal::glyph_scanner_func *scan)
+  char const input[], std::size_t size, std::size_t pos)
 {
-  auto next{scan(input, size, pos)};
+  // TODO: find_char<'"', '\\'>().
+  using scanner = glyph_scanner<ENC>;
+  auto next{scanner::call(input, size, pos)};
+  PQXX_ASSUME(next > pos);
   bool at_quote{false};
-  for (pos = next, next = scan(input, size, pos); pos < size;
-       pos = next, next = scan(input, size, pos))
+  pos = next;
+  next = scanner::call(input, size, pos);
+  PQXX_ASSUME(next > pos);
+  while (pos < size)
   {
     if (at_quote)
     {
@@ -43,7 +52,8 @@ inline std::size_t scan_double_quoted_string(
       case '\\':
         // Backslash escape.  Skip ahead by one more character.
         pos = next;
-        next = scan(input, size, pos);
+        next = scanner::call(input, size, pos);
+        PQXX_ASSUME(next > pos);
         break;
 
       case '"':
@@ -57,6 +67,9 @@ inline std::size_t scan_double_quoted_string(
     {
       // Multibyte character.  Carry on.
     }
+    pos = next;
+    next = scanner::call(input, size, pos);
+    PQXX_ASSUME(next > pos);
   }
   if (not at_quote)
     throw argument_error{
@@ -65,10 +78,11 @@ inline std::size_t scan_double_quoted_string(
 }
 
 
+// TODO: Needs version with caller-supplied buffer.
 /// Un-quote and un-escape a double-quoted SQL string.
+template<encoding_group ENC>
 inline std::string parse_double_quoted_string(
-  char const input[], std::size_t end, std::size_t pos,
-  pqxx::internal::glyph_scanner_func *scan)
+  char const input[], std::size_t end, std::size_t pos)
 {
   std::string output;
   // Maximum output size is same as the input size, minus the opening and
@@ -76,8 +90,13 @@ inline std::string parse_double_quoted_string(
   // half that.  Usually it'll be a pretty close estimate.
   output.reserve(std::size_t(end - pos - 2));
 
-  for (auto here{scan(input, end, pos)}, next{scan(input, end, here)};
-       here < end - 1; here = next, next = scan(input, end, here))
+  // TODO: Use find_char<...>().
+  using scanner = glyph_scanner<ENC>;
+  auto here{scanner::call(input, end, pos)},
+    next{scanner::call(input, end, here)};
+  PQXX_ASSUME(here > pos);
+  PQXX_ASSUME(next > here);
+  while (here < end - 1)
   {
     // A backslash here is always an escape.  So is a double-quote, since we're
     // inside the double-quoted string.  In either case, we can just ignore the
@@ -87,9 +106,13 @@ inline std::string parse_double_quoted_string(
     {
       // Skip escape.
       here = next;
-      next = scan(input, end, here);
+      next = scanner::call(input, end, here);
+      PQXX_ASSUME(next > here);
     }
     output.append(input + here, input + next);
+    here = next;
+    next = scanner::call(input, end, here);
+    PQXX_ASSUME(next > here);
   }
   return output;
 }
@@ -99,70 +122,68 @@ inline std::string parse_double_quoted_string(
 /** Stops when it gets to the end of the input; or when it sees any of the
  * characters in STOP which has not been escaped.
  *
- * For array values, STOP is a comma, a semicolon, or a closing brace.  For
- * a value of a composite type, STOP is a comma or a closing parenthesis.
+ * For array values, STOP is an array element separator (typically comma, or
+ * semicolon), or a closing brace.  For a value of a composite type, STOP is a
+ * comma or a closing parenthesis.
  */
-template<char... STOP>
-inline std::size_t scan_unquoted_string(
-  char const input[], std::size_t size, std::size_t pos,
-  pqxx::internal::glyph_scanner_func *scan)
+template<pqxx::internal::encoding_group ENC, char... STOP>
+inline std::size_t
+scan_unquoted_string(char const input[], std::size_t size, std::size_t pos)
 {
-  bool at_backslash{false};
-  auto next{scan(input, size, pos)};
-  while ((pos < size) and
-         ((next - pos) > 1 or at_backslash or ((input[pos] != STOP) and ...)))
+  using scanner = glyph_scanner<ENC>;
+  auto next{scanner::call(input, size, pos)};
+  PQXX_ASSUME(next > pos);
+  while ((pos < size) and ((next - pos) > 1 or ((input[pos] != STOP) and ...)))
   {
     pos = next;
-    next = scan(input, size, pos);
-    at_backslash =
-      ((not at_backslash) and ((next - pos) == 1) and (input[pos] == '\\'));
+    next = scanner::call(input, size, pos);
+    PQXX_ASSUME(next > pos);
   }
   return pos;
 }
 
 
 /// Parse an unquoted array entry or cfield of a composite-type field.
-inline std::string parse_unquoted_string(
-  char const input[], std::size_t end, std::size_t pos,
-  pqxx::internal::glyph_scanner_func *scan)
+template<pqxx::internal::encoding_group ENC>
+inline std::string_view
+parse_unquoted_string(char const input[], std::size_t end, std::size_t pos)
 {
-  std::string output;
-  bool at_backslash{false};
-  output.reserve(end - pos);
-  for (auto next{scan(input, end, pos)}; pos < end;
-       pos = next, next = scan(input, end, pos))
-  {
-    at_backslash =
-      ((not at_backslash) and ((next - pos) == 1) and (input[pos] == '\\'));
-    if (not at_backslash)
-      output.append(input + pos, next - pos);
-  }
-  return output;
+  return {&input[pos], end - pos};
 }
 
 
 /// Parse a field of a composite-type value.
-/** @c T is the C++ type of the field we're parsing, and @c index is its
+/** `T` is the C++ type of the field we're parsing, and `index` is its
  * zero-based number.
+ *
+ * Strip off the leading parenthesis or bracket yourself before parsing.
+ * However, this function will parse the lcosing parenthesis or bracket.
+ *
+ * After a successful parse, `pos` will point at `std::end(text)`.
+ *
+ * For the purposes of parsing, ranges and arrays count as compositve values,
+ * so this function supports parsing those.  If you specifically need a closing
+ * parenthesis, check afterwards that `text` did not end in a bracket instead.
  *
  * @param index Index of the current field, zero-based.  It will increment for
  *     the next field.
  * @param input Full input text for the entire composite-type value.
- * @param pos Starting position (in @c input) of the field that we're parsing.
+ * @param pos Starting position (in `input`) of the field that we're parsing.
  *     After parsing, this will point at the beginning of the next field if
  *     there is one, or one position past the last character otherwise.
  * @param field Destination for the parsed value.
  * @param scan Glyph scanning function for the relevant encoding type.
  * @param last_field Number of the last field in the value (zero-based).  When
- *     parsing the last field, this will equal @c index.
+ *     parsing the last field, this will equal `index`.
  */
-template<typename T>
+template<encoding_group ENC, typename T>
 inline void parse_composite_field(
   std::size_t &index, std::string_view input, std::size_t &pos, T &field,
-  glyph_scanner_func *scan, std::size_t last_field)
+  std::size_t last_field)
 {
   assert(index <= last_field);
-  auto next{scan(input.data(), std::size(input), pos)};
+  auto next{glyph_scanner<ENC>::call(std::data(input), std::size(input), pos)};
+  PQXX_ASSUME(next > pos);
   if ((next - pos) != 1)
     throw conversion_error{"Non-ASCII character in composite-type syntax."};
 
@@ -171,6 +192,7 @@ inline void parse_composite_field(
   {
   case ',':
   case ')':
+  case ']':
     // The field is empty, i.e, null.
     if constexpr (nullness<T>::has_null)
       field = nullness<T>::null();
@@ -182,25 +204,29 @@ inline void parse_composite_field(
 
   case '"': {
     auto const stop{
-      scan_double_quoted_string(input.data(), std::size(input), pos, scan)};
-    auto const text{parse_double_quoted_string(input.data(), stop, pos, scan)};
+      scan_double_quoted_string<ENC>(std::data(input), std::size(input), pos)};
+    PQXX_ASSUME(stop > pos);
+    auto const text{
+      parse_double_quoted_string<ENC>(std::data(input), stop, pos)};
     field = from_string<T>(text);
     pos = stop;
   }
   break;
 
   default: {
-    auto const stop{scan_unquoted_string<',', ')'>(
-      input.data(), std::size(input), pos, scan)};
-    auto const text{parse_unquoted_string(input.data(), stop, pos, scan)};
-    field = from_string<T>(text);
+    auto const stop{scan_unquoted_string<ENC, ',', ')', ']'>(
+      std::data(input), std::size(input), pos)};
+    PQXX_ASSUME(stop >= pos);
+    field =
+      from_string<T>(std::string_view{std::data(input) + pos, stop - pos});
     pos = stop;
   }
   break;
   }
 
   // Expect a comma or a closing parenthesis.
-  next = scan(input.data(), std::size(input), pos);
+  next = glyph_scanner<ENC>::call(std::data(input), std::size(input), pos);
+  PQXX_ASSUME(next > pos);
 
   if ((next - pos) != 1)
     throw conversion_error{
@@ -212,15 +238,15 @@ inline void parse_composite_field(
     if (input[pos] != ',')
       throw conversion_error{
         "Found '" + std::string{input[pos]} +
-        "' in composite value where comma was expected: " + input.data()};
+        "' in composite value where comma was expected: " + std::data(input)};
   }
   else
   {
     if (input[pos] == ',')
       throw conversion_error{
         "Composite value contained more fields than the expected " +
-        to_string(last_field) + ": " + input.data()};
-    if (input[pos] != ')')
+        to_string(last_field) + ": " + std::data(input)};
+    if (input[pos] != ')' and input[pos] != ']')
       throw conversion_error{
         "Composite value has unexpected characters where closing parenthesis "
         "was expected: " +
@@ -233,6 +259,48 @@ inline void parse_composite_field(
 
   pos = next;
   ++index;
+}
+
+
+/// Pointer to an encoding-specific specialisation of parse_composite_field.
+template<typename T>
+using composite_field_parser = void (*)(
+  std::size_t &index, std::string_view input, std::size_t &pos, T &field,
+  std::size_t last_field);
+
+
+/// Look up implementation of parse_composite_field for ENC.
+template<typename T>
+composite_field_parser<T> specialize_parse_composite_field(encoding_group enc)
+{
+  switch (enc)
+  {
+  case encoding_group::MONOBYTE:
+    return parse_composite_field<encoding_group::MONOBYTE>;
+  case encoding_group::BIG5:
+    return parse_composite_field<encoding_group::BIG5>;
+  case encoding_group::EUC_CN:
+    return parse_composite_field<encoding_group::EUC_CN>;
+  case encoding_group::EUC_JP:
+    return parse_composite_field<encoding_group::EUC_JP>;
+  case encoding_group::EUC_KR:
+    return parse_composite_field<encoding_group::EUC_KR>;
+  case encoding_group::EUC_TW:
+    return parse_composite_field<encoding_group::EUC_TW>;
+  case encoding_group::GB18030:
+    return parse_composite_field<encoding_group::GB18030>;
+  case encoding_group::GBK: return parse_composite_field<encoding_group::GBK>;
+  case encoding_group::JOHAB:
+    return parse_composite_field<encoding_group::JOHAB>;
+  case encoding_group::MULE_INTERNAL:
+    return parse_composite_field<encoding_group::MULE_INTERNAL>;
+  case encoding_group::SJIS:
+    return parse_composite_field<encoding_group::SJIS>;
+  case encoding_group::UHC: return parse_composite_field<encoding_group::UHC>;
+  case encoding_group::UTF8:
+    return parse_composite_field<encoding_group::UTF8>;
+  }
+  throw internal_error{concat("Unexpected encoding group code: ", enc, ".")};
 }
 
 

@@ -21,9 +21,9 @@ constexpr unsigned int BoringYear = 1977;
 
 // Count events and specifically events occurring in Boring Year, leaving the
 // former count in the result pair's first member, and the latter in second.
-std::pair<int, int> count_events(connection &conn, std::string table)
+std::pair<int, int> count_events(connection &cx, std::string const &table)
 {
-  work tx{conn};
+  work tx{cx};
   std::string const count_query{"SELECT count(*) FROM " + table};
   return std::make_pair(
     tx.query_value<int>(count_query),
@@ -35,13 +35,14 @@ struct deliberate_error : std::exception
 {};
 
 
-void failed_insert(connection &C, std::string table)
+void failed_insert(connection &cx, std::string const &table)
 {
-  work tx(C);
-  result R = tx.exec0(
-    "INSERT INTO " + table + " VALUES (" + to_string(BoringYear) +
-    ", "
-    "'yawn')");
+  work tx(cx);
+  result R = tx.exec(
+                 "INSERT INTO " + table + " VALUES (" + to_string(BoringYear) +
+                 ", "
+                 "'yawn')")
+               .no_rows();
 
   PQXX_CHECK_EQUAL(R.affected_rows(), 1, "Bad affected_rows().");
   throw deliberate_error();
@@ -50,9 +51,9 @@ void failed_insert(connection &C, std::string table)
 
 void test_013()
 {
-  connection conn;
+  connection cx;
   {
-    work tx{conn};
+    work tx{cx};
     test::create_pqxxevents(tx);
     tx.commit();
   }
@@ -60,18 +61,19 @@ void test_013()
   std::string const Table{"pqxxevents"};
 
   auto const Before{
-    perform([&conn, &Table] { return count_events(conn, Table); })};
+    perform([&cx, &Table] { return count_events(cx, Table); })};
   PQXX_CHECK_EQUAL(
     Before.second, 0,
     "Already have event for " + to_string(BoringYear) + "--can't test.");
 
-  quiet_errorhandler d(conn);
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
+  quiet_errorhandler d(cx);
+#include "pqxx/internal/ignore-deprecated-post.hxx"
   PQXX_CHECK_THROWS(
-    perform([&conn, &Table] { failed_insert(conn, Table); }), deliberate_error,
+    perform([&cx, &Table] { failed_insert(cx, Table); }), deliberate_error,
     "Failing transactor failed to throw correct exception.");
 
-  auto const After{
-    perform([&conn, &Table] { return count_events(conn, Table); })};
+  auto const After{perform([&cx, &Table] { return count_events(cx, Table); })};
 
   PQXX_CHECK_EQUAL(
     After.first, Before.first, "abort() didn't reset event count.");

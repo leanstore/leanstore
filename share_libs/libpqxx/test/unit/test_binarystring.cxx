@@ -12,15 +12,16 @@ pqxx::binarystring
 make_binarystring(pqxx::transaction_base &T, std::string content)
 {
 #include "pqxx/internal/ignore-deprecated-pre.hxx"
-  return pqxx::binarystring(T.exec1("SELECT " + T.quote_raw(content))[0]);
+  return pqxx::binarystring(
+    T.exec("SELECT " + T.quote_raw(content)).one_field());
 #include "pqxx/internal/ignore-deprecated-post.hxx"
 }
 
 
 void test_binarystring()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   auto b{make_binarystring(tx, "")};
   PQXX_CHECK(std::empty(b), "Empty binarystring is not empty.");
   PQXX_CHECK_EQUAL(b.str(), "", "Empty binarystring doesn't work.");
@@ -66,7 +67,9 @@ void test_binarystring()
   PQXX_CHECK_EQUAL(
     std::size(b), std::size(simple), "Escaping confuses length.");
 
-  std::string const simple_escaped{tx.esc_raw(simple)};
+  std::string const simple_escaped{tx.esc_raw(pqxx::bytes_view{
+    reinterpret_cast<std::byte const *>(std::data(simple)),
+    std::size(simple)})};
   for (auto c : simple_escaped)
   {
     auto const uc{static_cast<unsigned char>(c)};
@@ -82,8 +85,10 @@ void test_binarystring()
   PQXX_CHECK_EQUAL(
     tx.quote(b), tx.quote_raw(simple), "Binary quoting is broken.");
   PQXX_CHECK_EQUAL(
-    pqxx::binarystring(tx.exec1("SELECT " + tx.quote(b))[0]).str(), simple,
-    "Binary string is not idempotent.");
+    pqxx::binarystring(
+      tx.query_value<std::string>("SELECT $1", pqxx::params{b}))
+      .str(),
+    simple, "Binary string is not idempotent.");
 #include "pqxx/internal/ignore-deprecated-post.hxx"
 
   std::string const bytes("\x01\x23\x23\xa1\x2b\x0c\xff");
@@ -140,16 +145,16 @@ void test_binarystring_stream()
   pqxx::binarystring bin{data};
 #include "pqxx/internal/ignore-deprecated-post.hxx"
 
-  pqxx::connection conn;
-  pqxx::transaction tx{conn};
-  tx.exec0("CREATE TEMP TABLE pqxxbinstream(id integer, bin bytea)");
+  pqxx::connection cx;
+  pqxx::transaction tx{cx};
+  tx.exec("CREATE TEMP TABLE pqxxbinstream(id integer, bin bytea)").no_rows();
 
   auto to{pqxx::stream_to::table(tx, {"pqxxbinstream"})};
   to.write_values(0, bin);
   to.complete();
 
-  auto ptr{reinterpret_cast<unsigned char const *>(data.data())};
-  auto expect{tx.quote_raw(ptr, std::size(data))};
+  auto ptr{reinterpret_cast<std::byte const *>(std::data(data))};
+  auto expect{tx.quote(pqxx::bytes_view{ptr, std::size(data)})};
   PQXX_CHECK(
     tx.query_value<bool>("SELECT bin = " + expect + " FROM pqxxbinstream"),
     "binarystring did not stream_to properly.");
@@ -161,16 +166,21 @@ void test_binarystring_stream()
 
 void test_binarystring_array_stream()
 {
-  pqxx::connection conn;
-  pqxx::transaction tx{conn};
-  tx.exec0("CREATE TEMP TABLE pqxxbinstream(id integer, vec bytea[])");
+  // This test won't compile on clang in maintainer mode.  For some reason,
+  // clang seems to ignore the ignore-deprecated headers in just this one
+  // function, where we create the vector of binarystring.
+#if !defined(__clang__)
+  pqxx::connection cx;
+  pqxx::transaction tx{cx};
+  tx.exec("CREATE TEMP TABLE pqxxbinstream(id integer, vec bytea[])")
+    .no_rows();
 
   constexpr char bytes1[]{"a\tb\0c"}, bytes2[]{"1\0.2"};
   std::string_view const data1{bytes1}, data2{bytes2};
-#include "pqxx/internal/ignore-deprecated-pre.hxx"
+#  include "pqxx/internal/ignore-deprecated-pre.hxx"
   pqxx::binarystring bin1{data1}, bin2{data2};
   std::vector<pqxx::binarystring> const vec{bin1, bin2};
-#include "pqxx/internal/ignore-deprecated-post.hxx"
+#  include "pqxx/internal/ignore-deprecated-post.hxx"
 
   auto to{pqxx::stream_to::table(tx, {"pqxxbinstream"})};
   to.write_values(0, vec);
@@ -181,10 +191,10 @@ void test_binarystring_array_stream()
       "SELECT array_length(vec, 1) FROM pqxxbinstream"),
     std::size(vec), "Array came out with wrong length.");
 
-  auto ptr1{reinterpret_cast<unsigned char const *>(data1.data())},
-    ptr2{reinterpret_cast<unsigned char const *>(data2.data())};
-  auto expect1{tx.quote_raw(ptr1, std::size(data1))},
-    expect2{tx.quote_raw(ptr2, std::size(data2))};
+  auto ptr1{reinterpret_cast<std::byte const *>(std::data(data1))},
+    ptr2{reinterpret_cast<std::byte const *>(std::data(data2))};
+  auto expect1{tx.quote(pqxx::bytes_view{ptr1, std::size(data1)})},
+    expect2{tx.quote(pqxx::bytes_view{ptr2, std::size(data2)})};
   PQXX_CHECK(
     tx.query_value<bool>("SELECT vec[1] = " + expect1 + " FROM pqxxbinstream"),
     "Bytea in array came out wrong.");
@@ -195,6 +205,7 @@ void test_binarystring_array_stream()
     tx.query_value<std::size_t>(
       "SELECT octet_length(vec[1]) FROM pqxxbinstream"),
     std::size(data1), "Bytea length broke inside array.");
+#endif // __clang__
 }
 
 

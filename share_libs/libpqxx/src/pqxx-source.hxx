@@ -8,14 +8,14 @@
  *
  * DO NOT INCLUDE THIS FILE when building client programs.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
  * mistake, or contact the author.
  */
 
-// Workarounds & definitions needed to compile libpqxx into a library
+// Workarounds & definitions needed to compile libpqxx into a library.
 #include "pqxx/config-internal-compiler.h"
 
 #ifdef _WIN32
@@ -28,5 +28,3 @@
 #  endif // PQXX_SHARED
 
 #endif // _WIN32
-
-#include "pqxx/compiler-public.hxx"

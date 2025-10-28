@@ -21,7 +21,6 @@ install(
     PATTERN array
     PATTERN binarystring
     PATTERN blob
-    PATTERN compiler-public
     PATTERN composite
     PATTERN connection
     PATTERN cursor
@@ -33,10 +32,11 @@ install(
     PATTERN largeobject
     PATTERN nontransaction
     PATTERN notification
+    PATTERN params
     PATTERN pipeline
     PATTERN prepared_statement
+    PATTERN range
     PATTERN result
-    PATTERN result_iterator
     PATTERN robusttransaction
     PATTERN row
     PATTERN separated_list
@@ -44,6 +44,7 @@ install(
     PATTERN stream_from
     PATTERN stream_to
     PATTERN subtransaction
+    PATTERN time
     PATTERN transaction
     PATTERN transaction_base
     PATTERN transaction_focus

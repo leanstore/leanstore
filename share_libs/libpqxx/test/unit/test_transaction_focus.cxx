@@ -7,14 +7,16 @@ namespace
 {
 auto make_focus(pqxx::dbtransaction &tx)
 {
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
   return pqxx::stream_from::query(tx, "SELECT * from generate_series(1, 10)");
+#include "pqxx/internal/ignore-deprecated-post.hxx"
 }
 
 
 void test_cannot_run_statement_during_focus()
 {
-  pqxx::connection conn;
-  pqxx::transaction tx{conn};
+  pqxx::connection cx;
+  pqxx::transaction tx{cx};
   tx.exec("SELECT 1");
   auto focus{make_focus(tx)};
   PQXX_CHECK_THROWS(
@@ -25,24 +27,24 @@ void test_cannot_run_statement_during_focus()
 
 void test_cannot_run_prepared_statement_during_focus()
 {
-  pqxx::connection conn;
-  conn.prepare("foo", "SELECT 1");
-  pqxx::transaction tx{conn};
-  tx.exec_prepared("foo");
+  pqxx::connection cx;
+  cx.prepare("foo", "SELECT 1");
+  pqxx::transaction tx{cx};
+  tx.exec(pqxx::prepped{"foo"});
   auto focus{make_focus(tx)};
   PQXX_CHECK_THROWS(
-    tx.exec_prepared("foo"), pqxx::usage_error,
+    tx.exec(pqxx::prepped{"foo"}), pqxx::usage_error,
     "Prepared statement during focus did not throw expected error.");
 }
 
 void test_cannot_run_params_statement_during_focus()
 {
-  pqxx::connection conn;
-  pqxx::transaction tx{conn};
-  tx.exec_params("select $1", 10);
+  pqxx::connection cx;
+  pqxx::transaction tx{cx};
+  tx.exec("select $1", pqxx::params{10});
   auto focus{make_focus(tx)};
   PQXX_CHECK_THROWS(
-    tx.exec_params("select $1", 10), pqxx::usage_error,
+    tx.exec("select $1", pqxx::params{10}), pqxx::usage_error,
     "Parameterized statement during focus did not throw expected error.");
 }
 

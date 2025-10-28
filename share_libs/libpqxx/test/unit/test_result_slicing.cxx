@@ -2,6 +2,8 @@
 
 #include "../test_helpers.hxx"
 
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
+
 namespace pqxx
 {
 template<> struct nullness<row::const_iterator> : no_null<row::const_iterator>
@@ -63,8 +65,8 @@ namespace
 {
 void test_result_slicing()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   auto r{tx.exec("SELECT 1")};
 
   PQXX_CHECK(not std::empty(r[0]), "A plain row shows up as empty.");
@@ -151,3 +153,5 @@ void test_result_slicing()
 
 PQXX_REGISTER_TEST(test_result_slicing);
 } // namespace
+
+#include "pqxx/internal/ignore-deprecated-post.hxx"

@@ -37,7 +37,7 @@ int exmap_acquire_ksyms(void)
 	register_kprobe(&kp);
 	kallsyms_lookup_name = (kallsyms_lookup_name_t) kp.addr;
 	unregister_kprobe(&kp);
-	/* 
+	/*
 	 * Try to find all necessary symbols,
 	 * return -1 if any lookup fails
 	 */
@@ -64,7 +64,7 @@ void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
 	flush_tlb_mm_range_ksym(mm, start, end, stride_shift, freed_tables);
 }
 
-ssize_t vfs_read(struct file *file, char __user *buf, 
+ssize_t vfs_read(struct file *file, char __user *buf,
 				 size_t count, loff_t *pos)
 {
 	return vfs_read_ksym(file, buf, count, pos);

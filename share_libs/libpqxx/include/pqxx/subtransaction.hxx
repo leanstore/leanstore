@@ -4,7 +4,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/subtransaction instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,15 +13,16 @@
 #ifndef PQXX_H_SUBTRANSACTION
 #define PQXX_H_SUBTRANSACTION
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include "pqxx/dbtransaction.hxx"
 
 namespace pqxx
 {
 /**
- * @ingroup transaction
+ * @ingroup transactions
  */
 /// "Transaction" nested within another transaction
 /** A subtransaction can be executed inside a backend transaction, or inside
@@ -30,18 +31,18 @@ namespace pqxx
  * entire transaction.  Here's an example of how a temporary table may be
  * dropped before re-creating it, without failing if the table did not exist:
  *
- * @code
- * void do_job(connection &C)
+ * ```cxx
+ * void do_job(connection &cx)
  * {
  *   string const temptable = "fleetingtable";
  *
- *   work W(C, "do_job");
- *   do_firstpart(W);
+ *   work tx(cx, "do_job");
+ *   do_firstpart(tx);
  *
  *   // Attempt to delete our temporary table if it already existed.
  *   try
  *   {
- *     subtransaction S(W, "droptemp");
+ *     subtransaction S(tx, "droptemp");
  *     S.exec0("DROP TABLE " + temptable);
  *     S.commit();
  *   }
@@ -52,13 +53,13 @@ namespace pqxx
  *   }
  *
  *   // S may have gone into a failed state and been destroyed, but the
- *   // upper-level transaction W is still fine.  We can continue to use it.
- *   W.exec0("CREATE TEMP TABLE " + temptable + "(bar integer, splat
+ *   // upper-level transaction tx is still fine.  We can continue to use it.
+ *   tx.exec0("CREATE TEMP TABLE " + temptable + "(bar integer, splat
  * varchar)");
  *
- *   do_lastpart(W);
+ *   do_lastpart(tx);
  * }
- * @endcode
+ * ```
  *
  * (This is just an example.  If you really wanted to do drop a table without
  * an error if it doesn't exist, you'd use DROP TABLE IF EXISTS.)
@@ -69,8 +70,8 @@ namespace pqxx
  *
  * @warning While the subtransaction is "live," you cannot execute queries or
  * open streams etc. on its parent transaction.  A transaction can have at most
- * one object of a type derived from @c pqxx::transaction_focus active on it at
- * a time.
+ * one object of a type derived from @ref pqxx::transaction_focus active on it
+ * at a time.
  */
 class PQXX_LIBEXPORT subtransaction : public transaction_focus,
                                       public dbtransaction
@@ -92,6 +93,4 @@ private:
   virtual void do_commit() override;
 };
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

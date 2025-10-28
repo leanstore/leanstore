@@ -2,68 +2,51 @@
 #include <chrono>
 #include <cstring>
 #include <ctime>
-#include <thread>
 
-#include <pqxx/notification>
+#include <pqxx/internal/header-pre.hxx>
+
+#include <pqxx/internal/wait.hxx>
+
+#include <pqxx/internal/header-post.hxx>
+
 #include <pqxx/transaction>
 #include <pqxx/transactor>
 
 #include "test_helpers.hxx"
 
-using namespace pqxx;
-
 // Example program for libpqxx.  Send notification to self.
 
 namespace
 {
-int Backend_PID{0};
-
-
-// Sample implementation of notification receiver.
-class TestListener final : public notification_receiver
-{
-  bool m_done;
-
-public:
-  explicit TestListener(connection &conn) :
-          notification_receiver(conn, "listen"), m_done(false)
-  {}
-
-  virtual void operator()(std::string const &, int be_pid) override
-  {
-    m_done = true;
-    PQXX_CHECK_EQUAL(
-      be_pid, Backend_PID, "Notification came from wrong backend process.");
-  }
-
-  bool done() const { return m_done; }
-};
-
-
 void test_004()
 {
-  connection conn;
+  auto const channel{"pqxx_test_notif"};
+  pqxx::connection cx;
+  int backend_pid{0};
+  cx.listen(channel, [&backend_pid](pqxx::notification n) noexcept {
+    backend_pid = n.backend_pid;
+  });
 
-  TestListener L{conn};
   // Trigger our notification receiver.
-  perform([&conn, &L] {
-    work tx(conn);
-    tx.exec0("NOTIFY " + conn.quote_name(L.channel()));
-    Backend_PID = conn.backendpid();
+  pqxx::perform([&cx, &channel] {
+    pqxx::work tx(cx);
+    tx.notify(channel);
     tx.commit();
   });
 
   int notifs{0};
-  for (int i{0}; (i < 20) and not L.done(); ++i)
+  for (int i{0}; (i < 20) and (backend_pid == 0); ++i)
   {
     PQXX_CHECK_EQUAL(notifs, 0, "Got unexpected notifications.");
     // Sleep for one second.  I'm not proud of this, but how does one inject
     // a change to the built-in clock in a static language?
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    notifs = conn.get_notifs();
+    pqxx::internal::wait_for(1000u);
+    notifs = cx.get_notifs();
   }
 
-  PQXX_CHECK_NOT_EQUAL(L.done(), false, "No notification received.");
+  PQXX_CHECK_EQUAL(
+    backend_pid, cx.backendpid(),
+    "Did not get our notification from our own backend.");
   PQXX_CHECK_EQUAL(notifs, 1, "Got too many notifications.");
 }
 

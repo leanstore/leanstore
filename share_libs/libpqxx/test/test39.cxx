@@ -13,8 +13,8 @@ int BoringYear{1977};
 
 void test_039()
 {
-  connection conn;
-  nontransaction tx1{conn};
+  connection cx;
+  nontransaction tx1{cx};
   test::create_pqxxevents(tx1);
   std::string const Table{"pqxxevents"};
 
@@ -35,14 +35,16 @@ void test_039()
   PQXX_CHECK(std::empty(R), "Result is non-empty after clear().");
 
   // OK.  Having laid that worry to rest, add a record for 1977.
-  tx1.exec0(
-    "INSERT INTO " + Table +
-    " VALUES"
-    "(" +
-    to_string(BoringYear) +
-    ","
-    "'Yawn'"
-    ")");
+  tx1
+    .exec(
+      "INSERT INTO " + Table +
+      " VALUES"
+      "(" +
+      to_string(BoringYear) +
+      ","
+      "'Yawn'"
+      ")")
+    .no_rows();
 
   // Abort tx1.  Since tx1 is a nontransaction, which provides only the
   // transaction class interface without providing any form of transactional
@@ -50,7 +52,7 @@ void test_039()
   tx1.abort();
 
   // Verify that our record was added, despite the Abort()
-  nontransaction tx2(conn, "tx2");
+  nontransaction tx2(cx, "tx2");
   R = tx2.exec(
     "SELECT * FROM " + Table +
     " "
@@ -64,16 +66,18 @@ void test_039()
   PQXX_CHECK(std::empty(R), "result::clear() is broken.");
 
   // Now remove our record again
-  tx2.exec0(
-    "DELETE FROM " + Table +
-    " "
-    "WHERE year=" +
-    to_string(BoringYear));
+  tx2
+    .exec(
+      "DELETE FROM " + Table +
+      " "
+      "WHERE year=" +
+      to_string(BoringYear))
+    .no_rows();
 
   tx2.commit();
 
   // And again, verify results
-  nontransaction tx3(conn, "tx3");
+  nontransaction tx3(cx, "tx3");
 
   R = tx3.exec(
     "SELECT * FROM " + Table +

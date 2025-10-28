@@ -1,45 +1,26 @@
 /*
  * Custom types for testing & libpqxx support those types
  */
+#if !defined(PQXX_H_TEST_TYPES)
+#  define PQXX_H_TEST_TYPES
 
-#include <pqxx/strconv>
+#  include <pqxx/strconv>
 
-#include <cstdint>
-#include <cstdio>
-#include <cstring>
-#include <exception>
-#include <iomanip>
-#include <regex>
-#include <sstream>
-#include <string>
-#include <vector>
+#  include <cstdint>
+#  include <cstdio>
+#  include <cstring>
+#  include <exception>
+#  include <iomanip>
+#  include <regex>
+#  include <sstream>
+#  include <string>
+#  include <vector>
 
 
 namespace pqxx
 {
 template<> struct nullness<std::byte> : no_null<std::byte>
 {};
-
-template<> struct string_traits<std::byte>
-{
-  static std::size_t size_buffer(std::byte const &) { return 3; }
-
-  static zview to_buf(char *begin, char *end, std::byte const &value)
-  {
-    if (static_cast<std::size_t>(end - begin) < size_buffer(value))
-      throw pqxx::conversion_overrun{
-        "Not enough buffer to convert std::byte."};
-    std::sprintf(
-      begin, "%x", static_cast<unsigned>(static_cast<unsigned char>(value)));
-    return zview{begin, 2u};
-  }
-
-  static char *into_buf(char *begin, char *end, std::byte const &value)
-  {
-    to_buf(begin, end, value).data();
-    return begin + size_buffer(value);
-  }
-};
 } // namespace pqxx
 
 
@@ -103,36 +84,40 @@ template<> struct nullness<ipv4> : no_null<ipv4>
 
 template<> struct string_traits<ipv4>
 {
+  static constexpr bool converts_to_string{true};
+  static constexpr bool converts_from_string{true};
+
   static ipv4 from_string(std::string_view text)
   {
     ipv4 ts;
-    if (text.data() == nullptr)
+    if (std::data(text) == nullptr)
       internal::throw_null_conversion(type_name<ipv4>);
-    std::regex ipv4_regex{R"--((\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}))--"};
-    std::smatch match;
-    // Need non-temporary for `std::regex_match()`
-    std::string sstr{text};
-    if (not std::regex_match(sstr, match, ipv4_regex) or std::size(match) != 5)
-      throw std::runtime_error{"Invalid ipv4 format: " + std::string{text}};
-    try
+    std::vector<std::size_t> ends;
+    for (std::size_t i{0}; i < std::size(text); ++i)
+      if (text[i] == '.')
+        ends.push_back(i);
+    ends.push_back(std::size(text));
+    if (std::size(ends) != 4)
+      throw conversion_error{pqxx::internal::concat(
+        "Can't parse '", text,
+        "' as ipv4: expected 4 octets, "
+        "found ",
+        std::size(ends), ".")};
+    std::size_t start{0};
+    for (int i{0}; i < 4; ++i)
     {
-      for (std::size_t i{0}; i < 4; ++i)
-        ts.set_byte(int(i), uint32_t(std::stoi(match[i + 1])));
-    }
-    catch (std::invalid_argument const &)
-    {
-      throw std::runtime_error{"Invalid ipv4 format: " + std::string{text}};
-    }
-    catch (std::out_of_range const &)
-    {
-      throw std::runtime_error{"Invalid ipv4 format: " + std::string{text}};
+      auto idx{static_cast<std::size_t>(i)};
+      std::string_view digits{&text[start], ends[idx] - start};
+      auto value{pqxx::from_string<uint32_t>(digits)};
+      ts.set_byte(i, value);
+      start = ends[idx] + 1;
     }
     return ts;
   }
 
   static char *into_buf(char *begin, char *end, ipv4 const &value)
   {
-    if (static_cast<std::size_t>(end - begin) < size_buffer(value))
+    if (pqxx::internal::cmp_less(end - begin, size_buffer(value)))
       throw conversion_error{"Buffer too small for ipv4."};
     char *here = begin;
     for (int i = 0; i < 4; ++i)
@@ -192,6 +177,9 @@ template<> struct nullness<bytea> : no_null<bytea>
 
 template<> struct string_traits<bytea>
 {
+  static constexpr bool converts_to_string{true};
+  static constexpr bool converts_from_string{true};
+
   static bytea from_string(std::string_view text)
   {
     if ((std::size(text) & 1) != 0)
@@ -221,7 +209,7 @@ template<> struct string_traits<bytea>
       *pos++ = nibble_to_hex(unsigned(u) & 0x0f);
     }
     *pos++ = '\0';
-    return zview{begin, pos - begin - 1};
+    return {begin, pos - begin - 1};
   }
 
   static char *into_buf(char *begin, char *end, bytea const &value)
@@ -235,3 +223,4 @@ template<> struct string_traits<bytea>
   }
 };
 } // namespace pqxx
+#endif

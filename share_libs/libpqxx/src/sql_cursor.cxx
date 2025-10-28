@@ -2,7 +2,7 @@
  *
  * These classes wrap SQL cursors in STL-like interfaces.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -10,13 +10,17 @@
  */
 #include "pqxx-source.hxx"
 
+#include <cctype>
 #include <iterator>
 
-#include "pqxx/cursor"
+#include "pqxx/internal/header-pre.hxx"
 
+#include "pqxx/cursor.hxx"
 #include "pqxx/internal/encodings.hxx"
 #include "pqxx/internal/gates/connection-sql_cursor.hxx"
 #include "pqxx/internal/gates/transaction-sql_cursor.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
 using namespace std::literals;
@@ -29,7 +33,7 @@ namespace
  */
 inline bool useless_trail(char c)
 {
-  return isspace(c) or c == ';';
+  return std::isspace(c) or c == ';';
 }
 
 
@@ -56,15 +60,14 @@ inline bool useless_trail(char c)
 std::string::size_type
 find_query_end(std::string_view query, pqxx::internal::encoding_group enc)
 {
-  auto const text{query.data()};
+  auto const text{std::data(query)};
   auto const size{std::size(query)};
-  std::string::size_type end;
+  std::string::size_type end{size};
   if (enc == pqxx::internal::encoding_group::MONOBYTE)
   {
     // This is an encoding where we can scan backwards from the end.
-    for (end = std::size(query); end > 0 and useless_trail(text[end - 1]);
-         --end)
-      ;
+    // C++20: Use string_view::ends_with() and sub-view.
+    while (end > 0 and useless_trail(query[end - 1])) --end;
   }
   else
   {
@@ -72,6 +75,7 @@ find_query_end(std::string_view query, pqxx::internal::encoding_group enc)
     // the beginning.
     end = 0;
 
+    // TODO: Rewrite using find_char.
     pqxx::internal::for_glyphs(
       enc,
       [text, &end](char const *gbegin, char const *gend) {
@@ -90,11 +94,7 @@ pqxx::internal::sql_cursor::sql_cursor(
   transaction_base &t, std::string_view query, std::string_view cname,
   cursor_base::access_policy ap, cursor_base::update_policy up,
   cursor_base::ownership_policy op, bool hold) :
-        cursor_base{t.conn(), cname},
-        m_home{t.conn()},
-        m_adopted{false},
-        m_at_end{-1},
-        m_pos{0}
+        cursor_base{t.conn(), cname}, m_home{t.conn()}, m_at_end{-1}, m_pos{0}
 {
   if (&t.conn() != &m_home)
     throw internal_error{"Cursor in wrong connection"};
@@ -108,12 +108,12 @@ pqxx::internal::sql_cursor::sql_cursor(
   query.remove_suffix(std::size(query) - qend);
 
   std::string const cq{internal::concat(
-    "DECLARE ", t.quote_name(name()), " ",
-    ((ap == cursor_base::forward_only) ? "NO "sv : ""sv), "SCROLL CURSOR ",
-    (hold ? "WITH HOLD "sv : ""sv), "FOR ", query, " ",
+    "DECLARE "sv, t.quote_name(name()), " "sv,
+    ((ap == cursor_base::forward_only) ? "NO "sv : ""sv), "SCROLL CURSOR "sv,
+    (hold ? "WITH HOLD "sv : ""sv), "FOR "sv, query, " "sv,
     ((up == cursor_base::update) ? "FOR UPDATE "sv : "FOR READ ONLY "sv))};
 
-  t.exec(cq, internal::concat("[DECLARE ", name(), "]"));
+  t.exec(cq);
 
   // Now that we're here in the starting position, keep a copy of an empty
   // result.  That may come in handy later, because we may not be able to
@@ -130,14 +130,10 @@ pqxx::internal::sql_cursor::sql_cursor(
   cursor_base::ownership_policy op) :
         cursor_base{t.conn(), cname, false},
         m_home{t.conn()},
-        m_empty_result{},
-        m_adopted{true},
+        m_ownership{op},
         m_at_end{0},
         m_pos{-1}
-{
-  m_adopted = true;
-  m_ownership = op;
-}
+{}
 
 
 void pqxx::internal::sql_cursor::close() noexcept
@@ -147,7 +143,7 @@ void pqxx::internal::sql_cursor::close() noexcept
     try
     {
       gate::connection_sql_cursor{m_home}.exec(
-        internal::concat("CLOSE ", m_home.quote_name(name())).c_str());
+        internal::concat("CLOSE "sv, m_home.quote_name(name())).c_str());
     }
     catch (std::exception const &)
     {}
@@ -161,7 +157,7 @@ void pqxx::internal::sql_cursor::init_empty_result(transaction_base &t)
   if (pos() != 0)
     throw internal_error{"init_empty_result() from bad pos()."};
   m_empty_result =
-    t.exec(internal::concat("FETCH 0 IN ", m_home.quote_name(name())));
+    t.exec(internal::concat("FETCH 0 IN "sv, m_home.quote_name(name())));
 }
 
 
@@ -229,9 +225,9 @@ pqxx::result pqxx::internal::sql_cursor::fetch(
     displacement = 0;
     return m_empty_result;
   }
-  auto const query{
-    "FETCH " + stridestring(rows) + " IN " + m_home.quote_name(name())};
-  auto const r{gate::connection_sql_cursor{m_home}.exec(query.c_str())};
+  auto const query{pqxx::internal::concat(
+    "FETCH "sv, stridestring(rows), " IN "sv, m_home.quote_name(name()))};
+  auto r{gate::connection_sql_cursor{m_home}.exec(query.c_str())};
   displacement = adjust(rows, difference_type(std::size(r)));
   return r;
 }
@@ -246,8 +242,8 @@ pqxx::cursor_base::difference_type pqxx::internal::sql_cursor::move(
     return 0;
   }
 
-  auto const query{
-    "MOVE " + stridestring(rows) + " IN " + m_home.quote_name(name())};
+  auto const query{pqxx::internal::concat(
+    "MOVE "sv, stridestring(rows), " IN "sv, m_home.quote_name(name()))};
   auto const r{gate::connection_sql_cursor{m_home}.exec(query.c_str())};
   auto d{static_cast<difference_type>(r.affected_rows())};
   displacement = adjust(rows, d);

@@ -2,7 +2,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY.  Other headers include it for you.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -25,7 +25,7 @@ namespace pqxx::internal
  * does not refer to a row.  There is a similar non-row position at the end of
  * the result set.
  *
- * Don't use this at home.  You deserve better.  Use the stateles_cursor
+ * Don't use this at home.  You deserve better.  Use the stateless_cursor
  * instead.
  */
 class PQXX_LIBEXPORT sql_cursor : public cursor_base
@@ -73,7 +73,7 @@ public:
    */
   difference_type endpos() const noexcept { return m_endpos; }
 
-  /// Return zero-row result for this cursor
+  /// Return zero-row result for this cursor.
   result const &empty_result() const noexcept { return m_empty_result; }
 
   void close() noexcept;
@@ -92,9 +92,6 @@ private:
   result m_empty_result;
 
   result m_cached_current_row;
-
-  /// Is this cursor adopted (as opposed to created by this cursor object)?
-  bool m_adopted;
 
   /// Will this cursor object destroy its SQL cursor when it dies?
   cursor_base::ownership_policy m_ownership;

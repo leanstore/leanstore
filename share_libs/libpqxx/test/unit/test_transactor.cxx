@@ -7,10 +7,9 @@ namespace
 {
 void test_transactor_newstyle_executes_simple_query()
 {
-  pqxx::connection conn;
-  auto const r{pqxx::perform([&conn] {
-    return pqxx::work{conn}.exec("SELECT generate_series(1, 4)");
-  })};
+  pqxx::connection cx;
+  auto const r{pqxx::perform(
+    [&cx] { return pqxx::work{cx}.exec("SELECT generate_series(1, 4)"); })};
 
   PQXX_CHECK_EQUAL(std::size(r), 4, "Unexpected result size.");
   PQXX_CHECK_EQUAL(r.columns(), 1, "Unexpected number of columns.");
@@ -41,7 +40,7 @@ void test_transactor_newstyle_retries_broken_connection()
   auto const &callback{[&counter] {
     ++counter;
     if (counter == 1)
-      throw pqxx::broken_connection();
+      throw pqxx::broken_connection{};
     return counter;
   }};
 

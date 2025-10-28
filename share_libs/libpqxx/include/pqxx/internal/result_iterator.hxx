@@ -4,7 +4,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/result instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -12,9 +12,6 @@
  */
 #ifndef PQXX_H_RESULT_ITERATOR
 #define PQXX_H_RESULT_ITERATOR
-
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
 
 #include "pqxx/row.hxx"
 
@@ -35,7 +32,8 @@ namespace pqxx
 class PQXX_LIBEXPORT const_result_iterator : public row
 {
 public:
-  using iterator_category = std::random_access_iterator_tag;
+  // TODO: Change operator[] so this becomes a proper random_access_iterator.
+  using iterator_category = std::bidirectional_iterator_tag;
   using value_type = row const;
   using pointer = row const *;
   using reference = row;
@@ -50,7 +48,7 @@ public:
   /// Move an iterator.
   const_result_iterator(const_result_iterator &&) noexcept = default;
 
-  /// Begin iterating a @c row.
+  /// Begin iterating a @ref row.
   const_result_iterator(row const &t) noexcept : row{t} {}
 #include "pqxx/internal/ignore-deprecated-post.hxx"
 
@@ -58,9 +56,9 @@ public:
    * @name Dereferencing operators
    *
    * An iterator "points to" its own row, which is also itself.  This makes it
-   * easy to address a @c result as a two-dimensional container, without going
-   * through the intermediate step of dereferencing the iterator.  It makes the
-   * interface similar to C pointer/array semantics.
+   * easy to address a @ref pqxx::result as a two-dimensional container,
+   * without going through the intermediate step of dereferencing the iterator.
+   * It makes the interface similar to C pointer/array semantics.
    *
    * IIRC Alex Stepanov, the inventor of the STL, once remarked that having
    * this as standard behaviour for pointers would be useful in some
@@ -73,7 +71,7 @@ public:
 
 #include "pqxx/internal/ignore-deprecated-pre.hxx"
   /// Dereference the iterator.
-  [[nodiscard]] reference operator*() const { return row{*this}; }
+  [[nodiscard]] reference operator*() const { return *this; }
 #include "pqxx/internal/ignore-deprecated-post.hxx"
   //@}
 
@@ -83,6 +81,7 @@ public:
   //@{
   using row::back;
   using row::front;
+  // TODO: Replace with standard operator[]: i[n] == *(i + n).
   using row::operator[];
   using row::at;
   using row::rownumber;
@@ -108,13 +107,13 @@ public:
     return *this;
   }
 
-  const_result_iterator operator++(int);
+  const_result_iterator operator++(int) &;
   const_result_iterator &operator++()
   {
     ++m_index;
     return *this;
   }
-  const_result_iterator operator--(int);
+  const_result_iterator operator--(int) &;
   const_result_iterator &operator--()
   {
     --m_index;
@@ -186,7 +185,7 @@ public:
 private:
   friend class pqxx::result;
   const_result_iterator(pqxx::result const *r, result_size_type i) noexcept :
-          row{*r, i}
+          row{*r, i, r->columns()}
   {}
 };
 
@@ -242,6 +241,7 @@ public:
   //@{
   using const_result_iterator::back;
   using const_result_iterator::front;
+  // TODO: Replace with standard operator[]: i[n] == *(i + n).
   using const_result_iterator::operator[];
   using const_result_iterator::at;
   using const_result_iterator::rownumber;
@@ -267,13 +267,13 @@ public:
     iterator_type::operator--();
     return *this;
   }
-  const_reverse_result_iterator operator++(int);
+  const_reverse_result_iterator operator++(int) &;
   const_reverse_result_iterator &operator--()
   {
     iterator_type::operator++();
     return *this;
   }
-  const_reverse_result_iterator operator--(int);
+  const_reverse_result_iterator operator--(int) &;
   const_reverse_result_iterator &operator+=(difference_type i)
   {
     iterator_type::operator-=(i);
@@ -349,8 +349,7 @@ public:
 inline const_result_iterator
 const_result_iterator::operator+(result::difference_type o) const
 {
-  return const_result_iterator{
-    &m_result, size_type(result::difference_type(m_index) + o)};
+  return {&m_result, size_type(result::difference_type(m_index) + o)};
 }
 
 inline const_result_iterator
@@ -362,8 +361,7 @@ operator+(result::difference_type o, const_result_iterator const &i)
 inline const_result_iterator
 const_result_iterator::operator-(result::difference_type o) const
 {
-  return const_result_iterator{
-    &m_result, result_size_type(result::difference_type(m_index) - o)};
+  return {&m_result, result_size_type(result::difference_type(m_index) - o)};
 }
 
 inline result::difference_type
@@ -374,7 +372,7 @@ const_result_iterator::operator-(const const_result_iterator &i) const
 
 inline const_result_iterator result::end() const noexcept
 {
-  return const_result_iterator{this, size()};
+  return {this, size()};
 }
 
 
@@ -391,6 +389,4 @@ operator+(result::difference_type n, const_reverse_result_iterator const &i)
 }
 
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

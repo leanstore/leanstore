@@ -2,7 +2,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/transactor instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -11,8 +11,9 @@
 #ifndef PQXX_H_TRANSACTOR
 #define PQXX_H_TRANSACTOR
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include <functional>
 #include <type_traits>
@@ -42,26 +43,25 @@ namespace pqxx
  *
  * The transactor framework makes it a little easier for you to do this safely,
  * and avoid typical pitfalls.  You encapsulate the work that you want to do
- * into a callable that you pass to the @c perform function.
+ * into a callable that you pass to the @ref perform function.
  *
  * Here's how it works.  You write your transaction code as a lambda or
  * function, which creates its own transaction object, does its work, and
- * commits at the end.  You pass that callback to @c pqxx::perform, which runs
- * it for you.
+ * commits at the end.  You pass that callback to @ref pqxx::perform, which
+ * runs it for you.
  *
  * If there's a failure inside your callback, there will be an exception.  Your
  * transaction object goes out of scope and gets destroyed, so that it aborts
- * implicitly.  Seeing this, @c perform tries running your callback again.  It
+ * implicitly.  Seeing this, @ref perform tries running your callback again. It
  * stops doing that when the callback succeeds, or when it has failed too many
  * times, or when there's an error that leaves the database in an unknown
  * state, such as a lost connection just while we're waiting for the database
  * to confirm a commit.  It all depends on the type of exception.
  *
  * The callback takes no arguments.  If you're using lambdas, the easy way to
- * pass arguments is for the lambda to "capture" them from your variables.  Or,
- * if you're using functions, you may want to use @c std::bind.
+ * pass arguments is for the lambda to "capture" them from your variables.
  *
- * Once your callback succeeds, it can return a result, and @c perform will
+ * Once your callback succeeds, it can return a result, and @ref perform will
  * return that result back to you.
  */
 //@{
@@ -88,12 +88,12 @@ namespace pqxx
  * Also be careful about changing variables or data structures from within
  * your callback.  The run may still fail, and perhaps get run again.  The
  * ideal way to do it (in most cases) is to return your result from your
- * callback, and change your program's data state only after @c perform
+ * callback, and change your program's data state only after @ref perform
  * completes successfully.
  *
  * @param callback Transaction code that can be called with no arguments.
  * @param attempts Maximum number of times to attempt performing callback.
- *	Must be greater than zero.
+ *     Must be greater than zero.
  * @return Whatever your callback returns.
  */
 template<typename TRANSACTION_CALLBACK>
@@ -122,6 +122,12 @@ inline auto perform(TRANSACTION_CALLBACK &&callback, int attempts = 3)
       // again.
       throw;
     }
+    catch (protocol_violation const &)
+    {
+      // This is a subclass of broken_connection, but it's not one where
+      // retrying is likely to do us any good.
+      throw;
+    }
     catch (broken_connection const &)
     {
       // Connection failed.  May be worth retrying, if the transactor opens its
@@ -143,6 +149,4 @@ inline auto perform(TRANSACTION_CALLBACK &&callback, int attempts = 3)
 }
 } // namespace pqxx
 //@}
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

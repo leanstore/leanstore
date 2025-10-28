@@ -2,13 +2,18 @@
 
 #include <cerrno>
 #include <stdexcept>
+#include <utility>
 
 #include <libpq-fe.h>
 
-#include "pqxx/blob"
-#include "pqxx/except"
+#include "pqxx/internal/header-pre.hxx"
+
+#include "pqxx/blob.hxx"
+#include "pqxx/except.hxx"
 #include "pqxx/internal/concat.hxx"
 #include "pqxx/internal/gates/connection-largeobject.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
 namespace
@@ -17,10 +22,9 @@ constexpr int INV_WRITE{0x00020000}, INV_READ{0x00040000};
 } // namespace
 
 
-pqxx::internal::pq::PGconn *
-pqxx::blob::raw_conn(pqxx::connection *conn) noexcept
+pqxx::internal::pq::PGconn *pqxx::blob::raw_conn(pqxx::connection *cx) noexcept
 {
-  pqxx::internal::gate::connection_largeobject gate{*conn};
+  pqxx::internal::gate::connection_largeobject const gate{*cx};
   return gate.raw_connection();
 }
 
@@ -32,27 +36,27 @@ pqxx::blob::raw_conn(pqxx::dbtransaction const &tx) noexcept
 }
 
 
-std::string pqxx::blob::errmsg(connection const *conn)
+std::string pqxx::blob::errmsg(connection const *cx)
 {
-  pqxx::internal::gate::const_connection_largeobject gate{*conn};
+  pqxx::internal::gate::const_connection_largeobject const gate{*cx};
   return gate.error_message();
 }
 
 
 pqxx::blob pqxx::blob::open_internal(dbtransaction &tx, oid id, int mode)
 {
-  auto &conn{tx.conn()};
-  int fd{lo_open(raw_conn(&conn), id, mode)};
+  auto &cx{tx.conn()};
+  int const fd{lo_open(raw_conn(&cx), id, mode)};
   if (fd == -1)
     throw pqxx::failure{internal::concat(
-      "Could not open binary large object ", id, ": ", errmsg(&conn))};
-  return pqxx::blob{conn, fd};
+      "Could not open binary large object ", id, ": ", errmsg(&cx))};
+  return {cx, fd};
 }
 
 
 pqxx::oid pqxx::blob::create(dbtransaction &tx, oid id)
 {
-  oid actual_id{lo_create(raw_conn(tx), id)};
+  oid const actual_id{lo_create(raw_conn(tx), id)};
   if (actual_id == 0)
     throw failure{internal::concat(
       "Could not create binary large object: ", errmsg(&tx.conn()))};
@@ -88,21 +92,18 @@ pqxx::blob pqxx::blob::open_rw(dbtransaction &tx, oid id)
 }
 
 
-pqxx::blob::blob(blob &&other) : m_conn{other.m_conn}, m_fd{other.m_fd}
-{
-  other.m_conn = nullptr;
-  other.m_fd = -1;
-}
+pqxx::blob::blob(blob &&other) :
+        m_conn{std::exchange(other.m_conn, nullptr)},
+        m_fd{std::exchange(other.m_fd, -1)}
+{}
 
 
 pqxx::blob &pqxx::blob::operator=(blob &&other)
 {
   if (m_fd != -1)
     lo_close(raw_conn(m_conn), m_fd);
-  m_conn = other.m_conn;
-  m_fd = other.m_fd;
-  other.m_conn = nullptr;
-  other.m_fd = -1;
+  m_conn = std::exchange(other.m_conn, nullptr);
+  m_fd = std::exchange(other.m_fd, -1);
   return *this;
 }
 
@@ -116,8 +117,11 @@ pqxx::blob::~blob()
   catch (std::exception const &e)
   {
     if (m_conn != nullptr)
-      m_conn->process_notice(internal::concat(
-        "Failure while closing binary large object: ", e.what(), "\n"));
+    {
+      m_conn->process_notice("Failure while closing binary large object:\n");
+      // TODO: Make at least an attempt to append a newline.
+      m_conn->process_notice(e.what());
+    }
   }
 }
 
@@ -133,34 +137,40 @@ void pqxx::blob::close()
 }
 
 
-std::size_t
-pqxx::blob::read(std::basic_string<std::byte> &buf, std::size_t size)
+std::size_t pqxx::blob::raw_read(std::byte buf[], std::size_t size)
 {
   if (m_conn == nullptr)
     throw usage_error{"Attempt to read from a closed binary large object."};
   if (size > chunk_limit)
     throw range_error{
       "Reads from a binary large object must be less than 2 GB at once."};
-  buf.resize(size);
-  auto data{reinterpret_cast<char *>(buf.data())};
-  int received{lo_read(raw_conn(m_conn), m_fd, data, size)};
+  auto data{reinterpret_cast<char *>(buf)};
+  int const received{lo_read(raw_conn(m_conn), m_fd, data, size)};
   if (received < 0)
     throw failure{
       internal::concat("Could not read from binary large object: ", errmsg())};
-  buf.resize(static_cast<std::size_t>(received));
   return static_cast<std::size_t>(received);
 }
 
 
-void pqxx::blob::write(std::basic_string_view<std::byte> buf)
+std::size_t pqxx::blob::read(bytes &buf, std::size_t size)
+{
+  buf.resize(size);
+  auto const received{raw_read(std::data(buf), size)};
+  buf.resize(received);
+  return static_cast<std::size_t>(received);
+}
+
+
+void pqxx::blob::raw_write(std::byte const buf[], std::size_t size)
 {
   if (m_conn == nullptr)
     throw usage_error{"Attempt to write to a closed binary large object."};
-  if (std::size(buf) > chunk_limit)
+  if (size > chunk_limit)
     throw range_error{
       "Writes to a binary large object must be less than 2 GB at once."};
-  auto ptr{reinterpret_cast<char const *>(buf.data())};
-  int written{lo_write(raw_conn(m_conn), m_fd, ptr, std::size(buf))};
+  auto ptr{reinterpret_cast<char const *>(buf)};
+  int const written{lo_write(raw_conn(m_conn), m_fd, ptr, size)};
   if (written < 0)
     throw failure{
       internal::concat("Write to binary large object failed: ", errmsg())};
@@ -181,7 +191,7 @@ std::int64_t pqxx::blob::tell() const
 {
   if (m_conn == nullptr)
     throw usage_error{"Attempt to tell() a closed binary large object."};
-  std::int64_t offset{lo_tell64(raw_conn(m_conn), m_fd)};
+  std::int64_t const offset{lo_tell64(raw_conn(m_conn), m_fd)};
   if (offset < 0)
     throw failure{internal::concat(
       "Error reading binary large object position: ", errmsg())};
@@ -193,7 +203,8 @@ std::int64_t pqxx::blob::seek(std::int64_t offset, int whence)
 {
   if (m_conn == nullptr)
     throw usage_error{"Attempt to seek() a closed binary large object."};
-  std::int64_t seek_result{lo_lseek64(raw_conn(m_conn), m_fd, offset, whence)};
+  std::int64_t const seek_result{
+    lo_lseek64(raw_conn(m_conn), m_fd, offset, whence)};
   if (seek_result < 0)
     throw failure{internal::concat(
       "Error during seek on binary large object: ", errmsg())};
@@ -219,10 +230,9 @@ std::int64_t pqxx::blob::seek_end(std::int64_t offset)
 }
 
 
-pqxx::oid pqxx::blob::from_buf(
-  dbtransaction &tx, std::basic_string_view<std::byte> data, oid id)
+pqxx::oid pqxx::blob::from_buf(dbtransaction &tx, bytes_view data, oid id)
 {
-  oid actual_id{create(tx, id)};
+  oid const actual_id{create(tx, id)};
   try
   {
     open_w(tx, actual_id).write(data);
@@ -239,7 +249,7 @@ pqxx::oid pqxx::blob::from_buf(
       {
         tx.conn().process_notice(internal::concat(
           "Could not clean up partially created large object ", id, ": ",
-          e.what()));
+          e.what(), "\n"));
       }
       catch (std::exception const &)
       {}
@@ -250,8 +260,7 @@ pqxx::oid pqxx::blob::from_buf(
 }
 
 
-void pqxx::blob::append_from_buf(
-  dbtransaction &tx, std::basic_string_view<std::byte> data, oid id)
+void pqxx::blob::append_from_buf(dbtransaction &tx, bytes_view data, oid id)
 {
   if (std::size(data) > chunk_limit)
     throw range_error{
@@ -263,16 +272,15 @@ void pqxx::blob::append_from_buf(
 
 
 void pqxx::blob::to_buf(
-  dbtransaction &tx, oid id, std::basic_string<std::byte> &buf,
-  std::size_t max_size)
+  dbtransaction &tx, oid id, bytes &buf, std::size_t max_size)
 {
   open_r(tx, id).read(buf, max_size);
 }
 
 
 std::size_t pqxx::blob::append_to_buf(
-  dbtransaction &tx, oid id, std::int64_t offset,
-  std::basic_string<std::byte> &buf, std::size_t append_max)
+  dbtransaction &tx, oid id, std::int64_t offset, bytes &buf,
+  std::size_t append_max)
 {
   if (append_max > chunk_limit)
     throw range_error{
@@ -283,9 +291,9 @@ std::size_t pqxx::blob::append_to_buf(
   buf.resize(org_size + append_max);
   try
   {
-    auto here{reinterpret_cast<char *>(buf.data() + org_size)};
+    auto here{reinterpret_cast<char *>(std::data(buf) + org_size)};
     auto chunk{static_cast<std::size_t>(
-      lo_read(b.raw_conn(b.m_conn), b.m_fd, here, append_max))};
+      lo_read(raw_conn(b.m_conn), b.m_fd, here, append_max))};
     buf.resize(org_size + chunk);
     return chunk;
   }

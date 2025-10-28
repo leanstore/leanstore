@@ -2,26 +2,30 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/stringconv instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
  * mistake, or contact the author.
  */
-#ifndef PQXX_H_STRINGCONV
-#define PQXX_H_STRINGCONV
+#ifndef PQXX_H_STRCONV
+#define PQXX_H_STRCONV
 
-#include "pqxx/compiler-public.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include <algorithm>
+#include <charconv>
 #include <cstring>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <typeinfo>
 
-#if __has_include(<charconv>)
-#  include <charconv>
+// C++20: Assume support.
+#if __has_include(<ranges>)
+#  include <ranges>
 #endif
 
 #include "pqxx/except.hxx"
@@ -143,13 +147,28 @@ template<typename TYPE> struct no_null
  * and from_string support.
  *
  * String conversions are not meant to work for nulls.  Check for null before
- * converting a value of @c TYPE to a string, or vice versa.
+ * converting a value of @c TYPE to a string, or vice versa, and handle them
+ * separately.
  */
 template<typename TYPE> struct string_traits
 {
+  /// Is conversion from `TYPE` to strings supported?
+  /** When defining your own conversions, specialise this as `true` to indicate
+   * that your string traits support the conversions to strings.
+   */
+  static constexpr bool converts_to_string{false};
+
+  /// Is conversion from `string_view` to `TYPE` supported?
+  /** When defining your own conversions, specialise this as `true` to indicate
+   * that your string traits support `from_string`.
+   */
+  static constexpr bool converts_from_string{false};
+
   /// Return a @c string_view representing value, plus terminating zero.
   /** Produces a @c string_view containing the PostgreSQL string representation
    * for @c value.
+   *
+   * @warning A null value has no string representation.  Do not pass a null.
    *
    * Uses the space from @c begin to @c end as a buffer, if needed.  The
    * returned string may lie somewhere in that buffer, or it may be a
@@ -169,7 +188,7 @@ template<typename TYPE> struct string_traits
   to_buf(char *begin, char *end, TYPE const &value);
 
   /// Write value's string representation into buffer at @c begin.
-  /** Assumes that value is non-null.
+  /* @warning A null value has no string representation.  Do not pass a null.
    *
    * Writes value's string representation into the buffer, starting exactly at
    * @c begin, and ensuring a trailing zero.  Returns the address just beyond
@@ -181,9 +200,12 @@ template<typename TYPE> struct string_traits
   /// Parse a string representation of a @c TYPE value.
   /** Throws @c conversion_error if @c value does not meet the expected format
    * for a value of this type.
+   *
+   * @warning A null value has no string representation.  Do not parse a null.
    */
   [[nodiscard]] static inline TYPE from_string(std::string_view text);
 
+  // C++20: Can we make these all constexpr?
   /// Estimate how much buffer space is needed to represent value.
   /** The estimate may be a little pessimistic, if it saves time.
    *
@@ -191,13 +213,135 @@ template<typename TYPE> struct string_traits
    */
   [[nodiscard]] static inline std::size_t
   size_buffer(TYPE const &value) noexcept;
+
+  // TODO: Move is_unquoted_safe into the traits after all?
 };
+
+
+/// Nonexistent function to indicate a disallowed type conversion.
+/** There is no implementation for this function, so any reference to it will
+ * fail to link.  The error message will mention the function name and its
+ * template argument, as a deliberate message to an application developer that
+ * their code is attempting to use a deliberately unsupported conversion.
+ *
+ * There are some C++ types that you may want to convert to or from SQL values,
+ * but which libpqxx deliberately does not support.  Take `char` for example:
+ * we define no conversions for that type because it is not inherently clear
+ * whether whether the corresponding SQL type should be a single-character
+ * string, a small integer, a raw byte value, etc.  The intention could differ
+ * from one call site to the next.
+ *
+ * If an application attempts to convert these types, we try to make sure that
+ * the compiler will issue an error involving this function name, and mention
+ * the type, as a hint as to the reason.
+ */
+template<typename TYPE> [[noreturn]] void oops_forbidden_conversion() noexcept;
+
+
+/// String traits for a forbidden type conversion.
+/** If you have a C++ type for which you explicitly wish to forbid SQL
+ * conversion, you can derive a @ref pqxx::string_traits specialisation for
+ * that type from this struct.  Any attempt to convert the type will then fail
+ * to build, and produce an error mentioning @ref oops_forbidden_conversion.
+ */
+template<typename TYPE> struct forbidden_conversion
+{
+  static constexpr bool converts_to_string{false};
+  static constexpr bool converts_from_string{false};
+  [[noreturn]] static zview to_buf(char *, char *, TYPE const &)
+  {
+    oops_forbidden_conversion<TYPE>();
+  }
+  [[noreturn]] static char *into_buf(char *, char *, TYPE const &)
+  {
+    oops_forbidden_conversion<TYPE>();
+  }
+  [[noreturn]] static TYPE from_string(std::string_view)
+  {
+    oops_forbidden_conversion<TYPE>();
+  }
+  [[noreturn]] static std::size_t size_buffer(TYPE const &) noexcept
+  {
+    oops_forbidden_conversion<TYPE>();
+  }
+};
+
+
+/// You cannot convert a `char` to/from SQL.
+/** Converting this type may seem simple enough, but it's ambiguous: Did you
+ * mean the `char` value as a small integer?  If so, did you mean it to be
+ * signed or unsigned?  (The C++ Standard allows the system to implement `char`
+ * as either a signed type or an unsigned type.)  Or were you thinking of a
+ * single-character string (and if so, using what encoding)?  Or perhaps it's
+ * just a raw byte value?
+ *
+ * If you meant it as an integer, use an appropriate integral type such as
+ * `int` or `short` or `unsigned int` etc.
+ *
+ * If you wanted a single-character string, use `std::string_view` (or a
+ * similar type such as `std::string`).
+ *
+ * Or if you had a raw byte in mind, try `pqxx::bytes_view` instead.
+ */
+template<> struct string_traits<char> : forbidden_conversion<char>
+{};
+
+
+/// You cannot convert an `unsigned char` to/from SQL.
+/** Converting this type may seem simple enough, but it's ambiguous: Did you
+ * mean the `char` value as a small integer?  Or were you thinking of a
+ * single-character string (and if so, using what encoding)?  Or perhaps it's
+ * just a raw byte value?
+ *
+ * If you meant it as an integer, use an appropriate integral type such as
+ * `int` or `short` or `unsigned int` etc.
+ *
+ * If you wanted a single-character string, use `std::string_view` (or a
+ * similar type such as `std::string`).
+ *
+ * Or if you had a raw byte in mind, try `pqxx::bytes_view` instead.
+ */
+template<>
+struct string_traits<unsigned char> : forbidden_conversion<unsigned char>
+{};
+
+
+/// You cannot convert a `signed char` to/from SQL.
+/** Converting this type may seem simple enough, but it's ambiguous: Did you
+ * mean the value as a small integer?  Or were you thinking of a
+ * single-character string (and if so, in what encoding)?  Or perhaps it's just
+ * a raw byte value?
+ *
+ * If you meant it as an integer, use an appropriate integral type such as
+ * `int` or `short` etc.
+ *
+ * If you wanted a single-character string, use `std::string_view` (or a
+ * similar type such as `std::string`).
+ *
+ * Or if you had a raw byte in mind, try `pqxx::bytes_view` instead.
+ */
+template<>
+struct string_traits<signed char> : forbidden_conversion<signed char>
+{};
+
+
+/// You cannot convert a `std::byte` to/from SQL.
+/** To convert a raw byte value, use a `bytes_view`.
+ *
+ * For example, to convert a byte `b` from C++ to SQL, convert the value
+ * `pqxx::bytes_view{&b, 1}` instead.
+ */
+template<> struct string_traits<std::byte> : forbidden_conversion<std::byte>
+{};
 
 
 /// Nullness: Enums do not have an inherent null value.
 template<typename ENUM>
 struct nullness<ENUM, std::enable_if_t<std::is_enum_v<ENUM>>> : no_null<ENUM>
 {};
+
+
+// C++20: Concepts for "converts from string" & "converts to string."
 } // namespace pqxx
 
 
@@ -218,15 +362,18 @@ template<typename ENUM> struct enum_traits
   using impl_type = std::underlying_type_t<ENUM>;
   using impl_traits = string_traits<impl_type>;
 
+  static constexpr bool converts_to_string{true};
+  static constexpr bool converts_from_string{true};
+
   [[nodiscard]] static constexpr zview
   to_buf(char *begin, char *end, ENUM const &value)
   {
-    return impl_traits::to_buf(begin, end, static_cast<impl_type>(value));
+    return impl_traits::to_buf(begin, end, to_underlying(value));
   }
 
   static constexpr char *into_buf(char *begin, char *end, ENUM const &value)
   {
-    return impl_traits::into_buf(begin, end, static_cast<impl_type>(value));
+    return impl_traits::into_buf(begin, end, to_underlying(value));
   }
 
   [[nodiscard]] static ENUM from_string(std::string_view text)
@@ -236,11 +383,22 @@ template<typename ENUM> struct enum_traits
 
   [[nodiscard]] static std::size_t size_buffer(ENUM const &value) noexcept
   {
-    return impl_traits::size_buffer(static_cast<impl_type>(value));
+    return impl_traits::size_buffer(to_underlying(value));
+  }
+
+private:
+  // C++23: Replace with std::to_underlying.
+  static constexpr impl_type to_underlying(ENUM const &value) noexcept
+  {
+    return static_cast<impl_type>(value);
   }
 };
 } // namespace pqxx::internal
 
+
+// We used to inline type_name<ENUM>, but this triggered a "double free" error
+// on program exit, when libpqxx was built as a shared library on Debian with
+// gcc 12.
 
 /// Macro: Define a string conversion for an enum type.
 /** This specialises the @c pqxx::string_traits template, so use it in the
@@ -257,7 +415,10 @@ template<typename ENUM> struct enum_traits
 #define PQXX_DECLARE_ENUM_CONVERSION(ENUM)                                    \
   template<> struct string_traits<ENUM> : pqxx::internal::enum_traits<ENUM>   \
   {};                                                                         \
-  template<> inline std::string const type_name<ENUM> { #ENUM }
+  template<> inline std::string_view const type_name<ENUM>                    \
+  {                                                                           \
+    #ENUM                                                                     \
+  }
 
 
 namespace pqxx
@@ -331,7 +492,8 @@ template<typename... TYPE>
 [[nodiscard]] inline std::vector<std::string_view>
 to_buf(char *here, char const *end, TYPE... value)
 {
-  return std::vector<std::string_view>{[&here, end](auto v) {
+  PQXX_ASSUME(here <= end);
+  return {[&here, end](auto v) {
     auto begin = here;
     here = string_traits<decltype(v)>::into_buf(begin, end, v);
     // Exclude the trailing zero out of the string_view.
@@ -350,9 +512,9 @@ inline void into_string(TYPE const &value, std::string &out);
 
 /// Is @c value null?
 template<typename TYPE>
-[[nodiscard]] inline bool is_null(TYPE const &value) noexcept
+[[nodiscard]] inline constexpr bool is_null(TYPE const &value) noexcept
 {
-  return nullness<TYPE>::is_null(value);
+  return nullness<strip_t<TYPE>>::is_null(value);
 }
 
 
@@ -363,7 +525,7 @@ template<typename TYPE>
 template<typename... TYPE>
 [[nodiscard]] inline std::size_t size_buffer(TYPE const &...value) noexcept
 {
-  return (string_traits<TYPE>::size_buffer(value) + ...);
+  return (string_traits<strip_t<TYPE>>::size_buffer(value) + ...);
 }
 
 
@@ -395,6 +557,57 @@ template<typename TYPE> inline constexpr bool is_unquoted_safe{false};
 
 /// Element separator between SQL array elements of this type.
 template<typename T> inline constexpr char array_separator{','};
+
+
+/// What's the preferred format for passing non-null parameters of this type?
+/** This affects how we pass parameters of @c TYPE when calling parameterised
+ * statements or prepared statements.
+ *
+ * Generally we pass parameters in text format, but binary strings are the
+ * exception.  We also pass nulls in binary format, so this function need not
+ * handle null values.
+ */
+template<typename TYPE> inline constexpr format param_format(TYPE const &)
+{
+  return format::text;
+}
+
+
+/// Implement @c string_traits<TYPE>::to_buf by calling @c into_buf.
+/** When you specialise @c string_traits for a new type, most of the time its
+ * @c to_buf implementation has no special optimisation tricks and just writes
+ * its text into the buffer it receives from the caller, starting at the
+ * beginning.
+ *
+ * In that common situation, you can implement @c to_buf as just a call to
+ * @c generic_to_buf.  It will call @c into_buf and return the right result for
+ * @c to_buf.
+ */
+template<typename TYPE>
+inline zview generic_to_buf(char *begin, char *end, TYPE const &value)
+{
+  using traits = string_traits<TYPE>;
+  // The trailing zero does not count towards the zview's size, so subtract 1
+  // from the result we get from into_buf().
+  if (is_null(value))
+    return {};
+  else
+    return {begin, traits::into_buf(begin, end, value) - begin - 1};
+}
+
+
+#if defined(PQXX_HAVE_CONCEPTS)
+/// Concept: Binary string, akin to @c std::string for binary data.
+/** Any type that satisfies this concept can represent an SQL BYTEA value.
+ *
+ * A @c binary has a @c begin(), @c end(), @c size(), and @data().  Each byte
+ * is a @c std::byte, and they must all be laid out contiguously in memory so
+ * we can reference them by a pointer.
+ */
+template<class TYPE>
+concept binary = std::ranges::contiguous_range<TYPE> and
+                 std::is_same_v<strip_t<value_type<TYPE>>, std::byte>;
+#endif
 //@}
 } // namespace pqxx
 

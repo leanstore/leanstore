@@ -1,6 +1,6 @@
 /** Implementation of bytea (binary string) conversions.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -20,40 +20,46 @@ extern "C"
 #include <libpq-fe.h>
 }
 
-#include "pqxx/binarystring"
-#include "pqxx/field"
+#include "pqxx/internal/header-pre.hxx"
+
+#include "pqxx/binarystring.hxx"
+#include "pqxx/field.hxx"
+#include "pqxx/strconv.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
 namespace
 {
 /// Copy data to a heap-allocated buffer.
 std::shared_ptr<unsigned char>
-copy_to_buffer(void const *data, std::size_t len)
+  PQXX_COLD copy_to_buffer(void const *data, std::size_t len)
 {
-  void *const output{malloc(len + 1)};
-  if (output == nullptr)
+  std::shared_ptr<unsigned char> ptr{
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc,hicpp-no-malloc)
+    static_cast<unsigned char *>(malloc(len + 1)), std::free};
+  if (not ptr)
     throw std::bad_alloc{};
-  static_cast<char *>(output)[len] = '\0';
-  memcpy(static_cast<char *>(output), data, len);
-  return std::shared_ptr<unsigned char>{
-    static_cast<unsigned char *>(output), std::free};
+  ptr.get()[len] = '\0';
+  std::memcpy(ptr.get(), data, len);
+  return ptr;
 }
 } // namespace
 
 
-pqxx::binarystring::binarystring(field const &F)
+PQXX_COLD pqxx::binarystring::binarystring(field const &F)
 {
   unsigned char const *data{
     reinterpret_cast<unsigned char const *>(F.c_str())};
-  m_buf =
-    std::shared_ptr<unsigned char>{PQunescapeBytea(data, &m_size), PQfreemem};
+  m_buf = std::shared_ptr<unsigned char>{
+    PQunescapeBytea(data, &m_size), pqxx::internal::pq::pqfreemem};
   if (m_buf == nullptr)
     throw std::bad_alloc{};
 }
 
 
 pqxx::binarystring::binarystring(std::string_view s) :
-        m_buf{copy_to_buffer(s.data(), std::size(s))}, m_size{std::size(s)}
+        m_buf{copy_to_buffer(std::data(s), std::size(s))}, m_size{std::size(s)}
 {}
 
 
@@ -65,14 +71,15 @@ pqxx::binarystring::binarystring(void const *binary_data, std::size_t len) :
 bool pqxx::binarystring::operator==(binarystring const &rhs) const noexcept
 {
   return (std::size(rhs) == size()) and
-         (std::memcmp(data(), rhs.data(), size()) == 0);
+         (std::memcmp(data(), std::data(rhs), size()) == 0);
 }
 
 
 pqxx::binarystring &
 pqxx::binarystring::operator=(binarystring const &rhs) = default;
 
-pqxx::binarystring::const_reference pqxx::binarystring::at(size_type n) const
+PQXX_COLD pqxx::binarystring::const_reference
+pqxx::binarystring::at(size_type n) const
 {
   if (n >= m_size)
   {
@@ -86,7 +93,7 @@ pqxx::binarystring::const_reference pqxx::binarystring::at(size_type n) const
 }
 
 
-void pqxx::binarystring::swap(binarystring &rhs)
+PQXX_COLD void pqxx::binarystring::swap(binarystring &rhs)
 {
   m_buf.swap(rhs.m_buf);
 

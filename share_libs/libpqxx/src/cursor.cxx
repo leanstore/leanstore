@@ -2,7 +2,7 @@
  *
  * These classes wrap SQL cursors in STL-like interfaces.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -12,29 +12,16 @@
 
 #include <iterator>
 
-#include "pqxx/cursor"
-#include "pqxx/result"
-#include "pqxx/strconv"
-#include "pqxx/transaction"
+#include "pqxx/internal/header-pre.hxx"
 
+#include "pqxx/cursor.hxx"
 #include "pqxx/internal/gates/icursor_iterator-icursorstream.hxx"
 #include "pqxx/internal/gates/icursorstream-icursor_iterator.hxx"
+#include "pqxx/result.hxx"
+#include "pqxx/strconv.hxx"
+#include "pqxx/transaction.hxx"
 
-
-pqxx::cursor_base::difference_type pqxx::cursor_base::all() noexcept
-{
-  // Implemented out-of-line so we don't fall afoul of Visual Studio defining
-  // min() and max() macros, which turn this expression into malformed code:
-  return std::numeric_limits<int>::max() - 1;
-}
-
-
-pqxx::cursor_base::difference_type pqxx::cursor_base::backward_all() noexcept
-{
-  // Implemented out-of-line so we don't fall afoul of Visual Studio defining
-  // min() and max() macros, which turn this expression into malformed code:
-  return std::numeric_limits<int>::min() + 1;
-}
+#include "pqxx/internal/header-post.hxx"
 
 
 pqxx::cursor_base::cursor_base(
@@ -108,7 +95,7 @@ pqxx::icursorstream::icursorstream(
 }
 
 
-void pqxx::icursorstream::set_stride(difference_type stride)
+void pqxx::icursorstream::set_stride(difference_type stride) &
 {
   if (stride < 1)
     throw argument_error{
@@ -119,7 +106,7 @@ void pqxx::icursorstream::set_stride(difference_type stride)
 
 pqxx::result pqxx::icursorstream::fetchblock()
 {
-  result const r{m_cur.fetch(m_stride)};
+  result r{m_cur.fetch(m_stride)};
   m_realpos += std::size(r);
   if (std::empty(r))
     m_done = true;
@@ -127,7 +114,7 @@ pqxx::result pqxx::icursorstream::fetchblock()
 }
 
 
-pqxx::icursorstream &pqxx::icursorstream::ignore(std::streamsize n)
+pqxx::icursorstream &pqxx::icursorstream::ignore(std::streamsize n) &
 {
   auto offset{m_cur.move(difference_type(n))};
   m_realpos += offset;
@@ -185,7 +172,7 @@ void pqxx::icursorstream::service_iterators(difference_type topos)
 
   using todolist = std::multimap<difference_type, icursor_iterator *>;
   todolist todo;
-  for (icursor_iterator *i{m_iterators}, *next; i != nullptr; i = next)
+  for (icursor_iterator *i{m_iterators}, *next{}; i != nullptr; i = next)
   {
     pqxx::internal::gate::icursor_iterator_icursorstream gate{*i};
     auto const ipos{gate.pos()};
@@ -237,9 +224,9 @@ pqxx::icursor_iterator::~icursor_iterator() noexcept
 }
 
 
-pqxx::icursor_iterator pqxx::icursor_iterator::operator++(int)
+pqxx::icursor_iterator pqxx::icursor_iterator::operator++(int) &
 {
-  icursor_iterator old{*this};
+  icursor_iterator const old{*this};
   m_pos = difference_type(
     pqxx::internal::gate::icursorstream_icursor_iterator{*m_stream}.forward());
   m_here.clear();
@@ -260,10 +247,12 @@ pqxx::icursor_iterator &pqxx::icursor_iterator::operator+=(difference_type n)
 {
   if (n <= 0)
   {
+    PQXX_UNLIKELY
     if (n == 0)
       return *this;
     throw argument_error{"Advancing icursor_iterator by negative offset."};
   }
+  PQXX_LIKELY
   m_pos = difference_type(
     pqxx::internal::gate::icursorstream_icursor_iterator{*m_stream}.forward(
       icursorstream::size_type(n)));
@@ -275,13 +264,16 @@ pqxx::icursor_iterator &pqxx::icursor_iterator::operator+=(difference_type n)
 pqxx::icursor_iterator &
 pqxx::icursor_iterator::operator=(icursor_iterator const &rhs) noexcept
 {
-  if (rhs.m_stream == m_stream)
+  if (&rhs == this) {}
+  else if (rhs.m_stream == m_stream)
   {
+    PQXX_UNLIKELY
     m_here = rhs.m_here;
     m_pos = rhs.m_pos;
   }
   else
   {
+    PQXX_LIKELY
     if (m_stream != nullptr)
       pqxx::internal::gate::icursorstream_icursor_iterator{*m_stream}
         .remove_iterator(this);

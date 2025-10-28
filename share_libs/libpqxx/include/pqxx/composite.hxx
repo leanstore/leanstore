@@ -1,7 +1,9 @@
 #ifndef PQXX_H_COMPOSITE
 #define PQXX_H_COMPOSITE
 
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include "pqxx/internal/array-composite.hxx"
 #include "pqxx/internal/concat.hxx"
@@ -12,11 +14,11 @@ namespace pqxx
 /// Parse a string representation of a value of a composite type.
 /** @warning This code is still experimental.  Use with care.
  *
- * You may use this as a helper while implementing your own @c string_traits
+ * You may use this as a helper while implementing your own @ref string_traits
  * for a composite type.
  *
- * This function nterprets @c text as the string representation of a value of
- * some composite type, and sets each of @c fields to the respective values of
+ * This function interprets `text` as the string representation of a value of
+ * some composite type, and sets each of `fields` to the respective values of
  * its fields.  The field types must be copy-assignable.
  *
  * The number of fields must match the number of fields in the composite type,
@@ -27,7 +29,7 @@ namespace pqxx
  * Fields in composite types can be null.  When this happens, the C++ type of
  * the corresponding field reference must be of a type that can handle nulls.
  * If you are working with a type that does not have an inherent null value,
- * such as e.g. @c int, consider using @c std::optional.
+ * such as e.g. `int`, consider using `std::optional`.
  */
 template<typename... T>
 inline void parse_composite(
@@ -36,7 +38,7 @@ inline void parse_composite(
   static_assert(sizeof...(fields) > 0);
 
   auto const scan{pqxx::internal::get_glyph_scanner(enc)};
-  auto const data{text.data()};
+  auto const data{std::data(text)};
   auto const size{std::size(text)};
   if (size == 0)
     throw conversion_error{"Cannot parse composite value from empty string."};
@@ -48,11 +50,19 @@ inline void parse_composite(
 
   here = next;
 
+  // TODO: Reuse parse_composite_field specialisation across calls.
   constexpr auto num_fields{sizeof...(fields)};
   std::size_t index{0};
-  (pqxx::internal::parse_composite_field(
-     index, text, here, fields, scan, num_fields - 1),
+  (pqxx::internal::specialize_parse_composite_field<T>(enc)(
+     index, text, here, fields, num_fields - 1),
    ...);
+  if (here != std::size(text))
+    throw conversion_error{internal::concat(
+      "Composite value did not end at the closing parenthesis: '", text,
+      "'.")};
+  if (text[here - 1] != ')')
+    throw conversion_error{internal::concat(
+      "Composive value did not end in parenthesis: '", text, "'")};
 }
 
 
@@ -60,7 +70,7 @@ inline void parse_composite(
 /** @warning This version only works for UTF-8 and single-byte encodings.
  *
  * For proper encoding support, use the composite-type support in the
- * @c field class.
+ * `field` class.
  */
 template<typename... T>
 inline void parse_composite(std::string_view text, T &...fields)
@@ -82,7 +92,8 @@ namespace pqxx
 /** Returns a conservative estimate.
  */
 template<typename... T>
-inline std::size_t composite_size_buffer(T const &...fields) noexcept
+[[nodiscard]] inline std::size_t
+composite_size_buffer(T const &...fields) noexcept
 {
   constexpr auto num{sizeof...(fields)};
 
@@ -94,7 +105,7 @@ inline std::size_t composite_size_buffer(T const &...fields) noexcept
   //  + closing parenthesis
   //  + terminating zero
 
-  if constexpr (sizeof...(fields) == 0)
+  if constexpr (num == 0)
     return std::size(pqxx::internal::empty_composite_str);
   else
     return 1 + (pqxx::internal::size_composite_field_buffer(fields) + ...) +
@@ -105,7 +116,7 @@ inline std::size_t composite_size_buffer(T const &...fields) noexcept
 /// Render a series of values as a single composite SQL value.
 /** @warning This code is still experimental.  Use with care.
  *
- * You may use this as a helper while implementing your own @c string_traits
+ * You may use this as a helper while implementing your own `string_traits`
  * for a composite type.
  */
 template<typename... T>
@@ -136,5 +147,4 @@ inline char *composite_into_buf(char *begin, char *end, T const &...fields)
   return pos;
 }
 } // namespace pqxx
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

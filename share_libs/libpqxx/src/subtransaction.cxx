@@ -2,7 +2,7 @@
  *
  * pqxx::transaction is a nested transaction, i.e. one within a transaction
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,10 +13,13 @@
 #include <memory>
 #include <stdexcept>
 
-#include "pqxx/connection"
-#include "pqxx/subtransaction"
+#include "pqxx/internal/header-pre.hxx"
 
+#include "pqxx/connection.hxx"
 #include "pqxx/internal/concat.hxx"
+#include "pqxx/subtransaction.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
 namespace
@@ -43,7 +46,7 @@ pqxx::subtransaction::subtransaction(
 namespace
 {
 using dbtransaction_ref = pqxx::dbtransaction &;
-}
+} // namespace
 
 
 pqxx::subtransaction::subtransaction(

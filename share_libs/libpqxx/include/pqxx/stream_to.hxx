@@ -4,7 +4,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/stream_to.hxx instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,8 +13,9 @@
 #ifndef PQXX_H_STREAM_TO
 #define PQXX_H_STREAM_TO
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include "pqxx/separated_list.hxx"
 #include "pqxx/transaction_base.hxx"
@@ -36,54 +37,52 @@ namespace pqxx
  * pointless overhead, especially when you are working with a remote database
  * server over the network.  You may end up sending each row over the network
  * as a separate query, and waiting for a reply.  Do it "in bulk" using
- * @c stream_to, and you may find that it goes many times faster.  Sometimes
+ * `stream_to`, and you may find that it goes many times faster.  Sometimes
  * you gain orders of magnitude in speed.
  *
- * Here's how it works: you create a @c stream_to stream to start writing to
+ * Here's how it works: you create a `stream_to` stream to start writing to
  * your table.  You will probably want to specify the columns.  Then, you
  * feed your data into the stream one row at a time.  And finally, you call the
- * stream's @c complete() to tell it to finalise the operation, wait for
- * completion, and check for errors.
+ * stream's @ref complete function to tell it to finalise the operation, wait
+ * for completion, and check for errors.
  *
- * (You @i must complete the stream before committing or aborting the
+ * (You _must_ complete the stream before committing or aborting the
  * transaction.  The connection is in a special state while the stream is
  * active, where it can't process commands, and can't commit or abort a
  * transaction.)
  *
  * So how do you feed a row of data into the stream?  There's several ways, but
- * the preferred one is to call its @c write_values.  Pass the field values as
- * arguments.  Doesn't matter what type they are, as long as libpqxx knows how
- * to convert them to PostgreSQL's text format: @c int, @c std::string or
- * @c std:string_view, @c float and @c double, @c bool...  lots of basic types
+ * the preferred one is to call its @ref write_values.  Pass the field values
+ * as arguments.  Doesn't matter what type they are, as long as libpqxx knows
+ * how to convert them to PostgreSQL's text format: `int`, `std::string` or
+ * `std:string_view`, `float` and `double`, `bool`...  lots of basic types
  * are supported.  If some of the values are null, feel free to use
- * @c std::optional, @c std::shared_ptr, or @c std::unique_ptr.
+ * `std::optional`, `std::shared_ptr`, or `std::unique_ptr`.
  *
  * The arguments' types don't even have to match the fields' SQL types.  If you
- * want to insert an @c int into a @c DECIMAL column, that's your choice -- it
- * will produce a @c DECIMAL value which happens to be integral.  Insert a
- * @c float into a @c VARCHAR column?  That's fine, you'll get a string whose
+ * want to insert an `int` into a `DECIMAL` column, that's your choice -- it
+ * will produce a `DECIMAL` value which happens to be integral.  Insert a
+ * `float` into a `VARCHAR` column?  That's fine, you'll get a string whose
  * contents happen to read like a number.  And so on.  You can even insert
  * different types of value in the same column on different rows.  If you have
- * a code path where a particular field is always null, just insert @c nullptr.
+ * a code path where a particular field is always null, just insert `nullptr`.
  *
- * There is another way to insert rows: the @c << ("shift-left") operator.
+ * There is another way to insert rows: the `<<` ("shift-left") operator.
  * It's not as fast and it doesn't support variable arguments: each row must be
- * either a @c std::tuple or something iterable, such as a @c std::vector, or
- * anything else with a @c begin and @c end.
+ * either a `std::tuple` or something iterable, such as a `std::vector`, or
+ * anything else with a `begin()` and `end()`.
  *
  * @warning While a stream is active, you cannot execute queries, open a
  * pipeline, etc. on the same transaction.  A transaction can have at most one
- * object of a type derived from @c pqxx::transaction_focus active on it at a
+ * object of a type derived from @ref pqxx::transaction_focus active on it at a
  * time.
  */
 class PQXX_LIBEXPORT stream_to : transaction_focus
 {
 public:
-  // TODO: Support WHERE clause?
-
   /// Stream data to a pre-quoted table and columns.
   /** This factory can be useful when it's not convenient to provide the
-   * columns list in the form of a @c std::initializer_list, or when the list
+   * columns list in the form of a `std::initializer_list`, or when the list
    * of columns is simply not known at compile time.
    *
    * Also use this if you need to create multiple streams using the same table
@@ -105,15 +104,15 @@ public:
   static stream_to raw_table(
     transaction_base &tx, std::string_view path, std::string_view columns = "")
   {
-    return stream_to{tx, path, columns};
+    return {tx, path, columns};
   }
 
-  /// Create a @c stream_to writing to a named table and columns.
+  /// Create a `stream_to` writing to a named table and columns.
   /** Use this to stream data to a table, where the list of columns is known at
    * compile time.
    *
    * @param tx The transaction within which the stream will operate.
-   * @param path A @c table_path designating the target table.
+   * @param path A @ref table_path designating the target table.
    * @param columns Optionally, the columns to which the stream should write.
    *     If you do not pass this, the stream will write to all columns in the
    *     table, in schema order.
@@ -122,48 +121,67 @@ public:
     transaction_base &tx, table_path path,
     std::initializer_list<std::string_view> columns = {})
   {
-    auto const &conn{tx.conn()};
-    return raw_table(tx, conn.quote_table(path), conn.quote_columns(columns));
+    auto const &cx{tx.conn()};
+    return raw_table(tx, cx.quote_table(path), cx.quote_columns(columns));
   }
 
-  /// Create a stream, without specifying columns.
-  /** @deprecated Use @c table() or @c raw_table() as a factory.
+#if defined(PQXX_HAVE_CONCEPTS)
+  /// Create a `stream_to` writing to a named table and columns.
+  /** Use this version to stream data to a table, when the list of columns is
+   * not known at compile time.
    *
-   * Fields will be inserted in whatever order the columns have in the
-   * database.
+   * @param tx The transaction within which the stream will operate.
+   * @param path A @ref table_path designating the target table.
+   * @param columns The columns to which the stream should write.
+   */
+  template<PQXX_CHAR_STRINGS_ARG COLUMNS>
+  static stream_to
+  table(transaction_base &tx, table_path path, COLUMNS const &columns)
+  {
+    auto const &cx{tx.conn()};
+    return stream_to::raw_table(
+      tx, cx.quote_table(path), tx.conn().quote_columns(columns));
+  }
+
+  /// Create a `stream_to` writing to a named table and columns.
+  /** Use this version to stream data to a table, when the list of columns is
+   * not known at compile time.
    *
-   * You'll probably want to specify the columns, so that the mapping between
-   * your data fields and the table is explicit in your code, and not hidden
-   * in an "implicit contract" between your code and your schema.
+   * @param tx The transaction within which the stream will operate.
+   * @param path A @ref table_path designating the target table.
+   * @param columns The columns to which the stream should write.
    */
-  PQXX_DEPRECATED("Use table() or raw_table() factory.")
-  stream_to(transaction_base &tx, std::string_view table_name) :
-          stream_to{tx, table_name, ""sv}
-  {}
+  template<PQXX_CHAR_STRINGS_ARG COLUMNS>
+  static stream_to
+  table(transaction_base &tx, std::string_view path, COLUMNS const &columns)
+  {
+    return stream_to::raw_table(tx, path, tx.conn().quote_columns(columns));
+  }
+#endif // PQXX_HAVE_CONCEPTS
 
-  /// Create a stream, specifying column names as a container of strings.
-  /** @deprecated Use @c table() or @c raw_table() as a factory.
-   */
-  template<typename Columns>
-  PQXX_DEPRECATED("Use table() or raw_table() factory.")
-  stream_to(
-    transaction_base &, std::string_view table_name, Columns const &columns);
-
-  /// Create a stream, specifying column names as a sequence of strings.
-  /** @deprecated Use @c table() or @c raw_table() as a factory.
-   */
-  template<typename Iter>
-  PQXX_DEPRECATED("Use table() or raw_table() factory.")
-  stream_to(
-    transaction_base &, std::string_view table_name, Iter columns_begin,
-    Iter columns_end);
-
+  explicit stream_to(stream_to &&other) :
+          // (This first step only moves the transaction_focus base-class
+          // object.)
+          transaction_focus{std::move(other)},
+          m_finished{other.m_finished},
+          m_buffer{std::move(other.m_buffer)},
+          m_field_buf{std::move(other.m_field_buf)},
+          m_finder{other.m_finder}
+  {
+    other.m_finished = true;
+  }
   ~stream_to() noexcept;
 
-  /// Does this stream still need to @c complete()?
-  [[nodiscard]] operator bool() const noexcept { return not m_finished; }
+  /// Does this stream still need to @ref complete()?
+  [[nodiscard]] constexpr operator bool() const noexcept
+  {
+    return not m_finished;
+  }
   /// Has this stream been through its concluding @c complete()?
-  [[nodiscard]] bool operator!() const noexcept { return m_finished; }
+  [[nodiscard]] constexpr bool operator!() const noexcept
+  {
+    return m_finished;
+  }
 
   /// Complete the operation, and check for errors.
   /** Always call this to close the stream in an orderly fashion, even after
@@ -220,6 +238,28 @@ public:
     write_buffer();
   }
 
+  /// Create a stream, without specifying columns.
+  /** @deprecated Use @ref table or @ref raw_table as a factory.
+   *
+   * Fields will be inserted in whatever order the columns have in the
+   * database.
+   *
+   * You'll probably want to specify the columns, so that the mapping between
+   * your data fields and the table is explicit in your code, and not hidden
+   * in an "implicit contract" between your code and your schema.
+   */
+  [[deprecated("Use table() or raw_table() factory.")]] stream_to(
+    transaction_base &tx, std::string_view table_name) :
+          stream_to{tx, table_name, ""sv}
+  {}
+
+  /// Create a stream, specifying column names as a container of strings.
+  /** @deprecated Use @ref table or @ref raw_table as a factory.
+   */
+  template<typename Columns>
+  [[deprecated("Use table() or raw_table() factory.")]] stream_to(
+    transaction_base &, std::string_view table_name, Columns const &columns);
+
 private:
   /// Stream a pre-quoted table name and columns list.
   stream_to(
@@ -232,6 +272,9 @@ private:
 
   /// Reusable buffer for converting/escaping a field.
   std::string m_field_buf;
+
+  /// Callback to find the special characters we need to watch out for.
+  internal::char_finder_func *m_finder;
 
   /// Write a row of raw text-format data into the destination table.
   void write_raw_line(std::string_view);
@@ -263,8 +306,8 @@ private:
     return is_null(field) ? std::size(null_field) : size_buffer(field);
   }
 
-  /// Append escaped version of @c m_field_buf to @c m_buffer, plus a tab.
-  void escape_field_to_buffer(std::string_view);
+  /// Append escaped version of @c data to @c m_buffer, plus a tab.
+  void escape_field_to_buffer(std::string_view data);
 
   /// Append string representation for @c f to @c m_buffer.
   /** This is for the general case, where the field may contain a value.
@@ -303,20 +346,54 @@ private:
         // fields, so we re-purpose the extra byte for that.
         auto const total{offset + budget};
         m_buffer.resize(total);
-        char *const end{traits::into_buf(
-          m_buffer.data() + offset, m_buffer.data() + total, f)};
+        auto const data{m_buffer.data()};
+        char *const end{traits::into_buf(data + offset, data + total, f)};
         *(end - 1) = '\t';
         // Shrink to fit.  Keep the tab though.
-        m_buffer.resize(static_cast<std::size_t>(end - m_buffer.data()));
+        m_buffer.resize(static_cast<std::size_t>(end - data));
+      }
+      else if constexpr (
+        std::is_same_v<Field, std::string> or
+        std::is_same_v<Field, std::string_view> or
+        std::is_same_v<Field, zview>)
+      {
+        // This string may need escaping.
+        m_field_buf.resize(budget);
+        escape_field_to_buffer(f);
+      }
+      else if constexpr (
+        std::is_same_v<Field, std::optional<std::string>> or
+        std::is_same_v<Field, std::optional<std::string_view>> or
+        std::is_same_v<Field, std::optional<zview>>)
+      {
+        // Optional string.  It's not null (we checked for that above), so...
+        // Treat like a string.
+        m_field_buf.resize(budget);
+        escape_field_to_buffer(f.value());
+      }
+      // TODO: Support deleter template argument on unique_ptr.
+      else if constexpr (
+        std::is_same_v<Field, std::unique_ptr<std::string>> or
+        std::is_same_v<Field, std::unique_ptr<std::string_view>> or
+        std::is_same_v<Field, std::unique_ptr<zview>> or
+        std::is_same_v<Field, std::shared_ptr<std::string>> or
+        std::is_same_v<Field, std::shared_ptr<std::string_view>> or
+        std::is_same_v<Field, std::shared_ptr<zview>>)
+      {
+        // TODO: Can we generalise this elegantly without Concepts?
+        // Effectively also an optional string.  It's not null (we checked
+        // for that above).
+        m_field_buf.resize(budget);
+        escape_field_to_buffer(*f);
       }
       else
       {
-        // TODO: Specialise string/string_view/zview to skip to_buf()!
-        // This field may need escaping.  First convert the value into
-        // m_field_buffer, then escape into its final place.
+        // This field needs to be converted to a string, and after that,
+        // escaped as well.
         m_field_buf.resize(budget);
-        escape_field_to_buffer(traits::to_buf(
-          m_field_buf.data(), m_field_buf.data() + std::size(m_field_buf), f));
+        auto const data{m_field_buf.data()};
+        escape_field_to_buffer(
+          traits::to_buf(data, data + std::size(m_field_buf), f));
       }
     }
   }
@@ -388,21 +465,5 @@ inline stream_to::stream_to(
   transaction_base &tx, std::string_view table_name, Columns const &columns) :
         stream_to{tx, table_name, std::begin(columns), std::end(columns)}
 {}
-
-
-template<typename Iter>
-inline stream_to::stream_to(
-  transaction_base &tx, std::string_view table_name, Iter columns_begin,
-  Iter columns_end) :
-        stream_to{
-          tx,
-          tx.quote_name(
-            table_name,
-            separated_list(",", columns_begin, columns_end, [&tx](auto col) {
-              return tx.quote_name(*col);
-            }))}
-{}
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

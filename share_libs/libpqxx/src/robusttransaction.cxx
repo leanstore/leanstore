@@ -2,7 +2,7 @@
  *
  * pqxx::robusttransaction is a slower but safer transaction class.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,22 +13,25 @@
 #include <chrono>
 #include <cstdint>
 #include <stdexcept>
-#include <thread>
 #include <unordered_map>
 
-#include "pqxx/connection"
-#include "pqxx/nontransaction"
-#include "pqxx/result"
-#include "pqxx/robusttransaction"
+#include "pqxx/internal/header-pre.hxx"
 
+#include "pqxx/connection.hxx"
 #include "pqxx/internal/concat.hxx"
+#include "pqxx/internal/wait.hxx"
+#include "pqxx/nontransaction.hxx"
+#include "pqxx/result.hxx"
+#include "pqxx/robusttransaction.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
 using namespace std::literals;
 
 namespace
 {
-using pqxx::operator"" _zv;
+using pqxx::operator""_zv;
 
 /// Statuses in which we may find our transaction.
 /** There's also "in the future," but it manifests as an error, not as an
@@ -43,25 +46,26 @@ enum tx_stat
 };
 
 
+constexpr auto committed{"committed"_zv}, aborted{"aborted"_zv},
+  in_progress{"in progress"_zv};
+
+
 /// Parse a nonempty transaction status string.
 constexpr tx_stat parse_status(std::string_view text) noexcept
 {
-  constexpr auto committed{"committed"_zv}, aborted{"aborted"_zv},
-    in_progress{"in progress"_zv};
-
   switch (text[0])
   {
   case 'a':
     if (text == aborted)
-      return tx_aborted;
+      PQXX_LIKELY return tx_aborted;
     break;
   case 'c':
     if (text == committed)
-      return tx_committed;
+      PQXX_LIKELY return tx_committed;
     break;
   case 'i':
     if (text == in_progress)
-      return tx_in_progress;
+      PQXX_LIKELY return tx_in_progress;
     break;
   }
   return tx_unknown;
@@ -72,9 +76,9 @@ tx_stat query_status(std::string const &xid, std::string const &conn_str)
 {
   static std::string const name{"robusttxck"sv};
   auto const query{pqxx::internal::concat("SELECT txid_status(", xid, ")")};
-  pqxx::connection c{conn_str};
-  pqxx::nontransaction w{c, name};
-  auto const status_row{w.exec1(query)};
+  pqxx::connection cx{conn_str};
+  pqxx::nontransaction tx{cx, name};
+  auto const status_row{tx.exec(query).one_row()};
   auto const status_field{status_row[0]};
   if (std::size(status_field) == 0)
     throw pqxx::internal_error{"Transaction status string is empty."};
@@ -93,21 +97,21 @@ void pqxx::internal::basic_robusttransaction::init(zview begin_command)
     std::make_shared<std::string>("SELECT txid_current()"sv)};
   m_backendpid = conn().backendpid();
   direct_exec(begin_command);
-  direct_exec(txid_q)[0][0].to(m_xid);
+  direct_exec(txid_q).one_field().to(m_xid);
 }
 
 
 pqxx::internal::basic_robusttransaction::basic_robusttransaction(
-  connection &c, zview begin_command, std::string_view tname) :
-        dbtransaction(c, tname), m_conn_string{c.connection_string()}
+  connection &cx, zview begin_command, std::string_view tname) :
+        dbtransaction(cx, tname), m_conn_string{cx.connection_string()}
 {
   init(begin_command);
 }
 
 
 pqxx::internal::basic_robusttransaction::basic_robusttransaction(
-  connection &c, zview begin_command) :
-        dbtransaction(c), m_conn_string{c.connection_string()}
+  connection &cx, zview begin_command) :
+        dbtransaction(cx), m_conn_string{cx.connection_string()}
 {
   init(begin_command);
 }
@@ -167,40 +171,39 @@ void pqxx::internal::basic_robusttransaction::do_commit()
 
   // If we get here, we're in doubt.  Figure out what happened.
 
-  auto const delay{std::chrono::milliseconds(300)};
-  int const max_attempts{500};
+  constexpr int max_attempts{500};
+  constexpr unsigned int wait_micros{300u};
   static_assert(max_attempts > 0);
 
-  tx_stat stat;
   for (int attempts{0}; attempts < max_attempts;
-       ++attempts, std::this_thread::sleep_for(delay))
+       ++attempts, pqxx::internal::wait_for(wait_micros))
   {
-    stat = tx_unknown;
     try
     {
-      stat = query_status(m_xid, m_conn_string);
+      switch (query_status(m_xid, m_conn_string))
+      {
+      case tx_unknown:
+        // We were unable to reconnect and query transaction status.
+        // Stay in it for another attempt.
+        return;
+      case tx_committed:
+        // Success!  We're done.
+        return;
+      case tx_aborted:
+        // Aborted.  We're done.
+        do_abort();
+        return;
+      case tx_in_progress:
+        // The transaction is still running.  Stick around until we know what
+        // transpires.
+        break;
+      default: PQXX_UNREACHABLE;
+      }
     }
     catch (pqxx::broken_connection const &)
     {
-      // Swallow the error.  Pause and retry.
-    }
-    switch (stat)
-    {
-    case tx_unknown:
-      // We were unable to reconnect and query transaction status.
-      // Stay in it for another attempt.
-      return;
-    case tx_committed:
-      // Success!  We're done.
-      return;
-    case tx_aborted:
-      // Aborted.  We're done.
-      do_abort();
-      return;
-    case tx_in_progress:
-      // The transaction is still running.  Stick around until we know what
-      // transpires.
-      break;
+      // We can expect this to happen before we can get a working
+      // connection.  Swallow the error and retry.
     }
   }
 

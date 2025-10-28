@@ -2,7 +2,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/util instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -11,11 +11,15 @@
 #ifndef PQXX_H_UTIL
 #define PQXX_H_UTIL
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
+#include <cassert>
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -25,14 +29,10 @@
 #include <string_view>
 #include <type_traits>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 
-#if __has_include(<version>)
-#  include <version>
-#endif
-
 #include "pqxx/except.hxx"
-#include "pqxx/internal/encodings.hxx"
 #include "pqxx/types.hxx"
 #include "pqxx/version.hxx"
 
@@ -44,9 +44,82 @@ namespace pqxx
 #include <pqxx/internal/libpq-forward.hxx>
 
 
+// C++23: Retire wrapper.
+// PQXX_UNREACHABLE: equivalent to `std::unreachable()` if available.
+#if !defined(__cpp_lib_unreachable)
+#  define PQXX_UNREACHABLE while (false)
+#elif !__cpp_lib_unreachable
+#  define PQXX_UNREACHABLE while (false)
+#else
+#  define PQXX_UNREACHABLE std::unreachable()
+#endif
+
+
 /// Internal items for libpqxx' own use.  Do not use these yourself.
 namespace pqxx::internal
 {
+
+// C++20: Retire wrapper.
+/// Same as `std::cmp_less`, or a workaround where that's not available.
+template<typename LEFT, typename RIGHT>
+inline constexpr bool cmp_less(LEFT lhs, RIGHT rhs) noexcept
+{
+#if defined(PQXX_HAVE_CMP)
+  return std::cmp_less(lhs, rhs);
+#else
+  // We need a variable just because lgtm.com gives off a false positive
+  // warning when we compare the values directly.  It considers that a
+  // "self-comparison."
+  constexpr bool left_signed{std::is_signed_v<LEFT>};
+  if constexpr (left_signed == std::is_signed_v<RIGHT>)
+    return lhs < rhs;
+  else if constexpr (std::is_signed_v<LEFT>)
+    return (lhs <= 0) ? true : (std::make_unsigned_t<LEFT>(lhs) < rhs);
+  else
+    return (rhs <= 0) ? false : (lhs < std::make_unsigned_t<RIGHT>(rhs));
+#endif
+}
+
+
+// C++20: Retire wrapper.
+/// C++20 std::cmp_greater, or workaround if not available.
+template<typename LEFT, typename RIGHT>
+inline constexpr bool cmp_greater(LEFT lhs, RIGHT rhs) noexcept
+{
+#if defined(PQXX_HAVE_CMP)
+  return std::cmp_greater(lhs, rhs);
+#else
+  return cmp_less(rhs, lhs);
+#endif
+}
+
+
+// C++20: Retire wrapper.
+/// C++20 std::cmp_less_equal, or workaround if not available.
+template<typename LEFT, typename RIGHT>
+inline constexpr bool cmp_less_equal(LEFT lhs, RIGHT rhs) noexcept
+{
+#if defined(PQXX_HAVE_CMP)
+  return std::cmp_less_equal(lhs, rhs);
+#else
+  return not cmp_less(rhs, lhs);
+#endif
+}
+
+
+// C++20: Retire wrapper.
+/// C++20 std::cmp_greater_equal, or workaround if not available.
+template<typename LEFT, typename RIGHT>
+inline constexpr bool cmp_greater_equal(LEFT lhs, RIGHT rhs) noexcept
+{
+#if defined(PQXX_HAVE_CMP)
+  return std::cmp_greater_equal(lhs, rhs);
+#else
+  return not cmp_less(lhs, rhs);
+#endif
+}
+
+
 /// Efficiently concatenate two strings.
 /** This is a special case of concatenate(), needed because dependency
  * management does not let us use that function here.
@@ -56,8 +129,8 @@ namespace pqxx::internal
   std::string buf;
   auto const xs{std::size(x)}, ys{std::size(y)};
   buf.resize(xs + ys);
-  x.copy(buf.data(), xs);
-  y.copy(buf.data() + xs, ys);
+  x.copy(std::data(buf), xs);
+  y.copy(std::data(buf) + xs, ys);
   return buf;
 }
 } // namespace pqxx::internal
@@ -68,7 +141,8 @@ namespace pqxx
 using namespace std::literals;
 
 /// Suppress compiler warning about an unused item.
-template<typename... T> inline void ignore_unused(T &&...) {}
+template<typename... T> inline constexpr void ignore_unused(T &&...) noexcept
+{}
 
 
 /// Cast a numeric value to another type, or throw if it underflows/overflows.
@@ -106,10 +180,8 @@ inline TO check_cast(FROM value, std::string_view description)
       // there may not be a good broader type in which the compiler can even
       // perform our check.
       if (value < 0)
-      {
         throw range_error{internal::cat2(
           "Casting negative value to unsigned type: "sv, description)};
-      }
     }
   }
   else
@@ -126,7 +198,7 @@ inline TO check_cast(FROM value, std::string_view description)
     constexpr auto to_max{static_cast<unsigned_to>((to_limits::max)())};
     if constexpr (from_max > to_max)
     {
-      if (static_cast<unsigned_from>(value) > to_max)
+      if (internal::cmp_greater(value, to_max))
         throw range_error{internal::cat2("Cast overflow: "sv, description)};
     }
   }
@@ -138,13 +210,6 @@ inline TO check_cast(FROM value, std::string_view description)
 
   return static_cast<TO>(value);
 }
-
-
-/// Remove any constness, volatile, and reference-ness from a type.
-/** @deprecated In C++20 we'll replace this with std::remove_cvref.
- */
-template<typename TYPE>
-using strip_t = std::remove_cv_t<std::remove_reference_t<TYPE>>;
 
 
 /** Check library version at link time.
@@ -168,9 +233,9 @@ using strip_t = std::remove_cv_t<std::remove_reference_t<TYPE>>;
  * There will be a definition, but the version in the parameter values will
  * be different.
  */
-inline PQXX_PRIVATE void check_version()
+inline PQXX_PRIVATE void check_version() noexcept
 {
-  // There is no particular reason to do this here in @c connection, except
+  // There is no particular reason to do this here in @ref connection, except
   // to ensure that every meaningful libpqxx client will execute it.  The call
   // must be in the execution path somewhere or the compiler won't try to link
   // it.  We can't use it to initialise a global or class-static variable,
@@ -194,7 +259,7 @@ struct PQXX_LIBEXPORT thread_safety_model
   bool safe_libpq = false;
 
   /// Is Kerberos thread-safe?
-  /** @warning Is currently always @c false.
+  /** @warning Is currently always `false`.
    *
    * If your application uses Kerberos, all accesses to libpqxx or Kerberos
    * must be serialized.  Confine their use to a single thread, or protect it
@@ -209,6 +274,173 @@ struct PQXX_LIBEXPORT thread_safety_model
 
 /// Describe thread safety available in this build.
 [[nodiscard]] PQXX_LIBEXPORT thread_safety_model describe_thread_safety();
+
+
+#if defined(PQXX_HAVE_CONCEPTS)
+#  define PQXX_POTENTIAL_BINARY_ARG pqxx::potential_binary
+#else
+#  define PQXX_POTENTIAL_BINARY_ARG typename
+#endif
+
+/// Custom `std::char_trast` if the compiler does not provide one.
+/** Needed if the standard library lacks a generic implementation or a
+ * specialisation for std::byte.  They aren't strictly required to provide
+ * either, and libc++ 19 removed its generic implementation.
+ */
+struct byte_char_traits : std::char_traits<char>
+{
+  using char_type = std::byte;
+
+  static void assign(std::byte &a, const std::byte &b) noexcept { a = b; }
+  static bool eq(std::byte a, std::byte b) { return a == b; }
+  static bool lt(std::byte a, std::byte b) { return a < b; }
+
+  static int compare(const std::byte *a, const std::byte *b, std::size_t size)
+  {
+    return std::memcmp(a, b, size);
+  }
+
+  /// Deliberately undefined: "guess" the length of an array of bytes.
+  /* This is nonsense: we can't determine the length of a random sequence of
+   * bytes.  There is no terminating zero like there is for C strings.
+   *
+   * But `std::char_traits` requires us to provide this function, so we
+   * declare it without defining it.
+   */
+  static size_t length(const std::byte *data);
+
+  static const std::byte *
+  find(const std::byte *data, std::size_t size, const std::byte &value)
+  {
+    return static_cast<const std::byte *>(
+      std::memchr(data, static_cast<int>(value), size));
+  }
+
+  static std::byte *
+  move(std::byte *dest, const std::byte *src, std::size_t size)
+  {
+    return static_cast<std::byte *>(std::memmove(dest, src, size));
+  }
+
+  static std::byte *
+  copy(std::byte *dest, const std::byte *src, std::size_t size)
+  {
+    return static_cast<std::byte *>(std::memcpy(dest, src, size));
+  }
+
+  static std::byte *assign(std::byte *dest, std::size_t size, std::byte value)
+  {
+    return static_cast<std::byte *>(
+      std::memset(dest, static_cast<int>(value), size));
+  }
+
+  /// Declared but not defined: makes no sense for binary data.
+  static int_type not_eof(int_type value);
+
+  static std::byte to_char_type(int_type value) { return std::byte(value); }
+
+  static int_type to_int_type(std::byte value) { return int_type(value); }
+
+  static bool eq_int_type(int_type a, int_type b) { return a == b; }
+
+  /// Declared but not defined: makes no sense for binary data.
+  static int_type eof();
+};
+
+template<typename TYPE, typename = void>
+struct has_generic_char_traits : std::false_type
+{};
+
+template<typename TYPE>
+struct has_generic_char_traits<
+  TYPE, std::void_t<decltype(std::char_traits<TYPE>::eof)>> : std::true_type
+{};
+
+inline constexpr bool has_generic_bytes_char_traits =
+  has_generic_char_traits<std::byte>::value;
+
+// Supress warnings from potentially using a deprecated generic
+// std::char_traits.
+// Necessary for libc++ 18.
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
+
+// C++20: Change this type.
+/// Type alias for a container containing bytes.
+/* Required to support standard libraries without a generic implementation for
+ * `std::char_traits<std::byte>`.
+ * @warn Will change to `std::vector<std::byte>` in the next major release.
+ */
+using bytes = std::conditional<
+  has_generic_bytes_char_traits, std::basic_string<std::byte>,
+  std::basic_string<std::byte, byte_char_traits>>::type;
+
+// C++20: Change this type.
+/// Type alias for a view of bytes.
+/* Required to support standard libraries without a generic implementation for
+ * `std::char_traits<std::byte>`.
+ * @warn Will change to `std::span<std::byte>` in the next major release.
+ */
+using bytes_view = std::conditional<
+  has_generic_bytes_char_traits, std::basic_string_view<std::byte>,
+  std::basic_string_view<std::byte, byte_char_traits>>::type;
+
+#include "pqxx/internal/ignore-deprecated-post.hxx"
+
+
+/// Cast binary data to a type that libpqxx will recognise as binary.
+/** There are many different formats for storing binary data in memory.  You
+ * may have yours as a `std::string`, or a `std::vector<uchar_t>`, or one of
+ * many other types.
+ *
+ * But for libpqxx to recognise your data as binary, it needs to be a
+ * `pqxx::bytes`, or a `pqxx::bytes_view`; or in C++20 or better, any
+ * contiguous block of `std::byte`.
+ *
+ * Use `binary_cast` as a convenience helper to cast your data as a
+ * `pqxx::bytes_view`.
+ *
+ * @warning There are two things you should be aware of!  First, the data must
+ * be contiguous in memory.  In C++20 the compiler will enforce this, but in
+ * C++17 it's your own problem.  Second, you must keep the object where you
+ * store the actual data alive for as long as you might use this function's
+ * return value.
+ */
+template<PQXX_POTENTIAL_BINARY_ARG TYPE>
+bytes_view binary_cast(TYPE const &data)
+{
+  static_assert(sizeof(value_type<TYPE>) == 1);
+  // C++20: Use std::as_bytes.
+  return {
+    reinterpret_cast<std::byte const *>(
+      const_cast<strip_t<decltype(*std::data(data))> const *>(
+        std::data(data))),
+    std::size(data)};
+}
+
+
+#if defined(PQXX_HAVE_CONCEPTS)
+template<typename CHAR>
+concept char_sized = (sizeof(CHAR) == 1);
+#  define PQXX_CHAR_SIZED_ARG char_sized
+#else
+#  define PQXX_CHAR_SIZED_ARG typename
+#endif
+
+/// Construct a type that libpqxx will recognise as binary.
+/** Takes a data pointer and a size, without being too strict about their
+ * types, and constructs a `pqxx::bytes_view` pointing to the same data.
+ *
+ * This makes it a little easier to turn binary data, in whatever form you
+ * happen to have it, into binary data as libpqxx understands it.
+ */
+template<PQXX_CHAR_SIZED_ARG CHAR, typename SIZE>
+bytes_view binary_cast(CHAR const *data, SIZE size)
+{
+  static_assert(sizeof(CHAR) == 1);
+  return {
+    reinterpret_cast<std::byte const *>(data),
+    check_cast<std::size_t>(size, "binary data size")};
+}
 
 
 /// The "null" oid.
@@ -229,6 +461,17 @@ constexpr oid oid_none{0};
 namespace pqxx::internal
 {
 using namespace std::literals;
+
+
+/// A safer and more generic replacement for `std::isdigit`.
+/** Turns out `std::isdigit` isn't as easy to use as it sounds.  It takes an
+ * `int`, but requires it to be nonnegative.  Which means it's an outright
+ * liability on systems where `char` is signed.
+ */
+template<typename CHAR> inline constexpr bool is_digit(CHAR c) noexcept
+{
+  return (c >= '0') and (c <= '9');
+}
 
 
 /// Describe an object for humans, based on class name and optional name.
@@ -256,7 +499,7 @@ void check_unique_register(
   std::string_view new_name);
 
 
-/// Like @c check_unique_register, but for un-registering a guest.
+/// Like @ref check_unique_register, but for un-registering a guest.
 /** Pass the guest which was registered, as well as the guest which is being
  * unregistered, so that the function can check that they are the same one.
  */
@@ -270,33 +513,33 @@ void check_unique_unregister(
 /** This uses the hex-escaping format.  The return value includes room for the
  * "\x" prefix.
  */
-constexpr std::size_t size_esc_bin(std::size_t binary_bytes) noexcept
+inline constexpr std::size_t size_esc_bin(std::size_t binary_bytes) noexcept
 {
   return 2 + (2 * binary_bytes) + 1;
 }
 
 
 /// Compute binary size from the size of its escaped version.
-/** Do not include a terminating zero in @c escaped_bytes.
+/** Do not include a terminating zero in `escaped_bytes`.
  */
-constexpr std::size_t size_unesc_bin(std::size_t escaped_bytes) noexcept
+inline constexpr std::size_t size_unesc_bin(std::size_t escaped_bytes) noexcept
 {
   return (escaped_bytes - 2) / 2;
 }
 
 
+// TODO: Use actual binary type for "data".
 /// Hex-escape binary data into a buffer.
 /** The buffer must be able to accommodate
- * @c size_esc_bin(std::size(binary_data)) bytes, and the function will write
+ * `size_esc_bin(std::size(binary_data))` bytes, and the function will write
  * exactly that number of bytes into the buffer.  This includes a trailing
  * zero.
  */
-void PQXX_LIBEXPORT
-esc_bin(std::string_view binary_data, char buffer[]) noexcept;
+void PQXX_LIBEXPORT esc_bin(bytes_view binary_data, char buffer[]) noexcept;
 
 
 /// Hex-escape binary data into a std::string.
-std::string PQXX_LIBEXPORT esc_bin(std::string_view binary_data);
+std::string PQXX_LIBEXPORT esc_bin(bytes_view binary_data);
 
 
 /// Reconstitute binary data from its escaped version.
@@ -305,20 +548,155 @@ unesc_bin(std::string_view escaped_data, std::byte buffer[]);
 
 
 /// Reconstitute binary data from its escaped version.
-std::string PQXX_LIBEXPORT unesc_bin(std::string_view escaped_data);
+bytes PQXX_LIBEXPORT unesc_bin(std::string_view escaped_data);
 
 
 /// Transitional: std::ssize(), or custom implementation if not available.
 template<typename T> auto ssize(T const &c)
 {
-#if defined(__cpp_lib_ssize) && __cplusplus >= __cpp_lib_ssize
+#if defined(PQXX_HAVE_SSIZE)
   return std::ssize(c);
 #else
   using signed_t = std::make_signed_t<decltype(std::size(c))>;
   return static_cast<signed_t>(std::size(c));
-#endif // __cpp_lib_ssize
+#endif // PQXX_HAVE_SSIZe
+}
+
+
+/// Helper for determining a function's parameter types.
+/** This function has no definition.  It's not meant to be actually called.
+ * It's just there for pattern-matching in the compiler, so we can use its
+ * hypothetical return value.
+ */
+template<typename RETURN, typename... ARGS>
+std::tuple<ARGS...> args_f(RETURN (&func)(ARGS...));
+
+
+/// Helper for determining a `std::function`'s parameter types.
+/** This function has no definition.  It's not meant to be actually called.
+ * It's just there for pattern-matching in the compiler, so we can use its
+ * hypothetical return value.
+ */
+template<typename RETURN, typename... ARGS>
+std::tuple<ARGS...> args_f(std::function<RETURN(ARGS...)> const &);
+
+
+/// Helper for determining a member function's parameter types.
+/** This function has no definition.  It's not meant to be actually called.
+ * It's just there for pattern-matching in the compiler, so we can use its
+ * hypothetical return value.
+ */
+template<typename CLASS, typename RETURN, typename... ARGS>
+std::tuple<ARGS...> member_args_f(RETURN (CLASS::*)(ARGS...));
+
+
+/// Helper for determining a const member function's parameter types.
+/** This function has no definition.  It's not meant to be actually called.
+ * It's just there for pattern-matching in the compiler, so we can use its
+ * hypothetical return value.
+ */
+template<typename CLASS, typename RETURN, typename... ARGS>
+std::tuple<ARGS...> member_args_f(RETURN (CLASS::*)(ARGS...) const);
+
+
+/// Helper for determining a callable type's parameter types.
+/** This specialisation should work for lambdas.
+ *
+ * This function has no definition.  It's not meant to be actually called.
+ * It's just there for pattern-matching in the compiler, so we can use its
+ * hypothetical return value.
+ */
+template<typename CALLABLE>
+auto args_f(CALLABLE const &f)
+  -> decltype(member_args_f(&CALLABLE::operator()));
+
+
+/// A callable's parameter types, as a tuple.
+template<typename CALLABLE>
+using args_t = decltype(args_f(std::declval<CALLABLE>()));
+
+
+/// Helper: Apply `strip_t` to each of a tuple type's component types.
+/** This function has no definition.  It is not meant to be called, only to be
+ * used to deduce the right types.
+ */
+template<typename... TYPES>
+std::tuple<strip_t<TYPES>...> strip_types(std::tuple<TYPES...> const &);
+
+
+/// Take a tuple type and apply @ref strip_t to its component types.
+template<typename... TYPES>
+using strip_types_t = decltype(strip_types(std::declval<TYPES...>()));
+
+
+/// Return original byte for escaped character.
+inline constexpr char unescape_char(char escaped) noexcept
+{
+  switch (escaped)
+  {
+  case 'b': // Backspace.
+    PQXX_UNLIKELY return '\b';
+  case 'f': // Form feed
+    PQXX_UNLIKELY return '\f';
+  case 'n': // Line feed.
+    return '\n';
+  case 'r': // Carriage return.
+    return '\r';
+  case 't': // Horizontal tab.
+    return '\t';
+  case 'v': // Vertical tab.
+    return '\v';
+  default: break;
+  }
+  // Regular character ("self-escaped").
+  return escaped;
+}
+
+
+// C++20: std::span?
+/// Get error string for a given @c errno value.
+template<std::size_t BYTES>
+char const *PQXX_COLD
+error_string(int err_num, std::array<char, BYTES> &buffer)
+{
+  // Not entirely clear whether strerror_s will be in std or global namespace.
+  using namespace std;
+
+#if defined(PQXX_HAVE_STERROR_S) || defined(PQXX_HAVE_STRERROR_R)
+#  if defined(PQXX_HAVE_STRERROR_S)
+  auto const err_result{strerror_s(std::data(buffer), BYTES, err_num)};
+#  else
+  auto const err_result{strerror_r(err_num, std::data(buffer), BYTES)};
+#  endif
+  if constexpr (std::is_same_v<pqxx::strip_t<decltype(err_result)>, char *>)
+  {
+    // GNU version of strerror_r; returns the error string, which may or may
+    // not reside within buffer.
+    return err_result;
+  }
+  else
+  {
+    // Either strerror_s or POSIX strerror_r; returns an error code.
+    // Sorry for being lazy here: Not reporting error string for the case
+    // where we can't retrieve an error string.
+    if (err_result == 0)
+      return std::data(buffer);
+    else
+      return "Compound errors.";
+  }
+
+#else
+  // Fallback case, hopefully for no actual platforms out there.
+  pqxx::ignore_unused(err_num, buffer);
+  return "(No error information available.)";
+#endif
 }
 } // namespace pqxx::internal
 
-#include "pqxx/internal/compiler-internal-post.hxx"
+
+namespace pqxx::internal::pq
+{
+/// Wrapper for `PQfreemem()`, with C++ linkage.
+PQXX_LIBEXPORT void pqfreemem(void const *) noexcept;
+} // namespace pqxx::internal::pq
 #endif

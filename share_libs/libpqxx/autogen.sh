@@ -21,7 +21,7 @@ substitute() {
 
 # Use templating system to generate various Makefiles.
 expand_templates() {
-	for template in $@
+	for template in "$@"
 	do
 		./tools/template2mak.py "$template" "${template%.template}"
 	done
@@ -30,10 +30,17 @@ expand_templates() {
 
 # We have two kinds of templates.  One uses our custom templating tool.  And
 # a few others simply have some substitutions done.
-expand_templates $(find -name \*.template)
+# shellcheck disable=SC2046
+expand_templates $(find . -name \*.template)
 substitute include/pqxx/version.hxx.template >include/pqxx/version.hxx
 substitute include/pqxx/doc/mainpage.md.template >include/pqxx/doc/mainpage.md
 
+# Generate feature test snippets for C++ features that we simply detect by
+# checking a C++ feature test macro.
+./tools/generate_cxx_checks.py
+
+# Generate autoconf and CMake configuration for our feature test snippets.
+./tools/generate_check_config.py
 
 autoheader
 libtoolize --force --automake --copy

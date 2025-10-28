@@ -6,8 +6,9 @@ void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
 						   unsigned long end, unsigned int stride_shift,
 						   bool freed_tables);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 void *__vmalloc_array(size_t n, size_t size, gfp_t flags);
-
+#endif
 
 #define flush_tlb_mm(mm)									\
 	flush_tlb_mm_range(mm, 0UL, TLB_FLUSH_ALL, 0UL, true)

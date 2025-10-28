@@ -2,7 +2,7 @@
  *
  * pqxx::field refers to a field in a query result.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -12,9 +12,14 @@
 
 #include <cstring>
 
-#include "pqxx/internal/libpq-forward.hxx"
+#include "pqxx/internal/header-pre.hxx"
 
-#include "pqxx/result"
+#include "pqxx/field.hxx"
+#include "pqxx/internal/libpq-forward.hxx"
+#include "pqxx/result.hxx"
+#include "pqxx/row.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
 pqxx::field::field(pqxx::row const &r, pqxx::row::size_type c) noexcept :
@@ -22,7 +27,7 @@ pqxx::field::field(pqxx::row const &r, pqxx::row::size_type c) noexcept :
 {}
 
 
-bool pqxx::field::operator==(field const &rhs) const
+bool PQXX_COLD pqxx::field::operator==(field const &rhs) const noexcept
 {
   if (is_null() and rhs.is_null())
     return true;
@@ -33,7 +38,7 @@ bool pqxx::field::operator==(field const &rhs) const
 }
 
 
-char const *pqxx::field::name() const
+char const *pqxx::field::name() const &
 {
   return home().column_name(col());
 }
@@ -57,7 +62,7 @@ pqxx::row::size_type pqxx::field::table_column() const
 }
 
 
-char const *pqxx::field::c_str() const
+char const *pqxx::field::c_str() const &
 {
   return home().get_value(idx(), col());
 }

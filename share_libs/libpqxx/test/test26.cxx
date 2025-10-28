@@ -51,13 +51,14 @@ std::map<int, int> update_years(connection &C)
   // occur in the table.  Since we're in a transaction, any changes made by
   // others at the same time will not affect us.
   for (auto const &c : conversions)
-    tx.exec0(
-      "UPDATE pqxxevents "
-      "SET year=" +
-      to_string(c.second) +
-      " "
-      "WHERE year=" +
-      to_string(c.first));
+    tx.exec(
+        "UPDATE pqxxevents "
+        "SET year=" +
+        to_string(c.second) +
+        " "
+        "WHERE year=" +
+        to_string(c.first))
+      .no_rows();
 
   tx.commit();
 
@@ -67,16 +68,16 @@ std::map<int, int> update_years(connection &C)
 
 void test_026()
 {
-  connection conn;
+  connection cx;
   {
-    nontransaction tx{conn};
+    nontransaction tx{cx};
     test::create_pqxxevents(tx);
     tx.commit();
   }
 
   // Perform (an instantiation of) the UpdateYears transactor we've defined
   // in the code above.  This is where the work gets done.
-  auto const conversions{perform([&conn] { return update_years(conn); })};
+  auto const conversions{perform([&cx] { return update_years(cx); })};
 
   PQXX_CHECK(not std::empty(conversions), "No conversions done!");
 }

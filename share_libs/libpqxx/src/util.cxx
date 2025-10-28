@@ -1,6 +1,6 @@
 /** Various utility functions.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -8,6 +8,8 @@
  */
 #include "pqxx-source.hxx"
 
+#include <array>
+#include <cassert>
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -19,15 +21,18 @@ extern "C"
 #include <libpq-fe.h>
 }
 
-#include "pqxx/except"
-#include "pqxx/util"
+#include "pqxx/internal/header-pre.hxx"
 
+#include "pqxx/except.hxx"
 #include "pqxx/internal/concat.hxx"
+#include "pqxx/util.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
 using namespace std::literals;
 
-pqxx::thread_safety_model pqxx::describe_thread_safety()
+pqxx::thread_safety_model PQXX_COLD pqxx::describe_thread_safety()
 {
   thread_safety_model model;
   model.safe_libpq = (PQisthreadsafe() != 0);
@@ -68,7 +73,7 @@ void pqxx::internal::check_unique_register(
         concat("Started twice: ", describe_object(old_class, old_name), ".") :
         concat(
           "Started new ", describe_object(new_class, new_name), " while ",
-          describe_object(new_class, new_name), " was still active.")};
+          describe_object(old_class, old_name), " was still active.")};
 }
 
 
@@ -78,6 +83,7 @@ void pqxx::internal::check_unique_unregister(
 {
   if (new_guest != old_guest)
   {
+    PQXX_UNLIKELY
     if (new_guest == nullptr)
       throw usage_error{concat(
         "Expected to close ", describe_object(old_class, old_name),
@@ -95,49 +101,56 @@ void pqxx::internal::check_unique_unregister(
 
 namespace
 {
+constexpr std::array<char, 16u> hex_digits{
+  '0', '1', '2', '3', '4', '5', '6', '7',
+  '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+};
+
+
 /// Translate a number (must be between 0 and 16 exclusive) to a hex digit.
 constexpr char hex_digit(int c) noexcept
 {
-  constexpr char hex[] = {'0', '1', '2', '3', '4', '5', '6', '7',
-                          '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
-  return hex[c];
+  return hex_digits.at(static_cast<unsigned int>(c));
 }
+
+
+constexpr int ten{10};
 
 
 /// Translate a hex digit to a nibble.  Return -1 if it's not a valid digit.
 constexpr int nibble(int c) noexcept
 {
   if (c >= '0' and c <= '9')
-    return c - '0';
-  else if (c >= 'a' and c <= 'f')
-    return 10 + (c - 'a');
-  else if (c >= 'A' and c <= 'F')
-    return 10 + (c - 'A');
-  else
-    return -1;
+    PQXX_LIKELY
+  return c - '0';
+  else if (c >= 'a' and c <= 'f') return ten + (c - 'a');
+  else if (c >= 'A' and c <= 'F') return ten + (c - 'A');
+  else return -1;
 }
 } // namespace
 
 
-void pqxx::internal::esc_bin(
-  std::string_view binary_data, char buffer[]) noexcept
+void pqxx::internal::esc_bin(bytes_view binary_data, char buffer[]) noexcept
 {
   auto here{buffer};
   *here++ = '\\';
   *here++ = 'x';
 
+  constexpr int nibble_bits{4};
+  constexpr int nibble_mask{0x0f};
   for (auto const byte : binary_data)
   {
     auto uc{static_cast<unsigned char>(byte)};
-    *here++ = hex_digit(uc >> 4);
-    *here++ = hex_digit(uc & 0x0f);
+    *here++ = hex_digit(uc >> nibble_bits);
+    *here++ = hex_digit(uc & nibble_mask);
   }
 
-  *here++ = '\0';
+  // (No need to increment further.  Facebook's "infer" complains if we do.)
+  *here = '\0';
 }
 
 
-std::string pqxx::internal::esc_bin(std::string_view binary_data)
+std::string pqxx::internal::esc_bin(bytes_view binary_data)
 {
   auto const bytes{size_esc_bin(std::size(binary_data))};
   std::string buf;
@@ -166,10 +179,10 @@ void pqxx::internal::unesc_bin(
   auto out{buffer};
   while (in != end)
   {
-    int hi{nibble(*in++)};
+    int const hi{nibble(*in++)};
     if (hi < 0)
       throw pqxx::failure{"Invalid hex-escaped data."};
-    int lo{nibble(*in++)};
+    int const lo{nibble(*in++)};
     if (lo < 0)
       throw pqxx::failure{"Invalid hex-escaped data."};
     *out++ = static_cast<std::byte>((hi << 4) | lo);
@@ -177,11 +190,23 @@ void pqxx::internal::unesc_bin(
 }
 
 
-std::string pqxx::internal::unesc_bin(std::string_view escaped_data)
+pqxx::bytes pqxx::internal::unesc_bin(std::string_view escaped_data)
 {
   auto const bytes{size_unesc_bin(std::size(escaped_data))};
-  std::string buf;
+  pqxx::bytes buf;
   buf.resize(bytes);
-  unesc_bin(escaped_data, reinterpret_cast<std::byte *>(buf.data()));
+  unesc_bin(escaped_data, buf.data());
   return buf;
 }
+
+
+namespace pqxx::internal::pq
+{
+void pqfreemem(void const *ptr) noexcept
+{
+  // Why is it OK to const_cast here?  Because this is the C equivalent to a
+  // destructor.  Those apply to const objects as well as non-const ones.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  PQfreemem(const_cast<void *>(ptr));
+}
+} // namespace pqxx::internal::pq

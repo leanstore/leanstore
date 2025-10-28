@@ -1,3 +1,6 @@
+#include <iterator>
+
+#include <pqxx/stream_to>
 #include <pqxx/transaction>
 
 #include "../test_helpers.hxx"
@@ -6,9 +9,12 @@ namespace
 {
 void test_result_iteration()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   pqxx::result r{tx.exec("SELECT generate_series(1, 3)")};
+#if defined(PQXX_HAVE_CONCEPTS)
+  static_assert(std::forward_iterator<decltype(r.begin())>);
+#endif
 
   PQXX_CHECK(std::end(r) != std::begin(r), "Broken begin/end.");
   PQXX_CHECK(std::rend(r) != std::rbegin(r), "Broken rbegin/rend.");
@@ -25,8 +31,8 @@ void test_result_iteration()
 
 void test_result_iter()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   pqxx::result r{tx.exec("SELECT generate_series(1, 3)")};
 
   int total{0};
@@ -37,8 +43,8 @@ void test_result_iter()
 
 void test_result_iterator_swap()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   pqxx::result r{tx.exec("SELECT generate_series(1, 3)")};
 
   auto head{std::begin(r)}, next{head + 1};
@@ -55,8 +61,8 @@ void test_result_iterator_swap()
 
 void test_result_iterator_assignment()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   pqxx::result r{tx.exec("SELECT generate_series(1, 3)")};
 
   pqxx::result::const_iterator fwd;
@@ -74,8 +80,63 @@ void test_result_iterator_assignment()
 }
 
 
+void check_employee(std::string name, int salary)
+{
+  PQXX_CHECK(name == "x" or name == "y" or name == "z", "Unknown name.");
+  PQXX_CHECK(
+    salary == 1000 or salary == 1200 or salary == 1500, "Unknown salary.");
+}
+
+
+void test_result_for_each()
+{
+  pqxx::connection cx;
+  pqxx::work tx{cx};
+  tx.exec("CREATE TEMP TABLE employee(name varchar, salary int)").no_rows();
+  auto fill{pqxx::stream_to::table(tx, {"employee"}, {"name", "salary"})};
+  fill.write_values("x", 1000);
+  fill.write_values("y", 1200);
+  fill.write_values("z", 1500);
+  fill.complete();
+
+  auto const res{tx.exec("SELECT name, salary FROM employee ORDER BY name")};
+
+  // Use for_each with a function.
+  res.for_each(check_employee);
+
+  // Use for_each with a simple lambda.
+  res.for_each(
+    [](std::string name, int salary) { check_employee(name, salary); });
+
+  // Use for_each with a lambda closure.
+  std::string names{};
+  int total{0};
+
+  res.for_each([&names, &total](std::string name, int salary) {
+    names.append(name);
+    total += salary;
+  });
+  PQXX_CHECK_EQUAL(
+    names, "xyz", "result::for_each did not accumulate names correctly.");
+  PQXX_CHECK_EQUAL(total, 1000 + 1200 + 1500, "Salaries added up wrong.");
+
+  // In addition to regular conversions, you can receive arguments as
+  // string_view, or as references.
+  names.clear();
+  total = 0;
+  res.for_each([&names, &total](std::string_view &&name, int const &salary) {
+    names.append(name);
+    total += salary;
+  });
+  PQXX_CHECK_EQUAL(
+    names, "xyz", "result::for_each did not accumulate names correctly.");
+  PQXX_CHECK_EQUAL(total, 1000 + 1200 + 1500, "Salaries added up wrong.");
+}
+
+
 PQXX_REGISTER_TEST(test_result_iteration);
 PQXX_REGISTER_TEST(test_result_iter);
 PQXX_REGISTER_TEST(test_result_iterator_swap);
 PQXX_REGISTER_TEST(test_result_iterator_assignment);
+PQXX_REGISTER_TEST(test_result_for_each);
 } // namespace

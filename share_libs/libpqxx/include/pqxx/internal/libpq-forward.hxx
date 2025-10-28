@@ -2,12 +2,15 @@
  *
  * DO NOT INCLUDE THIS FILE when building client programs.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
  * mistake, or contact the author.
  */
+#if !defined(PQXX_H_LIBPQ_FORWARD)
+#  define PQXX_H_LIBPQ_FORWARD
+
 extern "C"
 {
   struct pg_conn;
@@ -29,3 +32,4 @@ namespace pqxx
 /// PostgreSQL database row identifier.
 using oid = unsigned int;
 } // namespace pqxx
+#endif

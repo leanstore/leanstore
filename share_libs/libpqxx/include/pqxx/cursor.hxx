@@ -4,7 +4,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/cursor instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,8 +13,9 @@
 #ifndef PQXX_H_CURSOR
 #define PQXX_H_CURSOR
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include <limits>
 #include <stdexcept>
@@ -31,7 +32,7 @@ namespace pqxx
  * beginning of the fetch, and the cursor ends up being positioned on the last
  * row in the result.
  *
- * There are singular positions akin to @c end() at both the beginning and the
+ * There are singular positions akin to `end()` at both the beginning and the
  * end of the cursor's range of movement, although these fit in so naturally
  * with the semantics that one rarely notices them.  The cursor begins at the
  * first of these, but any fetch in the forward direction will move the cursor
@@ -104,22 +105,31 @@ public:
   /** @return Maximum value for result::difference_type, so the cursor will
    * attempt to read the largest possible result set.
    */
-  [[nodiscard]] static difference_type all() noexcept;
+  [[nodiscard]] static constexpr difference_type all() noexcept
+  {
+    return (std::numeric_limits<int>::max)() - 1;
+  }
 
   /// Special value: read one row only.
   /** @return Unsurprisingly, 1.
    */
-  [[nodiscard]] static difference_type next() noexcept { return 1; }
+  [[nodiscard]] static constexpr difference_type next() noexcept { return 1; }
 
   /// Special value: read backwards, one row only.
   /** @return Unsurprisingly, -1.
    */
-  [[nodiscard]] static difference_type prior() noexcept { return -1; }
+  [[nodiscard]] static constexpr difference_type prior() noexcept
+  {
+    return -1;
+  }
 
   /// Special value: read backwards from current position back to origin.
   /** @return Minimum value for result::difference_type.
    */
-  [[nodiscard]] static difference_type backward_all() noexcept;
+  [[nodiscard]] static constexpr difference_type backward_all() noexcept
+  {
+    return (std::numeric_limits<int>::min)() + 1;
+  }
 
   //@}
 
@@ -129,7 +139,10 @@ public:
    * @warning Don't use this to access the SQL cursor directly without going
    * through the provided wrapper classes!
    */
-  [[nodiscard]] std::string const &name() const noexcept { return m_name; }
+  [[nodiscard]] constexpr std::string const &name() const noexcept
+  {
+    return m_name;
+  }
 
 protected:
   cursor_base(connection &, std::string_view Name, bool embellish_name = true);
@@ -159,21 +172,40 @@ public:
   using difference_type = result_difference_type;
 
   /// Create cursor.
+  /**
+   * @param tx The transaction within which you want to create the cursor.
+   * @param query The SQL query whose results the cursor should traverse.
+   * @param cname A hint for the cursor's name.  The actual SQL cursor's name
+   *     will be based on this (though not necessarily identical).
+   * @param hold Create a `WITH HOLD` cursor?  Such cursors stay alive after
+   *     the transaction has ended, so you can continue to use it.
+   */
   stateless_cursor(
-    transaction_base &trans, std::string_view query, std::string_view cname,
+    transaction_base &tx, std::string_view query, std::string_view cname,
     bool hold) :
-          m_cur{trans, query, cname, cursor_base::random_access, up, op, hold}
+          m_cur{tx, query, cname, cursor_base::random_access, up, op, hold}
   {}
 
-  /// Adopt existing scrolling SQL cursor.
-  stateless_cursor(transaction_base &trans, std::string_view adopted_cursor) :
-          m_cur{trans, adopted_cursor, op}
+  /// Adopt an existing scrolling SQL cursor.
+  /** This lets you define a cursor yourself, and then wrap it in a
+   * libpqxx-managed `stateless_cursor` object.
+   *
+   * @param tx The transaction within which you want to manage the cursor.
+   * @param adopted_cursor Your cursor's SQL name.
+   */
+  stateless_cursor(transaction_base &tx, std::string_view adopted_cursor) :
+          m_cur{tx, adopted_cursor, op}
   {
     // Put cursor in known position
     m_cur.move(cursor_base::backward_all());
   }
 
-  /// Close this cursor.  The destructor will do this automatically.
+  /// Close this cursor.
+  /** The destructor will do this for you automatically.
+   *
+   * Closing a cursor is idempotent.  Closing a cursor that's already closed
+   * does nothing.
+   */
   void close() noexcept { m_cur.close(); }
 
   /// Number of rows in cursor's result set
@@ -204,7 +236,7 @@ public:
   }
 
   /// Return this cursor's name.
-  [[nodiscard]] std::string const &name() const noexcept
+  [[nodiscard]] constexpr std::string const &name() const noexcept
   {
     return m_cur.name();
   }
@@ -230,7 +262,7 @@ namespace pqxx
 /// Simple read-only cursor represented as a stream of results
 /** SQL cursors can be tricky, especially in C++ since the two languages seem
  * to have been designed on different planets.  An SQL cursor has two singular
- * positions akin to @c end() on either side of the underlying result set.
+ * positions akin to `end()` on either side of the underlying result set.
  *
  * These cultural differences are hidden from view somewhat by libpqxx, which
  * tries to make SQL cursors behave more like familiar C++ entities such as
@@ -249,7 +281,7 @@ public:
   using size_type = cursor_base::size_type;
   using difference_type = cursor_base::difference_type;
 
-  /// Set up a read-only, forward-only cursor
+  /// Set up a read-only, forward-only cursor.
   /** Roughly equivalent to a C++ Standard Library istream, this cursor type
    * supports only two operations: reading a block of rows while moving
    * forward, and moving forward without reading any data.
@@ -294,13 +326,15 @@ public:
     transaction_base &context, field const &cname, difference_type sstride = 1,
     cursor_base::ownership_policy op = cursor_base::owned);
 
-  /// Return @c true if this stream may still return more data.
-  operator bool() const noexcept { return not m_done; }
+  /// Return `true` if this stream may still return more data.
+  constexpr operator bool() const & noexcept { return not m_done; }
 
-  /// Read new value into given result object; same as operator >>
+  /// Read new value into given result object; same as operator `>>`.
   /** The result set may continue any number of rows from zero to the chosen
    * stride, inclusive.  An empty result will only be returned if there are no
    * more rows to retrieve.
+   *
+   * @param res Write the retrieved data into this result object.
    * @return Reference to this very stream, to facilitate "chained" invocations
    * ("C.get(r1).get(r2);")
    */
@@ -309,28 +343,35 @@ public:
     res = fetchblock();
     return *this;
   }
-  /// Read new value into given result object; same as get(result &)
+  /// Read new value into given result object; same as `get(result&)`.
   /** The result set may continue any number of rows from zero to the chosen
    * stride, inclusive.  An empty result will only be returned if there are no
    * more rows to retrieve.
+   *
+   * @param res Write the retrieved data into this result object.
    * @return Reference to this very stream, to facilitate "chained" invocations
    * ("C >> r1 >> r2;")
    */
   icursorstream &operator>>(result &res) { return get(res); }
 
-  /// Move given number of rows forward (ignoring stride) without reading data
-  /**
-   * @return Reference to this very stream, to facilitate "chained" invocations
-   * ("C.ignore(2).get(r).ignore(4);")
+  /// Move given number of rows forward without reading data.
+  /** Ignores any stride that you may have set.  It moves by a given number of
+   * rows, not a number of strides.
+   *
+   * @return Reference to this stream itself, to facilitate "chained"
+   * invocations.
    */
-  icursorstream &ignore(std::streamsize n = 1);
+  icursorstream &ignore(std::streamsize n = 1) &;
 
-  /// Change stride, i.e. the number of rows to fetch per read operation
+  /// Change stride, i.e. the number of rows to fetch per read operation.
   /**
-   * @param stride Must be a positive number
+   * @param stride Must be a positive number.
    */
-  void set_stride(difference_type stride);
-  [[nodiscard]] difference_type stride() const noexcept { return m_stride; }
+  void set_stride(difference_type stride) &;
+  [[nodiscard]] constexpr difference_type stride() const noexcept
+  {
+    return m_stride;
+  }
 
 private:
   result fetchblock();
@@ -353,7 +394,7 @@ private:
 };
 
 
-/// Approximate istream_iterator for icursorstream
+/// Approximate istream_iterator for icursorstream.
 /** Intended as an implementation of an input_iterator (as defined by the C++
  * Standard Library), this class supports only two basic operations: reading
  * the current element, and moving forward.  In addition to the minimal
@@ -407,7 +448,7 @@ public:
     return &m_here;
   }
   icursor_iterator &operator++();
-  icursor_iterator operator++(int);
+  icursor_iterator operator++(int) &;
   icursor_iterator &operator+=(difference_type);
   icursor_iterator &operator=(icursor_iterator const &) noexcept;
 
@@ -443,6 +484,4 @@ private:
   icursor_iterator *m_prev{nullptr}, *m_next{nullptr};
 };
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

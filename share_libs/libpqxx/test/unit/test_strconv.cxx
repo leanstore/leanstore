@@ -1,6 +1,8 @@
 #include <memory>
 #include <optional>
 
+#include <pqxx/transaction>
+
 #include "../test_helpers.hxx"
 
 namespace
@@ -94,6 +96,11 @@ void test_strconv_class_enum()
     pqxx::to_string(many::top),
     pqxx::to_string(std::numeric_limits<unsigned long long>::max()),
     "Large wide enum did not convert right.");
+
+  pqxx::connection cx;
+  pqxx::work tx{cx};
+  std::tuple<weather> out;
+  tx.exec("SELECT 0").one_row().to(out);
 }
 
 

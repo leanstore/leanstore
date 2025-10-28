@@ -11,6 +11,7 @@ libpqxx_la_SOURCES = \
 	field.cxx \
 	largeobject.cxx \
 	notification.cxx \
+	params.cxx \
 	pipeline.cxx \
 	result.cxx \
 	robusttransaction.cxx \
@@ -19,11 +20,13 @@ libpqxx_la_SOURCES = \
 	stream_from.cxx \
 	stream_to.cxx \
 	subtransaction.cxx \
+	time.cxx \
 	transaction.cxx \
 	transaction_base.cxx \
 	row.cxx \
 	util.cxx \
-	version.cxx
+	version.cxx \
+	wait.cxx
 
 libpqxx_version = -release $(PQXX_ABI)
 

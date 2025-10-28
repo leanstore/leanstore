@@ -1,30 +1,88 @@
-/* Definitions and settings for compiling libpqxx, and client software.
+/* Compiler settings for compiling libpqxx headers, and workarounds for all.
  *
- * Include this before any other libpqxx code.  To do that, put it at the top
- * of every public libpqxx header file.
+ * Include this before including any other libpqxx headers from within libpqxx.
+ * And to balance it out, also include header-post.hxx at the end of the batch
+ * of headers.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * The public libpqxx headers (e.g. `<pqxx/connection>`) include this already;
+ * there's no need to do this from within an application.
+ *
+ * Include this file at the highest aggregation level possible to avoid nesting
+ * and to keep things simple.
+ *
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
  * mistake, or contact the author.
  */
-#ifndef PQXX_H_COMPILER_PUBLIC
-#define PQXX_H_COMPILER_PUBLIC
+
+#if __has_include(<version>)
+#  include <version>
+#endif
+
+// NO GUARD HERE! This part should be included every time this file is.
+#if defined(_MSC_VER)
+
+// Save compiler's warning state, and set warning level 4 for maximum
+// sensitivity to warnings.
+#  pragma warning(push, 4)
+
+// Visual C++ generates some entirely unreasonable warnings.  Disable them.
+// Copy constructor could not be generated.
+#  pragma warning(disable : 4511)
+// Assignment operator could not be generated.
+#  pragma warning(disable : 4512)
+// Can't expose outside classes without exporting them.  Except the MSVC docs
+// say please ignore the warning if it's a standard library class.
+#  pragma warning(disable : 4251)
+// Can't derive library classes from outside classes without exporting them.
+// Except the MSVC docs say please ignore the warning if the parent class is
+// in the standard library.
+#  pragma warning(disable : 4275)
+// Can't inherit from non-exported class.
+#  pragma warning(disable : 4275)
+
+#endif // _MSC_VER
+
+
+#if defined(PQXX_HEADER_PRE)
+#  error "Avoid nesting #include of pqxx/internal/header-pre.hxx."
+#endif
+
+#define PQXX_HEADER_PRE
+
 
 // Workarounds & definitions that need to be included even in library's headers
 #include "pqxx/config-public-compiler.h"
 
-// Enable ISO-646 keywords: "and" instead of "&&" etc.  Some compilers have
-// them by default, others may need this header.
-#include <ciso646>
+// MSVC has a nonstandard definition of __cplusplus.
+#if defined(_MSC_VER)
+#  define PQXX_CPLUSPLUS _MSVC_LANG
+#else
+#  define PQXX_CPLUSPLUS __cplusplus
+#endif
 
+// C++20: No longer needed.
+// Enable ISO-646 alternative operaotr representations: "and" instead of "&&"
+// etc. on older compilers.  C++20 removes this header.
+#if PQXX_CPLUSPLUS <= 201703L && __has_include(<ciso646>)
+#  include <ciso646>
+#endif
 
 #if defined(PQXX_HAVE_GCC_PURE)
 /// Declare function "pure": no side effects, only reads globals and its args.
 #  define PQXX_PURE __attribute__((pure))
 #else
-#  define PQXX_PURE
+#  define PQXX_PURE /* pure */
+#endif
+
+
+#if defined(__GNUC__)
+/// Tell the compiler to optimise a function for size, not speed.
+#  define PQXX_COLD __attribute__((cold))
+#else
+#  define PQXX_COLD /* cold */
 #endif
 
 
@@ -42,11 +100,6 @@
 
 // Workarounds for Microsoft Visual C++
 #  ifdef _MSC_VER
-
-// Workarounds for deprecated attribute syntax error in Visual Studio 2017.
-#    if _MSC_VER < 1920
-#      define PQXX_DEPRECATED(MESSAGE) __declspec(deprecated(#      MESSAGE))
-#    endif
 
 // Suppress vtables on abstract classes.
 #    define PQXX_NOVTABLE __declspec(novtable)
@@ -106,19 +159,30 @@
 
 
 #ifndef PQXX_LIBEXPORT
-#  define PQXX_LIBEXPORT
+#  define PQXX_LIBEXPORT /* libexport */
 #endif
 
 #ifndef PQXX_PRIVATE
-#  define PQXX_PRIVATE
+#  define PQXX_PRIVATE /* private */
 #endif
 
 #ifndef PQXX_NOVTABLE
-#  define PQXX_NOVTABLE
+#  define PQXX_NOVTABLE /* novtable */
 #endif
 
-#ifndef PQXX_DEPRECATED
-#  define PQXX_DEPRECATED(MESSAGE) [[deprecated(#  MESSAGE)]]
+// C++20: Assume support.
+#if defined(PQXX_HAVE_LIKELY)
+#  define PQXX_LIKELY [[likely]]
+#  define PQXX_UNLIKELY [[unlikely]]
+#else
+#  define PQXX_LIKELY   /* [[likely]] */
+#  define PQXX_UNLIKELY /* [[unlikely]] */
 #endif
 
+
+// C++23: Assume support.
+#if defined(PQXX_HAVE_ASSUME)
+#  define PQXX_ASSUME(condition) [[assume(condition)]]
+#else
+#  define PQXX_ASSUME(condition) while (false)
 #endif

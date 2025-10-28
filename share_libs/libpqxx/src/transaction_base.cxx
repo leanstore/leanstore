@@ -3,7 +3,7 @@
  * pqxx::transaction_base defines the interface for any abstract class that
  * represents a database transaction.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,17 +13,20 @@
 
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 
-#include "pqxx/connection"
-#include "pqxx/result"
-#include "pqxx/transaction_base"
-#include "pqxx/transaction_focus.hxx"
+#include "pqxx/internal/header-pre.hxx"
 
-#include "pqxx/internal/gates/connection-transaction.hxx"
-#include "pqxx/internal/gates/transaction-transaction_focus.hxx"
-
+#include "pqxx/connection.hxx"
 #include "pqxx/internal/concat.hxx"
 #include "pqxx/internal/encodings.hxx"
+#include "pqxx/internal/gates/connection-transaction.hxx"
+#include "pqxx/internal/gates/transaction-transaction_focus.hxx"
+#include "pqxx/result.hxx"
+#include "pqxx/transaction_base.hxx"
+#include "pqxx/transaction_focus.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
 using namespace std::literals;
@@ -42,14 +45,14 @@ std::shared_ptr<std::string> make_rollback_cmd()
 }
 } // namespace
 
-pqxx::transaction_base::transaction_base(connection &c) :
-        m_conn{c}, m_rollback_cmd{make_rollback_cmd()}
+pqxx::transaction_base::transaction_base(connection &cx) :
+        m_conn{cx}, m_rollback_cmd{make_rollback_cmd()}
 {}
 
 
 pqxx::transaction_base::transaction_base(
-  connection &c, std::string_view tname) :
-        m_conn{c}, m_name{tname}, m_rollback_cmd{make_rollback_cmd()}
+  connection &cx, std::string_view tname) :
+        m_conn{cx}, m_name{tname}, m_rollback_cmd{make_rollback_cmd()}
 {}
 
 
@@ -58,8 +61,9 @@ pqxx::transaction_base::~transaction_base()
   try
   {
     if (not std::empty(m_pending_error))
-      process_notice(
-        internal::concat("UNPROCESSED ERROR: ", m_pending_error, "\n"));
+      PQXX_UNLIKELY
+    process_notice(
+      internal::concat("UNPROCESSED ERROR: ", m_pending_error, "\n"));
 
     if (m_registered)
     {
@@ -77,6 +81,7 @@ pqxx::transaction_base::~transaction_base()
     }
     catch (std::exception const &)
     {
+      // TODO: Make at least an attempt to append a newline.
       process_notice(e.what());
     }
   }
@@ -122,7 +127,7 @@ void pqxx::transaction_base::commit()
     throw in_doubt_error{internal::concat(
       description(), " committed again while in an indeterminate state.")};
 
-  default: throw internal_error{"pqxx::transaction: invalid status code."};
+  default: PQXX_UNREACHABLE;
   }
 
   // Tricky one.  If stream is nested in transaction but inside the same scope,
@@ -201,7 +206,7 @@ void pqxx::transaction_base::abort()
       "it may have been executed anyway.\n"));
     return;
 
-  default: throw internal_error{"Invalid transaction status."};
+  default: PQXX_UNREACHABLE;
   }
 
   m_status = status::aborted;
@@ -209,21 +214,9 @@ void pqxx::transaction_base::abort()
 }
 
 
-std::string pqxx::transaction_base::esc_raw(zview bin) const
+std::string PQXX_COLD pqxx::transaction_base::quote_raw(zview bin) const
 {
-  auto const p{reinterpret_cast<unsigned char const *>(bin.c_str())};
-#include "pqxx/internal/ignore-deprecated-pre.hxx"
-  return conn().esc_raw(p, std::size(bin));
-#include "pqxx/internal/ignore-deprecated-post.hxx"
-}
-
-
-std::string pqxx::transaction_base::quote_raw(zview bin) const
-{
-  auto const p{reinterpret_cast<unsigned char const *>(bin.c_str())};
-#include "pqxx/internal/ignore-deprecated-pre.hxx"
-  return conn().quote_raw(p, std::size(bin));
-#include "pqxx/internal/ignore-deprecated-post.hxx"
+  return conn().quote(binary_cast(bin));
 }
 
 
@@ -242,7 +235,13 @@ public:
     register_me();
   }
 
-  ~command() { unregister_me(); }
+  ~command() noexcept { unregister_me(); }
+
+  command() = delete;
+  command(command const &) = delete;
+  command(command &&) = delete;
+  command &operator=(command const &) = delete;
+  command &operator=(command &&) = delete;
 };
 } // namespace
 
@@ -251,7 +250,7 @@ pqxx::transaction_base::exec(std::string_view query, std::string_view desc)
 {
   check_pending_error();
 
-  command cmd{*this, desc};
+  command const cmd{*this, desc};
 
   switch (m_status)
   {
@@ -267,7 +266,7 @@ pqxx::transaction_base::exec(std::string_view query, std::string_view desc)
       "Could not execute command ", n, ": transaction is already closed.")};
   }
 
-  default: throw internal_error{"pqxx::transaction: invalid status code."};
+  default: PQXX_UNREACHABLE;
   }
 
   return direct_exec(query, desc);
@@ -277,72 +276,56 @@ pqxx::transaction_base::exec(std::string_view query, std::string_view desc)
 pqxx::result pqxx::transaction_base::exec_n(
   result::size_type rows, zview query, std::string_view desc)
 {
-  result const r{exec(query, desc)};
-  if (std::size(r) != rows)
-  {
-    std::string const N{
-      std::empty(desc) ? "" : internal::concat("'", desc, "'")};
-    throw unexpected_rows{internal::concat(
-      "Expected ", rows, " row(s) of data from query ", N, ", got ",
-      std::size(r), ".")};
-  }
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
+  result r{exec(query, desc)};
+#include "pqxx/internal/ignore-deprecated-post.hxx"
+  r.expect_rows(rows);
   return r;
 }
 
 
-void pqxx::transaction_base::check_rowcount_prepared(
-  zview statement, result::size_type expected_rows,
-  result::size_type actual_rows)
-{
-  if (actual_rows != expected_rows)
-  {
-    throw unexpected_rows{internal::concat(
-      "Expected ", expected_rows, " row(s) of data from prepared statement '",
-      statement, "', got ", actual_rows, ".")};
-  }
-}
-
-
-void pqxx::transaction_base::check_rowcount_params(
-  std::size_t expected_rows, std::size_t actual_rows)
-{
-  if (actual_rows != expected_rows)
-  {
-    throw unexpected_rows{internal::concat(
-      "Expected ", expected_rows,
-      " row(s) of data from parameterised query, got ", actual_rows, ".")};
-  }
-}
-
-
 pqxx::result pqxx::transaction_base::internal_exec_prepared(
-  zview statement, internal::params const &args)
+  std::string_view statement, internal::c_params const &args)
 {
-  command cmd{*this, statement};
+  command const cmd{*this, statement};
   return pqxx::internal::gate::connection_transaction{conn()}.exec_prepared(
     statement, args);
 }
 
 
 pqxx::result pqxx::transaction_base::internal_exec_params(
-  zview query, internal::params const &args)
+  std::string_view query, internal::c_params const &args)
 {
-  command cmd{*this, query};
+  command const cmd{*this, query};
   return pqxx::internal::gate::connection_transaction{conn()}.exec_params(
     query, args);
+}
+
+
+void pqxx::transaction_base::notify(
+  std::string_view channel, std::string_view payload)
+{
+  // For some reason, NOTIFY does not work as a parameterised statement,
+  // even just for the payload (which is supposed to be a normal string).
+  // Luckily, pg_notify() does.
+  exec("SELECT pg_notify($1, $2)", params{channel, payload}).one_row();
 }
 
 
 void pqxx::transaction_base::set_variable(
   std::string_view var, std::string_view value)
 {
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
   conn().set_variable(var, value);
+#include "pqxx/internal/ignore-deprecated-post.hxx"
 }
 
 
 std::string pqxx::transaction_base::get_variable(std::string_view var)
 {
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
   return conn().get_variable(var);
+#include "pqxx/internal/ignore-deprecated-post.hxx"
 }
 
 
@@ -356,6 +339,7 @@ void pqxx::transaction_base::close() noexcept
     }
     catch (std::exception const &e)
     {
+      // TODO: Make at least an attempt to append a newline.
       m_conn.process_notice(e.what());
     }
 
@@ -370,9 +354,10 @@ void pqxx::transaction_base::close() noexcept
       return;
 
     if (m_focus != nullptr)
-      m_conn.process_notice(internal::concat(
-        "Closing ", description(), "  with ", m_focus->description(),
-        " still open.\n"));
+      PQXX_UNLIKELY
+    m_conn.process_notice(internal::concat(
+      "Closing ", description(), "  with ", m_focus->description(),
+      " still open.\n"));
 
     try
     {
@@ -380,6 +365,7 @@ void pqxx::transaction_base::close() noexcept
     }
     catch (std::exception const &e)
     {
+      // TODO: Make at least an attempt to append a newline.
       m_conn.process_notice(e.what());
     }
   }
@@ -387,6 +373,7 @@ void pqxx::transaction_base::close() noexcept
   {
     try
     {
+      // TODO: Make at least an attempt to append a newline.
       m_conn.process_notice(e.what());
     }
     catch (std::exception const &)
@@ -433,7 +420,8 @@ void pqxx::transaction_base::unregister_focus(
   }
   catch (std::exception const &e)
   {
-    m_conn.process_notice(internal::concat(e.what(), "\n"));
+    // TODO: Make at least an attempt to append a newline.
+    m_conn.process_notice(e.what());
   }
 }
 
@@ -450,7 +438,8 @@ pqxx::result pqxx::transaction_base::direct_exec(
   std::shared_ptr<std::string> cmd, std::string_view desc)
 {
   check_pending_error();
-  return pqxx::internal::gate::connection_transaction{conn()}.exec(cmd, desc);
+  return pqxx::internal::gate::connection_transaction{conn()}.exec(
+    std::move(cmd), desc);
 }
 
 
@@ -466,9 +455,11 @@ void pqxx::transaction_base::register_pending_error(zview err) noexcept
     {
       try
       {
+        PQXX_UNLIKELY
         process_notice("UNABLE TO PROCESS ERROR\n");
+        // TODO: Make at least an attempt to append a newline.
         process_notice(e.what());
-        process_notice("ERROR WAS:");
+        process_notice("ERROR WAS:\n");
         process_notice(err);
       }
       catch (...)
@@ -490,9 +481,11 @@ void pqxx::transaction_base::register_pending_error(std::string &&err) noexcept
     {
       try
       {
+        PQXX_UNLIKELY
         process_notice("UNABLE TO PROCESS ERROR\n");
+        // TODO: Make at least an attempt to append a newline.
         process_notice(e.what());
-        process_notice("ERROR WAS:");
+        process_notice("ERROR WAS:\n");
         process_notice(err);
       }
       catch (...)
@@ -521,7 +514,7 @@ std::string pqxx::transaction_base::description() const
 
 void pqxx::transaction_focus::register_me()
 {
-  pqxx::internal::gate::transaction_transaction_focus{m_trans}.register_focus(
+  pqxx::internal::gate::transaction_transaction_focus{*m_trans}.register_focus(
     this);
   m_registered = true;
 }
@@ -529,7 +522,7 @@ void pqxx::transaction_focus::register_me()
 
 void pqxx::transaction_focus::unregister_me() noexcept
 {
-  pqxx::internal::gate::transaction_transaction_focus{m_trans}
+  pqxx::internal::gate::transaction_transaction_focus{*m_trans}
     .unregister_focus(this);
   m_registered = false;
 }
@@ -538,6 +531,6 @@ void pqxx::transaction_focus::unregister_me() noexcept
 void pqxx::transaction_focus::reg_pending_error(
   std::string const &err) noexcept
 {
-  pqxx::internal::gate::transaction_transaction_focus{m_trans}
+  pqxx::internal::gate::transaction_transaction_focus{*m_trans}
     .register_pending_error(err);
 }

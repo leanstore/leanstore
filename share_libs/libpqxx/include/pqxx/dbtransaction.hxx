@@ -4,7 +4,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/dbtransaction instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,8 +13,9 @@
 #ifndef PQXX_H_DBTRANSACTION
 #define PQXX_H_DBTRANSACTION
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include "pqxx/transaction_base.hxx"
 
@@ -22,7 +23,7 @@ namespace pqxx
 {
 /// Abstract transaction base class: bracket transactions on the database.
 /**
- * @ingroup transaction
+ * @ingroup transactions
  *
  * Use a dbtransaction-derived object such as "work" (transaction<>) to enclose
  * operations on a database in a single "unit of work."  This ensures that the
@@ -47,25 +48,23 @@ namespace pqxx
  *
  * The actual operations for committing/aborting the backend transaction are
  * implemented by a derived class.  The implementing concrete class must also
- * call @c close() from its destructor.
+ * call @ref close from its destructor.
  */
 class PQXX_LIBEXPORT PQXX_NOVTABLE dbtransaction : public transaction_base
 {
 protected:
   /// Begin transaction.
-  explicit dbtransaction(connection &c) : transaction_base{c} {}
+  explicit dbtransaction(connection &cx) : transaction_base{cx} {}
   /// Begin transaction.
-  dbtransaction(connection &c, std::string_view tname) :
-          transaction_base{c, tname}
+  dbtransaction(connection &cx, std::string_view tname) :
+          transaction_base{cx, tname}
   {}
   /// Begin transaction.
   dbtransaction(
-    connection &c, std::string_view tname,
+    connection &cx, std::string_view tname,
     std::shared_ptr<std::string> rollback_cmd) :
-          transaction_base{c, tname, rollback_cmd}
+          transaction_base{cx, tname, rollback_cmd}
   {}
 };
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

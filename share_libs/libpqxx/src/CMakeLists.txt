@@ -18,6 +18,7 @@ endif()
 # happens to contain autoconf-generated config headers, we should still prefer
 # the ones in the binary tree.
 macro(library_target_setup tgt)
+    get_target_property (PostgreSQL_INCLUDE_DIRS PostgreSQL::PostgreSQL INTERFACE_INCLUDE_DIRECTORIES)
     target_include_directories(${tgt}
     	PUBLIC
     		$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
@@ -26,7 +27,7 @@ macro(library_target_setup tgt)
     	PRIVATE
     		${PostgreSQL_INCLUDE_DIRS}
     )
-    target_link_libraries(${tgt} PRIVATE ${PostgreSQL_LIBRARIES})
+    target_link_libraries(${tgt} PRIVATE PostgreSQL::PostgreSQL)
     if(WIN32)
         target_link_libraries(${tgt} PUBLIC wsock32 ws2_32)
     endif()
@@ -35,9 +36,10 @@ macro(library_target_setup tgt)
     	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     )
+
     get_target_property(name ${tgt} NAME)
     get_target_property(output_name ${tgt} OUTPUT_NAME)
-    if(NOT name STREQUAL output_name AND NOT CMAKE_HOST_WIN32)
+    if(NOT CMAKE_HOST_WIN32)
         # Create library symlink
         get_target_property(target_type ${tgt} TYPE)
         if(target_type STREQUAL "SHARED_LIBRARY")
@@ -47,13 +49,18 @@ macro(library_target_setup tgt)
             set(library_prefix ${CMAKE_STATIC_LIBRARY_PREFIX})
             set(library_suffix ${CMAKE_STATIC_LIBRARY_SUFFIX})
         endif()
+
+        list(APPEND noop_command "${CMAKE_COMMAND}" "-E" "true")
+        list(APPEND create_symlink_command "${CMAKE_COMMAND}" "-E" "create_symlink" "${library_prefix}${output_name}${library_suffix}" "${library_prefix}${name}${library_suffix}")
+        # `add_custom_command()` does nothing if the `OUTPUT_NAME` and `NAME`
+        # properties are equal, otherwise it creates library symlink.
         add_custom_command(TARGET ${tgt} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E create_symlink "${library_prefix}${output_name}${library_suffix}" "${library_prefix}${name}${library_suffix}"
+            COMMAND "$<IF:$<STREQUAL:${name},${output_name}>,${noop_command},${create_symlink_command}>"
             VERBATIM
             COMMAND_EXPAND_LISTS
         )
         install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${library_prefix}${name}${library_suffix}
-        	DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}
         )
     endif()
 endmacro()
@@ -61,6 +68,7 @@ endmacro()
 file(GLOB CXX_SOURCES *.cxx)
 
 add_library(pqxx ${CXX_SOURCES})
+add_library(libpqxx::pqxx ALIAS pqxx)
 
 get_target_property(pqxx_target_type pqxx TYPE)
 if(pqxx_target_type STREQUAL "SHARED_LIBRARY")

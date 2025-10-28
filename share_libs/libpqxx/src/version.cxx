@@ -1,6 +1,6 @@
 /** Version check.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -8,7 +8,12 @@
  */
 #include "pqxx-source.hxx"
 
-#include "pqxx/version"
+#include "pqxx/internal/header-pre.hxx"
+
+#include "pqxx/version.hxx"
+
+#include "pqxx/internal/header-post.hxx"
+
 
 namespace pqxx::internal
 {

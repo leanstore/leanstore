@@ -16,6 +16,7 @@
 
 namespace
 {
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
 void test_nonoptionals(pqxx::connection &connection)
 {
   pqxx::work tx{connection};
@@ -105,9 +106,9 @@ void test_nonoptionals(pqxx::connection &connection)
 }
 
 
-void test_bad_tuples(pqxx::connection &conn)
+void test_bad_tuples(pqxx::connection &cx)
 {
-  pqxx::work tx{conn};
+  pqxx::work tx{cx};
   auto extractor{pqxx::stream_from::table(tx, {"stream_from_test"})};
   PQXX_CHECK(extractor, "stream_from failed to initialize");
 
@@ -180,7 +181,6 @@ void test_optional(pqxx::connection &connection)
   PQXX_CHECK_EQUAL(std::get<0>(got_tuple), 1234, "Field value mismatch.");
   PQXX_CHECK(
     static_cast<bool>(std::get<1>(got_tuple)), "Unexpected null field.");
-  // PQXX_CHECK_EQUAL(*std::get<1>(got_tuple), , "field value mismatch");
   ASSERT_FIELD_EQUAL(std::get<2>(got_tuple), 4321);
   ASSERT_FIELD_EQUAL(std::get<3>(got_tuple), (ipv4{8, 8, 8, 8}));
   ASSERT_FIELD_EQUAL(std::get<4>(got_tuple), "hello\n \tworld");
@@ -205,8 +205,8 @@ void test_optional(pqxx::connection &connection)
 
 void test_stream_from()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   tx.exec0(
     "CREATE TEMP TABLE stream_from_test ("
     "number0 INT NOT NULL,"
@@ -216,34 +216,39 @@ void test_stream_from()
     "txt4    TEXT NULL,"
     "bin5    BYTEA NOT NULL"
     ")");
-  tx.exec_params(
-    "INSERT INTO stream_from_test VALUES ($1,$2,$3,$4,$5,$6)", 910, nullptr,
-    nullptr, nullptr, "\\N", bytea{});
-  tx.exec_params(
-    "INSERT INTO stream_from_test VALUES ($1,$2,$3,$4,$5,$6)", 1234, "now",
-    4321, ipv4{8, 8, 8, 8}, "hello\n \tworld", bytea{'\x00', '\x01', '\x02'});
-  tx.exec_params(
-    "INSERT INTO stream_from_test VALUES ($1,$2,$3,$4,$5,$6)", 5678,
-    "2018-11-17 21:23:00", nullptr, nullptr, "\u3053\u3093\u306b\u3061\u308f",
-    bytea{'f', 'o', 'o', ' ', 'b', 'a', 'r', '\0'});
+  tx.exec(
+    "INSERT INTO stream_from_test VALUES ($1,$2,$3,$4,$5,$6)",
+    pqxx::params{910, nullptr, nullptr, nullptr, "\\N", bytea{}});
+  tx.exec(
+    "INSERT INTO stream_from_test VALUES ($1,$2,$3,$4,$5,$6)",
+    pqxx::params{
+      1234, "now", 4321, ipv4{8, 8, 8, 8}, "hello\n \tworld",
+      bytea{'\x00', '\x01', '\x02'}});
+  tx.exec(
+    "INSERT INTO stream_from_test VALUES ($1,$2,$3,$4,$5,$6)",
+    pqxx::params{
+      5678, "2018-11-17 21:23:00", nullptr, nullptr,
+      "\u3053\u3093\u306b\u3061\u308f",
+      bytea{'f', 'o', 'o', ' ', 'b', 'a', 'r', '\0'}});
   tx.commit();
 
-  test_nonoptionals(conn);
-  test_bad_tuples(conn);
+  test_nonoptionals(cx);
+  test_bad_tuples(cx);
   std::cout << "testing `std::unique_ptr` as optional...\n";
-  test_optional<std::unique_ptr>(conn);
+  test_optional<std::unique_ptr>(cx);
   std::cout << "testing `std::optional` as optional...\n";
-  test_optional<std::optional>(conn);
+  test_optional<std::optional>(cx);
 }
 
 
-void test_stream_from__escaping()
+void test_stream_from_does_escaping()
 {
   std::string const input{"a\t\n\n\n \\b\nc"};
-  pqxx::connection conn;
-  pqxx::work tx{conn};
-  tx.exec0("CREATE TEMP TABLE badstr (str text)");
-  tx.exec0("INSERT INTO badstr (str) VALUES (" + tx.quote(input) + ")");
+  pqxx::connection cx;
+  pqxx::work tx{cx};
+  tx.exec("CREATE TEMP TABLE badstr (str text)").no_rows();
+  tx.exec("INSERT INTO badstr (str) VALUES ($1)", pqxx::params{input})
+    .no_rows();
   auto reader{pqxx::stream_from::table(tx, {"badstr"})};
   std::tuple<std::string> out;
   reader >> out;
@@ -252,10 +257,10 @@ void test_stream_from__escaping()
 }
 
 
-void test_stream_from__iteration()
+void test_stream_from_does_iteration()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   tx.exec0("CREATE TEMP TABLE str (s text)");
   tx.exec0("INSERT INTO str (s) VALUES ('foo')");
   auto reader{pqxx::stream_from::table(tx, {"str"})};
@@ -287,38 +292,10 @@ void test_stream_from__iteration()
 }
 
 
-void test_transaction_stream_from()
-{
-  pqxx::connection conn;
-  pqxx::work tx{conn};
-  tx.exec0("CREATE TEMP TABLE sample (id integer, name varchar)");
-  tx.exec0("INSERT INTO sample (id, name) VALUES (321, 'something')");
-
-  int items{0};
-  int id{0};
-  std::string name;
-
-  for (auto item :
-       tx.stream<int, std::string_view>("SELECT id, name FROM sample"))
-  {
-    items++;
-    id = std::get<0>(item);
-    name = std::get<1>(item);
-  }
-  PQXX_CHECK_EQUAL(items, 1, "Wrong number of iterations.");
-  PQXX_CHECK_EQUAL(id, 321, "Got wrong int.");
-  PQXX_CHECK_EQUAL(name, std::string{"something"}, "Got wrong string.");
-
-  PQXX_CHECK_EQUAL(
-    tx.query_value<int>("SELECT 4"), 4,
-    "Loop did not relinquish transaction.");
-}
-
-
 void test_stream_from_read_row()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   tx.exec0("CREATE TEMP TABLE sample (id integer, name varchar, opt integer)");
   tx.exec0("INSERT INTO sample (id, name) VALUES (321, 'something')");
 
@@ -329,16 +306,63 @@ void test_stream_from_read_row()
     std::string((*fields)[0]), "321", "Integer field came out wrong.");
   PQXX_CHECK_EQUAL(
     std::string((*fields)[1]), "something", "Text field came out wrong.");
-  PQXX_CHECK((*fields)[2].data() == nullptr, "Null field came out wrong.");
+  PQXX_CHECK(std::data((*fields)[2]) == nullptr, "Null field came out wrong.");
 
   auto last{stream.read_row()};
   PQXX_CHECK(last == nullptr, "No null pointer at end of stream.");
 }
 
 
+void test_stream_from_parses_awkward_strings()
+{
+  pqxx::connection cx;
+
+  // This is a particularly awkward encoding that we should test.  Its
+  // multibyte characters can include byte values that *look* like ASCII
+  // characters, such as quotes and backslashes.  It is crucial that we parse
+  // those properly.  A byte-for-byte scan could find special ASCII characters
+  // that aren't really there.
+  cx.set_client_encoding("SJIS");
+  pqxx::work tx{cx};
+  tx.exec0("CREATE TEMP TABLE nasty(id integer, value varchar)");
+  tx.exec0(
+    "INSERT INTO nasty(id, value) VALUES "
+    // A proper null.
+    "(0, NULL), "
+    // Some strings that could easily be mis-parsed as null.
+    "(1, 'NULL'), "
+    "(2, '\\N'), "
+    "(3, '''NULL'''), "
+    // An SJIS multibyte character that ends in a byte that happens to be the
+    // ASCII value for a backslash.  This is one example of how an SJIS SQL
+    // injection can break out of a string.
+    "(4, '\x81\x5c')");
+
+  std::vector<std::optional<std::string>> values;
+  for (auto [id, value] : tx.query<std::size_t, std::optional<std::string>>(
+         "SELECT id, value FROM nasty ORDER BY id"))
+  {
+    PQXX_CHECK_EQUAL(id, std::size(values), "Test data is broken.");
+    values.push_back(value);
+  }
+
+  PQXX_CHECK(not values[0].has_value(), "Null did not work properly.");
+  PQXX_CHECK(values[1].has_value(), "String 'NULL' became a NULL.");
+  PQXX_CHECK_EQUAL(values[1].value(), "NULL", "String 'NULL' went badly.");
+  PQXX_CHECK(values[2].has_value(), "String '\\N' became a NULL.");
+  PQXX_CHECK_EQUAL(values[2].value(), "\\N", "String '\\N' went badly.");
+  PQXX_CHECK(values[3].has_value(), "String \"'NULL'\" became a NULL.");
+  PQXX_CHECK_EQUAL(
+    values[3].value(), "'NULL'", "String \"'NULL'\" went badly.");
+  PQXX_CHECK_EQUAL(
+    values[4].value(), "\x81\x5c", "Finicky SJIS character went badly.");
+}
+#include "pqxx/internal/ignore-deprecated-post.hxx"
+
+
 PQXX_REGISTER_TEST(test_stream_from);
-PQXX_REGISTER_TEST(test_stream_from__escaping);
-PQXX_REGISTER_TEST(test_stream_from__iteration);
-PQXX_REGISTER_TEST(test_transaction_stream_from);
+PQXX_REGISTER_TEST(test_stream_from_does_escaping);
+PQXX_REGISTER_TEST(test_stream_from_does_iteration);
 PQXX_REGISTER_TEST(test_stream_from_read_row);
+PQXX_REGISTER_TEST(test_stream_from_parses_awkward_strings);
 } // namespace

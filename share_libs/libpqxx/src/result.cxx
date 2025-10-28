@@ -2,7 +2,7 @@
  *
  * pqxx::result represents the set of result rows from a database query
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -19,38 +19,52 @@ extern "C"
 #include <libpq-fe.h>
 }
 
-#include "pqxx/except"
-#include "pqxx/result"
+#include "pqxx/internal/header-pre.hxx"
 
+#include "pqxx/except.hxx"
 #include "pqxx/internal/concat.hxx"
+#include "pqxx/internal/result_iterator.hxx"
+#include "pqxx/result.hxx"
+#include "pqxx/row.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
 namespace pqxx
 {
 PQXX_DECLARE_ENUM_CONVERSION(ExecStatusType);
-}
+} // namespace pqxx
 
 std::string const pqxx::result::s_empty_string;
 
 
 /// C++ wrapper for libpq's PQclear.
-void pqxx::internal::clear_result(pq::PGresult const *data)
+void pqxx::internal::clear_result(pq::PGresult const *data) noexcept
 {
+  // This acts as a destructor, though implemented as a regular function so we
+  // can pass it into a smart pointer.  That's why I think it's kind of fair
+  // to treat the PGresult as const.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   PQclear(const_cast<pq::PGresult *>(data));
 }
 
 
 pqxx::result::result(
-  pqxx::internal::pq::PGresult *rhs, std::shared_ptr<std::string> query,
+  std::shared_ptr<pqxx::internal::pq::PGresult> const &rhs,
+  std::shared_ptr<std::string> const &query,
+  std::shared_ptr<pqxx::internal::notice_waiters> const &notice_waiters,
   internal::encoding_group enc) :
-        m_data{make_data_pointer(rhs)}, m_query{query}, m_encoding(enc)
+        m_data{rhs},
+        m_query{query},
+        m_notice_waiters{notice_waiters},
+        m_encoding(enc)
 {}
 
 
 bool pqxx::result::operator==(result const &rhs) const noexcept
 {
   if (&rhs == this)
-    return true;
+    PQXX_UNLIKELY return true;
   auto const s{size()};
   if (std::size(rhs) != s)
     return false;
@@ -87,7 +101,7 @@ pqxx::result::const_reverse_iterator pqxx::result::crend() const
 
 pqxx::result::const_iterator pqxx::result::begin() const noexcept
 {
-  return const_iterator{this, 0};
+  return {this, 0};
 }
 
 
@@ -113,13 +127,13 @@ bool pqxx::result::empty() const noexcept
 
 pqxx::result::reference pqxx::result::front() const noexcept
 {
-  return row{*this, 0};
+  return row{*this, 0, columns()};
 }
 
 
 pqxx::result::reference pqxx::result::back() const noexcept
 {
-  return row{*this, size() - 1};
+  return row{*this, size() - 1, columns()};
 }
 
 
@@ -132,8 +146,17 @@ void pqxx::result::swap(result &rhs) noexcept
 
 pqxx::row pqxx::result::operator[](result_size_type i) const noexcept
 {
-  return row{*this, i};
+  return row{*this, i, columns()};
 }
+
+
+#if defined(PQXX_HAVE_MULTIDIM)
+pqxx::field pqxx::result::operator[](
+  result_size_type row_num, row_size_type col_num) const noexcept
+{
+  return {*this, row_num, col_num};
+}
+#endif // PQXX_HAVE_MULTIDIM
 
 
 pqxx::row pqxx::result::at(pqxx::result::size_type i) const
@@ -141,6 +164,17 @@ pqxx::row pqxx::result::at(pqxx::result::size_type i) const
   if (i >= size())
     throw range_error{"Row number out of range."};
   return operator[](i);
+}
+
+
+pqxx::field pqxx::result::at(
+  pqxx::result_size_type row_num, pqxx::row_size_type col_num) const
+{
+  if (row_num >= size())
+    throw range_error{"Row number out of range."};
+  if (col_num >= columns())
+    throw range_error{"Column out of range."};
+  return {*this, row_num, col_num};
 }
 
 
@@ -153,7 +187,7 @@ inline bool equal(char const lhs[], char const rhs[])
 }
 } // namespace
 
-void pqxx::result::throw_sql_error(
+void PQXX_COLD pqxx::result::throw_sql_error(
   std::string const &Err, std::string const &Query) const
 {
   // Try to establish more precise error type, and throw corresponding
@@ -168,6 +202,7 @@ void pqxx::result::throw_sql_error(
 
   switch (code[0])
   {
+    PQXX_UNLIKELY
   case '\0':
     // SQLSTATE is empty.  We may have seen this happen in one
     // circumstance: a client-side socket timeout (while using the
@@ -181,7 +216,10 @@ void pqxx::result::throw_sql_error(
     switch (code[1])
     {
     case 'A': throw feature_not_supported{Err, Query, code};
-    case '8': throw broken_connection{Err};
+    case '8':
+      if (equal(code, "08P01"))
+        throw protocol_violation{Err};
+      throw broken_connection{Err};
     case 'L':
     case 'P': throw insufficient_privilege{Err, Query, code};
     }
@@ -270,6 +308,7 @@ void pqxx::result::check_status(std::string_view desc) const
 {
   if (auto err{status_error()}; not std::empty(err))
   {
+    PQXX_UNLIKELY
     if (not std::empty(desc))
       err = pqxx::internal::concat("Failure during '", desc, "': ", err);
     throw_sql_error(err, query());
@@ -289,19 +328,30 @@ std::string pqxx::result::status_error() const
   case PGRES_EMPTY_QUERY: // The string sent to the backend was empty.
   case PGRES_COMMAND_OK:  // Successful completion, no result data.
   case PGRES_TUPLES_OK:   // The query successfully executed.
+  case PGRES_COPY_OUT:    // Copy Out (from server) data transfer started.
+  case PGRES_COPY_IN:     // Copy In (to server) data transfer started.
+  case PGRES_COPY_BOTH:   // Copy In/Out.  Used for streaming replication.
     break;
 
-  case PGRES_COPY_OUT: // Copy Out (from server) data transfer started.
-  case PGRES_COPY_IN:  // Copy In (to server) data transfer started.
-    break;
+#if defined(LIBPQ_HAS_PIPELINING)
+  case PGRES_PIPELINE_SYNC:    // Pipeline mode synchronisation point.
+  case PGRES_PIPELINE_ABORTED: // Previous command in pipeline failed.
+    throw feature_not_supported{"Not supported yet: libpq pipelines."};
+#endif
 
   case PGRES_BAD_RESPONSE: // The server's response was not understood.
   case PGRES_NONFATAL_ERROR:
-  case PGRES_FATAL_ERROR: err = PQresultErrorMessage(m_data.get()); break;
+  case PGRES_FATAL_ERROR:
+    PQXX_UNLIKELY
+    err = PQresultErrorMessage(m_data.get());
+    break;
+
+  case PGRES_SINGLE_TUPLE:
+    throw feature_not_supported{"Not supported: single-row mode."};
 
   default:
     throw internal_error{internal::concat(
-      "pqxx::result: Unrecognized response code ",
+      "pqxx::result: Unrecognized result status code ",
       PQresultStatus(m_data.get()))};
   }
   return err;
@@ -310,13 +360,17 @@ std::string pqxx::result::status_error() const
 
 char const *pqxx::result::cmd_status() const noexcept
 {
+  // PQcmdStatus() can't take a PGresult const * because it returns a non-const
+  // pointer into the PGresult's data, and that can't be changed without
+  // breaking compatibility.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   return PQcmdStatus(const_cast<internal::pq::PGresult *>(m_data.get()));
 }
 
 
-std::string const &pqxx::result::query() const noexcept
+std::string const &pqxx::result::query() const & noexcept
 {
-  return (m_query.get() == nullptr) ? s_empty_string : *m_query;
+  return (m_query == nullptr) ? s_empty_string : *m_query;
 }
 
 
@@ -325,27 +379,31 @@ pqxx::oid pqxx::result::inserted_oid() const
   if (m_data.get() == nullptr)
     throw usage_error{
       "Attempt to read oid of inserted row without an INSERT result"};
-  return PQoidValue(const_cast<internal::pq::PGresult *>(m_data.get()));
+  return PQoidValue(m_data.get());
 }
 
 
 pqxx::result::size_type pqxx::result::affected_rows() const
 {
-  auto const rows_str{
+  // PQcmdTuples() can't take a "PGresult const *" because it returns a
+  // non-const pointer into the PGresult's data, and that can't be changed
+  // without breaking compatibility.
+  std::string_view const rows_str{
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     PQcmdTuples(const_cast<internal::pq::PGresult *>(m_data.get()))};
-  return (rows_str[0] == '\0') ? 0 : size_type(atoi(rows_str));
+  return from_string<size_type>(rows_str);
 }
 
 
 char const *pqxx::result::get_value(
-  pqxx::result::size_type row, pqxx::row::size_type col) const
+  pqxx::result::size_type row, pqxx::row::size_type col) const noexcept
 {
   return PQgetvalue(m_data.get(), row, col);
 }
 
 
 bool pqxx::result::get_is_null(
-  pqxx::result::size_type row, pqxx::row::size_type col) const
+  pqxx::result::size_type row, pqxx::row::size_type col) const noexcept
 {
   return PQgetisnull(m_data.get(), row, col) != 0;
 }
@@ -371,8 +429,7 @@ pqxx::oid pqxx::result::column_type(row::size_type col_num) const
 
 pqxx::row::size_type pqxx::result::column_number(zview col_name) const
 {
-  auto const n{PQfnumber(
-    const_cast<internal::pq::PGresult *>(m_data.get()), col_name.c_str())};
+  auto const n{PQfnumber(m_data.get(), col_name.c_str())};
   if (n == -1)
     throw argument_error{
       internal::concat("Unknown column name: '", col_name, "'.")};
@@ -401,7 +458,8 @@ pqxx::row::size_type pqxx::result::table_column(row::size_type col_num) const
 {
   auto const n{row::size_type(PQftablecol(m_data.get(), col_num))};
   if (n != 0)
-    return n - 1;
+    PQXX_LIKELY
+  return n - 1;
 
   // Failed.  Now find out why, so we can throw a sensible exception.
   auto const col_str{to_string(col_num)};
@@ -419,14 +477,13 @@ pqxx::row::size_type pqxx::result::table_column(row::size_type col_num) const
     ": not derived from table column.")};
 }
 
+
 int pqxx::result::errorposition() const
 {
   int pos{-1};
   if (m_data.get())
   {
-    auto const p{PQresultErrorField(
-      const_cast<internal::pq::PGresult *>(m_data.get()),
-      PG_DIAG_STATEMENT_POSITION)};
+    auto const p{PQresultErrorField(m_data.get(), PG_DIAG_STATEMENT_POSITION)};
     if (p)
       pos = from_string<decltype(pos)>(p);
   }
@@ -434,11 +491,12 @@ int pqxx::result::errorposition() const
 }
 
 
-char const *pqxx::result::column_name(pqxx::row::size_type number) const
+char const *pqxx::result::column_name(pqxx::row::size_type number) const &
 {
   auto const n{PQfname(m_data.get(), number)};
   if (n == nullptr)
   {
+    PQXX_UNLIKELY
     if (m_data.get() == nullptr)
       throw usage_error{"Queried column name on null result."};
     throw range_error{internal::concat(
@@ -451,14 +509,84 @@ char const *pqxx::result::column_name(pqxx::row::size_type number) const
 
 pqxx::row::size_type pqxx::result::columns() const noexcept
 {
-  auto ptr{const_cast<internal::pq::PGresult *>(m_data.get())};
-  return (ptr == nullptr) ? 0 : row::size_type(PQnfields(ptr));
+  return m_data ? row::size_type(PQnfields(m_data.get())) : 0;
+}
+
+
+int pqxx::result::column_storage(pqxx::row::size_type number) const
+{
+  int const out{PQfsize(m_data.get(), number)};
+  if (out == 0)
+  {
+    auto const sz{this->size()};
+    if ((number < 0) or (number >= sz))
+      throw argument_error{pqxx::internal::concat(
+        "Column number out of range: ", number, " (have 0 - ", sz, ")")};
+    throw failure{pqxx::internal::concat(
+      "Error getting column_storage for column ", number)};
+  }
+  return out;
+}
+
+
+int pqxx::result::column_type_modifier(
+  pqxx::row::size_type number) const noexcept
+{
+  return PQfmod(m_data.get(), number);
+}
+
+
+pqxx::row pqxx::result::one_row() const
+{
+  auto const sz{size()};
+  if (sz != 1)
+  {
+    // TODO: See whether result contains a generated statement.
+    if (not m_query or m_query->empty())
+      throw unexpected_rows{
+        pqxx::internal::concat("Expected 1 row from query, got ", sz, ".")};
+    else
+      throw unexpected_rows{pqxx::internal::concat(
+        "Expected 1 row from query '", *m_query, "', got ", sz, ".")};
+  }
+  return front();
+}
+
+
+pqxx::field pqxx::result::one_field() const
+{
+  expect_columns(1);
+  return one_row()[0];
+}
+
+
+std::optional<pqxx::row> pqxx::result::opt_row() const
+{
+  auto const sz{size()};
+  if (sz > 1)
+  {
+    // TODO: See whether result contains a generated statement.
+    if (not m_query or m_query->empty())
+      throw unexpected_rows{pqxx::internal::concat(
+        "Expected at most 1 row from query, got ", sz, ".")};
+    else
+      throw unexpected_rows{pqxx::internal::concat(
+        "Expected at most 1 row from query '", *m_query, "', got ", sz, ".")};
+  }
+  else if (sz == 1)
+  {
+    return {front()};
+  }
+  else
+  {
+    return {};
+  }
 }
 
 
 // const_result_iterator
 
-pqxx::const_result_iterator pqxx::const_result_iterator::operator++(int)
+pqxx::const_result_iterator pqxx::const_result_iterator::operator++(int) &
 {
   const_result_iterator old{*this};
   m_index++;
@@ -466,7 +594,7 @@ pqxx::const_result_iterator pqxx::const_result_iterator::operator++(int)
 }
 
 
-pqxx::const_result_iterator pqxx::const_result_iterator::operator--(int)
+pqxx::const_result_iterator pqxx::const_result_iterator::operator--(int) &
 {
   const_result_iterator old{*this};
   m_index--;
@@ -483,18 +611,18 @@ pqxx::result::const_reverse_iterator::base() const noexcept
 
 
 pqxx::const_reverse_result_iterator
-pqxx::const_reverse_result_iterator::operator++(int)
+pqxx::const_reverse_result_iterator::operator++(int) &
 {
-  const_reverse_result_iterator tmp{*this};
+  const_reverse_result_iterator const tmp{*this};
   iterator_type::operator--();
   return tmp;
 }
 
 
 pqxx::const_reverse_result_iterator
-pqxx::const_reverse_result_iterator::operator--(int)
+pqxx::const_reverse_result_iterator::operator--(int) &
 {
-  const_reverse_result_iterator tmp{*this};
+  const_reverse_result_iterator const tmp{*this};
   iterator_type::operator++();
   return tmp;
 }
@@ -502,5 +630,5 @@ pqxx::const_reverse_result_iterator::operator--(int)
 
 template<> std::string pqxx::to_string(field const &value)
 {
-  return std::string{value.c_str(), std::size(value)};
+  return {value.c_str(), std::size(value)};
 }

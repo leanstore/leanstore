@@ -1,8 +1,5 @@
 /* include/pqxx/config.h.in.  Generated from configure.ac by autoheader.  */
 
-/* define if the compiler supports basic C++17 syntax */
-#undef HAVE_CXX17
-
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #undef HAVE_DLFCN_H
 
@@ -12,11 +9,11 @@
 /* Define to 1 if you have the `pq' library (-lpq). */
 #undef HAVE_LIBPQ
 
-/* Define to 1 if you have the <memory.h> header file. */
-#undef HAVE_MEMORY_H
-
 /* Define to 1 if you have the <stdint.h> header file. */
 #undef HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdio.h> header file. */
+#undef HAVE_STDIO_H
 
 /* Define to 1 if you have the <stdlib.h> header file. */
 #undef HAVE_STDLIB_H
@@ -60,44 +57,73 @@
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
 
-/* Define if <charconv> supports floating-point conversion. */
+/* Define if this feature is available. */
+#undef PQXX_HAVE_ASSUME
+
+/* Define if this feature is available. */
 #undef PQXX_HAVE_CHARCONV_FLOAT
 
-/* Define if <charconv> supports integer conversion. */
+/* Define if this feature is available. */
 #undef PQXX_HAVE_CHARCONV_INT
 
-/* Define if compiler supports Concepts and <ranges> header. */
+/* Define if this feature is available. */
+#undef PQXX_HAVE_CMP
+
+/* Define if this feature is available. */
 #undef PQXX_HAVE_CONCEPTS
 
-/* Define if compiler supports __cxa_demangle */
+/* Define if this feature is available. */
 #undef PQXX_HAVE_CXA_DEMANGLE
 
-/* Define if g++ supports pure attribute */
+/* Define if this feature is available. */
 #undef PQXX_HAVE_GCC_PURE
 
-/* Define if g++ supports visibility attribute. */
+/* Define if this feature is available. */
 #undef PQXX_HAVE_GCC_VISIBILITY
 
-/* Define if poll() is available. */
+/* Define if this feature is available. */
+#undef PQXX_HAVE_LIKELY
+
+/* Define if this feature is available. */
+#undef PQXX_HAVE_MULTIDIM
+
+/* Define if this feature is available. */
+#undef PQXX_HAVE_PATH
+
+/* Define if this feature is available. */
 #undef PQXX_HAVE_POLL
 
-/* Define if libpq has PQencryptPasswordConn (since pg 10). */
-#undef PQXX_HAVE_PQENCRYPTPASSWORDCONN
+/* Define if this feature is available. */
+#undef PQXX_HAVE_SLEEP_FOR
 
-/* Define if compiler provides strnlen */
-#undef PQXX_HAVE_STRNLEN
+/* Define if this feature is available. */
+#undef PQXX_HAVE_SOURCE_LOCATION
 
-/* Define if compiler provides strnlen_s */
-#undef PQXX_HAVE_STRNLEN_S
+/* Define if this feature is available. */
+#undef PQXX_HAVE_SPAN
 
-/* Define if thread_local is fully supported. */
+/* Define if this feature is available. */
+#undef PQXX_HAVE_SSIZE
+
+/* Define if this feature is available. */
+#undef PQXX_HAVE_STRERROR_R
+
+/* Define if this feature is available. */
+#undef PQXX_HAVE_STRERROR_S
+
+/* Define if this feature is available. */
 #undef PQXX_HAVE_THREAD_LOCAL
 
-/* Define if std::variant is fully supported. */
-#undef PQXX_HAVE_VARIANT
+/* Define if this feature is available. */
+#undef PQXX_HAVE_YEAR_MONTH_DAY
 
-/* Define to 1 if you have the ANSI C header files. */
+/* Define to 1 if all of the C90 standard headers exist (not just the ones
+   required in a freestanding environment). This macro is provided for
+   backward compatibility; new code need not use it. */
 #undef STDC_HEADERS
 
 /* Version number of package */
 #undef VERSION
+
+/* Define if this feature is available. */
+#undef no_need_fslib

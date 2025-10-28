@@ -3,7 +3,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/transaction instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -12,21 +12,22 @@
 #ifndef PQXX_H_TRANSACTION
 #define PQXX_H_TRANSACTION
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include "pqxx/dbtransaction.hxx"
 
 namespace pqxx::internal
 {
-/// Helper base class for the @c transaction class template.
+/// Helper base class for the @ref transaction class template.
 class PQXX_LIBEXPORT basic_transaction : public dbtransaction
 {
 protected:
   basic_transaction(
-    connection &c, zview begin_command, std::string_view tname);
-  basic_transaction(connection &c, zview begin_command, std::string &&tname);
-  basic_transaction(connection &c, zview begin_command);
+    connection &cx, zview begin_command, std::string_view tname);
+  basic_transaction(connection &cx, zview begin_command, std::string &&tname);
+  basic_transaction(connection &cx, zview begin_command);
 
   virtual ~basic_transaction() noexcept override = 0;
 
@@ -39,7 +40,7 @@ private:
 namespace pqxx
 {
 /**
- * @ingroup transaction
+ * @ingroup transactions
  */
 //@{
 
@@ -49,20 +50,20 @@ namespace pqxx
  *
  * Usage example: double all wages.
  *
- * @code
- * extern connection C;
- * work T(C);
+ * ```cxx
+ * extern connection cx;
+ * work tx(cx);
  * try
  * {
- *   T.exec0("UPDATE employees SET wage=wage*2");
- *   T.commit();	// NOTE: do this inside try block
+ *   tx.exec("UPDATE employees SET wage=wage*2").no_rows();
+ *   tx.commit();  // NOTE: do this inside try block
  * }
  * catch (exception const &e)
  * {
  *   cerr << e.what() << endl;
- *   T.abort();		// Usually not needed; same happens when T's life ends.
+ *   tx.abort();  // Usually not needed; same happens when tx's life ends.
  * }
- * @endcode
+ * ```
  */
 template<
   isolation_level ISOLATION = isolation_level::read_committed,
@@ -72,24 +73,23 @@ class transaction final : public internal::basic_transaction
 public:
   /// Begin a transaction.
   /**
-   * @param c Connection for this transaction to operate on.
+   * @param cx Connection for this transaction to operate on.
    * @param tname Optional name for transaction.  Must begin with a letter and
    * may contain letters and digits only.
    */
-  transaction(connection &c, std::string_view tname) :
+  transaction(connection &cx, std::string_view tname) :
           internal::basic_transaction{
-            c, internal::begin_cmd<ISOLATION, READWRITE>, tname}
+            cx, internal::begin_cmd<ISOLATION, READWRITE>, tname}
   {}
 
   /// Begin a transaction.
   /**
-   * @param c Connection for this transaction to operate on.
-   * @param tname Optional name for transaction.  Must begin with a letter and
+   * @param cx Connection for this transaction to operate on.
    * may contain letters and digits only.
    */
-  explicit transaction(connection &c) :
+  explicit transaction(connection &cx) :
           internal::basic_transaction{
-            c, internal::begin_cmd<ISOLATION, READWRITE>}
+            cx, internal::begin_cmd<ISOLATION, READWRITE>}
   {}
 
   virtual ~transaction() noexcept override { close(); }
@@ -105,6 +105,4 @@ using read_transaction =
 
 //@}
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

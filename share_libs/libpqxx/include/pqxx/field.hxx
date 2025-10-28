@@ -4,7 +4,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/field instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,8 +13,9 @@
 #ifndef PQXX_H_FIELD
 #define PQXX_H_FIELD
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include <optional>
 
@@ -34,18 +35,6 @@ class PQXX_LIBEXPORT field
 {
 public:
   using size_type = field_size_type;
-
-  /// Constructor.  Do not call this yourself; libpqxx will do it for you.
-  /** Create field as reference to a field in a result set.
-   * @param r Row that this field is part of.
-   * @param c Column number of this field.
-   */
-  PQXX_DEPRECATED("Do not construct fields yourself.  Get them from the row.")
-  field(row const &r, row_size_type c) noexcept;
-
-  /// Constructor.  Do not call this yourself; libpqxx will do it for you.
-  PQXX_DEPRECATED("Do not construct fields yourself.  Get them from the row.")
-  field() = default;
 
   /**
    * @name Comparison
@@ -68,12 +57,12 @@ public:
    * equivalent and equally valid) encodings of the same Unicode character
    * etc.
    */
-  [[nodiscard]] PQXX_PURE bool operator==(field const &) const;
+  [[nodiscard]] PQXX_PURE bool operator==(field const &) const noexcept;
 
   /// Byte-by-byte comparison (all nulls are considered equal)
   /** @warning See operator==() for important information about this operator
    */
-  [[nodiscard]] PQXX_PURE bool operator!=(field const &rhs) const
+  [[nodiscard]] PQXX_PURE bool operator!=(field const &rhs) const noexcept
   {
     return not operator==(rhs);
   }
@@ -84,7 +73,7 @@ public:
    */
   //@{
   /// Column name.
-  [[nodiscard]] PQXX_PURE char const *name() const;
+  [[nodiscard]] PQXX_PURE char const *name() const &;
 
   /// Column type.
   [[nodiscard]] oid PQXX_PURE type() const;
@@ -92,8 +81,8 @@ public:
   /// What table did this column come from?
   [[nodiscard]] PQXX_PURE oid table() const;
 
-  /// Return row number.  The first row is row 0, the second is row 1, etc.
-  PQXX_PURE row_size_type num() const { return col(); }
+  /// Return column number.  The first column is 0, the second is 1, etc.
+  PQXX_PURE constexpr row_size_type num() const noexcept { return col(); }
 
   /// What column number in its originating table did this column come from?
   [[nodiscard]] PQXX_PURE row_size_type table_column() const;
@@ -101,10 +90,25 @@ public:
 
   /**
    * @name Content access
+   *
+   * You can read a field as any C++ type for which a conversion from
+   * PostgreSQL's text format is defined.  See @ref datatypes for how this
+   * works.  This mechanism is _weakly typed:_ the conversions do not care
+   * what SQL type a field had in the database, only that its actual contents
+   * convert to the target type without problems.  So for instance, you can
+   * read a `text` field as an `int`, so long as the string in the field spells
+   * out a valid `int` number.
+   *
+   * Many built-in types come with conversions predefined.  To find out how to
+   * add your own, see @ref datatypes.
    */
   //@{
-  /// Read as @c string_view, or an empty one if null.
-  [[nodiscard]] PQXX_PURE std::string_view view() const
+  /// Read as `string_view`, or an empty one if null.
+  /** The result only remains usable while the data for the underlying
+   * @ref result exists.  Once all `result` objects referring to that data have
+   * been destroyed, the `string_view` will no longer point to valid memory.
+   */
+  [[nodiscard]] PQXX_PURE std::string_view view() const &
   {
     return std::string_view(c_str(), size());
   }
@@ -113,13 +117,13 @@ public:
   /** Since the field's data is stored internally in the form of a
    * zero-terminated C string, this is the fastest way to read it.  Use the
    * to() or as() functions to convert the string to other types such as
-   * @c int, or to C++ strings.
+   * `int`, or to C++ strings.
    *
    * Do not use this for BYTEA values, or other binary values.  To read those,
-   * convert the value to your desired type using @c to() or @c as().  For
-   * example: @c f.as<std::basic_string<std::byte>>().
+   * convert the value to your desired type using `to()` or `as()`.  For
+   * example: `f.as<pqx::bytes>()`.
    */
-  [[nodiscard]] PQXX_PURE char const *c_str() const;
+  [[nodiscard]] PQXX_PURE char const *c_str() const &;
 
   /// Is this field's value null?
   [[nodiscard]] PQXX_PURE bool is_null() const noexcept;
@@ -127,14 +131,15 @@ public:
   /// Return number of bytes taken up by the field's value.
   [[nodiscard]] PQXX_PURE size_type size() const noexcept;
 
-  /// Read value into obj; or if null, leave obj untouched and return @c false.
+  /// Read value into obj; or if null, leave obj untouched and return `false`.
   /** This can be used with optional types (except pointers other than C-style
    * strings).
    */
   template<typename T>
-  auto to(T &obj) const -> typename std::enable_if_t<
-    (not std::is_pointer<T>::value or std::is_same<T, char const *>::value),
-    bool>
+  auto to(T &obj) const ->
+    typename std::enable_if_t<
+      (not std::is_pointer<T>::value or std::is_same<T, char const *>::value),
+      bool>
   {
     if (is_null())
     {
@@ -142,17 +147,17 @@ public:
     }
     else
     {
-      auto const bytes{c_str()};
-      from_string(bytes, obj);
+      auto const data{c_str()};
+      from_string(data, obj);
       return true;
     }
   }
 
-  /// Read field as a composite value, write its components into @c fields.
+  /// Read field as a composite value, write its components into `fields`.
   /** @warning This is still experimental.  It may change or be replaced.
    *
    * Returns whether the field was null.  If it was, it will not touch the
-   * values in @c fields.
+   * values in `fields`.
    */
   template<typename... T> bool composite_to(T &...fields) const
   {
@@ -167,13 +172,13 @@ public:
     }
   }
 
-  /// Read value into obj; or leave obj untouched and return @c false if null.
+  /// Read value into obj; or leave obj untouched and return `false` if null.
   template<typename T> bool operator>>(T &obj) const { return to(obj); }
 
-  /// Read value into obj; or if null, use default value and return @c false.
-  /** This can be used with @c std::optional, as well as with standard smart
+  /// Read value into obj; or if null, use default value and return `false`.
+  /** This can be used with `std::optional`, as well as with standard smart
    * pointer types, but not with raw pointers.  If the conversion from a
-   * PostgreSQL string representation allocates a pointer (e.g. using @c new),
+   * PostgreSQL string representation allocates a pointer (e.g. using `new`),
    * then the object's later deallocation should be baked in as well, right
    * from the point where the object is created.  So if you want a pointer, use
    * a smart pointer, not a raw pointer.
@@ -182,9 +187,10 @@ public:
    * pointers to the field's internal text data.
    */
   template<typename T>
-  auto to(T &obj, T const &default_value) const -> typename std::enable_if_t<
-    (not std::is_pointer<T>::value or std::is_same<T, char const *>::value),
-    bool>
+  auto to(T &obj, T const &default_value) const ->
+    typename std::enable_if_t<
+      (not std::is_pointer<T>::value or std::is_same<T, char const *>::value),
+      bool>
   {
     bool const null{is_null()};
     if (null)
@@ -217,13 +223,9 @@ public:
     if (is_null())
     {
       if constexpr (not nullness<T>::has_null)
-      {
         internal::throw_null_conversion(type_name<T>);
-      }
       else
-      {
         return nullness<T>::null();
-      }
     }
     else
     {
@@ -241,24 +243,62 @@ public:
     return as<O<T>>();
   }
 
+  /// Read SQL array contents as a @ref pqxx::array.
+  template<typename ELEMENT, auto... ARGS>
+  array<ELEMENT, ARGS...> as_sql_array() const
+  {
+    using array_type = array<ELEMENT, ARGS...>;
+
+    // There's no such thing as a null SQL array.
+    if (is_null())
+      internal::throw_null_conversion(type_name<array_type>);
+    else
+      return array_type{this->view(), this->m_home.m_encoding};
+  }
+
   /// Parse the field as an SQL array.
   /** Call the parser to retrieve values (and structure) from the array.
    *
-   * Make sure the @c result object stays alive until parsing is finished.  If
-   * you keep the @c row of @c field object alive, it will keep the @c result
-   * object alive as well.
+   * Make sure the @ref result object stays alive until parsing is finished. If
+   * you keep the @ref row of `field` object alive, it will keep the @ref
+   * result object alive as well.
    */
-  array_parser as_array() const
+  [[deprecated(
+    "Avoid pqxx::array_parser.  "
+    "Instead, use as_sql_array() to convert to pqxx::array.")]]
+  array_parser as_array() const & noexcept
   {
     return array_parser{c_str(), m_home.m_encoding};
   }
   //@}
 
+  /// Constructor.  Do not call this yourself; libpqxx will do it for you.
+  /** Create field as reference to a field in a result set.
+   * @param r Row that this field is part of.
+   * @param c Column number of this field.
+   */
+  [[deprecated(
+    "Do not construct fields yourself.  Get them from the row.")]] field(row const &r, row_size_type c) noexcept;
+
+  /// Constructor.  Do not call this yourself; libpqxx will do it for you.
+  [[deprecated(
+    "Do not construct fields yourself.  Get them from the "
+    "row.")]] field() noexcept = default;
+
 
 protected:
-  result const &home() const noexcept { return m_home; }
-  result::size_type idx() const noexcept { return m_row; }
-  row_size_type col() const noexcept { return m_col; }
+  constexpr result const &home() const noexcept { return m_home; }
+  constexpr result::size_type idx() const noexcept { return m_row; }
+  constexpr row_size_type col() const noexcept { return m_col; }
+
+  // TODO: Create gates.
+  friend class pqxx::result;
+  friend class pqxx::row;
+  field(
+    result const &r, result_size_type row_num, row_size_type col_num) noexcept
+          :
+          m_col{col_num}, m_home{r}, m_row{row_num}
+  {}
 
   /**
    * You'd expect this to be unsigned, but due to the way reverse iterators
@@ -294,7 +334,7 @@ inline bool field::to<std::string>(
 }
 
 
-/// Specialization: <tt>to(char const *&)</tt>.
+/// Specialization: `to(char const *&)`.
 /** The buffer has the same lifetime as the data in this result (i.e. of this
  * result object, or the last remaining one copied from it etc.), so take care
  * not to use it after the last result object referring to this query result is
@@ -334,7 +374,8 @@ inline bool field::to<std::string_view>(
 template<> inline std::string_view field::as<std::string_view>() const
 {
   if (is_null())
-    internal::throw_null_conversion(type_name<std::string_view>);
+    PQXX_UNLIKELY
+  internal::throw_null_conversion(type_name<std::string_view>);
   return view();
 }
 
@@ -371,7 +412,8 @@ inline bool field::to<zview>(zview &obj, zview const &default_value) const
 template<> inline zview field::as<zview>() const
 {
   if (is_null())
-    internal::throw_null_conversion(type_name<zview>);
+    PQXX_UNLIKELY
+  internal::throw_null_conversion(type_name<zview>);
   return zview{c_str(), size()};
 }
 
@@ -423,11 +465,16 @@ private:
 
 
 /// Input stream that gets its data from a result field
-/** Use this class exactly as you would any other istream to read data from a
- * field.  All formatting and streaming operations of @c std::istream are
- * supported.  What you'll typically want to use, however, is the fieldstream
- * alias (which defines a basic_fieldstream for @c char).  This is similar to
- * how e.g. @c std::ifstream relates to @c std::basic_ifstream.
+/** @deprecated To convert a field's value string to some other type, e.g. to
+ * an `int`, use the field's `as<...>()` member function.  To read a field
+ * efficiently just as a string, use its `c_str()` or its
+ * `as<std::string_vview>()`.
+ *
+ * Works like any other istream to read data from a field.  It supports all
+ * formatting and streaming operations of `std::istream`.  For convenience
+ * there is a fieldstream alias, which defines a @ref basic_fieldstream for
+ * `char`.  This is similar to how e.g. `std::ifstream` relates to
+ * `std::basic_ifstream`.
  *
  * This class has only been tested for the char type (and its default traits).
  */
@@ -443,7 +490,9 @@ public:
   using pos_type = typename traits_type::pos_type;
   using off_type = typename traits_type::off_type;
 
-  basic_fieldstream(field const &f) : super{nullptr}, m_buf{f}
+  [[deprecated("Use field::as<...>() or field::c_str().")]] basic_fieldstream(
+    field const &f) :
+          super{nullptr}, m_buf{f}
   {
     super::init(&m_buf);
   }
@@ -452,18 +501,24 @@ private:
   field_streambuf<CHAR, TRAITS> m_buf;
 };
 
+
+/// @deprecated Read a field using `field::as<...>()` or `field::c_str()`.
 using fieldstream = basic_fieldstream<char>;
 
-/// Write a result field to any type of stream
-/** This can be convenient when writing a field to an output stream.  More
- * importantly, it lets you write a field to e.g. a @c stringstream which you
+
+/// Write a result field to any type of stream.
+/** @deprecated The C++ streams library is not great to work with.  In
+ * particular, error handling is easy to get wrong.  So you're probably better
+ * off doing this by hand.
+ *
+ * This can be convenient when writing a field to an output stream.  More
+ * importantly, it lets you write a field to e.g. a `stringstream` which you
  * can then use to read, format and convert the field in ways that to() does
  * not support.
  *
- * Example: parse a field into a variable of the nonstandard
- * "<tt>long long</tt>" type.
+ * Example: parse a field into a variable of the nonstandard `long long` type.
  *
- * @code
+ * ```cxx
  * extern result R;
  * long long L;
  * stringstream S;
@@ -473,19 +528,21 @@ using fieldstream = basic_fieldstream<char>;
  *
  * // Parse contents of S into L
  * S >> L;
- * @endcode
+ * ```
  */
 template<typename CHAR>
-inline std::basic_ostream<CHAR> &
-operator<<(std::basic_ostream<CHAR> &s, field const &value)
+[[deprecated(
+  "Do this by hand, probably with better error checking.")]] inline std::
+  basic_ostream<CHAR> &
+  operator<<(std::basic_ostream<CHAR> &s, field const &value)
 {
   s.write(value.c_str(), std::streamsize(std::size(value)));
   return s;
 }
 
 
-/// Convert a field's value to type @c T.
-/** Unlike the "regular" @c from_string, this knows how to deal with null
+/// Convert a field's value to type `T`.
+/** Unlike the "regular" `from_string`, this knows how to deal with null
  * values.
  */
 template<typename T> inline T from_string(field const &value)
@@ -504,12 +561,12 @@ template<typename T> inline T from_string(field const &value)
 }
 
 
-/// Convert a field's value to @c nullptr_t.
+/// Convert a field's value to `nullptr_t`.
 /** Yes, you read that right.  This conversion does nothing useful.  It always
- * returns @c nullptr.
+ * returns `nullptr`.
  *
  * Except... what if the field is not null?  In that case, this throws
- * @c conversion_error.
+ * @ref conversion_error.
  */
 template<>
 inline std::nullptr_t from_string<std::nullptr_t>(field const &value)
@@ -524,6 +581,4 @@ inline std::nullptr_t from_string<std::nullptr_t>(field const &value)
 /// Convert a field to a string.
 template<> PQXX_LIBEXPORT std::string to_string(field const &value);
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

@@ -4,7 +4,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/robusttransaction instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,14 +13,15 @@
 #ifndef PQXX_H_ROBUSTTRANSACTION
 #define PQXX_H_ROBUSTTRANSACTION
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include "pqxx/dbtransaction.hxx"
 
 namespace pqxx::internal
 {
-/// Helper base class for the @c robusttransaction class template.
+/// Helper base class for the @ref robusttransaction class template.
 class PQXX_LIBEXPORT PQXX_NOVTABLE basic_robusttransaction
         : public dbtransaction
 {
@@ -29,8 +30,8 @@ public:
 
 protected:
   basic_robusttransaction(
-    connection &c, zview begin_command, std::string_view tname);
-  basic_robusttransaction(connection &c, zview begin_command);
+    connection &cx, zview begin_command, std::string_view tname);
+  basic_robusttransaction(connection &cx, zview begin_command);
 
 private:
   using IDType = unsigned long;
@@ -41,7 +42,7 @@ private:
 
   void init(zview begin_command);
 
-  // @warning This function will become @c final.
+  // @warning This function will become `final`.
   virtual void do_commit() override;
 };
 } // namespace pqxx::internal
@@ -50,7 +51,7 @@ private:
 namespace pqxx
 {
 /**
- * @ingroup transaction
+ * @ingroup transactions
  *
  * @{
  */
@@ -82,32 +83,31 @@ class robusttransaction final : public internal::basic_robusttransaction
 {
 public:
   /** Create robusttransaction of given name.
-   * @param c Connection inside which this robusttransaction should live.
-   * @param name optional human-readable name for this transaction.
+   * @param cx Connection inside which this robusttransaction should live.
+   * @param tname optional human-readable name for this transaction.
    */
-  robusttransaction(connection &c, std::string_view tname) :
+  robusttransaction(connection &cx, std::string_view tname) :
           internal::basic_robusttransaction{
-            c, pqxx::internal::begin_cmd<ISOLATION, write_policy::read_write>,
+            cx, pqxx::internal::begin_cmd<ISOLATION, write_policy::read_write>,
             tname}
   {}
 
   /** Create robusttransaction of given name.
-   * @param c Connection inside which this robusttransaction should live.
-   * @param name optional human-readable name for this transaction.
+   * @param cx Connection inside which this robusttransaction should live.
+   * @param tname optional human-readable name for this transaction.
    */
-  robusttransaction(connection &c, std::string &&tname) :
+  robusttransaction(connection &cx, std::string &&tname) :
           internal::basic_robusttransaction{
-            c, pqxx::internal::begin_cmd<ISOLATION, write_policy::read_write>,
+            cx, pqxx::internal::begin_cmd<ISOLATION, write_policy::read_write>,
             std::move(tname)}
   {}
 
   /** Create robusttransaction of given name.
-   * @param c Connection inside which this robusttransaction should live.
-   * @param name optional human-readable name for this transaction.
+   * @param cx Connection inside which this robusttransaction should live.
    */
-  explicit robusttransaction(connection &c) :
+  explicit robusttransaction(connection &cx) :
           internal::basic_robusttransaction{
-            c, pqxx::internal::begin_cmd<ISOLATION, write_policy::read_write>}
+            cx, pqxx::internal::begin_cmd<ISOLATION, write_policy::read_write>}
   {}
 
   virtual ~robusttransaction() noexcept override { close(); }
@@ -117,6 +117,4 @@ public:
  * @}
  */
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

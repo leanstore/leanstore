@@ -36,9 +36,9 @@ void test_infinities()
 /// Reproduce bug #262: repeated float conversions break without charconv.
 template<typename T> void bug_262()
 {
-  pqxx::connection conn;
-  conn.prepare("stmt", "select cast($1 as float)");
-  pqxx::work tr{conn};
+  pqxx::connection cx;
+  cx.prepare("stmt", "select cast($1 as float)");
+  pqxx::work tr{cx};
 
   // We must use the same float type both for passing the value to the
   // statement and for retrieving result of the statement execution.  This is
@@ -51,7 +51,7 @@ template<typename T> void bug_262()
 
   // Nothing bad here, select a float value.
   // The stream is clear, so just fill it with the value and extract str().
-  row = tr.exec1("SELECT 1.0");
+  row = tr.exec("SELECT 1.0").one_row();
 
   // This works properly, but as we parse the value from the stream, the
   // seeking cursor moves towards the EOF. When the inevitable EOF happens
@@ -67,14 +67,14 @@ template<typename T> void bug_262()
   // OOPS. stream.str("") does not reset 'eof' flag and 'good' flag! We are
   // trying to read from EOF! This is no good.
   // Throws on unpatched pqxx v6.4.5
-  row = tr.exec1("SELECT 2.0");
+  row = tr.exec("SELECT 2.0").one_row();
 
   // We won't get here without patch. The following statements are just for
   // demonstration of how are intended to work. If we
   // simply just reset the stream flags properly, this would work fine.
   // The most obvious patch is just explicitly stream.seekg(0).
   row[0].as<T>();
-  row = tr.exec1("SELECT 3.0");
+  row = tr.exec("SELECT 3.0").one_row();
   row[0].as<T>();
 }
 

@@ -1,7 +1,210 @@
-7.4.2
- - Fix bug in support for GB18030 encoding. (#517)
- - Regenerated with newer tools.
- - Update copyright strings.
+7.10.1
+ - Fix string conversion buffer budget for arrays containing nulls. (#921)
+ - Remove `-fanalyzer` option again; gcc is still broken.
+ - Oops, no, minimum CMake version is not 3.28, but 3.12!
+ - Fix warnings on compilers that accept `[[assume]]` with a warning. (#928)
+ - Can't pass parameters to streaming query.
+ - CMake build: take libpq path from build target, not absolute path. (#964)
+ - Added explanation to `listen()` of when notifications come in. (#963)
+7.10.0
+ - Deprecate `errorhandler`; replace with lambda-friendly "notice handlers."
+ - Deprecate `notification_receiver`; replace with "notification handlers"
+ - Bump minimum CMake version to 3.12. (#851, #874)
+ - Fixed error message on clashing transaction focuses. (#879)
+ - Don't call`/bin/true`; macOS doesn't have it.  Just call `true`. (#885)
+ - Deprecate `exec_prepared()`; just use `exec()` with a `pqxx::prepped`.
+ - Deprecate `exec1()` etc.  Use `result::expect_rows()` etc.
+ - Fix error-reporting crash in non-blocking connection constructor. (#894)
+ - Fix buffer overrun when converting array containing nulls to string. (#906)
+ - Fix nullness check for `std::optional` containing a nullable value. (#907)
+ - `connection::process_notice()` no longer appends newline if missing.
+7.9.2
+ - Fix CMake documentation install. (#848)
+ - More CMake build fix. (#869)
+ - Bump gcc/clang/postgres minimum version requirements.
+ - Another fix to the readthedocs documentation build. (#845)
+ - Remove obsolete CMake workaround kludges. (#851, #866, #867)
+ - Remove obscure deprecated `stream_to` constructor that never worked. (#853)
+ - Support reading a field as an SQL array using `as_sql_array()`. (#841)
+ - Make row iterator a _proper_ `random_access_iterator`. (#846)
+ - Downgrade result iterator to "bidirectional"; was never really RA. (#846)
+7.9.1
+ - Fix bad conversion of array of empty strings to string. (#816)
+ - Move `[[likely]]` feature check back to compile time, to speed up configure.
+ - Support `[[assume(...)]]`.
+ - Fix `throw_null_conversion` compile error when converting enums. (#807)
+ - Fix memory leak when failing to connect.
+ - Improve introductory docs for connections and transactions.
+ - Re-do entire documentation build.  No more Sphinx in readthedocs. (#802)
+ - No more autodetection of doxygen etc.  Run it, or don't.
+ - Docs build now disabled by default; use `--enable-documentation` to change.
+7.9.0
+ - Support standard libraries without `std::basic_string<std::byte>` etc.
+ - `std::basic_string<std::byte` becomes `pqxx::bytes`. (#726)
+ - `std::basic_string_view<std::byte>` becomes `bytes_view`. (#726)
+ - Fix assertion failure when streaming row ending in empty string. (#774)
+ - CMake users can `shared_link_libraries(... libpqxx::pqxx)`. (#784)
+ - Support parameterised versions of `query()` etc. (#646)
+ - Put all feature tests back in config header. (#732)
+ - Automate integration of feature tests into both CMake & autoconf. (#747)
+ - Streaming query result implements `std::input_iterator`. (#771)
+ - Fix broken `to_buf()` on `zview`. (#728)
+ - Support `PQfsize()` and `PQfmod()`. (#727)
+ - Implement conversion from `string_view` to string. (#728)
+ - Rename `splitconfig` to `splitconfig.py`. (#763)
+ - Document need for conversions more clearly, link to docs. (#757)
+ - Experimental support for converting `std::span` to SQL arrays. (#769)
+7.8.1
+ - Regenerate build files. Should fix ARM Mac build. (#715)
+ - Reinstate `<ciso646>` that MSVC can't live with or without. (#713)
+7.8.0
+ - Streaming large data sets now benchmarks faster than similar C/libpq code!
+ - New `array` class for easier parsing of SQL arrays.
+ - Deprecating `stream_from`.  Use `transaction_base::stream()`.
+ - Use `array_parser` only on comma-separated types, i.e. most of them. (#590)
+ - Bumping requirements versions: need postgres 10.
+ - Fix `array_parser` bug when parsing semicolon in an unquoted string.
+ - Make some `zview` constructors `noexcept` if `string_view` does it.
+ - Handle result status code for starting streaming replication.  (#631)
+ - Faster text decoding and escaping in data streaming.  (#601)
+ - Deprecate `basic_fieldstream` and `fieldstream`.
+ - Deprecate `<<` operator inserting a field into an `ostream`.
+ - New string conversion fields: `converts_to_string` & `converts_from_string`.
+ - Ran `autoupdate` (because the autotools told me to).
+ - Documentation tweak. (#584)
+ - Typo in README.md. (#586)
+ - Support `std::optional<std::string_view>` etc. in `stream_to`. (#596)
+ - Remove support for single-quoted array/composite elements.  No such thing!
+ - Optimise out a kink in composite field parser.
+ - Work around build warning in MinGW: include `winsock2.h` before `windows.h`.
+ - Drop some redundant encoding groups.
+ - If CMake can't find libpq, fall back to pkg-config. (#664)
+ - Work around spurious compile error on g++ pre-gcc-10. (#665)
+ - Include `<pqxx/range>` and `<pqxx/time>` headers in `<pqxx/pqxx>`. (#667)
+ - Don't use `std::function` as deleter for smart pointers.
+ - Work around gcc compile error with regex + address sanitizer + analyzers.
+ - Fix "double free" on exit when built as shared library on Debian. (#681)
+ - Stop including `<ciso646>`; should be built into compilers. (#680)
+ - New `broken_connection` exception subclass: `protocol_violation`. (#686)
+ - Retired unused `blob_already_exists` exception class. (#686)
+ - Support for `PQinitOpenSSL()`. (#678)
+ - Slightly more helpful error for unsupported conversions. (#695)
+ - Replace some C++ feature tests with C++20 feature macros.
+ - Support moving of `stream_to`. (#706)
+ - Incorporate `source_location` in exceptions.
+7.7.4
+ - `transaction_base::for_each()` is now called `for_stream()`. (#580)
+ - New `transaction_base::for_query()` is similar, but non-streaming. (#580)
+ - Query data and iterate directly as client-side types: `query()`. (#580)
+ - New ways to query a single row!  `query01()` and `query1()`. (#580)
+ - We now have 3 kinds of execution: "exec", "query", and "stream" functions.
+ - Use C++23 `std::unreachable()` where available.
+ - `result::iter()` return value now keeps its `result` alive.
+7.7.3
+ - Fix up more damage done by auto-formatting.
+ - New `result::for_each()`: simple iteration and conversion of rows.  (#528)
+ - Add some missing headers in `<pqxx/pqxx>`.  (#551)
+ - More strictness in `header-pre.hxx`/`header-post.hxx` checking.
+ - Disallow nesting of `ignore-deprecated` blocks.
+ - Deprecate `exec` functions' `desc` parameter.
+ - Fix `placeholders` documentation.  (#557)
+ - Strip `const` and references from `value_type`. (#558)
+ - Get tests running on appveyor. (#560)
+ - Fix broken nonblocking connection on Windows. (#560)
+7.7.2
+ - Fix up damage done by auto-formatting.
+7.7.1
+ - When you build libpqxx, configure the compiler's C++ version yourself!
+ - Finally fix a long-standing silly warning in autogen.
+ - Fix `digit_to_number` not being found on some comilers.  (#518, #519)
+ - In audit mode, define `_FORTIFY_SOURCE` to enable some extra checks.
+ - Make more functions `constexpr`.  Nothing particularly useful though.
+ - Make more functions `noexcept`.
+ - Move constructor & assignment for `result`.
+ - Support LGTM.com and Facebook "infer" static analysis.
+ - Deprecated `set_variable`/`get_variable` on `transaction_base`.
+ - (Design unearthed warts in SQL variables, which were then fixed.)
+ - Set/get session variables on `connection`: `set_session_var`/`get_var`.
+ - Set/get local variables: execute SQL statements.
+ - When using `select()`, include `<winsock2.h>` if available.
+7.7.0
+ - Fix `stream_to` for differing table/client encodings.  (#473)
+ - Use `[[likely]]` & `[[unlikely]]` only in C++20, to silence warnings.
+ - Fix clang "not a const expression" error in Windows.  (#472)
+ - Fix warnings about `[[likely]]` in `if constexpr`.  (#475)
+ - Clearer error for ambiguous string conversion of `char` type.  (#481)
+ - Pseudo-statement in `prepare()` error was for the wrong statement.  (#488)
+ - New class, `connecting` for nonblocking connection to the database.  (#487)
+ - New class, `range` for SQL range types.  (#490)
+ - Replace `std::isdigit` with a safer alternative.
+ - Support string conversions for `std::chrono::year_month_day`. (#492)
+ - Helper for implementing string traits: `generic_to_buf`.
+ - Support `result::at(row_num, col_num)`.
+ - Support `result[row_num, col_num]` if the compiler allows it.
+ - Work around broken `std::filesystem::path` in MinGW.  (#498)
+ - Fix leak when getting client encoding fails.  (#500)
+ - Use `std::cmp_greater` etc. when available.  Saves some ugly casts.
+ - Move `result_iterator.hxx` into `pqxx/include/internal/`.
+ - Move `compiler-public.hxx` into `pqxx/include/internal/`.
+ - Add script for updating copyright strings.
+ - Make `tools/lint` figure out source directory by itself.
+ - Pass the actual C++ version to `tools/lint`, not the baseline one.
+ - Re-enable pyflakes testing in `tools/lint`.
+ - Make more functions `[[nodiscard]]`.
+ - Qualified some member functions as lvalue or rvalue.
+ - Don't run clang-tidy by default.  Compatibility issues with gcc options.
+ - Describe version requirements in a JSON file, `requirements.json`.
+ - Doxygen documentation now uses the (Doxygen-extended) Markdown format.
+ - Build docs in `doc/html/`, no longer in `doc/html/Reference/`.
+ - Disable some `std::filesystem` features on Windows.
+ - Shut up stupid Visual Studio warnings.
+ - On gcc, mark rarely-used functions as "cold," to be optimised for size.
+ - Glyph scanning for GB18030 encoding was utterly broken. (#517)
+7.6.0
+ - Removed bad string conversion to `std::basic_string_view<std::byte>`. (#463)
+ - Add C++20 concepts: `binary`, `char_string`, `char_strings`.
+ - Generalise binary strings to any contiguous range of `std::byte`.
+ - Mark `zview` as a view and as a borrowed range.
+ - Save a copy step on string fields in `stream_to`.
+ - New helper: `pqxx::value_type<CONTAINER>`.
+ - New helper: `pqxx::binary_cast`. (#450)
+ - Some escaping functions now have "into my buffer" variants.
+ - More generic escaping functions, supporting more types of binary.
+ - In C++20, accept generic columns list for `stream_to`.  (#447)
+ - Renamed `<pqxx/prepared_statement>` to `<pqxx/params>`.
+ - Deprecated `dynamic_params` in favour of `params`.
+ - `pqxx::params::append_multi()` now calls `reserve()` if possible.
+ - `pqxx::params::size()` is now `noexcept` (but sadly, `ssize()` is not).
+ - Helper for generating parameter placeholders `$1`, `$2`, etc.  (#443)
+ - Now requires support for C++14 `[[deprecated]]` attribute.
+ - Deprecated `unesc_raw()` with `unesc_bin()` variants.
+ - Once `unesc_raw()` is gone, we'll support only the hex escape format.
+ - Work around broken `thread_local` in MinGW gcc < 11.1.
+ - `pqxx::blob` now supports `std::filesystem::path`.
+ - Fixed check against header/lib version mismatch: `check_pqxx_version_7_6`
+ - Deprecated result slicing.  Expect `row::slice()` to disappear.
+ - More complete documentation, of cursors in particular.
+7.5.2
+ - **Actual serious bug.**  `blob::read(std::vector<...>)` was broken.
+7.5.1
+ - Fixed some Visual Studio warnings.
+ - Missed a bit in working around MinGW's broken `<thread>`.
+ - Deprecated more obsolete representations of binary data.  Use `std::byte`.
+ - New script `tools/deprecations` lists files that use deprecated code.
+ - Added automake-generated `config/compile` to revision control.
+7.5.0
+ - Now requires `std::variant` support!  No longer works with gcc7.
+ - When implementing a string conversion, consider specialising `param_format`.
+ - Stop "aborting" nontransaction on closing.  (#419)
+ - Silence an overzealous Visual C++ warning.  (#418)
+ - Starting support for C++20 `std::span`.
+ - New `blob::read()` using `std::span`.  (#429)
+ - New `params` class lets you build parameter lists incrementally.  (#387)
+ - Pass `std::vector<std::byte>` params in binary format.
+ - Dropped legacy tests 31 and 49 to work around clang C++20 bug.
+ - Fixed `stream_to` test failure in non-English locales.  (#440)
+ - Clarify `transaction_base::stream` documentation.  (#423)
+ - Avoid `<thread>` on MinGW; it's broken there.  (#336, #398, #424, #441)
 7.4.1
  - Missing includes; broke macOS clang build.  (#416)
 7.4.0

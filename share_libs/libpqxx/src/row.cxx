@@ -2,7 +2,7 @@
  *
  * pqxx::result represents the set of result rows from a database query.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -18,18 +18,23 @@ extern "C"
 #include <libpq-fe.h>
 }
 
-#include "pqxx/except"
-#include "pqxx/result"
+#include "pqxx/internal/header-pre.hxx"
+
+#include "pqxx/except.hxx"
+#include "pqxx/result.hxx"
+#include "pqxx/row.hxx"
+
+#include "pqxx/internal/header-post.hxx"
 
 
-pqxx::row::row(result const &r, result::size_type i) noexcept :
-        m_result{r}, m_index{i}, m_end{r.columns()}
+pqxx::row::row(result r, result::size_type index, size_type cols) noexcept :
+        m_result{std::move(r)}, m_index{index}, m_end{cols}
 {}
 
 
 pqxx::row::const_iterator pqxx::row::begin() const noexcept
 {
-  return const_iterator{*this, m_begin};
+  return {*this, m_begin};
 }
 
 
@@ -41,7 +46,7 @@ pqxx::row::const_iterator pqxx::row::cbegin() const noexcept
 
 pqxx::row::const_iterator pqxx::row::end() const noexcept
 {
-  return const_iterator{*this, m_end};
+  return {*this, m_end};
 }
 
 
@@ -53,39 +58,35 @@ pqxx::row::const_iterator pqxx::row::cend() const noexcept
 
 pqxx::row::reference pqxx::row::front() const noexcept
 {
-#include "pqxx/internal/ignore-deprecated-pre.hxx"
-  return field{*this, m_begin};
-#include "pqxx/internal/ignore-deprecated-post.hxx"
+  return field{m_result, m_index, m_begin};
 }
 
 
 pqxx::row::reference pqxx::row::back() const noexcept
 {
-#include "pqxx/internal/ignore-deprecated-pre.hxx"
-  return field{*this, m_end - 1};
-#include "pqxx/internal/ignore-deprecated-post.hxx"
+  return field{m_result, m_index, m_end - 1};
 }
 
 
-pqxx::row::const_reverse_iterator pqxx::row::rbegin() const
+pqxx::row::const_reverse_iterator pqxx::row::rbegin() const noexcept
 {
   return const_reverse_row_iterator{end()};
 }
 
 
-pqxx::row::const_reverse_iterator pqxx::row::crbegin() const
+pqxx::row::const_reverse_iterator pqxx::row::crbegin() const noexcept
 {
   return rbegin();
 }
 
 
-pqxx::row::const_reverse_iterator pqxx::row::rend() const
+pqxx::row::const_reverse_iterator pqxx::row::rend() const noexcept
 {
   return const_reverse_row_iterator{begin()};
 }
 
 
-pqxx::row::const_reverse_iterator pqxx::row::crend() const
+pqxx::row::const_reverse_iterator pqxx::row::crend() const noexcept
 {
   return rend();
 }
@@ -107,9 +108,7 @@ bool pqxx::row::operator==(row const &rhs) const noexcept
 
 pqxx::row::reference pqxx::row::operator[](size_type i) const noexcept
 {
-#include "pqxx/internal/ignore-deprecated-pre.hxx"
-  return field{*this, m_begin + i};
-#include "pqxx/internal/ignore-deprecated-post.hxx"
+  return field{m_result, m_index, m_begin + i};
 }
 
 
@@ -136,9 +135,7 @@ void pqxx::row::swap(row &rhs) noexcept
 
 pqxx::field pqxx::row::at(zview col_name) const
 {
-#include "pqxx/internal/ignore-deprecated-pre.hxx"
-  return field{*this, m_begin + column_number(col_name)};
-#include "pqxx/internal/ignore-deprecated-post.hxx"
+  return {m_result, m_index, m_begin + column_number(col_name)};
 }
 
 
@@ -190,7 +187,7 @@ pqxx::row::size_type pqxx::row::column_number(zview col_name) const
 }
 
 
-pqxx::row pqxx::row::slice(size_type sbegin, size_type send) const
+pqxx::row PQXX_COLD pqxx::row::slice(size_type sbegin, size_type send) const
 {
   if (sbegin > send or send > size())
     throw range_error{"Invalid field range."};
@@ -204,23 +201,23 @@ pqxx::row pqxx::row::slice(size_type sbegin, size_type send) const
 }
 
 
-bool pqxx::row::empty() const noexcept
+bool PQXX_COLD pqxx::row::empty() const noexcept
 {
   return m_begin == m_end;
 }
 
 
-pqxx::const_row_iterator pqxx::const_row_iterator::operator++(int)
+pqxx::const_row_iterator pqxx::const_row_iterator::operator++(int) & noexcept
 {
-  auto const old{*this};
+  auto old{*this};
   m_col++;
   return old;
 }
 
 
-pqxx::const_row_iterator pqxx::const_row_iterator::operator--(int)
+pqxx::const_row_iterator pqxx::const_row_iterator::operator--(int) & noexcept
 {
-  auto const old{*this};
+  auto old{*this};
   m_col--;
   return old;
 }
@@ -235,7 +232,7 @@ pqxx::const_reverse_row_iterator::base() const noexcept
 
 
 pqxx::const_reverse_row_iterator
-pqxx::const_reverse_row_iterator::operator++(int)
+pqxx::const_reverse_row_iterator::operator++(int) & noexcept
 {
   auto tmp{*this};
   operator++();
@@ -244,7 +241,7 @@ pqxx::const_reverse_row_iterator::operator++(int)
 
 
 pqxx::const_reverse_row_iterator
-pqxx::const_reverse_row_iterator::operator--(int)
+pqxx::const_reverse_row_iterator::operator--(int) &
 {
   auto tmp{*this};
   operator--();

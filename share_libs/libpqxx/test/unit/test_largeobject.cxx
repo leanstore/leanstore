@@ -1,8 +1,6 @@
 #include <iostream>
 #include <sstream>
 
-#include "pqxx/internal/ignore-deprecated-pre.hxx"
-
 #include <pqxx/largeobject>
 #include <pqxx/transaction>
 
@@ -12,7 +10,7 @@ namespace
 {
 void test_stream_large_object()
 {
-  pqxx::connection conn;
+  pqxx::connection cx;
 
   // Construct a really nasty string.  (Don't just construct a std::string from
   // a char[] constant, because it'll terminate at the embedded zero.)
@@ -24,7 +22,8 @@ void test_stream_large_object()
   constexpr char bytes[]{"\xff\0end"};
   std::string const contents{bytes, std::size(bytes)};
 
-  pqxx::work tx{conn};
+  pqxx::work tx{cx};
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
   pqxx::largeobject new_obj{tx};
 
   pqxx::olostream write{tx, new_obj};
@@ -34,9 +33,9 @@ void test_stream_large_object()
   pqxx::largeobjectaccess check{tx, new_obj, std::ios::in | std::ios::binary};
   std::array<char, 50> buf;
   std::size_t const len{
-    static_cast<std::size_t>(check.read(buf.data(), std::size(buf)))};
+    static_cast<std::size_t>(check.read(std::data(buf), std::size(buf)))};
   PQXX_CHECK_EQUAL(len, std::size(contents), "olostream truncated data.");
-  std::string const check_str{buf.data(), len};
+  std::string const check_str{std::data(buf), len};
   PQXX_CHECK_EQUAL(check_str, contents, "olostream mangled data.");
 
   pqxx::ilostream read{tx, new_obj};
@@ -51,9 +50,9 @@ void test_stream_large_object()
     std::size(read_back), std::size(contents), "ilostream truncated data.");
   PQXX_CHECK_EQUAL(
     std::size(read_back), std::size(bytes), "ilostream truncated data.");
+#include "pqxx/internal/ignore-deprecated-post.hxx"
 }
 
 
 PQXX_REGISTER_TEST(test_stream_large_object);
 } // namespace
-#include "pqxx/internal/ignore-deprecated-post.hxx"

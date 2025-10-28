@@ -12,8 +12,9 @@ namespace
 {
 void test_074()
 {
-  connection conn;
-  work tx{conn};
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
+  connection cx;
+  work tx{cx};
 
   result R{tx.exec("SELECT * FROM pg_tables")};
   std::string const sval{R.at(0).at(1).c_str()};
@@ -65,6 +66,7 @@ void test_074()
   PQXX_CHECK_BOUNDS(
     long_double_pi, roughpi - 0.00001, roughpi + 0.00001,
     "long double changed in conversion.");
+#include "pqxx/internal/ignore-deprecated-post.hxx"
 }
 } // namespace
 

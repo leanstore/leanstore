@@ -4,7 +4,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/notification instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,8 +13,9 @@
 #ifndef PQXX_H_NOTIFICATION
 #define PQXX_H_NOTIFICATION
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include <string>
 
@@ -38,9 +39,9 @@ namespace pqxx
  * inside your receiver's function invocation operator.
  *
  * Notifications you are listening for may arrive anywhere within libpqxx code,
- * but be aware that @b PostgreSQL @b defers @b notifications @b occurring
- * @b inside @b transactions.  (This was done for excellent reasons; just think
- * about what happens if the transaction where you happen to handle an incoming
+ * but be aware that **PostgreSQL defers notifications occurring inside
+ * transactions.**  (This was done for excellent reasons; just think about what
+ * happens if the transaction where you happen to handle an incoming
  * notification is later rolled back for other reasons).  So if you're keeping
  * a transaction open, don't expect any of your receivers on the same
  * connection to be notified.
@@ -57,21 +58,23 @@ class PQXX_LIBEXPORT PQXX_NOVTABLE notification_receiver
 public:
   /// Register the receiver with a connection.
   /**
-   * @param c Connnection to operate on.
+   * @param cx Connnection to operate on.
    * @param channel Name of the notification to listen for.
    */
-  notification_receiver(connection &c, std::string_view channel);
+  [[deprecated("Use pqxx::connection::listen() instead.")]]
+  notification_receiver(connection &cx, std::string_view channel);
   /// Register the receiver with a connection.
+  [[deprecated("Use pqxx::connection::listen() instead.")]]
   notification_receiver(notification_receiver const &) = delete;
   /// Register the receiver with a connection.
+  [[deprecated("Use pqxx::connection::listen() instead.")]]
   notification_receiver &operator=(notification_receiver const &) = delete;
   /// Deregister the receiver.
   virtual ~notification_receiver();
 
   /// The channel that this receiver listens on.
-  [[nodiscard]] std::string const &channel() const { return m_channel; }
+  [[nodiscard]] std::string const &channel() const & { return m_channel; }
 
-  // TODO: Change API to take payload as zview instead of string ref.
   /// Overridable: action to invoke when notification arrives.
   /**
    * @param payload An optional string that may have been passed to the NOTIFY
@@ -90,6 +93,4 @@ private:
   std::string m_channel;
 };
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

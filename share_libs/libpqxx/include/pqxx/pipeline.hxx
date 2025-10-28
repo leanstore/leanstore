@@ -1,10 +1,10 @@
 /* Definition of the pqxx::pipeline class.
  *
- *   Throughput-optimized query manager
+ *   Throughput-optimized mechanism for executing queries.
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/pipeline instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,8 +13,9 @@
 #ifndef PQXX_H_PIPELINE
 #define PQXX_H_PIPELINE
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include <limits>
 #include <map>
@@ -25,6 +26,8 @@
 
 namespace pqxx
 {
+// TODO: libpq 14 introduced a similar "pipeline mode."  Can we use that?
+
 /// Processes several queries in FIFO manner, optimized for high throughput.
 /** Use a pipeline if you want to keep doing useful work while your queries are
  * executing.  Result retrieval is decoupled from execution request; queries
@@ -41,7 +44,7 @@ namespace pqxx
  *
  * @warning While a pipeline is active, you cannot execute queries, open
  * streams, etc. on the same transaction.  A transaction can have at most one
- * object of a type derived from @c pqxx::transaction_focus active on it at a
+ * object of a type derived from @ref pqxx::transaction_focus active on it at a
  * time.
  */
 class PQXX_LIBEXPORT pipeline : public transaction_focus
@@ -52,6 +55,9 @@ public:
 
   pipeline(pipeline const &) = delete;
   pipeline &operator=(pipeline const &) = delete;
+  pipeline(pipeline &&) = delete;
+  pipeline &operator=(pipeline &&) = delete;
+
 
   /// Start a pipeline.
   explicit pipeline(transaction_base &t) : transaction_focus{t, s_classname}
@@ -75,14 +81,14 @@ public:
    *
    * @return Identifier for this query, unique only within this pipeline.
    */
-  query_id insert(std::string_view);
+  query_id insert(std::string_view) &;
 
   /// Wait for all ongoing or pending operations to complete, and detach.
   /** Detaches from the transaction when done.
    *
    * This does not produce the queries' results, so it may not report any
    * errors which may have occurred in their execution.  To be sure that your
-   * statements succeeded, call @c retrieve() until the pipeline is empty.
+   * statements succeeded, call @ref retrieve until the pipeline is empty.
    */
   void complete();
 
@@ -143,11 +149,11 @@ public:
    * cause queries to be issued immediately
    * @return Old retention capacity
    */
-  int retain(int retain_max = 2);
+  int retain(int retain_max = 2) &;
 
 
   /// Resume retained query emission.  Harmless when not needed.
-  void resume();
+  void resume() &;
 
 private:
   struct PQXX_PRIVATE Query
@@ -166,7 +172,7 @@ private:
   void attach();
   void detach();
 
-  /// Upper bound to query id's
+  /// Upper bound to query id's.
   static constexpr query_id qid_limit() noexcept
   {
     // Parenthesise this to work around an eternal Visual C++ problem:
@@ -176,7 +182,7 @@ private:
     return (std::numeric_limits<query_id>::max)();
   }
 
-  /// Create new query_id
+  /// Create new query_id.
   PQXX_PRIVATE query_id generate_id();
 
   bool have_pending() const noexcept
@@ -186,9 +192,10 @@ private:
 
   PQXX_PRIVATE void issue();
 
-  /// The given query failed; never issue anything beyond that
+  /// The given query failed; never issue anything beyond that.
   void set_error_at(query_id qid) noexcept
   {
+    PQXX_UNLIKELY
     if (qid < m_error)
       m_error = qid;
   }
@@ -202,10 +209,10 @@ private:
   PQXX_PRIVATE void get_further_available_results();
   PQXX_PRIVATE void check_end_results();
 
-  /// Receive any results that happen to be available; it's not urgent
+  /// Receive any results that happen to be available; it's not urgent.
   PQXX_PRIVATE void receive_if_available();
 
-  /// Receive results, up to stop if possible
+  /// Receive results, up to stop if possible.
   PQXX_PRIVATE void receive(pipeline::QueryMap::const_iterator stop);
   std::pair<pipeline::query_id, result> retrieve(pipeline::QueryMap::iterator);
 
@@ -227,9 +234,7 @@ private:
    */
   internal::encoding_group m_encoding;
 
-  constexpr static std::string_view s_classname{"pipeline"};
+  static constexpr std::string_view s_classname{"pipeline"};
 };
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

@@ -6,6 +6,9 @@
 
 #include "../test_helpers.hxx"
 
+using namespace std::literals;
+
+
 // Some enums with string conversions.
 enum EnumA
 {
@@ -28,6 +31,10 @@ PQXX_DECLARE_ENUM_CONVERSION(EnumB);
 
 namespace
 {
+// "A minimal difference."
+constexpr double thres{0.00001};
+
+
 void test_string_conversion()
 {
   PQXX_CHECK_EQUAL(
@@ -93,10 +100,10 @@ void test_string_conversion()
   long double ldi1, ldi2;
   pqxx::from_string(lds1, ldi1);
   PQXX_CHECK_BOUNDS(
-    ldi1, ld1 - 0.00001, ld1 + 0.00001, "Wrong conversion to long double.");
+    ldi1, ld1 - thres, ld1 + thres, "Wrong conversion to long double.");
   pqxx::from_string(lds2, ldi2);
   PQXX_CHECK_BOUNDS(
-    ldi2, ld2 - 0.00001, ld2 + 0.00001,
+    ldi2, ld2 - thres, ld2 + thres,
     "Wrong repeated conversion to long double.");
 
   // We can define string conversions for enums.
@@ -117,7 +124,6 @@ void test_string_conversion()
 
 void test_convert_variant_to_string()
 {
-#if defined(PQXX_HAVE_VARIANT)
   PQXX_CHECK_EQUAL(
     pqxx::to_string(std::variant<int, std::string>{99}), "99",
     "First variant field did not convert right.");
@@ -125,7 +131,6 @@ void test_convert_variant_to_string()
   PQXX_CHECK_EQUAL(
     pqxx::to_string(std::variant<int, std::string>{"Text"}), "Text",
     "Second variant field did not convert right.");
-#endif // PQXX_HAVE_VARIANT
 }
 
 
@@ -156,8 +161,8 @@ void test_integer_conversion()
 
 void test_convert_null()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   PQXX_CHECK_EQUAL(
     tx.quote(nullptr), "NULL", "Null pointer did not come out as SQL 'null'.");
   PQXX_CHECK_EQUAL(
@@ -169,8 +174,41 @@ void test_convert_null()
 }
 
 
+void test_string_view_conversion()
+{
+  using traits = pqxx::string_traits<std::string_view>;
+
+  PQXX_CHECK_EQUAL(
+    pqxx::to_string("view here"sv), "view here"s,
+    "Bad conversion from string_view.");
+
+  char buf[200];
+
+  char *end{traits::into_buf(std::begin(buf), std::end(buf), "more view"sv)};
+  PQXX_CHECK(
+    std::begin(buf) < end and end < std::end(buf),
+    "string_view into_buf did not stay within its buffer.");
+  assert(end > std::begin(buf));
+  PQXX_CHECK(
+    *(end - 1) == '\0', "string_view into_buf did not zero-terminate.");
+  PQXX_CHECK_EQUAL(
+    (std::string{buf, static_cast<std::size_t>(end - std::begin(buf) - 1)}),
+    "more view"s, "string_view into_buf wrote wrong data.");
+  PQXX_CHECK(*(end - 2) == 'w', "string_view into_buf is in the wrong place.");
+
+  std::string_view org{"another!"sv};
+  pqxx::zview out{traits::to_buf(std::begin(buf), std::end(buf), org)};
+  PQXX_CHECK_EQUAL(
+    std::string{out}, "another!"s, "string_view to_buf returned wrong data.");
+  PQXX_CHECK(
+    std::data(out) != std::data(org),
+    "string_view to_buf returned original view, which may not be terminated.");
+}
+
+
 PQXX_REGISTER_TEST(test_string_conversion);
 PQXX_REGISTER_TEST(test_convert_variant_to_string);
 PQXX_REGISTER_TEST(test_integer_conversion);
 PQXX_REGISTER_TEST(test_convert_null);
+PQXX_REGISTER_TEST(test_string_view_conversion);
 } // namespace

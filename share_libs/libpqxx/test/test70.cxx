@@ -55,8 +55,8 @@ void TestPipeline(pipeline &P, int numqueries)
 // compare results.  Use retain() and resume() for performance.
 void test_070()
 {
-  connection conn;
-  work tx{conn};
+  connection cx;
+  work tx{cx};
   pipeline P(tx);
 
   PQXX_CHECK(std::empty(P), "Pipeline is not empty initially.");
@@ -90,8 +90,10 @@ void test_070()
   // See if regular retain()/resume() works
   for (int i{0}; i < 5; ++i) TestPipeline(P, i);
 
-  // See if retrieve() fails on an empty pipeline, as it should
-  quiet_errorhandler d(conn);
+    // See if retrieve() fails on an empty pipeline, as it should
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
+  quiet_errorhandler d(cx);
+#include "pqxx/internal/ignore-deprecated-post.hxx"
   PQXX_CHECK_THROWS_EXCEPTION(
     P.retrieve(), "Empty pipeline allows retrieve().");
 }

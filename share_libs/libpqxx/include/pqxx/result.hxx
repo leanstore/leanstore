@@ -4,7 +4,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/result instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -13,10 +13,13 @@
 #ifndef PQXX_H_RESULT
 #define PQXX_H_RESULT
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
+#include <functional>
 #include <ios>
+#include <list>
 #include <memory>
 #include <stdexcept>
 
@@ -30,8 +33,8 @@
 
 namespace pqxx::internal
 {
-PQXX_LIBEXPORT void clear_result(pq::PGresult const *);
-}
+PQXX_LIBEXPORT void clear_result(pq::PGresult const *) noexcept;
+} // namespace pqxx::internal
 
 
 namespace pqxx::internal::gate
@@ -44,17 +47,35 @@ class result_sql_cursor;
 } // namespace pqxx::internal::gate
 
 
+namespace pqxx::internal
+{
+// 9.0: Remove this, just use the notice handler in connection/result.
+/// Various callbacks waiting for a notice to come in.
+struct notice_waiters
+{
+  std::function<void(zview)> notice_handler;
+  std::list<errorhandler *> errorhandlers;
+
+  notice_waiters() = default;
+  notice_waiters(notice_waiters const &) = delete;
+  notice_waiters(notice_waiters &&) = delete;
+  notice_waiters &operator=(notice_waiters const &) = delete;
+  notice_waiters &operator=(notice_waiters &&) = delete;
+};
+} // namespace pqxx::internal
+
+
 namespace pqxx
 {
 /// Result set containing data returned by a query or command.
 /** This behaves as a container (as defined by the C++ standard library) and
- * provides random access const iterators to iterate over its rows.  A row
- * can also be accessed by indexing a result R by the row's zero-based
+ * provides random access const iterators to iterate over its rows.  You can
+ * also access a row by indexing a `result R` by the row's zero-based
  * number:
  *
- * @code
- *	for (result::size_type i=0; i < std::size(R); ++i) Process(R[i]);
- * @endcode
+ * ```cxx
+ *     for (result::size_type i=0; i < std::size(R); ++i) Process(R[i]);
+ * ```
  *
  * Result sets in libpqxx are lightweight, reference-counted wrapper objects
  * which are relatively small and cheap to copy.  Think of a result object as
@@ -80,18 +101,20 @@ public:
   using reverse_iterator = const_reverse_iterator;
 
   result() noexcept :
-          m_data(make_data_pointer()),
-          m_query(),
-          m_encoding(internal::encoding_group::MONOBYTE)
+          m_data{}, m_query{}, m_encoding{internal::encoding_group::MONOBYTE}
   {}
 
   result(result const &rhs) noexcept = default;
+  result(result &&rhs) noexcept = default;
 
   /// Assign one result to another.
   /** Copying results is cheap: it copies only smart pointers, but the actual
    * data stays in the same place.
    */
   result &operator=(result const &rhs) noexcept = default;
+
+  /// Assign one result to another, invaliding the old one.
+  result &operator=(result &&rhs) noexcept = default;
 
   /**
    * @name Comparisons
@@ -114,7 +137,7 @@ public:
   /** Converts the fields to values of the given respective types.
    *
    * Use this only with a ranged "for" loop.  The iteration produces
-   * std::tuple<TYPE...> which you can "unpack" to a series of @c auto
+   * std::tuple<TYPE...> which you can "unpack" to a series of `auto`
    * variables.
    */
   template<typename... TYPE> auto iter() const;
@@ -136,7 +159,7 @@ public:
   [[nodiscard]] PQXX_PURE bool empty() const noexcept;
   [[nodiscard]] size_type capacity() const noexcept { return size(); }
 
-  /// Exchange two @c result values in an exception-safe manner.
+  /// Exchange two `result` values in an exception-safe manner.
   /** If the swap fails, the two values will be exactly as they were before.
    *
    * The swap is not necessarily thread-safe.
@@ -144,16 +167,29 @@ public:
   void swap(result &) noexcept;
 
   /// Index a row by number.
+  /** This returns a @ref row object.  Generally you should not keep the row
+   * around as a variable, but if you do, make sure that your variable is a
+   * `row`, not a `row&`.
+   */
   [[nodiscard]] row operator[](size_type i) const noexcept;
+
+#if defined(PQXX_HAVE_MULTIDIM)
+  [[nodiscard]] field
+  operator[](size_type row_num, row_size_type col_num) const noexcept;
+#endif // PQXX_HAVE_MULTIDIM
+
   /// Index a row by number, but check that the row number is valid.
   row at(size_type) const;
 
+  /// Index a field by row number and column number.
+  field at(size_type, row_size_type) const;
+
   /// Let go of the result's data.
   /** Use this if you need to deallocate the result data earlier than you can
-   * destroy the @c result object itself.
+   * destroy the `result` object itself.
    *
-   * Multiple @c result objects can refer to the same set of underlying data.
-   * The underlying data will be deallocated once all @c result objects that
+   * Multiple `result` objects can refer to the same set of underlying data.
+   * The underlying data will be deallocated once all `result` objects that
    * refer to it are cleared or destroyed.
    */
   void clear() noexcept
@@ -173,7 +209,26 @@ public:
   [[nodiscard]] row_size_type column_number(zview name) const;
 
   /// Name of column with this number (throws exception if it doesn't exist)
-  [[nodiscard]] char const *column_name(row_size_type number) const;
+  [[nodiscard]] char const *column_name(row_size_type number) const &;
+
+  /// Server-side storage size for field of column's type, in bytes.
+  /** Returns the size of the server's internal representation of the column's
+   * data type.  A negative value indicates the data type is variable-length.
+   */
+  [[nodiscard]] int column_storage(row_size_type number) const;
+
+  /// Type modifier of the column with this number.
+  /** The meaning of modifier values is type-specific; they typically indicate
+   * precision or size limits.
+   *
+   * _Use this only if you know what you're doing._  Most applications do not
+   * need it, and most types do not use modifiers.
+   *
+   * The value -1 indicates "no information available."
+   *
+   * @warning There is no check for errors, such as an invalid column number.
+   */
+  [[nodiscard]] int column_type_modifier(row_size_type number) const noexcept;
 
   /// Return column's type, as an OID from the system catalogue.
   [[nodiscard]] oid column_type(row_size_type col_num) const;
@@ -204,21 +259,128 @@ public:
   //@}
 
   /// Query that produced this result, if available (empty string otherwise)
-  [[nodiscard]] PQXX_PURE std::string const &query() const noexcept;
+  [[nodiscard]] PQXX_PURE std::string const &query() const & noexcept;
 
-  /// If command was @c INSERT of 1 row, return oid of inserted row
+  /// If command was an `INSERT` of 1 row, return oid of the inserted row.
   /** @return Identifier of inserted row if exactly one row was inserted, or
-   * oid_none otherwise.
+   * @ref oid_none otherwise.
    */
   [[nodiscard]] PQXX_PURE oid inserted_oid() const;
 
-  /// If command was @c INSERT, @c UPDATE, or @c DELETE: number of affected
-  /// rows
-  /** @return Number of affected rows if last command was @c INSERT, @c UPDATE,
-   * or @c DELETE; zero for all other commands.
+  /// If command was `INSERT`, `UPDATE`, or `DELETE`: number of affected rows.
+  /** @return Number of affected rows if last command was `INSERT`, `UPDATE`,
+   * or `DELETE`; zero for all other commands.
    */
   [[nodiscard]] PQXX_PURE size_type affected_rows() const;
 
+  // C++20: Concept like std::invocable, but without specifying param types.
+  /// Run `func` on each row, passing the row's fields as parameters.
+  /** Goes through the rows from first to last.  You provide a callable `func`.
+   *
+   * For each row in the `result`, `for_each` will call `func`.  It converts
+   * the row's fields to the types of `func`'s parameters, and pass them to
+   * `func`.
+   *
+   * (Therefore `func` must have a _single_ signature.  It can't be a generic
+   * lambda, or an object of a class with multiple overloaded function call
+   * operators.  Otherwise, `for_each` will have no way to detect a parameter
+   * list without ambiguity.)
+   *
+   * If any of your parameter types is `std::string_view`, it refers to the
+   * underlying storage of this `result`.
+   *
+   * If any of your parameter types is a reference type, its argument will
+   * refer to a temporary value which only lives for the duration of that
+   * single invocation to `func`.  If the reference is an lvalue reference, it
+   * must be `const`.
+   *
+   * For example, this queries employee names and salaries from the database
+   * and prints how much each would like to earn instead:
+   * ```cxx
+   *   tx.exec("SELECT name, salary FROM employee").for_each(
+   *       [](std::string_view name, float salary){
+   *           std::cout << name << " would like " << salary * 2 << ".\n";
+   *       })
+   * ```
+   *
+   * If `func` throws an exception, processing stops at that point and
+   * propagates the exception.
+   *
+   * @throws pqxx::usage_error if `func`'s number of parameters does not match
+   * the number of columns in this result.
+   *
+   * The parameter types must have conversions from PostgreSQL's string format
+   * defined; see @ref datatypes.
+   */
+  template<typename CALLABLE> inline void for_each(CALLABLE &&func) const;
+
+  /// Check that result contains exactly `n` rows.
+  /** @return The result itself, for convenience.
+   * @throw @ref unexpected_rows if the actual count is not equal to `n`.
+   */
+  result expect_rows(size_type n) const
+  {
+    auto const sz{size()};
+    if (sz != n)
+    {
+      // TODO: See whether result contains a generated statement.
+      if (not m_query or m_query->empty())
+        throw unexpected_rows{pqxx::internal::concat(
+          "Expected ", n, " row(s) from query, got ", sz, ".")};
+      else
+        throw unexpected_rows{pqxx::internal::concat(
+          "Expected ", n, " row(s) from query '", *m_query, "', got ", sz,
+          ".")};
+    }
+    return *this;
+  }
+
+  /// Check that result contains exactly 1 row, and return that row.
+  /** @return @ref pqxx::row
+   * @throw @ref unexpected_rows if the actual count is not equal to `n`.
+   */
+  row one_row() const;
+
+  /// Expect that result contains at moost one row, and return as optional.
+  /** Returns an empty `std::optional` if the result is empty, or if it has
+   * exactly one row, a `std::optional` containing the row.
+   *
+   * @throw @ref unexpected_rows is the row count is not 0 or 1.
+   */
+  std::optional<row> opt_row() const;
+
+  /// Expect that result contains no rows.  Return result for convenience.
+  result no_rows() const
+  {
+    expect_rows(0);
+    return *this;
+  }
+
+  /// Expect that result consists of exactly `cols` columns.
+  /** @return The result itself, for convenience.
+   * @throw @ref usage_error otherwise.
+   */
+  result expect_columns(row_size_type cols) const
+  {
+    auto const actual{columns()};
+    if (actual != cols)
+    {
+      // TODO: See whether result contains a generated statement.
+      if (not m_query or m_query->empty())
+        throw usage_error{pqxx::internal::concat(
+          "Expected 1 column from query, got ", actual, ".")};
+      else
+        throw usage_error{pqxx::internal::concat(
+          "Expected 1 column from query '", *m_query, "', got ", actual, ".")};
+    }
+    return *this;
+  }
+
+  /// Expect that result consists of exactly 1 row and 1 column.
+  /** @return The one @ref pqxx::field in the result.
+   * @throw @ref usage_error otherwise.
+   */
+  field one_field() const;
 
 private:
   using data_pointer = std::shared_ptr<internal::pq::PGresult const>;
@@ -226,35 +388,38 @@ private:
   /// Underlying libpq result set.
   data_pointer m_data;
 
-  /// Factory for data_pointer.
-  static data_pointer
-  make_data_pointer(internal::pq::PGresult const *res = nullptr)
-  {
-    return data_pointer{res, internal::clear_result};
-  }
-
   friend class pqxx::internal::gate::result_pipeline;
-  PQXX_PURE std::shared_ptr<std::string> query_ptr() const noexcept
+  PQXX_PURE std::shared_ptr<std::string const> query_ptr() const noexcept
   {
     return m_query;
   }
 
   /// Query string.
-  std::shared_ptr<std::string> m_query;
+  std::shared_ptr<std::string const> m_query;
+
+  /// The connection's notice handler.
+  /** We're not actually using this, but we need a copy here so that the
+   * actual function does not get deallocated if the connection is destroyed
+   * while this result still exists.
+   */
+  std::shared_ptr<pqxx::internal::notice_waiters> m_notice_waiters;
 
   internal::encoding_group m_encoding;
 
   static std::string const s_empty_string;
 
   friend class pqxx::field;
-  PQXX_PURE char const *get_value(size_type row, row_size_type col) const;
-  PQXX_PURE bool get_is_null(size_type row, row_size_type col) const;
+  PQXX_PURE char const *
+  get_value(size_type row, row_size_type col) const noexcept;
+  PQXX_PURE bool get_is_null(size_type row, row_size_type col) const noexcept;
   PQXX_PURE
   field_size_type get_length(size_type, row_size_type) const noexcept;
 
   friend class pqxx::internal::gate::result_creation;
   result(
-    internal::pq::PGresult *rhs, std::shared_ptr<std::string> query,
+    std::shared_ptr<internal::pq::PGresult> const &rhs,
+    std::shared_ptr<std::string> const &query,
+    std::shared_ptr<pqxx::internal::notice_waiters> const &waiters,
     internal::encoding_group enc);
 
   PQXX_PRIVATE void check_status(std::string_view desc = ""sv) const;
@@ -264,7 +429,7 @@ private:
   bool operator!() const noexcept { return m_data.get() == nullptr; }
   operator bool() const noexcept { return m_data.get() != nullptr; }
 
-  [[noreturn]] PQXX_PRIVATE void
+  [[noreturn]] PQXX_PRIVATE PQXX_COLD void
   throw_sql_error(std::string const &Err, std::string const &Query) const;
   PQXX_PRIVATE PQXX_PURE int errorposition() const;
   PQXX_PRIVATE std::string status_error() const;
@@ -273,6 +438,4 @@ private:
   PQXX_PURE char const *cmd_status() const noexcept;
 };
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

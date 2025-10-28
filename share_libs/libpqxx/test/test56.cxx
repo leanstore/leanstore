@@ -10,12 +10,14 @@ namespace
 {
 void test_056()
 {
-  connection conn;
-  work tx{conn};
-  quiet_errorhandler d(conn);
+  connection cx;
+  work tx{cx};
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
+  quiet_errorhandler d(cx);
+#include "pqxx/internal/ignore-deprecated-post.hxx"
 
   PQXX_CHECK_THROWS(
-    tx.exec("DELIBERATELY INVALID TEST QUERY...", "invalid_query"), sql_error,
+    tx.exec("DELIBERATELY INVALID TEST QUERY..."), sql_error,
     "SQL syntax error did not raise expected exception.");
 }
 

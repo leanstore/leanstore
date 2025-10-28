@@ -15,7 +15,7 @@
 namespace leanstore::storage {
 
 LibaioInterface::LibaioInterface(int blockfd, Page *virtual_mem) : blockfd_(blockfd), virtual_mem_(virtual_mem) {
-  int ret = io_uring_queue_init(FLAGS_bm_aio_qd, &ring_, IORING_SETUP_IOPOLL);
+  int ret = io_uring_queue_init(FLAGS_bm_aio_qd, &ring_, 0);
   if (ret != 0) { throw ex::EnsureFailed("GroupCommit: io_uring_queue_init error"); }
 }
 

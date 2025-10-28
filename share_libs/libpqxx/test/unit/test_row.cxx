@@ -1,3 +1,5 @@
+#include <iterator>
+
 #include <pqxx/transaction>
 
 #include "../test_helpers.hxx"
@@ -6,10 +8,12 @@ namespace
 {
 void test_row()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
-  pqxx::result rows{tx.exec("SELECT 1, 2, 3")};
-  pqxx::row r{rows[0]};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
+  pqxx::row r{tx.exec("SELECT 1, 2, 3").one_row()};
+#if defined(PQXX_HAVE_CONCEPTS)
+  static_assert(std::forward_iterator<decltype(r.begin())>);
+#endif
   PQXX_CHECK_EQUAL(std::size(r), 3, "Unexpected row size.");
   PQXX_CHECK_EQUAL(r.at(0).as<int>(), 1, "Wrong value at index 0.");
   PQXX_CHECK(std::begin(r) != std::end(r), "Broken row iteration.");
@@ -26,8 +30,8 @@ void test_row()
 
 void test_row_iterator()
 {
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
   pqxx::result rows{tx.exec("SELECT 1, 2, 3")};
 
   auto i{std::begin(rows[0])};
@@ -56,12 +60,12 @@ void test_row_iterator()
 
 void test_row_as()
 {
-  using pqxx::operator"" _zv;
+  using pqxx::operator""_zv;
 
-  pqxx::connection conn;
-  pqxx::work tx{conn};
+  pqxx::connection cx;
+  pqxx::work tx{cx};
 
-  pqxx::row const r{tx.exec1("SELECT 1, 2, 3")};
+  pqxx::row const r{tx.exec("SELECT 1, 2, 3").one_row()};
   auto [one, two, three]{r.as<int, float, pqxx::zview>()};
   static_assert(std::is_same_v<decltype(one), int>);
   static_assert(std::is_same_v<decltype(two), float>);
@@ -73,12 +77,28 @@ void test_row_as()
     three, "3"_zv, "row::as() did not produce the right zview.");
 
   PQXX_CHECK_EQUAL(
-    std::get<0>(tx.exec1("SELECT 999").as<int>()), 999,
+    std::get<0>(tx.exec("SELECT 999").one_row().as<int>()), 999,
     "Unary tuple did not extract right.");
+}
+
+
+// In a random access iterator i, i[n] == *(i + n).
+void test_row_iterator_array_index_offsets_iterator()
+{
+  pqxx::connection cx;
+  pqxx::work tx{cx};
+  auto const row{tx.exec("SELECT 5, 4, 3, 2").one_row()};
+  PQXX_CHECK_EQUAL(
+    row.begin()[1].as<std::string>(), "4",
+    "Row iterator indexing went wrong.");
+  PQXX_CHECK_EQUAL(
+    row.rbegin()[1].as<std::string>(), "3",
+    "Reverse row iterator indexing went wrong.");
 }
 
 
 PQXX_REGISTER_TEST(test_row);
 PQXX_REGISTER_TEST(test_row_iterator);
 PQXX_REGISTER_TEST(test_row_as);
+PQXX_REGISTER_TEST(test_row_iterator_array_index_offsets_iterator);
 } // namespace

@@ -1,6 +1,6 @@
 /** Implementation of string conversions.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -22,30 +22,32 @@
 #  include <cxxabi.h>
 #endif
 
-#include "pqxx/except"
-#include "pqxx/strconv"
+#include "pqxx/internal/header-pre.hxx"
 
+#include "pqxx/except.hxx"
+#include "pqxx/internal/concat.hxx"
+#include "pqxx/strconv.hxx"
+
+#include "pqxx/internal/header-post.hxx"
+
+
+using namespace std::literals;
 
 namespace
 {
+#if !defined(PQXX_HAVE_CHARCONV_FLOAT)
 /// Do we have fully functional thread_local support?
 /** When building with libcxxrt on clang, you can't create thread_local objects
  * of non-POD types.  Any attempt will result in a link error.
  */
-constexpr bool have_thread_local
-{
-#if defined(PQXX_HAVE_THREAD_LOCAL)
+constexpr bool have_thread_local{
+#  if defined(PQXX_HAVE_THREAD_LOCAL)
   true
-#else
+#  else
   false
-#endif
+#  endif
 };
-
-/// String comparison between string_view.
-constexpr inline bool equal(std::string_view lhs, std::string_view rhs)
-{
-  return lhs.compare(rhs) == 0;
-}
+#endif
 
 
 /// The lowest possible value of integral type T.
@@ -61,11 +63,12 @@ template<typename T> constexpr T top{std::numeric_limits<T>::max()};
  */
 template<typename T> constexpr inline char *nonneg_to_buf(char *end, T value)
 {
+  constexpr int ten{10};
   char *pos = end;
   *--pos = '\0';
   do {
-    *--pos = pqxx::internal::number_to_digit(int(value % 10));
-    value = T(value / 10);
+    *--pos = pqxx::internal::number_to_digit(int(value % ten));
+    value = T(value / ten);
   } while (value > 0);
   return pos;
 }
@@ -123,18 +126,19 @@ wrap_to_chars(char *begin, char *end, T const &value)
 {
   auto res{std::to_chars(begin, end - 1, value)};
   if (res.ec != std::errc())
-    switch (res.ec)
-    {
-    case std::errc::value_too_large:
-      throw pqxx::conversion_overrun{
-        "Could not convert " + pqxx::type_name<T> +
-        " to string: "
-        "buffer too small (" +
-        pqxx::to_string(end - begin) + " bytes)."};
-    default:
-      throw pqxx::conversion_error{
-        "Could not convert " + pqxx::type_name<T> + " to string."};
-    }
+    PQXX_UNLIKELY
+  switch (res.ec)
+  {
+  case std::errc::value_too_large:
+    throw pqxx::conversion_overrun{
+      "Could not convert " + pqxx::type_name<T> +
+      " to string: "
+      "buffer too small (" +
+      pqxx::to_string(end - begin) + " bytes)."};
+  default:
+    throw pqxx::conversion_error{
+      "Could not convert " + pqxx::type_name<T> + " to string."};
+  }
   // No need to check for overrun here: we never even told to_chars about that
   // last byte in the buffer, so it didn't get used up.
   *res.ptr++ = '\0';
@@ -147,6 +151,7 @@ wrap_to_chars(char *begin, char *end, T const &value)
 namespace pqxx::internal
 {
 template<typename T>
+// NOLINTNEXTLINE(readability-non-const-parameter)
 zview integral_traits<T>::to_buf(char *begin, char *end, T const &value)
 {
   static_assert(std::is_integral_v<T>);
@@ -159,17 +164,17 @@ zview integral_traits<T>::to_buf(char *begin, char *end, T const &value)
       "buffer too small.  " +
       pqxx::internal::state_buffer_overrun(space, need)};
 
-  char *pos;
-  if constexpr (std::is_unsigned_v<T>)
-    pos = nonneg_to_buf(end, value);
-  else if (value >= 0)
-    pos = nonneg_to_buf(end, value);
-  else if (value > bottom<T>)
-    pos = neg_to_buf(end, -value);
-  else
-    pos = bottom_to_buf<T>(end);
-
-  return zview{pos, end - pos - 1};
+  char *const pos{[end, &value]() {
+    if constexpr (std::is_unsigned_v<T>)
+      return nonneg_to_buf(end, value);
+    else if (value >= 0)
+      return nonneg_to_buf(end, value);
+    else if (value > bottom<T>)
+      return neg_to_buf(end, -value);
+    else
+      return bottom_to_buf<T>(end);
+  }()};
+  return {pos, end - pos - 1};
 }
 
 
@@ -224,32 +229,56 @@ std::string demangle_type_name(char const raw[])
 #if defined(PQXX_HAVE_CXA_DEMANGLE)
   // We've got __cxa_demangle.  Use it to get a friendlier type name.
   int status{0};
+  std::size_t len{0};
 
   // We've seen this fail on FreeBSD 11.3 (see #361).  Trying to throw a
   // meaningful exception only made things worse.  So in case of error, just
   // fall back to the raw name.
   //
   // When __cxa_demangle fails, it's guaranteed to return null.
-  char *demangled{abi::__cxa_demangle(raw, nullptr, nullptr, &status)};
-#else
-  constexpr char *demangled{nullptr};
+  char *str{abi::__cxa_demangle(raw, nullptr, &len, &status)};
+
+  if (str)
+  {
+    try
+    {
+      std::string out{str, len};
+      // NOLINTNEXTLINE(*-no-malloc,cppcoreguidelines-owning-memory)
+      std::free(str);
+      str = nullptr;
+      return out;
+    }
+    catch (std::exception const &)
+    {
+      // NOLINTNEXTLINE(*-no-malloc,cppcoreguidelines-owning-memory)
+      std::free(str);
+      throw;
+    }
+  }
 #endif
-  std::string const name{(demangled == nullptr) ? raw : demangled};
-  std::free(demangled);
-  return name;
+  return raw;
 }
 
-void throw_null_conversion(std::string const &type)
+
+// TODO: Equivalents for converting a null in the other direction.
+void PQXX_COLD throw_null_conversion(std::string const &type)
 {
-  throw conversion_error{"Attempt to convert null to " + type + "."};
+  throw conversion_error{concat("Attempt to convert SQL null to ", type, ".")};
 }
 
 
-std::string state_buffer_overrun(int have_bytes, int need_bytes)
+void PQXX_COLD throw_null_conversion(std::string_view type)
+{
+  throw conversion_error{concat("Attempt to convert SQL null to ", type, ".")};
+}
+
+
+std::string PQXX_COLD state_buffer_overrun(int have_bytes, int need_bytes)
 {
   // We convert these in standard library terms, not for the localisation
   // so much as to avoid "error cycles," if these values in turn should fail
   // to get enough buffer space.
+  // C++20: Use formatting library.
   std::stringstream have, need;
   have << have_bytes;
   need << need_bytes;
@@ -264,20 +293,19 @@ namespace
 template<typename TYPE>
 [[maybe_unused]] inline TYPE from_string_arithmetic(std::string_view in)
 {
-  char const *begin;
+  char const *here{std::data(in)};
+  auto const end{std::data(in) + std::size(in)};
 
   // Skip whitespace.  This is not the proper way to do it, but I see no way
   // that any of the supported encodings could ever produce a valid character
   // whose byte sequence would confuse this code.
-  for (begin = in.data();
-       begin < std::end(in) and (*begin == ' ' or *begin == '\t'); ++begin)
-    ;
+  while (here < end and (*here == ' ' or *here == '\t')) ++here;
 
-  auto const end{in.data() + std::size(in)};
-  TYPE out;
-  auto const res{std::from_chars(begin, end, out)};
+  TYPE out{};
+  auto const res{std::from_chars(here, end, out)};
   if (res.ec == std::errc() and res.ptr == end)
-    return out;
+    PQXX_LIKELY
+  return out;
 
   std::string msg;
   if (res.ec == std::errc())
@@ -285,12 +313,14 @@ template<typename TYPE>
     msg = "Could not parse full string.";
   }
   else
+  {
     switch (res.ec)
     {
     case std::errc::result_out_of_range: msg = "Value out of range."; break;
     case std::errc::invalid_argument: msg = "Invalid argument."; break;
     default: break;
     }
+  }
 
   auto const base{
     "Could not convert '" + std::string(in) +
@@ -309,12 +339,28 @@ template<typename TYPE>
 namespace
 {
 #if !defined(PQXX_HAVE_CHARCONV_INT)
-[[noreturn, maybe_unused]] void report_overflow()
+[[noreturn, maybe_unused]] void PQXX_COLD report_overflow()
 {
   throw pqxx::conversion_error{
     "Could not convert string to integer: value out of range."};
 }
 
+template<typename T> struct numeric_ten
+{
+  static inline constexpr T value = 10;
+};
+
+template<typename T> struct numeric_high_threshold
+{
+  static inline constexpr T value =
+    (std::numeric_limits<T>::max)() / numeric_ten<T>::value;
+};
+
+template<typename T> struct numeric_low_threshold
+{
+  static inline constexpr T value =
+    (std::numeric_limits<T>::min)() / numeric_ten<T>::value;
+};
 
 /// Return 10*n, or throw exception if it overflows.
 template<typename T>
@@ -322,17 +368,16 @@ template<typename T>
 {
   using limits = std::numeric_limits<T>;
 
-  constexpr T ten{10};
-  constexpr T high_threshold(std::numeric_limits<T>::max() / ten);
-  if (n > high_threshold)
-    report_overflow();
+  if (n > numeric_high_threshold<T>::value)
+    PQXX_UNLIKELY
+  report_overflow();
   if constexpr (limits::is_signed)
   {
-    constexpr T low_threshold(std::numeric_limits<T>::min() / ten);
-    if (low_threshold > n)
-      report_overflow();
+    if (numeric_low_threshold<T>::value > n)
+      PQXX_UNLIKELY
+    report_overflow();
   }
-  return T(n * ten);
+  return T(n * numeric_ten<T>::value);
 }
 
 
@@ -342,7 +387,8 @@ template<typename T>
 {
   T const high_threshold{static_cast<T>(std::numeric_limits<T>::max() - d)};
   if (n > high_threshold)
-    report_overflow();
+    PQXX_UNLIKELY
+  report_overflow();
   return static_cast<T>(n + d);
 }
 
@@ -353,7 +399,8 @@ template<typename T>
 {
   T const low_threshold{static_cast<T>(std::numeric_limits<T>::min() + d)};
   if (n < low_threshold)
-    report_overflow();
+    PQXX_UNLIKELY
+  report_overflow();
   return static_cast<T>(n - d);
 }
 
@@ -374,13 +421,6 @@ template<typename L, typename R>
 }
 
 
-/// Compute numeric value of given textual digit (assuming that it is a digit).
-[[maybe_unused]] constexpr int digit_to_number(char c) noexcept
-{
-  return c - '0';
-}
-
-
 template<typename T>
 [[maybe_unused]] constexpr T from_string_integer(std::string_view text)
 {
@@ -388,7 +428,7 @@ template<typename T>
     throw pqxx::conversion_error{
       "Attempt to convert empty string to " + pqxx::type_name<T> + "."};
 
-  char const *const data{text.data()};
+  char const *const data{std::data(text)};
   std::size_t i{0};
 
   // Skip whitespace.  This is not the proper way to do it, but I see no way
@@ -399,8 +439,7 @@ template<typename T>
   // work _for composite types._  I see no clean way to support leading
   // whitespace there without putting the code in here.  A shame about the
   // overhead, modest as it is, for the normal case.
-  for (; i < std::size(text) and (data[i] == ' ' or data[i] == '\t'); ++i)
-    ;
+  for (; i < std::size(text) and (data[i] == ' ' or data[i] == '\t'); ++i);
   if (i == std::size(text))
     throw pqxx::conversion_error{
       "Converting string to " + pqxx::type_name<T> +
@@ -409,10 +448,11 @@ template<typename T>
   char const initial{data[i]};
   T result{0};
 
-  if (isdigit(initial))
+  if (pqxx::internal::is_digit(initial))
   {
-    for (; isdigit(data[i]); ++i)
-      result = absorb_digit_positive(result, digit_to_number(data[i]));
+    for (; pqxx::internal::is_digit(data[i]); ++i)
+      result = absorb_digit_positive(
+        result, pqxx::internal::digit_to_number(data[i]));
   }
   else if (initial == '-')
   {
@@ -425,8 +465,9 @@ template<typename T>
       throw pqxx::conversion_error{
         "Converting string to " + pqxx::type_name<T> +
         ", but it contains only a sign."};
-    for (; i < std::size(text) and isdigit(data[i]); ++i)
-      result = absorb_digit_negative(result, digit_to_number(data[i]));
+    for (; i < std::size(text) and pqxx::internal::is_digit(data[i]); ++i)
+      result = absorb_digit_negative(
+        result, pqxx::internal::digit_to_number(data[i]));
   }
   else
   {
@@ -450,22 +491,16 @@ template<typename T>
 } // namespace
 
 
-namespace
-{
-[[maybe_unused]] constexpr bool
-valid_infinity_string(std::string_view text) noexcept
-{
-  return equal("infinity", text) or equal("Infinity", text) or
-         equal("INFINITY", text) or equal("inf", text);
-  equal("Inf", text);
-  equal("INF", text);
-}
-} // namespace
-
-
 #if !defined(PQXX_HAVE_CHARCONV_FLOAT)
 namespace
 {
+constexpr bool valid_infinity_string(std::string_view text) noexcept
+{
+  return text == "inf" or text == "infinity" or text == "INFINITY" or
+         text == "Infinity";
+}
+
+
 /// Wrapper for std::stringstream with C locale.
 /** We use this to work around missing std::to_chars for floating-point types.
  *
@@ -483,7 +518,7 @@ public:
   // Do not initialise the base-class object using "stringstream{}" (with curly
   // braces): that breaks on Visual C++.  The classic "stringstream()" syntax
   // (with parentheses) does work.
-  dumb_stringstream()
+  PQXX_COLD dumb_stringstream()
   {
     this->imbue(std::locale::classic());
     this->precision(std::numeric_limits<T>::max_digits10);
@@ -492,7 +527,7 @@ public:
 
 
 template<typename F>
-inline bool from_dumb_stringstream(
+inline bool PQXX_COLD from_dumb_stringstream(
   dumb_stringstream<F> &s, F &result, std::string_view text)
 {
   s.str(std::string{text});
@@ -500,8 +535,9 @@ inline bool from_dumb_stringstream(
 }
 
 
-// These are hard, and popular compilers do not yet implement std::from_chars.
-template<typename T> inline T from_string_awful_float(std::string_view text)
+// These are hard, and some popular compilers still lack std::from_chars.
+template<typename T>
+inline T PQXX_COLD from_string_awful_float(std::string_view text)
 {
   if (std::empty(text))
     throw pqxx::conversion_error{
@@ -535,7 +571,8 @@ template<typename T> inline T from_string_awful_float(std::string_view text)
     }
     else
     {
-      if (have_thread_local)
+      PQXX_LIKELY
+      if constexpr (have_thread_local)
       {
         thread_local dumb_stringstream<T> S;
         // Visual Studio 2017 seems to fail on repeated conversions if the
@@ -626,7 +663,8 @@ float_traits<long double>::into_buf(char *, char *, long double const &);
 
 #if !defined(PQXX_HAVE_CHARCONV_FLOAT)
 template<typename F>
-inline std::string to_dumb_stringstream(dumb_stringstream<F> &s, F value)
+inline std::string PQXX_COLD
+to_dumb_stringstream(dumb_stringstream<F> &s, F value)
 {
   s.str("");
   s << value;
@@ -640,12 +678,12 @@ template<typename T> std::string to_string_float(T value)
 {
 #if defined(PQXX_HAVE_CHARCONV_FLOAT)
   {
-    constexpr auto space{float_traits<T>::size_buffer(value)};
+    static constexpr auto space{float_traits<T>::size_buffer(value)};
     std::string buf;
     buf.resize(space);
     std::string_view const view{
-      float_traits<T>::to_buf(buf.data(), buf.data() + space, value)};
-    buf.resize(std::end(view) - std::begin(view));
+      float_traits<T>::to_buf(std::data(buf), std::data(buf) + space, value)};
+    buf.resize(static_cast<std::size_t>(std::end(view) - std::begin(view)));
     return buf;
   }
 #else
@@ -653,7 +691,7 @@ template<typename T> std::string to_string_float(T value)
     // In this rare case, we can convert to std::string but not to a simple
     // buffer.  So, implement to_buf in terms of to_string instead of the other
     // way around.
-    if (have_thread_local)
+    if constexpr (have_thread_local)
     {
       thread_local dumb_stringstream<T> s;
       return to_dumb_stringstream(s, value);
@@ -716,52 +754,44 @@ template std::string to_string_float(long double);
 
 bool pqxx::string_traits<bool>::from_string(std::string_view text)
 {
-  bool OK, result;
+  std::optional<bool> result;
 
+  // TODO: Don't really need to handle all these formats.
   switch (std::size(text))
   {
-  case 0:
-    result = false;
-    OK = true;
-    break;
+  case 0: result = false; break;
 
   case 1:
     switch (text[0])
     {
     case 'f':
     case 'F':
-    case '0':
-      result = false;
-      OK = true;
-      break;
+    case '0': result = false; break;
 
     case 't':
     case 'T':
-    case '1':
-      result = true;
-      OK = true;
-      break;
+    case '1': result = true; break;
 
-    default: OK = false; break;
+    default: break;
     }
     break;
 
-  case 4:
-    result = true;
-    OK = (equal(text, "true") or equal(text, "TRUE"));
+  case std::size("true"sv):
+    if (text == "true" or text == "TRUE")
+      result = true;
     break;
 
-  case 5:
-    result = false;
-    OK = (equal(text, "false") or equal(text, "FALSE"));
+  case std::size("false"sv):
+    if (text == "false" or text == "FALSE")
+      result = false;
     break;
 
-  default: OK = false; break;
+  default: break;
   }
 
-  if (not OK)
+  if (result)
+    return *result;
+  else
     throw conversion_error{
       "Failed conversion to bool: '" + std::string{text} + "'."};
-
-  return result;
 }

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.7)
+cmake_minimum_required(VERSION 3.12)
 
 file(READ VERSION VER_FILE_CONTENT)
 string(STRIP ${VER_FILE_CONTENT} VER_FILE_CONTENT)
@@ -17,7 +17,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 option(BUILD_DOC "Build documentation" OFF)
-option(BUILD_TEST "Build all test cases" OFF)
+
+if(NOT SKIP_BUILD_TEST AND CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    option(BUILD_TEST "Build all test cases" ON)
+endif()
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)

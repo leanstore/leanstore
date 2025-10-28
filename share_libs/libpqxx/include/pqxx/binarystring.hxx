@@ -1,8 +1,8 @@
-/* Representation for raw, binary data.
+/* Deprecated representation for raw, binary data.
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/binarystring instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -11,8 +11,9 @@
 #ifndef PQXX_H_BINARYSTRING
 #define PQXX_H_BINARYSTRING
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include <memory>
 #include <string>
@@ -29,8 +30,8 @@ template<> struct string_traits<binarystring>;
 
 /// Binary data corresponding to PostgreSQL's "BYTEA" binary-string type.
 /** @ingroup escaping-functions
- * @deprecated Use @c std::basic_string<std::byte> and
- * @c std::basic_string_view<std::byte> for binary data.
+ * @deprecated Use @c bytes and @c bytes_view for binary data.  In C++20 or
+ * better, any @c contiguous_range of @c std::byte will do.
  *
  * This class represents a binary string as stored in a field of type @c bytea.
  *
@@ -57,7 +58,7 @@ class PQXX_LIBEXPORT binarystring
 {
 public:
   using char_type = unsigned char;
-  using value_type = std::char_traits<char_type>::char_type;
+  using value_type = char_type;
   using size_type = std::size_t;
   using difference_type = long;
   using const_reference = value_type const &;
@@ -65,31 +66,31 @@ public:
   using const_iterator = const_pointer;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  PQXX_DEPRECATED("Use std::byte for binary data.")
-  binarystring(binarystring const &) = default;
+  [[deprecated("Use std::byte for binary data.")]] binarystring(
+    binarystring const &) = default;
 
   /// Read and unescape bytea field.
   /** The field will be zero-terminated, even if the original bytea field
    * isn't.
    * @param F the field to read; must be a bytea field
    */
-  PQXX_DEPRECATED("Use std::byte for binary data.")
-  explicit binarystring(field const &);
+  [[deprecated("Use std::byte for binary data.")]] explicit binarystring(
+    field const &);
 
   /// Copy binary data from std::string_view on binary data.
   /** This is inefficient in that it copies the data to a buffer allocated on
    * the heap.
    */
-  PQXX_DEPRECATED("Use std::byte for binary data.")
-  explicit binarystring(std::string_view);
+  [[deprecated("Use std::byte for binary data.")]] explicit binarystring(
+    std::string_view);
 
   /// Copy binary data of given length straight out of memory.
-  PQXX_DEPRECATED("Use std::byte for binary data.")
-  binarystring(void const *, std::size_t);
+  [[deprecated("Use std::byte for binary data.")]] binarystring(
+    void const *, std::size_t);
 
   /// Efficiently wrap a buffer of binary data in a @c binarystring.
-  PQXX_DEPRECATED("Use std::byte for binary data.")
-  binarystring(std::shared_ptr<value_type> ptr, size_type size) :
+  [[deprecated("Use std::byte for binary data.")]] binarystring(
+    std::shared_ptr<value_type> ptr, size_type size) :
           m_buf{std::move(ptr)}, m_size{size}
   {}
 
@@ -166,6 +167,18 @@ public:
    */
   [[nodiscard]] std::string str() const;
 
+  /// Access data as a pointer to @c std::byte.
+  [[nodiscard]] std::byte const *bytes() const
+  {
+    return reinterpret_cast<std::byte const *>(get());
+  }
+
+  /// Read data as a @c bytes_view.
+  [[nodiscard]] pqxx::bytes_view bytes_view() const
+  {
+    return pqxx::bytes_view{bytes(), size()};
+  }
+
 private:
   std::shared_ptr<value_type> m_buf;
   size_type m_size{0};
@@ -193,32 +206,30 @@ template<> struct string_traits<binarystring>
 
   static zview to_buf(char *begin, char *end, binarystring const &value)
   {
-    auto const value_end{into_buf(begin, end, value)};
-    return zview{begin, value_end - begin - 1};
+    return generic_to_buf(begin, end, value);
   }
 
   static char *into_buf(char *begin, char *end, binarystring const &value)
   {
     auto const budget{size_buffer(value)};
-    if (static_cast<std::size_t>(end - begin) < budget)
+    if (internal::cmp_less(end - begin, budget))
       throw conversion_overrun{
         "Not enough buffer space to escape binary data."};
-    internal::esc_bin(value.view(), begin);
+    std::string_view text{value.view()};
+    internal::esc_bin(binary_cast(text), begin);
     return begin + budget;
   }
 
   static binarystring from_string(std::string_view text)
   {
-#include "pqxx/internal/ignore-deprecated-pre.hxx"
     auto const size{pqxx::internal::size_unesc_bin(std::size(text))};
     std::shared_ptr<unsigned char> buf{
       new unsigned char[size], [](unsigned char const *x) { delete[] x; }};
     pqxx::internal::unesc_bin(text, reinterpret_cast<std::byte *>(buf.get()));
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
     return binarystring{std::move(buf), size};
 #include "pqxx/internal/ignore-deprecated-post.hxx"
   }
 };
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

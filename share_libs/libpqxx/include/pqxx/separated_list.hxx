@@ -1,8 +1,8 @@
-/* Helper similar to Python's @c str.join().
+/* Helper similar to Python's `str.join()`.
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/separated_list instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -11,16 +11,20 @@
 #ifndef PQXX_H_SEPARATED_LIST
 #define PQXX_H_SEPARATED_LIST
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include <algorithm>
 #include <numeric>
 
 #include "pqxx/strconv.hxx"
 
-// TODO: Simplify using std::ranges::range, once we're on C++20.
-// TODO: Optimise buffer allocation using C++20 random_access_range.
+// C++20: Simplify using std::ranges::range.
+// C++20: Optimise buffer allocation using random_access_range/iterator.
+// C++23: Use std::join_with().
+// TODO: Or just use std formatting?
+// TODO: Can we pass separators at compile time?
 namespace pqxx
 {
 /**
@@ -42,7 +46,7 @@ template<typename ITER, typename ACCESS>
 separated_list(std::string_view sep, ITER begin, ITER end, ACCESS access)
 {
   if (end == begin)
-    return std::string{};
+    return {};
   auto next{begin};
   ++next;
   if (next == end)
@@ -61,15 +65,16 @@ separated_list(std::string_view sep, ITER begin, ITER end, ACCESS access)
   std::string result;
   result.resize(budget);
 
-  char *here{result.data()};
-  char *stop{here + budget};
+  char *const data{result.data()};
+  char *here{data};
+  char *stop{data + budget};
   here = traits::into_buf(here, stop, access(begin)) - 1;
   for (++begin; begin != end; ++begin)
   {
     here += sep.copy(here, std::size(sep));
     here = traits::into_buf(here, stop, access(begin)) - 1;
   }
-  result.resize(static_cast<std::size_t>(here - result.data()));
+  result.resize(static_cast<std::size_t>(here - data));
   return result;
 }
 
@@ -83,6 +88,7 @@ separated_list(std::string_view sep, ITER begin, ITER end)
 }
 
 
+// C++20: Use a concept.
 /// Render items in a container as a string, using given separator.
 template<typename CONTAINER>
 [[nodiscard]] inline auto
@@ -137,6 +143,4 @@ separated_list(std::string_view sep, TUPLE const &t)
 }
 //@}
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

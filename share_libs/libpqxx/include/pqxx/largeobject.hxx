@@ -2,7 +2,7 @@
  *
  * DO NOT INCLUDE THIS FILE DIRECTLY; include pqxx/largeobject instead.
  *
- * Copyright (c) 2000-2022, Jeroen T. Vermeulen.
+ * Copyright (c) 2000-2025, Jeroen T. Vermeulen.
  *
  * See COPYING for copyright license.  If you did not receive a file called
  * COPYING with this source code, please notify the distributor of this
@@ -11,8 +11,9 @@
 #ifndef PQXX_H_LARGEOBJECT
 #define PQXX_H_LARGEOBJECT
 
-#include "pqxx/compiler-public.hxx"
-#include "pqxx/internal/compiler-internal-pre.hxx"
+#if !defined(PQXX_HEADER_PRE)
+#  error "Include libpqxx headers as <pqxx/header>, not <pqxx/header.hxx>."
+#endif
 
 #include <streambuf>
 
@@ -22,7 +23,7 @@
 namespace pqxx
 {
 /// Identity of a large object.
-/** @deprecated Use the @c blob class instead.
+/** @deprecated Use the @ref blob class instead.
  *
  * Encapsulates the identity of a large object.
  *
@@ -36,36 +37,37 @@ public:
 
   /// Refer to a nonexistent large object (similar to what a null pointer
   /// does).
-  PQXX_DEPRECATED("Use blob instead.") largeobject() noexcept = default;
+  [[deprecated("Use blob instead.")]] largeobject() noexcept = default;
 
   /// Create new large object.
   /** @param t Backend transaction in which the object is to be created.
    */
-  PQXX_DEPRECATED("Use blob instead.") explicit largeobject(dbtransaction &t);
+  [[deprecated("Use blob instead.")]] explicit largeobject(dbtransaction &t);
 
   /// Wrap object with given oid.
   /** Convert combination of a transaction and object identifier into a
    * large object identity.  Does not affect the database.
    * @param o Object identifier for the given object.
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  explicit largeobject(oid o) noexcept : m_id{o} {}
+  [[deprecated("Use blob instead.")]] explicit largeobject(oid o) noexcept :
+          m_id{o}
+  {}
 
   /// Import large object from a local file.
   /** Creates a large object containing the data found in the given file.
    * @param t Backend transaction in which the large object is to be created.
    * @param file A filename on the client program's filesystem.
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  largeobject(dbtransaction &t, std::string_view file);
+  [[deprecated("Use blob instead.")]] largeobject(
+    dbtransaction &t, std::string_view file);
 
   /// Take identity of an opened large object.
   /** Copy identity of already opened large object.  Note that this may be done
    * as an implicit conversion.
    * @param o Already opened large object to copy identity from.
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  largeobject(largeobjectaccess const &o) noexcept;
+  [[deprecated("Use blob instead.")]] largeobject(
+    largeobjectaccess const &o) noexcept;
 
   /// Object identifier.
   /** The number returned by this function identifies the large object in the
@@ -146,7 +148,7 @@ private:
 
 
 /// Accessor for large object's contents.
-/** @deprecated Use the @c blob class instead.
+/** @deprecated Use the `blob` class instead.
  */
 class PQXX_LIBEXPORT largeobjectaccess : private largeobject
 {
@@ -155,9 +157,9 @@ public:
   using off_type = size_type;
   using pos_type = size_type;
 
-  /// Open mode: @c in, @c out (can be combined using "bitwise or").
-  /** According to the C++ standard, these should be in @c std::ios_base.  We
-   * take them from derived class @c std::ios instead, which is easier on the
+  /// Open mode: `in`, `out` (can be combined using "bitwise or").
+  /** According to the C++ standard, these should be in `std::ios_base`.  We
+   * take them from derived class `std::ios` instead, which is easier on the
    * eyes.
    *
    * Historical note: taking it from std::ios was originally a workaround for a
@@ -165,11 +167,11 @@ public:
    */
   using openmode = std::ios::openmode;
 
-  /// Default open mode: @c std::ios::in|std::ios::out|std::ios::binary.
+  /// Default open mode: in, out, binary.
   static constexpr auto default_mode{
     std::ios::in | std::ios::out | std::ios::binary};
 
-  /// Seek direction: @c beg, @c cur, @c end.
+  /// Seek direction: `beg`, `cur`, `end`.
   using seekdir = std::ios::seekdir;
 
   /// Create new large object and open it.
@@ -178,8 +180,8 @@ public:
    * @param mode Access mode, defaults to ios_base::in | ios_base::out |
    * ios_base::binary.
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  explicit largeobjectaccess(dbtransaction &t, openmode mode = default_mode);
+  [[deprecated("Use blob instead.")]] explicit largeobjectaccess(
+    dbtransaction &t, openmode mode = default_mode);
 
   /// Open large object with given oid.
   /** Convert combination of a transaction and object identifier into a
@@ -189,8 +191,8 @@ public:
    * @param mode Access mode, defaults to ios_base::in | ios_base::out |
    * ios_base::binary.
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  largeobjectaccess(dbtransaction &t, oid o, openmode mode = default_mode);
+  [[deprecated("Use blob instead.")]] largeobjectaccess(
+    dbtransaction &t, oid o, openmode mode = default_mode);
 
   /// Open given large object.
   /** Open a large object with the given identity for reading and/or writing.
@@ -199,8 +201,7 @@ public:
    * @param mode Access mode, defaults to ios_base::in | ios_base::out |
    * ios_base::binary.
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  largeobjectaccess(
+  [[deprecated("Use blob instead.")]] largeobjectaccess(
     dbtransaction &t, largeobject o, openmode mode = default_mode);
 
   /// Import large object from a local file and open it.
@@ -209,8 +210,7 @@ public:
    * @param file A filename on the client program's filesystem.
    * @param mode Access mode, defaults to ios_base::in | ios_base::out.
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  largeobjectaccess(
+  [[deprecated("Use blob instead.")]] largeobjectaccess(
     dbtransaction &t, std::string_view file, openmode mode = default_mode);
 
   ~largeobjectaccess() noexcept { close(); }
@@ -248,7 +248,7 @@ public:
   /** If not all bytes could be written, an exception is thrown.
    * @param buf Data to write; no terminating zero is written.
    */
-  void write(std::string_view buf) { write(buf.data(), std::size(buf)); }
+  void write(std::string_view buf) { write(std::data(buf), std::size(buf)); }
 
   /// Read data from large object.
   /** Throws an exception if an error occurs while reading.
@@ -286,7 +286,7 @@ public:
   //@{
   /// Seek in large object's data stream.
   /** Does not throw exception in case of error; inspect return value and
-   * @c errno instead.
+   * `errno` instead.
    * @param dest Offset to go to.
    * @param dir Origin to which dest is relative: ios_base::beg (from beginning
    *        of the object), ios_base::cur (from current access position), or
@@ -297,7 +297,7 @@ public:
 
   /// Write to large object's data stream.
   /** Does not throw exception in case of error; inspect return value and
-   * @c errno instead.
+   * `errno` instead.
    * @param buf Data to write.
    * @param len Number of bytes to write.
    * @return Number of bytes actually written, or -1 if an error occurred.
@@ -306,7 +306,7 @@ public:
 
   /// Read from large object's data stream.
   /** Does not throw exception in case of error; inspect return value and
-   * @c errno instead.
+   * `errno` instead.
    * @param buf Area where incoming bytes should be stored.
    * @param len Number of bytes to read.
    * @return Number of bytes actually read, or -1 if an error occurred..
@@ -315,7 +315,7 @@ public:
 
   /// Report current position in large object's data stream.
   /** Does not throw exception in case of error; inspect return value and
-   * @c errno instead.
+   * `errno` instead.
    * @return Current position in large object, of -1 if an error occurred.
    */
   [[nodiscard]] pos_type ctell() const noexcept;
@@ -358,7 +358,7 @@ private:
 
 
 /// Streambuf to use large objects in standard I/O streams.
-/** @deprecated Access large objects directly using the @c blob class.
+/** @deprecated Access large objects directly using the @ref blob class.
  *
  * The standard streambuf classes provide uniform access to data storage such
  * as files or string buffers, so they can be accessed using standard input or
@@ -383,21 +383,21 @@ public:
   using openmode = largeobjectaccess::openmode;
   using seekdir = largeobjectaccess::seekdir;
 
-  /// Default open mode: @c std::ios::in|std::ios::out|std::ios::binary.
+  /// Default open mode: in, out, binary.
   static constexpr auto default_mode{
     std::ios::in | std::ios::out | std::ios::binary};
 
-  PQXX_DEPRECATED("Use blob instead.")
-  largeobject_streambuf(
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
+  [[deprecated("Use blob instead.")]] largeobject_streambuf(
     dbtransaction &t, largeobject o, openmode mode = default_mode,
     size_type buf_size = 512) :
           m_bufsize{buf_size}, m_obj{t, o, mode}, m_g{nullptr}, m_p{nullptr}
   {
     initialize(mode);
   }
+#include "pqxx/internal/ignore-deprecated-post.hxx"
 
-  PQXX_DEPRECATED("Use blob instead.")
-  largeobject_streambuf(
+  [[deprecated("Use blob instead.")]] largeobject_streambuf(
     dbtransaction &t, oid o, openmode mode = default_mode,
     size_type buf_size = 512) :
           m_bufsize{buf_size}, m_obj{t, o, mode}, m_g{nullptr}, m_p{nullptr}
@@ -447,7 +447,7 @@ protected:
       auto const write_sz{pp - pb};
       auto const written_sz{
         m_obj.cwrite(pb, static_cast<std::size_t>(pp - pb))};
-      if (written_sz <= static_cast<off_type>(0))
+      if (internal::cmp_less_equal(written_sz, 0))
         throw internal_error{
           "pqxx::largeobject: write failed "
           "(is transaction still valid on write or flush?), "
@@ -532,11 +532,11 @@ private:
 
 
 /// Input stream that gets its data from a large object.
-/** @deprecated Access large objects directly using the @c blob class.
+/** @deprecated Access large objects directly using the @ref blob class.
  *
  * This class worked like any other istream, but to read data from a large
  * object.  It supported all formatting and streaming operations of
- * @c std::istream.
+ * `std::istream`.
  *
  * This functionality was considered too fragile and complex, so it has been
  * replaced with a single, much simpler class.
@@ -553,20 +553,21 @@ public:
   using pos_type = typename traits_type::pos_type;
   using off_type = typename traits_type::off_type;
 
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
   /// Create a basic_ilostream.
   /**
    * @param t Transaction in which this stream is to exist.
    * @param o Large object to access.
    * @param buf_size Size of buffer to use internally (optional).
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  basic_ilostream(
+  [[deprecated("Use blob instead.")]] basic_ilostream(
     dbtransaction &t, largeobject o, largeobject::size_type buf_size = 512) :
           super{nullptr},
           m_buf{t, o, std::ios::in | std::ios::binary, buf_size}
   {
     super::init(&m_buf);
   }
+#include "pqxx/internal/ignore-deprecated-post.hxx"
 
   /// Create a basic_ilostream.
   /**
@@ -574,8 +575,7 @@ public:
    * @param o Identifier of a large object to access.
    * @param buf_size Size of buffer to use internally (optional).
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  basic_ilostream(
+  [[deprecated("Use blob instead.")]] basic_ilostream(
     dbtransaction &t, oid o, largeobject::size_type buf_size = 512) :
           super{nullptr},
           m_buf{t, o, std::ios::in | std::ios::binary, buf_size}
@@ -591,10 +591,10 @@ using ilostream = basic_ilostream<char>;
 
 
 /// Output stream that writes data back to a large object.
-/** @deprecated Access large objects directly using the @c blob class.
+/** @deprecated Access large objects directly using the @ref blob class.
  *
  * This worked like any other ostream, but to write data to a large object.
- * It supported all formatting and streaming operations of @c std::ostream.
+ * It supported all formatting and streaming operations of `std::ostream`.
  *
  * This functionality was considered too fragile and complex, so it has been
  * replaced with a single, much simpler class.
@@ -611,20 +611,21 @@ public:
   using pos_type = typename traits_type::pos_type;
   using off_type = typename traits_type::off_type;
 
+#include "pqxx/internal/ignore-deprecated-pre.hxx"
   /// Create a basic_olostream.
   /**
    * @param t transaction in which this stream is to exist.
    * @param o a large object to access.
    * @param buf_size size of buffer to use internally (optional).
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  basic_olostream(
+  [[deprecated("Use blob instead.")]] basic_olostream(
     dbtransaction &t, largeobject o, largeobject::size_type buf_size = 512) :
           super{nullptr},
           m_buf{t, o, std::ios::out | std::ios::binary, buf_size}
   {
     super::init(&m_buf);
   }
+#include "pqxx/internal/ignore-deprecated-post.hxx"
 
   /// Create a basic_olostream.
   /**
@@ -632,8 +633,7 @@ public:
    * @param o a large object to access.
    * @param buf_size size of buffer to use internally (optional).
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  basic_olostream(
+  [[deprecated("Use blob instead.")]] basic_olostream(
     dbtransaction &t, oid o, largeobject::size_type buf_size = 512) :
           super{nullptr},
           m_buf{t, o, std::ios::out | std::ios::binary, buf_size}
@@ -662,11 +662,11 @@ using olostream = basic_olostream<char>;
 
 
 /// Stream that reads and writes a large object.
-/** @deprecated Access large objects directly using the @c blob class.
+/** @deprecated Access large objects directly using the @ref blob class.
  *
  * This worked like a std::iostream, but to read data from, or write data to, a
  * large object.  It supported all formatting and streaming operations of
- * @c std::iostream.
+ * `std::iostream`.
  *
  * This functionality was considered too fragile and complex, so it has been
  * replaced with a single, much simpler class.
@@ -689,8 +689,7 @@ public:
    * @param o Large object to access.
    * @param buf_size Size of buffer to use internally (optional).
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  basic_lostream(
+  [[deprecated("Use blob instead.")]] basic_lostream(
     dbtransaction &t, largeobject o, largeobject::size_type buf_size = 512) :
           super{nullptr},
           m_buf{
@@ -705,8 +704,7 @@ public:
    * @param o Large object to access.
    * @param buf_size Size of buffer to use internally (optional).
    */
-  PQXX_DEPRECATED("Use blob instead.")
-  basic_lostream(
+  [[deprecated("Use blob instead.")]] basic_lostream(
     dbtransaction &t, oid o, largeobject::size_type buf_size = 512) :
           super{nullptr},
           m_buf{
@@ -734,6 +732,4 @@ private:
 
 using lostream = basic_lostream<char>;
 } // namespace pqxx
-
-#include "pqxx/internal/compiler-internal-post.hxx"
 #endif

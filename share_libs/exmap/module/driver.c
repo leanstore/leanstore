@@ -11,6 +11,7 @@
 #include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/io.h>
+#include <linux/vmalloc.h>
 #include <linux/mman.h>
 #include <linux/sched/mm.h>
 #include <linux/cdev.h>
@@ -1087,7 +1088,11 @@ static long exmap_ioctl (struct file *file, unsigned int cmd, unsigned long arg)
 		}
 
 		gfp_flags = GFP_KERNEL_ACCOUNT | __GFP_ZERO | __GFP_NOWARN | __GFP_COMP | __GFP_NORETRY;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 		ctx->interfaces = __vmalloc_array(setup.max_interfaces, sizeof(struct exmap_interface), gfp_flags);
+#else
+		ctx->interfaces = vmalloc_array(setup.max_interfaces, sizeof(struct exmap_interface));
+#endif
 		if (!ctx->interfaces) {
 			pr_info("interfaces failed");
 			return -ENOMEM;
@@ -1222,6 +1227,24 @@ ssize_t exmap_alloc_iter(struct exmap_ctx *ctx, struct exmap_interface *interfac
 	return rc_all;
 }
 
+static ssize_t compat_call_read_iter(struct file *file,
+                                     struct kiocb *kiocb,
+                                     struct iov_iter *iter)
+{
+    if (!file || !file->f_op)
+        return -EINVAL;
+
+#ifdef HAVE_CALL_READ_ITER
+    /* Older kernels: call_read_iter exists */
+    return call_read_iter(file, kiocb, iter);
+#else
+    /* Modern kernels: call f_op->read_iter directly */
+    if (file->f_op->read_iter)
+        return file->f_op->read_iter(kiocb, iter);
+    else
+        return -ENOSYS;  /* operation not supported */
+#endif
+}
 
 ssize_t exmap_read_iter(struct kiocb* kiocb, struct iov_iter *iter) {
 	struct file *file = kiocb->ki_filp;
@@ -1279,7 +1302,7 @@ ssize_t exmap_read_iter(struct kiocb* kiocb, struct iov_iter *iter) {
 
 		iov_iter_save_state(iter, &iter_state);
 		iov_iter_truncate(iter, size);
-		rc = call_read_iter(ctx->file_backend, kiocb, iter);
+		rc = compat_call_read_iter(ctx->file_backend, kiocb, iter);
 		iov_iter_restore(iter, &iter_state);
 
 		if (rc < 0) return rc;

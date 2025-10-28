@@ -1,17 +1,9 @@
 # Generate configure script for libpqxx.  This needs the autoconf archive
 # package installed.  (The configure script itself does not require it though.)
 
-AC_PREREQ(2.69)
-AC_INIT(
-	libpqxx,
-	[m4_esyscmd_s([./tools/extract_version])],
-	[Jeroen T. Vermeulen])
+AC_PREREQ([2.71])
+AC_INIT([libpqxx],[m4_esyscmd_s([./tools/extract_version])],[Jeroen T. Vermeulen])
 AC_LANG(C++)
-
-# Require C++17 at minimum.
-# We need to specify this twice, so we can also pass it to clang-tidy.
-AX_CXX_COMPILE_STDCXX_17([noext])
-AC_SUBST(PQXX_CXX_VERSION, -std=c++17)
 
 AC_CONFIG_SRCDIR([src/connection.cxx])
 AC_CONFIG_AUX_DIR(config)
@@ -22,7 +14,7 @@ PQXX_ABI=m4_esyscmd_s([./tools/extract_version --abi])
 AC_SUBST(PQXXVERSION, $PACKAGE_VERSION)
 AC_SUBST(PQXX_ABI)
 
-AC_CONFIG_HEADER([include/pqxx/config.h])
+AC_CONFIG_HEADERS([include/pqxx/config.h])
 
 # Default prefix for installs.
 AC_PREFIX_DEFAULT(/usr/local)
@@ -37,35 +29,26 @@ AC_DEFUN([read_test], [AC_LANG_SOURCE(
 AC_PROG_CXX
 AC_PROG_INSTALL
 AC_DISABLE_SHARED
-AC_PROG_LIBTOOL
+LT_INIT
 AC_PROG_MAKE_SET
 AC_PATH_PROG([MKDIR], [mkdir])
 
-# Documentation.
 AC_ARG_ENABLE(
 	documentation,
 	[AS_HELP_STRING([--enable-documentation], [Generate documentation])],
-	[],
-	[enable_documentation=auto])
-AC_ARG_VAR([DOXYGEN],
-	[Path to doxygen needed to build reference documentation])
-AC_PATH_TOOL([DOXYGEN], [doxygen], [nodoxygen])
-AC_ARG_VAR([HAVE_DOT],
-	[Variable used by doxygen to declare availibility of dot])
-AC_CHECK_TOOL([HAVE_DOT], [dot], [YES], [NO])
-AS_IF([test "$enable_documentation" = "yes" && test "$DOXYGEN" = "nodoxygen"],
-      [AC_MSG_ERROR([could not find tools necessary to build documentation])])
-AM_CONDITIONAL([BUILD_REFERENCE],
-	[test "$enable_documentation" != "no" -a "$DOXYGEN" != "nodoxygen"])
+	[enable_documentation="${enableval}"])
+AM_CONDITIONAL(
+	[BUILD_DOCS],
+	[test "$enable_documentation" = "yes"])
 
 AM_MAINTAINER_MODE
 
-# See if we want verbose compiler warnings.
+# See if we want stricter compiler warnings.
 AC_MSG_CHECKING([maintainer mode])
 AC_ARG_ENABLE(maintainer-mode)
 AC_MSG_RESULT(${enable_maintainer_mode})
 
-# See if we want "audit," with loads of runtime checking.
+# See if we want runtime debug checking.
 AC_MSG_CHECKING([audit])
 AC_ARG_ENABLE(audit)
 AC_MSG_RESULT(${enable_audit})
@@ -108,6 +91,27 @@ add_compiler_opts() {
 }
 
 
+# It's tempting to use Autoconf Archive's AX_CXX_COMPILE_STDCXX_17 for this,
+# but it's 2022 and the C++20 equivalent isn't quite ready for use.
+# Seems simpler and more reliable for the user to arrange for the desired
+# language versions by setting the appropriate option for their compiler.
+AC_MSG_CHECKING([for sufficient C++ language/library level])
+sufficient_cxx=yes
+AC_COMPILE_IFELSE(
+	[AC_LANG_SOURCE([
+	#if __cplusplus < 201611L
+	#error "Need C++17 or better."
+	#endif
+	])],
+	sufficient_cxx=yes,
+	sufficient_cxx=no)
+AC_MSG_RESULT($sufficient_cxx)
+if test "$sufficient_cxx" != "yes"
+then
+	AC_MSG_ERROR([This libpqxx version needs at least C++17.])
+fi
+
+
 # Let's try to get the compiler to be helpful.
 #
 # (Omit options -Weffc++ and -Wabi because they currently yield too many
@@ -121,6 +125,7 @@ then
 		# "Eternal" (FLW) g++ options.  These have been around for
 		# ages, and both g++ and clang++ support them.  Don't bother
 		# checking for support; just add them to the compiler options.
+		# TODO: Add -D_GLIBCXX_CONCEPT_CHECKS in 8.0.
 		add_compiler_opts \
 			-fstrict-enums \
 			-Werror \
@@ -132,6 +137,7 @@ then
 			-Wctor-dtor-privacy \
 			-Wendif-labels \
 			-Wextra \
+			-Wextra-semi \
 			-Wfloat-equal \
 			-Wformat=2 \
 			-Wformat-security \
@@ -147,21 +153,45 @@ then
 			-Wsign-promo \
 			-Wundef \
 			-Wunused \
-			-Wwrite-strings
+			-Wwrite-strings \
+			-Wzero-as-null-pointer-constant \
 
 		# "Iffy" g++ options.  Some reasonably current g++-like
 		# compilers may not support these.
+		#
+		# The -fanalyzer one is a macro option for many of the others,
+		# but we can't use it because as of gcc 13.2.0 we still see it
+		# generating errors for the standard library.
 		add_compiler_opts_if_ok \
+			-Wanalyzer-double-fclose \
+			-Wanalyzer-double-free \
+			-Wanalyzer-exposure-through-output-file \
+			-Wanalyzer-file-leak \
+			-Wanalyzer-free-of-non-heap \
+			-Wanalyzer-malloc-leak \
+			-Wanalyzer-possible-null-dereference \
+			-Wanalyzer-mismatching-deallocation \
+			-Wanalyzer-null-dereference \
+			-Wanalyzer-null-argument \
+			-Wanalyzer-possible-null-argument \
+			-Wanalyzer-shift-count-negative \
+			-Wanalyzer-overflow \
+			-Wanalyzer-stale-setjmp-buffer \
+			-Wanalyzer-tainted-array-index \
+			-Wanalyzer-unsafe-call-within-signal-handler \
+			-Wanalyzer-use-after-free \
+			-Wanalyzer-use-of-pointer-in-stale-stack-frame \
+			-Wanalyzer-use-of-uninitialized-value \
+			-Wanalyzer-write-to-const \
+			-Wanalyzer-write-to-string-literal \
 			-fnothrow-opt \
 			-Wattribute-alias=2 \
-			-Wextra-semi \
+			-Wdeprecated-literal-operator \
 			-Wlogical-op \
 			-Wmismatched-tags \
-			-Wnoexcept \
 			-Wredundant-tags \
 			-Wrestrict \
 			-Wstringop-overflow \
-			-Wzero-as-null-pointer-constant \
 			-Warray-bounds=2 \
 			-Wduplicated-branches \
 			-Wduplicated-cond \
@@ -174,6 +204,11 @@ then
 	if test "$enable_audit" = "yes"
 	then
 		add_compiler_opts_if_ok \
+			-D_FORTIFY_SOURCE=2 \
+			-D_GLIBCXX_ASSERTIONS \
+			-D_GLIBCXX_DEBUG \
+			-D_GLIBCXX_DEBUG_PEDANTIC \
+			-D_GLIBCXX_SANITIZE_VECTOR \
 			-fsanitize=address \
 			-fsanitize-address-use-after-scope \
 			-fsanitize=alignment \
@@ -216,21 +251,14 @@ then
 			-Wsuggest-final-types \
 			-Wsuggest-final-methods
 	fi
+fi # End of gcc-specific part.
 
-AC_MSG_CHECKING([g++ visibility attribute])
-gcc_visibility=yes
-SAVE_CXXFLAGS="$CXXFLAGS"
-CXXFLAGS="$CXXFLAGS -Werror"
-AC_COMPILE_IFELSE(
-	[read_test(gcc_visibility.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_GCC_VISIBILITY],
-		1,
-		[Define if g++ supports visibility attribute.]),
-	gcc_visibility=no)
-AC_MSG_RESULT($gcc_visibility)
-CXXFLAGS="$SAVE_CXXFLAGS"
-if test "$gcc_visibility" = "yes"
+
+m4_include([pqxx_cxx_feature_checks.ac])
+
+
+# One of the generated checks sets this variable.
+if test "$PQXX_HAVE_GCC_VISIBILITY" = "yes"
 then
     # Make internal definitions accessible only to the library itself.
     # Only definitions marked PQXX_LIBEXPORT will be accessible.
@@ -238,150 +266,9 @@ then
     add_compiler_opts -fvisibility-inlines-hidden
 fi
 
-AC_MSG_CHECKING([g++ pure attribute])
-gcc_pure=yes
-AC_COMPILE_IFELSE(
-	[read_test(gcc_pure.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_GCC_PURE],
-		1,
-		[Define if g++ supports pure attribute]),
-	gcc_pure=no)
-AC_MSG_RESULT($gcc_pure)
 
-fi # End of gcc-specific part.
-
-
-# Check for __cxa_demangle.
-AC_MSG_CHECKING([__cxa_demangle])
-cxa_demangle=yes
-AC_COMPILE_IFELSE(
-	[read_test(cxa_demangle.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_CXA_DEMANGLE],
-		1,
-		[Define if compiler supports __cxa_demangle]),
-	cxa_demangle=no)
-AC_MSG_RESULT($cxa_demangle)
-
-
-# Check for sufficient Concepts support, introduced with C++20.
-AC_MSG_CHECKING([concepts])
-concepts=yes
-AC_COMPILE_IFELSE(
-	[read_test(concepts.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_CONCEPTS],
-		1,
-		[Define if compiler supports Concepts and <ranges> header.]),
-	concepts=no)
-AC_MSG_RESULT($concepts)
-
-
-# Check for strnlen_s.
-AC_MSG_CHECKING([strnlen_s])
-strnlen_s=yes
-AC_COMPILE_IFELSE(
-	[read_test(strnlen_s.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_STRNLEN_S],
-		1,
-		[Define if compiler provides strnlen_s]),
-	strnlen_s=no)
-AC_MSG_RESULT($strnlen_s)
-
-
-# Check for strnlen.
-AC_MSG_CHECKING([strnlen])
-strnlen=yes
-AC_COMPILE_IFELSE(
-	[read_test(strnlen.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_STRNLEN],
-		1,
-		[Define if compiler provides strnlen]),
-	strnlen=no)
-AC_MSG_RESULT($strnlen)
-
-
-# It's mid-2019, and gcc's charconv supports integers but not yet floats.
-# So for now, we test for int and float conversion... separately.
-#
-# It's worse for older clang versions, which compile the integer conversions
-# but then fail at link time because of a missing symbol "__muloti4" with the
-# "long long" version.  I couldn't resolve that symbol by adding -lm either.
-# So don't just compile these tests; link them as well.
-AC_MSG_CHECKING([for C++17 charconv integer conversion])
-have_charconv_int=yes
-AC_LINK_IFELSE(
-	[read_test(charconv_int.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_CHARCONV_INT],
-		1,
-		[Define if <charconv> supports integer conversion.]),
-	have_charconv_int=no)
-AC_MSG_RESULT($have_charconv_int)
-
-AC_MSG_CHECKING([for C++17 charconv floating-point conversion])
-have_charconv_float=yes
-AC_LINK_IFELSE(
-	[read_test(charconv_float.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_CHARCONV_FLOAT],
-		1,
-		[Define if <charconv> supports floating-point conversion.]),
-	have_charconv_float=no)
-AC_MSG_RESULT($have_charconv_float)
-
-# As per #262, clang with libcxxrt does not support thread_local on non-POD
-# objects.  Luckily we can live without those, it's just less efficient.
-AC_MSG_CHECKING([for full thread_local support])
-have_thread_local=yes
-AC_LINK_IFELSE(
-	[read_test(thread_local.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_THREAD_LOCAL],
-		1,
-		[Define if thread_local is fully supported.]),
-	have_thread_local=no)
-AC_MSG_RESULT($have_thread_local)
-
-# Still getting errors on std::visit() from clang 6, and on one of my systems,
-# on gcc 7 as well.
-AC_MSG_CHECKING([for full std::variant support])
-have_variant=yes
-AC_LINK_IFELSE(
-	[read_test(variant.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_VARIANT],
-		1,
-		[Define if std::variant is fully supported.]),
-	have_variant=no)
-AC_MSG_RESULT($have_variant)
-
-# Doing my own test for poll() for now.  The test built into autoconf-archive
-# triggers stupid warnings.
-# TODO: Try newer version of autoconf-archive.
-#AX_HAVE_POLL(
-#        [AX_CONFIG_FEATURE_ENABLE(poll)],
-#        [AX_CONFIG_FEATURE_DISABLE(poll)])
-#AX_CONFIG_FEATURE(
-#	[poll],
-#	[System supports poll().],
-#	[PQXX_HAVE_POLL],
-#	[System supports poll().])
-AC_MSG_CHECKING([for poll()])
-ax_cv_have_poll=yes
-AC_LINK_IFELSE(
-	[read_test(poll.cxx)],
-	AC_DEFINE(
-		[PQXX_HAVE_POLL],
-		1,
-		[Define if poll() is available.]),
-	ax_cv_have_poll=no)
-AC_MSG_RESULT($ax_cv_have_poll)
-
-if test "$ax_cv_have_poll" != "yes"
+# One of the generated checks sets this variable.
+if test "$PQXX_HAVE_POLL" != "yes"
 then
 # No poll(); we'll fall back to select().
 
@@ -558,24 +445,37 @@ occurring in the file.
 	${with_postgres_libpath})
 
 
-# PQencryptPasswordConn was added in postgres 10.
-AC_MSG_CHECKING([for PQencryptPasswordConn])
-have_pqencryptpasswordconn=yes
-AC_COMPILE_IFELSE(
-	[AC_LANG_PROGRAM(
-		[#include<libpq-fe.h>],
-		[
-			extern PGconn *conn;
-			PQencryptPasswordConn(
-				conn, "pwd", "user", "scram-sha-256")
-		]
-	)],
-	AC_DEFINE(
-		[PQXX_HAVE_PQENCRYPTPASSWORDCONN],
-		1,
-		[Define if libpq has PQencryptPasswordConn (since pg 10).]),
-	[have_pqencryptpasswordconn=no])
-AC_MSG_RESULT($have_pqencryptpasswordconn)
+# TODO: PQresultMemorySize()
+
+
+AC_MSG_CHECKING([whether we need a link option for <filesystem> support])
+LIBS_SAVE="$LIBS"
+found_fslib=no
+for l in '' '-lstdc++fs' '-lc++fs'
+do
+	if test "$found_fslib" != "yes"
+	then
+		LIBS="$LIBS $l"
+		AC_LINK_IFELSE(
+			[read_test(no_need_fslib.cxx)],
+			[found_fslib=yes],
+			[LIBS="$LIBS_SAVE"])
+		if test "$found_fslib" = "yes"
+		then
+			result_msg="$l"
+			# (And keep our current value of $LIBS.)
+		fi
+	fi
+done
+
+if test "$found_fslib" != "yes"
+then
+	AC_MSG_ERROR([
+There seems to be <filesystem> support, but I could not figure out now to make
+it work.  You'll have to set your own build options for this.
+	])
+fi
+AC_MSG_RESULT($result_msg)
 
 
 # Remove redundant occurrances of -lpq
@@ -603,11 +503,12 @@ AC_MSG_RESULT(yes)
 AC_PROG_MAKE_SET
 
 AC_CONFIG_FILES([
-	Makefile config/Makefile doc/Makefile doc/Doxyfile src/Makefile
-	test/Makefile tools/Makefile include/Makefile include/pqxx/Makefile
-	libpqxx.pc])
+	Makefile config/Makefile doc/Makefile src/Makefile test/Makefile
+	tools/Makefile include/Makefile include/pqxx/Makefile libpqxx.pc])
 
 
-AC_CONFIG_COMMANDS([configitems], ["${srcdir}/tools/splitconfig" "${srcdir}"])
+AC_CONFIG_COMMANDS([configitems],
+	["${srcdir}/tools/splitconfig.py" "${srcdir}"])
 
-AC_OUTPUT(compile_flags)
+AC_CONFIG_FILES([compile_flags])
+AC_OUTPUT

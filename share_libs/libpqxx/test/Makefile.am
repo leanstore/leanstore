@@ -54,12 +54,10 @@ runner_SOURCES = \
   test26.cxx \
   test29.cxx \
   test30.cxx \
-  test31.cxx \
   test32.cxx \
   test37.cxx \
   test39.cxx \
   test46.cxx \
-  test49.cxx \
   test56.cxx \
   test60.cxx \
   test61.cxx \
@@ -96,9 +94,12 @@ runner_SOURCES = \
   unit/test_field.cxx \
   unit/test_float.cxx \
   unit/test_largeobject.cxx \
+  unit/test_nonblocking_connect.cxx \
+  unit/test_notice_handler.cxx \
   unit/test_notification.cxx \
   unit/test_pipeline.cxx \
   unit/test_prepared_statement.cxx \
+  unit/test_range.cxx \
   unit/test_read_transaction.cxx \
   unit/test_result_iteration.cxx \
   unit/test_result_slicing.cxx \
@@ -109,11 +110,13 @@ runner_SOURCES = \
   unit/test_stateless_cursor.cxx \
   unit/test_strconv.cxx \
   unit/test_stream_from.cxx \
+  unit/test_stream_query.cxx \
   unit/test_stream_to.cxx \
   unit/test_string_conversion.cxx \
   unit/test_subtransaction.cxx \
   unit/test_test_helpers.cxx \
   unit/test_thread_safety_model.cxx \
+  unit/test_time.cxx \
   unit/test_transaction.cxx \
   unit/test_transaction_base.cxx \
   unit/test_transaction_focus.cxx \
