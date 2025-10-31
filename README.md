@@ -8,6 +8,7 @@
 
 - Multiple-core CPUs, best with ~ 100 cores
 - [A battery-backed NVMe SSD](https://www.memorysolution.de/produkte-online-shop/ssd-hdd/datacenter-ssd)
+  - If you only have a consumer SSD (i.e., does not come with built-in battery), you can simulate the performance of the battery-backed NVMe SSD with parameter `-wal_fsync=false`
 
 ### Software
 
@@ -35,7 +36,11 @@
 
 ### Third-party databases
 
-**Databases**: `sudo apt-get install libwiredtiger-dev libsqlite3-dev libmysqlcppconn-dev libpq-dev libfuse-dev`
+**Databases**: `sudo apt-get install libwiredtiger-dev libsqlite3-dev librocksdb-dev libmysqlcppconn-dev libpq-dev libfuse-dev`
+
+### Misc
+
+- To test/evaluate `exmap`, you may want to install libboost: `sudo apt-get install libboost-dev`
 
 ## Usage
 
@@ -45,4 +50,20 @@
 
 ### Testing
 
-`cd build && make test`
+`cd build && cmake -DENABLE_TESTING=On .. && make test`
+
+## Reproducibility
+
+Paper: [Moving on From Group Commit: Autonomous Commit Enables High Throughput and Low Latency on NVMe SSDs](https://dl.acm.org/doi/abs/10.1145/3725328)
+
+All experiments in the paper can be executed with `build/benchmark/LeanStore_TPCC`, `build/benchmark/LeanStore_YCSB`, or `build/benchmark/LeanStore_TATP` executables and different parameters.
+
+## Sample benchmark
+
+**Stress benchmark with TPC-C**: `./benchmark/LeanStore_TPCC -worker_count=16 -tpcc_warehouse_count=32 -worker_pin_thread=true -tpcc_exec_seconds=20 -bm_virtual_gb=128 -bm_physical_gb=32 -db_path=/dev/nvme1n1 -txn_debug=true -txn_commit_variant=3`
+  - Commit protocol (i.e., `-txn_commit_variant` parameter): Autonomous commit
+  - Number of threads: 16
+  - Number of TPC-C warehouseds: 32
+  - Buffer pool size: 32 GB
+  - SSD path: `/dev/nvme1n1`
+    - *IMPORTANT*: Only support block device file
