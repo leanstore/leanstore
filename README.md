@@ -33,6 +33,7 @@
 
 **exmap**: stored in `share_libs/exmap`
 - Run `sudo ./load.sh`
+- `Exmap` is a kernel module, hence `sudo` permission is a must
 
 ### Third-party databases
 
@@ -57,6 +58,8 @@
 Paper: [Moving on From Group Commit: Autonomous Commit Enables High Throughput and Low Latency on NVMe SSDs](https://dl.acm.org/doi/abs/10.1145/3725328)
 
 All experiments in the paper can be executed with `build/benchmark/LeanStore_TPCC`, `build/benchmark/LeanStore_YCSB`, or `build/benchmark/LeanStore_TATP` executables and different parameters.
+The config parameters (and their meaning/description) can be found in `src/config.cc`.
+The experiment results will be outputed to `stdout` in csv format.
 
 ## Sample benchmark
 
