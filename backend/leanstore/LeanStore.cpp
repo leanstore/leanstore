@@ -227,10 +227,10 @@ void LeanStore::startProfilingThread()
                print_table(table, [](u64 line_n) { return line_n == 4; });
             }
             // -------------------------------------------------------------------------------------
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            seconds += 1;
             std::locale::global(std::locale::classic());
          }
+         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+         seconds += 1;
       }
       bg_threads_counter--;
    });
