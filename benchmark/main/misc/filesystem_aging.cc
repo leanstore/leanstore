@@ -34,7 +34,6 @@ auto main(int argc, char **argv) -> int {
   // Environment
   PerfEvent e;
   PerfController ctrl;
-  leanstore::RegisterSEGFAULTHandler();
 
   // Initialization
   remove(FLAGS_db_path.c_str());

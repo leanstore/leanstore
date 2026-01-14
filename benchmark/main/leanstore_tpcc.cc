@@ -25,7 +25,6 @@ auto main(int argc, char **argv) -> int {
   PerfEvent e;
   PerfController ctrl;
   std::atomic<bool> keep_running(true);
-  leanstore::RegisterSEGFAULTHandler();
 
   // Initialize LeanStore
   auto db   = std::make_unique<leanstore::LeanStore>();
@@ -104,7 +103,7 @@ auto main(int argc, char **argv) -> int {
   keep_running = false;
   ctrl.StopPerfRuntime();
   db->Shutdown();
-  spdlog::info("Space used: %.4f GB - WAL size: %.4f GB", db->AllocatedSize(), db->WALSize() - initial_wal_size);
+  spdlog::info("Space used: {} GB - WAL size: {} GB", db->AllocatedSize(), db->WALSize() - initial_wal_size);
   e.stopCounters();
   e.printReport(std::cout, leanstore::statistics::total_committed_txn);
 }

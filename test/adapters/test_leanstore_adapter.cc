@@ -124,7 +124,6 @@ auto main(int argc, char **argv) -> int {
   FLAGS_worker_count            = 4;
   FLAGS_wal_stealing_group_size = 1;
   FLAGS_txn_commit_group_size   = 1;
-  leanstore::RegisterSEGFAULTHandler();
 
   google::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();

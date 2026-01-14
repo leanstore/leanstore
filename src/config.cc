@@ -9,7 +9,6 @@ DEFINE_bool(uring_iopool, false,
             "Whether to enable IORING_SETUP_IOPOLL for all uring instances or not"
             "Require the block device (SSD) to support IOPOLL");
 DEFINE_string(db_path, "/dev/s0", "Default block device");
-DEFINE_string(exmap_path, "/dev/exmap0", "Default Exmap path");
 DEFINE_uint32(worker_count, 16, "The number of workers");
 DEFINE_uint32(page_provider_thread, 0, "Number of page provider threads");
 DEFINE_bool(worker_pin_thread, false, "Pin worker to a specific thread");
@@ -74,7 +73,7 @@ DEFINE_bool(blob_normal_buffer_pool, true,
             "2. *IMPORTANT* Extra hashtable lookup on Buffer's ToPtr & Read op"
             "3. *IMPORTANT* Require chunked processing on large object operations"
             "4. GroupCommit::PrepareLargePageWrite: Write on 4KB granularity instead of extent granularity");
-DEFINE_uint64(blob_buffer_pool_gb, 0,
+DEFINE_uint64(blob_buffer_pool_gb, 1,
               "Fixed size of the virtual memory range of BLOB in GBs"
               "0. Same value with FLAGS_bm_virtual_gb"
               "> 0. Fixed value");

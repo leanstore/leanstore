@@ -135,16 +135,6 @@ auto IsAligned(u64 align_size, const void *p, size_t p_size) -> bool {
   return ((reinterpret_cast<u64>(p) % align_size == 0) && (p_size % align_size == 0));
 }
 
-auto ExmapAction(int exmapfd, exmap_opcode op, leng_t len) -> int {
-  struct exmap_action_params params_free = {
-    .interface = static_cast<u16>(LeanStore::worker_thread_id),
-    .iov_len   = len,
-    .opcode    = static_cast<u16>(op),
-    .flags     = 0,
-  };
-  return ioctl(exmapfd, EXMAP_IOCTL_ACTION, &params_free);
-}
-
 auto PageTableSize() -> std::string {
   auto pid = getpid();
   std::ifstream proc_status(fmt::format("/proc/{}/status", pid).c_str());

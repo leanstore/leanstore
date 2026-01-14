@@ -34,7 +34,6 @@ auto main(int argc, char **argv) -> int {
 
   // Setup env
   tbb::global_control c(tbb::global_control::max_allowed_parallelism, FLAGS_worker_count);
-  leanstore::RegisterSEGFAULTHandler();
   PerfEvent e;
   PerfController ctrl;
 

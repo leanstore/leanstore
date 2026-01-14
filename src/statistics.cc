@@ -16,6 +16,7 @@ std::vector<u64> lat_inc_wait[MAX_NUMBER_OF_WORKER]                  = {};
 std::vector<u64> txn_queue[MAX_NUMBER_OF_WORKER]                     = {};
 std::vector<u64> txn_exec[MAX_NUMBER_OF_WORKER]                      = {};
 std::vector<u64> io_latency[MAX_NUMBER_OF_WORKER]                    = {};
+std::atomic<u64> log_flush_cnt[MAX_NUMBER_OF_WORKER]                 = {};
 std::array<i64, SAMPLING_SIZE> worker_idle_ns[MAX_NUMBER_OF_WORKER]  = {};
 
 namespace buffer {

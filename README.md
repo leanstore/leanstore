@@ -9,9 +9,6 @@ Install dependencies:
 
 `sudo apt-get install autoconf automake libtool curl make cmake g++ unzip libtbb-dev libfmt-dev libgflags-dev libgtest-dev libgmock-dev liburing-dev libzstd-dev libcurl4-openssl-dev libbenchmark-dev`
 
-**exmap**: stored in `share_libs/exmap`
-- Run `sudo ./load.sh`
-
 ### Third-party libraries
 
 **Databases**: `sudo apt-get install libwiredtiger-dev libsqlite3-dev libmysqlcppconn-dev libpq-dev libfuse-dev`

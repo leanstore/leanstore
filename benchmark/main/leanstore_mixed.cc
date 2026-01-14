@@ -24,7 +24,6 @@ auto main(int argc, char **argv) -> int {
   // Statistics
   PerfEvent e;
   PerfController ctrl;
-  leanstore::RegisterSEGFAULTHandler();
 
   // Initialize LeanStore, TPC-C, and YCSB
   auto db = std::make_unique<leanstore::LeanStore>();

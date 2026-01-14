@@ -33,7 +33,6 @@ auto main(int argc, char **argv) -> int {
 
   // Environment
   PerfEvent e;
-  leanstore::RegisterSEGFAULTHandler();
 
   // LeanStore and indexes initialization
   auto db            = std::make_unique<leanstore::LeanStore>();

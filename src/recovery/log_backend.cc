@@ -31,6 +31,7 @@ void LogBackend::SyncAppend(u8 *buffer, u64 size, const std::function<void()> &a
     auto end_time = tsctime::ReadTSC();
     statistics::io_latency[LeanStore::worker_thread_id].emplace_back(tsctime::TscDifferenceNs(start_time, end_time));
   }
+  if (FLAGS_txn_debug) { statistics::log_flush_cnt[LeanStore::worker_thread_id]++; }
 }
 
 auto LogBackend::LogFlushOffset(u64 chunk_size) -> u64 {

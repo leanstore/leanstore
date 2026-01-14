@@ -34,7 +34,6 @@ auto main(int argc, char **argv) -> int {
   // Environment
   PerfEvent e;
   PerfController ctrl;
-  leanstore::RegisterSEGFAULTHandler();
 
   // LeanStore & Workload initialization
   auto db       = std::make_unique<leanstore::LeanStore>();

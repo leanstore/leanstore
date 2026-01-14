@@ -24,7 +24,6 @@ auto main(int argc, char **argv) -> int {
   PerfEvent e;
   PerfController ctrl;
   std::atomic<bool> keep_running(true);
-  leanstore::RegisterSEGFAULTHandler();
 
   // Initialize LeanStore
   auto db   = std::make_unique<leanstore::LeanStore>();

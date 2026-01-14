@@ -49,7 +49,6 @@ using leanstore::storage::ExtentList;
   ({                                  \
     physical_used_cnt_ += (page_cnt); \
     EnsureFreePages();                \
-    ExmapAlloc(pid, page_cnt);        \
   })
 
 #define PREPARE_EXTENT(pid, page_cnt)                                               \
@@ -58,33 +57,6 @@ using leanstore::storage::ExtentList;
     ext_frame_[pid].extent_size = (page_cnt);                                       \
     if (FLAGS_bm_enable_fair_eviction) { UpdateMax(maximum_page_size_, page_cnt); } \
   })
-
-namespace leanstore {
-
-void HandleExmapSEGFAULT([[maybe_unused]] int signo, siginfo_t *info, [[maybe_unused]] void *extra) {
-  void *page = info->si_addr;
-  for (auto &buffer_pool : LeanStore::all_buffer_pools) {
-    if (buffer_pool->IsValidPtr(page)) {
-      spdlog::debug("SEGFAULT restart - Page {}", buffer_pool->ToPID(page));
-      throw sync::RestartException();
-    }
-  }
-  spdlog::error("SEGFAULT - addr {}", page);
-  cpptrace::generate_trace().print();
-  throw ex::EnsureFailed("SEGFAULT");
-}
-
-void RegisterSEGFAULTHandler() {
-  struct sigaction action;
-  action.sa_flags     = SA_SIGINFO;
-  action.sa_sigaction = HandleExmapSEGFAULT;
-  if (sigaction(SIGSEGV, &action, nullptr) == -1) {
-    perror("sigusr: sigaction");
-    throw leanstore::ex::EnsureFailed();
-  }
-}
-
-}  // namespace leanstore
 
 namespace leanstore::buffer {
 
@@ -121,10 +93,7 @@ BufferManager::BufferManager(u64 virtual_page_count, u64 physical_page_count, u6
   Construction();
 }
 
-BufferManager::~BufferManager() {
-  close(exmapfd_);
-  close(blockfd_);
-}
+BufferManager::~BufferManager() { close(blockfd_); }
 
 /**
  * @brief Format of the virtual memory buffer pool is as followed:
@@ -163,32 +132,10 @@ void BufferManager::Construction() {
   auto virtual_alloc_size =
     virtual_size_ + PAGE_SIZE + extent_virtual_size_ + alias_size_ * FLAGS_worker_count + virtual_size_;
 
-  // exmap allocation
-  exmapfd_ = open(FLAGS_exmap_path.c_str(), O_RDWR);
-  if (exmapfd_ < 0) {
-    throw leanstore::ex::GenericException("Open exmap file-descriptor error. Did you load the module?");
-  }
-
   // Workers + Page providers + 1 Group Commit thread
   auto no_interfaces = FLAGS_worker_count + FLAGS_page_provider_thread + 1;
-
-  struct exmap_ioctl_setup buffer;
-  buffer.fd             = blockfd_;
-  buffer.max_interfaces = no_interfaces;
-  buffer.buffer_size    = physical_cnt_;
-  auto ret              = ioctl(exmapfd_, EXMAP_IOCTL_SETUP, &buffer);
-  if (ret < 0) { throw leanstore::ex::GenericException("ioctl: exmap_setup error"); }
-
-  exmap_interface_.resize(no_interfaces);
-  for (size_t idx = 0; idx < no_interfaces; idx++) {
-    exmap_interface_[idx] = static_cast<exmap_user_interface *>(
-      mmap(nullptr, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, exmapfd_, EXMAP_OFF_INTERFACE(idx)));
-    if (exmap_interface_[idx] == MAP_FAILED) { throw leanstore::ex::GenericException("Setup exmap_interface_ error"); };
-  }
-
-  // Setup virtual mem on top of exmap
-  mem_ =
-    static_cast<storage::Page *>(mmap(nullptr, virtual_alloc_size, PROT_READ | PROT_WRITE, MAP_SHARED, exmapfd_, 0));
+  mem_               = static_cast<storage::Page *>(
+    mmap(nullptr, virtual_alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
   if (mem_ == MAP_FAILED) { throw leanstore::ex::GenericException("mmap failed"); };
 
   // Construct AIO interfaces for writing pages
@@ -309,23 +256,6 @@ void BufferManager::EnsureFreePages() {
   while ((physical_used_cnt_ >= physical_cnt_ * 0.9) && (keep_running_->load())) { Evict(); }
 }
 
-void BufferManager::ExmapAlloc(pageid_t pid, size_t mem_alloc_sz) {
-  // TODO(XXX): Support ExmapAlloc with `mem_alloc_sz > EXMAP_PAGE_MAX_PAGES * EXMAP_USER_INTERFACE_PAGES`
-  int idx = 0;
-  for (; mem_alloc_sz > 0; idx++) {
-    auto alloc_sz = std::min(static_cast<size_t>(EXMAP_PAGE_MAX_PAGES - 1), mem_alloc_sz);
-    exmap_interface_[LeanStore::worker_thread_id]->iov[idx].page = pid;
-    exmap_interface_[LeanStore::worker_thread_id]->iov[idx].len  = alloc_sz;
-    pid += alloc_sz;
-    mem_alloc_sz -= alloc_sz;
-  }
-  Ensure(idx < EXMAP_USER_INTERFACE_PAGES);
-  while (ExmapAction(exmapfd_, EXMAP_OP_ALLOC, idx) < 0) {
-    spdlog::info("Exmap Alloc Page errno '%d', page_id '%lu', worker_id '%d'", errno, pid, LeanStore::worker_thread_id);
-    EnsureFreePages();
-  }
-}
-
 /**
  * @brief Allocate a single page
  * Always allocate the page at the end of database for simplicity
@@ -354,11 +284,8 @@ void BufferManager::HandlePageFault(pageid_t page_id) {
 }
 
 void BufferManager::ReadPage(pageid_t page_id) {
-  struct iovec vec[1];
-  vec[0].iov_base = ToPtr(page_id);
-  vec[0].iov_len  = PAGE_SIZE;
-  int ret         = preadv(exmapfd_, &vec[0], 1, LeanStore::worker_thread_id);
-  Ensure(ret == PAGE_SIZE);
+  int ret = pread(blockfd_, ToPtr(page_id), PAGE_SIZE, page_id * PAGE_SIZE);
+  assert(ret == PAGE_SIZE);
   statistics::buffer::read_cnt++;
 }
 
@@ -461,22 +388,16 @@ void BufferManager::Evict() {
 
   // 4. remove from page table
   u64 evict_size = 0;
-  Ensure(to_evict.size() <= EXMAP_USER_INTERFACE_PAGES);
   for (size_t idx = 0; idx < to_evict.size(); idx++) {
     auto pid      = to_evict[idx];
     auto pg_count = ExtentPageCount(pid);
     evict_size    = evict_size + pg_count;
+    madvise(&mem_[pid], PAGE_SIZE * pg_count, MADV_DONTNEED);
 
     // For normal buffer pool, simulate lookup here
     if (FLAGS_blob_normal_buffer_pool) {
       for (auto idx = 0UL; idx < pg_count; idx++) { resident_set_.Contain(pid + idx); }
     }
-
-    exmap_interface_[LeanStore::worker_thread_id]->iov[idx].page = pid;
-    exmap_interface_[LeanStore::worker_thread_id]->iov[idx].len  = pg_count;
-  }
-  if (ExmapAction(exmapfd_, EXMAP_OP_FREE, to_evict.size()) < 0) {
-    throw leanstore::ex::GenericException("ioctl: EXMAP_OP_FREE error");
   }
 
   // 5. remove from hash table and unlock
@@ -571,22 +492,10 @@ void BufferManager::ReadExtents(const storage::LargePageList &large_pages) {
     Ensure((sync::PageState::UNLOCKED < GetPageState(lp.start_pid).LockState()) &&
            (GetPageState(lp.start_pid).LockState() <= sync::PageState::EXCLUSIVE));
   }
-  Ensure(to_read_lp.size() <= EXMAP_USER_INTERFACE_PAGES);
   physical_used_cnt_ += total_page_cnt;
   EnsureFreePages();
 
-  // 2. Exmap calloc/prefault these huge pages + Read them with io_uring
-  for (size_t idx = 0; idx < to_read_lp.size(); idx++) {
-    exmap_interface_[LeanStore::worker_thread_id]->iov[idx].page = to_read_lp[idx].start_pid;
-    /**
-     * @brief It's possible that this large page is a tail extent, i.e. it borrows a virtual large page from a tier
-     *  Therefore, we should allocate the correct page count for that tier instead of relying on the provided page cnt
-     */
-    auto expected_page_cnt = ExtentPageCount(to_read_lp[idx].start_pid);
-    Ensure(expected_page_cnt >= to_read_lp[idx].page_cnt);
-    exmap_interface_[LeanStore::worker_thread_id]->iov[idx].len = expected_page_cnt;
-  }
-  Ensure(ExmapAction(exmapfd_, EXMAP_OP_ALLOC, to_read_lp.size()) >= 0);
+  // 2. Read them with io_uring
   aio_interface_[LeanStore::worker_thread_id].ReadLargePages(to_read_lp);
 
   // Mark all huge pages as Blob, and set them to SHARED state

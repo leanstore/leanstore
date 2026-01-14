@@ -12,7 +12,6 @@
 
 #include "gtest/gtest_prod.h"
 
-#include <linux/exmap.h>
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <atomic>
@@ -31,9 +30,6 @@ class BlobManager;
 struct AliasingGuard;
 }  // namespace storage::blob
 
-// Exmap env
-void HandleExmapSEGFAULT(int signo, siginfo_t *info, void *extra);
-void RegisterSEGFAULTHandler();
 }  // namespace leanstore
 
 namespace leanstore::buffer {
@@ -106,10 +102,6 @@ class BufferManager {
   void Construction();
   void ExmapAlloc(pageid_t pid, size_t mem_alloc_sz = 1);
   auto FixShareImpl(pageid_t page_id) -> bool;
-
-  /* Exmap environment */
-  int exmapfd_;
-  std::vector<struct exmap_user_interface *> exmap_interface_;
 
   /* Buffer pool environment */
   const u64 virtual_size_;          /* Maximum size of the database */

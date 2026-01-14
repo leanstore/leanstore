@@ -62,6 +62,7 @@ class BaseTest : public ::testing::Test {
       test_file_fd_ = open(FLAGS_db_path.c_str(), O_RDWR | O_DIRECT, S_IRWXU);
       assert(test_file_fd_ > 0);
     }
+    FLAGS_blob_buffer_pool_gb = 0;
 
     // Reset all run-time here
     LeanStore::worker_thread_id = 0;
@@ -98,6 +99,7 @@ class BaseTest : public ::testing::Test {
 
   void InitRandTransaction(wid_t w_id = 0) {
     LeanStore::worker_thread_id = w_id;
+    log_->LocalLogWorker().backend.Connect();
     txn_man_->StartTransaction(transaction::Transaction::Type::USER, 0, transaction::IsolationLevel::READ_UNCOMMITTED,
                                transaction::Transaction::Mode::OLTP);
     transaction::TransactionManager::active_txn.MarkAsWrite();

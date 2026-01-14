@@ -7,7 +7,6 @@
 
 #include "liburing.h"
 
-#include <linux/exmap.h>
 #include <sys/mman.h>
 #include <atomic>
 #include <bit>
@@ -48,7 +47,6 @@ void HashCombine(std::size_t &seed, const T &v, const Rest &...rest) {
 auto AllocHuge(size_t size) -> void *;
 void AsmBarrier();
 void AsmYield([[maybe_unused]] u64 counter = 0);
-auto ExmapAction(int exmapfd, exmap_opcode op, leng_t len) -> int;
 auto PageTableSize() -> std::string;
 void PinThisThread(wid_t t_i);
 auto StorageCapacity(const char *path) -> u64;
