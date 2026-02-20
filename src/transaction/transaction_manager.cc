@@ -23,8 +23,8 @@ TransactionManager::TransactionManager(buffer::BufferManager *buffer_manager, Lo
 
 auto TransactionManager::ParseIsolationLevel(const std::string &str) -> IsolationLevel {
   if (str == "ser") { return IsolationLevel::SERIALIZABLE; }
-  if (str == "si") { return IsolationLevel::SNAPSHOT_ISOLATION; }
-  if (str == "rc") { return IsolationLevel::READ_COMMITTED; }
+  // if (str == "si") { return IsolationLevel::SNAPSHOT_ISOLATION; }
+  // if (str == "rc") { return IsolationLevel::READ_COMMITTED; }
   Ensure(str == "ru");
   return IsolationLevel::READ_UNCOMMITTED;
 }
@@ -48,19 +48,8 @@ void TransactionManager::StartTransaction(Transaction::Type next_tx_type, timest
     logger.PublicLocalGSN();
   }
 
-  switch (FLAGS_wal_variant) {
-    case ToUnderlying(LoggingVariant::GSN): active_txn.needs_remote_flush = true; break;
-    case ToUnderlying(LoggingVariant::RFA):
-      logger.rfa_gsn_flushed        = LogManager::global_min_gsn_flushed.load();
-      active_txn.needs_remote_flush = false;
-      break;
-    case ToUnderlying(LoggingVariant::VECTOR):
-      logger.rfa_gsn_flushed        = LogManager::global_min_gsn_flushed.load();
-      active_txn.needs_remote_flush = true;
-      break;
-    default: UnreachableCode();
-  }
-  if (next_tx_isolation_level >= IsolationLevel::READ_COMMITTED) { throw leanstore::ex::TODO("Not implemented yet"); }
+  logger.rfa_gsn_flushed = LogManager::global_min_gsn_flushed.load();
+  if (next_tx_isolation_level > IsolationLevel::READ_UNCOMMITTED) { throw leanstore::ex::TODO("Not implemented yet"); }
 }
 
 /* At the moment, `must_not_ack` is only used for testing purpose */
@@ -69,9 +58,8 @@ void TransactionManager::CommitTransaction(bool must_not_ack) {
 
   Ensure(active_txn.state == Transaction::State::STARTED);
   // Update transactional context of current txn
-  active_txn.commit_ts        = global_clock++;
-  active_txn.max_observed_gsn = logger.GetCurrentGSN();
-  active_txn.state            = Transaction::State::READY_TO_COMMIT;
+  active_txn.commit_ts = global_clock++;
+  active_txn.state     = Transaction::State::READY_TO_COMMIT;
   if (FLAGS_txn_debug) {
     active_txn.stats.precommit = tsctime::ReadTSC();
     previous_completed_time    = active_txn.stats.precommit;
@@ -81,13 +69,8 @@ void TransactionManager::CommitTransaction(bool must_not_ack) {
   if (FLAGS_wal_enable) {
     // Insert commit log entry to WAL
     active_txn.MarkAsWrite();
-    if (FLAGS_wal_variant != LoggingVariant::VECTOR) {
-      auto &entry = logger.ReserveLogMetaEntry();
-      entry.type  = LogEntry::Type::TX_COMMIT;
-    } else {
-      auto &entry       = logger.ReserveLogCommitEntry(active_txn.SerializedVectorSize());
-      entry.vector_size = active_txn.gsn_vector.size();
-    }
+    auto &entry        = logger.ReserveLogCommitEntry(active_txn.SerializedVectorSize());
+    entry.vector_size  = active_txn.gsn_vector.size();
     auto should_commit = logger.SubmitActiveLogEntry();
 
     // Push the txn to the pre-commit queue
@@ -95,11 +78,8 @@ void TransactionManager::CommitTransaction(bool must_not_ack) {
 
     // Try to trigger group commit directly within the worker
     if (!must_not_ack) {
-      if (FLAGS_txn_commit_variant == CommitProtocol::BASELINE_COMMIT) { log_manager_->TriggerGroupCommit(0); }
-      if (FLAGS_txn_commit_variant == CommitProtocol::AUTONOMOUS_COMMIT) {
-        if (should_commit || (Rand(BitLength(FLAGS_worker_count + 1)) == 0)) {
-          log_manager_->TriggerGroupCommit(LeanStore::worker_thread_id / FLAGS_txn_commit_group_size);
-        }
+      if (should_commit || (Rand(BitLength(FLAGS_worker_count + 1)) == 0)) {
+        log_manager_->TriggerGroupCommit(LeanStore::worker_thread_id / FLAGS_txn_commit_group_size);
       }
     }
   }
@@ -107,13 +87,7 @@ void TransactionManager::CommitTransaction(bool must_not_ack) {
   // If log is disabled, update the statistics manually
   if (!FLAGS_wal_enable) {
     DurableCommit(active_txn, active_txn.stats.precommit);
-    if (start_profiling) {
-      if (active_txn.needs_remote_flush) {
-        statistics::precommited_txn_processed[LeanStore::worker_thread_id] += 1;
-      } else {
-        statistics::precommited_rfa_txn_processed[LeanStore::worker_thread_id] += 1;
-      }
-    }
+    if (start_profiling) { statistics::precommited_txn_processed[LeanStore::worker_thread_id] += 1; }
   }
 }
 
@@ -158,13 +132,8 @@ void TransactionManager::DurableCommit(T &txn, timestamp_t queue_phase_start) {
     if (start_profiling_latency) {
       statistics::txn_queue[LeanStore::worker_thread_id].emplace_back(
         tsctime::TscDifferenceNs(txn.stats.precommit, queue_phase_start));
-      if (txn.needs_remote_flush) {
-        statistics::txn_latency[LeanStore::worker_thread_id].emplace_back(
-          tsctime::TscDifferenceNs(txn.stats.start, commit_stats));
-      } else {
-        statistics::rfa_txn_latency[LeanStore::worker_thread_id].emplace_back(
-          tsctime::TscDifferenceNs(txn.stats.start, commit_stats));
-      }
+      statistics::txn_latency[LeanStore::worker_thread_id].emplace_back(
+        tsctime::TscDifferenceNs(txn.stats.start, commit_stats));
       statistics::txn_exec[LeanStore::worker_thread_id].push_back(
         tsctime::TscDifferenceNs(txn.stats.start, txn.stats.precommit));
       statistics::lat_inc_wait[LeanStore::worker_thread_id].emplace_back(
@@ -173,44 +142,13 @@ void TransactionManager::DurableCommit(T &txn, timestamp_t queue_phase_start) {
   }
 }
 
-/**
- * @brief Generate a dummy transaction to enforce a global-order over all workers
- *  This dummy transaction doesn't generate any log entry
- */
-auto TransactionManager::AddBarrierTransaction() -> timestamp_t {
-  assert(FLAGS_wal_variant != LoggingVariant::VECTOR);
-  /* Retrieve latest GSN */
-  auto &logger          = log_manager_->LocalLogWorker();
-  const auto sync_point = LogManager::global_sync_to_this_gsn.load();
-  if (sync_point > logger.GetCurrentGSN()) { logger.SetCurrentGSN(sync_point); }
-  /* Append a new barrier txn */
-  auto dummy = Transaction();
-  dummy.Initialize(this, global_clock.load(), Transaction::Type::SYSTEM, IsolationLevel::READ_UNCOMMITTED,
-                   Transaction::Mode::OLTP);
-  dummy.commit_ts          = dummy.start_ts;
-  dummy.max_observed_gsn   = logger.GetCurrentGSN();
-  dummy.state              = Transaction::State::BARRIER;
-  dummy.needs_remote_flush = true;  // Require global synchronization
-  QueueTransaction(dummy);
-  return dummy.commit_ts;
-}
-
 void TransactionManager::QueueTransaction(Transaction &txn) {
   assert(FLAGS_wal_enable);
   auto &logger = log_manager_->LocalLogWorker();
 
   /* Enabling lock-free queue */
-  if (txn.needs_remote_flush) {
-    logger.precommitted_queue.Push(txn);
-    if (start_profiling && txn.state != Transaction::State::BARRIER) {
-      statistics::precommited_txn_processed[LeanStore::worker_thread_id] += 1;
-    }
-  } else {
-    logger.precommitted_queue_rfa.Push(txn);
-    if (start_profiling && txn.state != Transaction::State::BARRIER) {
-      statistics::precommited_rfa_txn_processed[LeanStore::worker_thread_id] += 1;
-    }
-  }
+  logger.precommitted_queue.Push(txn);
+  if (start_profiling) { statistics::precommited_txn_processed[LeanStore::worker_thread_id] += 1; }
 }
 
 template void TransactionManager::DurableCommit<transaction::SerializableTransaction>(

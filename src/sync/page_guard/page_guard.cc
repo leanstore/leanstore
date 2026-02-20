@@ -49,17 +49,10 @@ void PageGuard<PageClass>::DetectGSNDependency() {
     Ensure(txn.IsRunning());
     auto &logger = txn.LogWorker();
     auto buffer  = txn.BufferPool();
-    if (FLAGS_wal_variant == LoggingVariant::RFA) {
-      if (GSN() > logger.rfa_gsn_flushed &&
-          buffer->BufferFramePage(page_id_).last_writer != LeanStore::worker_thread_id) {
-        txn.needs_remote_flush = true;
-      }
-    } else if (FLAGS_wal_variant == LoggingVariant::VECTOR) {
-      if (GSN() > logger.rfa_gsn_flushed &&
-          buffer->BufferFramePage(page_id_).last_writer != LeanStore::worker_thread_id) {
-        prev_owner_ = buffer->BufferFramePage(page_id_).last_writer;
-        prev_gsn_   = GSN();
-      }
+    if (GSN() > logger.rfa_gsn_flushed &&
+        buffer->BufferFramePage(page_id_).last_writer != LeanStore::worker_thread_id) {
+      prev_owner_ = buffer->BufferFramePage(page_id_).last_writer;
+      prev_gsn_   = GSN();
     }
     logger.SetCurrentGSN(std::max<timestamp_t>(logger.GetCurrentGSN(), GSN()));
   }
@@ -84,7 +77,7 @@ void PageGuard<PageClass>::AdvanceGSN() {
 template <class PageClass>
 void PageGuard<PageClass>::UpdateDependencyVector() {
   /* prev_gsn_ > 0 means somebody modifies the page */
-  if (FLAGS_wal_enable && FLAGS_wal_variant == LoggingVariant::VECTOR && prev_gsn_ > 0) {
+  if (FLAGS_wal_enable && prev_gsn_ > 0) {
     auto &txn = TM::active_txn;
     Ensure(txn.IsRunning() && prev_owner_ != LeanStore::worker_thread_id &&
            prev_owner_ != std::numeric_limits<wid_t>::max());

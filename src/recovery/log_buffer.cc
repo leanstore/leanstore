@@ -6,8 +6,6 @@
 #include "sync/hybrid_guard.h"
 #include "transaction/transaction.h"
 
-using leanstore::transaction::CommitProtocol;
-
 namespace leanstore::recovery {
 
 LogBuffer::LogBuffer(u64 buffer_size, std::atomic<bool> *db_is_running) : is_running(db_is_running) {
@@ -37,20 +35,13 @@ void LogBuffer::EnsureEnoughSpace(LogWorker *owner, u64 requested_size) {
     prepared_space_for_new_entry += FLAGS_wal_buffer_size_mb * MB - wal_cursor;
   }
   while ((TotalFreeSpace() < prepared_space_for_new_entry) && (is_running->load())) {
-    /* For decentralized logging variants, it should be very rarely to be here */
-    switch (FLAGS_txn_commit_variant) {
-      case ToUnderlying(CommitProtocol::BASELINE_COMMIT): owner->log_manager->TriggerGroupCommit(0); break;
-      case ToUnderlying(CommitProtocol::WORKERS_WRITE_LOG): LogFlush(owner, false); break;
-      case ToUnderlying(CommitProtocol::AUTONOMOUS_COMMIT):
-        LogFlush(owner, false);
-        {
-          /* Public its consistent state */
-          owner->PublicCommitTS();
-          auto &commit_state = owner->log_manager->commit_state_[LeanStore::worker_thread_id];
-          commit_state.SyncClone(*owner->w_state);
-        }
-        break;
-      default: AsmYield(); break;
+    /* For autonomous commit, it should be very rarely to be here */
+    LogFlush(owner, false);
+    {
+      /* Public its consistent state */
+      owner->PublicCommitTS();
+      auto &commit_state = owner->log_manager->commit_state_[LeanStore::worker_thread_id];
+      commit_state.SyncClone(*owner->w_state);
     }
   }
   // Always ensure that we can put one CR entry at the end of the wal_buffer

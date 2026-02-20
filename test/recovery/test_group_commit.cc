@@ -39,7 +39,6 @@ class TestGroupCommit : public BaseTest {
 TEST_F(TestGroupCommit, BlobSupportVariant) {
   FLAGS_wal_enable    = true;
   FLAGS_blob_enable   = true;
-  FLAGS_wal_variant   = 0;
   extidx_t extent_idx = 5;
 
   auto gct = std::make_unique<GroupCommitExecutor>(buffer_.get(), log_.get(), 0, FLAGS_worker_count, keep_running_);

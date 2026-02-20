@@ -12,16 +12,12 @@
 #include <memory>
 #include <new>
 
-using leanstore::transaction::CommitProtocol;
-
 namespace leanstore::recovery {
 
 u64 LogManager::stealing_border = 0;
 
 LogManager::LogManager(std::atomic<bool> &is_running)
-    : no_commit_executor_((FLAGS_txn_commit_variant == CommitProtocol::AUTONOMOUS_COMMIT)
-                            ? FLAGS_worker_count / FLAGS_txn_commit_group_size
-                            : 1),
+    : no_commit_executor_(FLAGS_worker_count / FLAGS_txn_commit_group_size),
       commit_latches_(no_commit_executor_),
       worker_write_batch_size_(FLAGS_wal_batch_write_kb * KB),
       wal_block_size_(FLAGS_wal_block_size_mb * MB),

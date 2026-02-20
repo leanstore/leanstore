@@ -14,7 +14,6 @@
 #include <cstring>
 #include <thread>
 
-using leanstore::transaction::CommitProtocol;
 using leanstore::transaction::TransactionManager;
 
 namespace leanstore::recovery {
@@ -144,7 +143,6 @@ auto LogWorker::ReserveLogMetaEntry() -> LogMetaEntry & {
 }
 
 auto LogWorker::ReserveLogCommitEntry(u64 payload_size) -> TxnCommitEntry & {
-  Ensure(FLAGS_wal_variant == LoggingVariant::VECTOR);
   const u64 total_size = sizeof(TxnCommitEntry) + payload_size;
   log_buffer.EnsureEnoughSpace(this, total_size);
   active_log = reinterpret_cast<LogEntry *>(log_buffer.Current());
@@ -226,25 +224,12 @@ auto LogWorker::SubmitActiveLogEntry() -> bool {
     last_unharden_commit_ts = TransactionManager::active_txn.commit_ts;
 
     /* Normal variants only published commit timestamp -> group commit execute the ack */
-    if ((FLAGS_txn_commit_variant != CommitProtocol::WORKERS_WRITE_LOG) &&
-        (FLAGS_txn_commit_variant != CommitProtocol::AUTONOMOUS_COMMIT)) {
-      PublicCommitTS();
-    } else if (FLAGS_txn_commit_variant == CommitProtocol::WORKERS_WRITE_LOG) {
-      /* WILO writes log immediately */
-      if (ShouldStealLog() == StealDecision::TO_WRITE_LOCALLY) {
-        WorkerWritesLog();
-        just_write_log = true;
-      } else {
-        PublicLocalGSN();
-      }
-    } else {
-      /* If we can steal log, then do it. Otherwise, follow traditional WILO */
-      PublicCommitTS();
-      auto to_steal = ShouldStealLog();
-      if (to_steal != StealDecision::NOTHING) {
-        just_write_log = true;
-        WorkerStealsLog(to_steal == StealDecision::TO_WRITE_LOCALLY);
-      }
+    /* If we can steal log, then do it. Otherwise, follow traditional WILO */
+    PublicCommitTS();
+    auto to_steal = ShouldStealLog();
+    if (to_steal != StealDecision::NOTHING) {
+      just_write_log = true;
+      WorkerStealsLog(to_steal == StealDecision::TO_WRITE_LOCALLY);
     }
   } else if (active_log->type == LogEntry::Type::DATA_ENTRY) {
     // Public local GSN to gct for RFA operation
@@ -267,18 +252,9 @@ auto LogWorker::ShouldStealLog() -> StealDecision {
                           ? log_buffer.wal_cursor - written_cursor
                           : log_buffer.wal_cursor + FLAGS_wal_buffer_size_mb * MB - written_cursor;
   /* Only SSD log backend support log stealing */
-  if (FLAGS_txn_commit_variant == CommitProtocol::WORKERS_WRITE_LOG) {
-    return (difference >= log_manager->worker_write_batch_size_) ? StealDecision::TO_WRITE_LOCALLY
-                                                                 : StealDecision::NOTHING;
-  }
   if (difference >= log_manager->worker_write_batch_size_) { return StealDecision::TO_WRITE_LOCALLY; }
   return (difference < log_manager->worker_write_batch_size_ / LogManager::stealing_border) ? StealDecision::NOTHING
                                                                                             : StealDecision::TO_STEAL;
-}
-
-void LogWorker::WorkerWritesLog() {
-  assert(FLAGS_txn_commit_variant == CommitProtocol::WORKERS_WRITE_LOG);
-  if (log_buffer.wal_cursor != log_buffer.write_cursor.load()) { log_buffer.LogFlush(this, false); };
 }
 
 void LogWorker::WorkerStealsLog(bool write_only) {
@@ -370,7 +346,6 @@ auto LogWorker::TryStealLogs(wid_t peer_id, WorkerConsistentState &out_state) ->
  * @brief Publish the durable state of this worker to other threads
  */
 void LogWorker::TryPublishCommitState(wid_t w_id, const WorkerConsistentState &w_state) {
-  assert(FLAGS_txn_commit_variant == CommitProtocol::AUTONOMOUS_COMMIT);
   auto to_find = ToCommitState(w_state);
   auto &logger = log_manager->logger_[w_id];
   {

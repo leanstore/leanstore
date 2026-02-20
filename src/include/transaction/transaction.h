@@ -28,32 +28,13 @@ namespace leanstore::transaction {
 
 class TransactionManager;
 
+// TODO: Do not support anything beside READ_UNCOMMITTED and SERIALIZABLE
 enum class IsolationLevel : u8 {
-  READ_UNCOMMITTED   = 0,
-  READ_COMMITTED     = 1,
-  SNAPSHOT_ISOLATION = 2,
-  SERIALIZABLE       = 3,
+  READ_UNCOMMITTED = 0,
+  // READ_COMMITTED     = 1,
+  // SNAPSHOT_ISOLATION = 2,
+  SERIALIZABLE = 3,
 };
-
-/**
- * @brief Commit protocol variants:
- * - BASELINE_COMMIT:       Baseline commit protocol employed in MySQL and PostgreSQL
- *                          One of the workers thread, after acquiring the lock, executes the group commit job
- * - FLUSH_PIPELINING:      Group commit with AsyncIO + fdatasync() to flush data
- * - WORKERS_WRITE_LOG:     The workers pwrite() the log entries after a certain amount.
- *                          Group commit is responsible for fdatasync() and mark transaction committed
- * - AUTONOMOUS_COMMIT:     During log write, workers try to steal another log buffer from another
- */
-enum class CommitProtocol : u8 {
-  BASELINE_COMMIT   = 0,
-  FLUSH_PIPELINING  = 1,
-  WORKERS_WRITE_LOG = 2,
-  AUTONOMOUS_COMMIT = 3,
-};
-
-inline auto operator==(int lhs, CommitProtocol &&rhs) -> bool { return ToUnderlying(rhs) == lhs; }
-
-inline auto operator!=(int lhs, CommitProtocol &&rhs) -> bool { return ToUnderlying(rhs) != lhs; }
 
 struct SerializableTransaction;
 
@@ -62,7 +43,7 @@ class Transaction {
   static constexpr size_t VECTOR_KEY_SIZE = sizeof(wid_t) + sizeof(timestamp_t);
   enum class Type : u8 { USER, SYSTEM };
   enum class Mode : u8 { OLTP, OLAP };
-  enum class State : u8 { IDLE = 0, STARTED = 1, READY_TO_COMMIT = 2, COMMITTED = 3, ABORTED = 4, BARRIER = 5 };
+  enum class State : u8 { IDLE = 0, STARTED = 1, READY_TO_COMMIT = 2, COMMITTED = 3, ABORTED = 4 };
 
   // Statistics
   struct Statistics {
@@ -75,8 +56,6 @@ class Transaction {
   State state{State::IDLE};
   timestamp_t start_ts;
   timestamp_t commit_ts;
-  timestamp_t max_observed_gsn;  // The smallest upper-limit of gsn at which all logs of all workers have been flushed
-  bool needs_remote_flush;       // whether active_txn can avoid remote flush before commit
   std::unordered_map<wid_t, timestamp_t> gsn_vector;  // Dependency vector
 
 #ifdef ENABLE_TESTING
@@ -133,20 +112,10 @@ struct alignas(CPU_CACHELINE_SIZE) SerializableTransaction {
 
   Transaction::State state = {Transaction::State::IDLE};
 
-  union {
-    // Used for GSN/RFA variants
-    struct {
-      bool needs_remote_flush : 1;
-      timestamp_t max_observed_gsn : 63;
-    };
-
-    // Used for VECTOR variant
-    size_t vector_size;
-  };
-
   Transaction::Statistics stats;
   timestamp_t start_ts;
   timestamp_t commit_ts;
+  size_t vector_size;
   u16 no_write_pages   = 0;
   u16 no_evict_extents = 0;
   u16 no_free_extents  = 0;
@@ -178,10 +147,7 @@ struct alignas(CPU_CACHELINE_SIZE) SerializableTransaction {
   auto DepGSN() const -> std::span<const timestamp_t>;
 
  private:
-  auto OffsetWritePages() const -> u64 {
-    if (FLAGS_wal_variant != LoggingVariant::VECTOR) { return 0; }
-    return vector_size * Transaction::VECTOR_KEY_SIZE;
-  }
+  auto OffsetWritePages() const -> u64 { return vector_size * Transaction::VECTOR_KEY_SIZE; }
 
   auto OffsetEvictExtents() const -> u64 { return OffsetWritePages() + no_write_pages * sizeof(storage::LargePage); }
 

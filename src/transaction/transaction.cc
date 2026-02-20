@@ -15,13 +15,8 @@ void SerializableTransaction::Construct(const Transaction &txn) {
   stats     = txn.stats;
   start_ts  = txn.start_ts;
   commit_ts = txn.commit_ts;
-  if (FLAGS_wal_variant != LoggingVariant::VECTOR) {
-    needs_remote_flush = txn.needs_remote_flush;
-    max_observed_gsn   = txn.max_observed_gsn;
-  } else {
-    txn.SerializeGSNVector(content);
-    vector_size = txn.gsn_vector.size();
-  }
+  txn.SerializeGSNVector(content);
+  vector_size      = txn.gsn_vector.size();
   no_write_pages   = txn.to_write_pages_.size();
   no_evict_extents = txn.to_evict_extents_.size();
   no_free_extents  = txn.to_free_extents_.size();
@@ -45,7 +40,7 @@ auto SerializableTransaction::InvalidByteBuffer(const u8 *buffer) -> bool { retu
 
 /* Should be in-sync with Transaction::SerializedSize() */
 auto SerializableTransaction::MemorySize() -> u16 {
-  auto vector_mem_size = (FLAGS_wal_variant != LoggingVariant::VECTOR) ? 0 : Transaction::VECTOR_KEY_SIZE * vector_size;
+  auto vector_mem_size = Transaction::VECTOR_KEY_SIZE * vector_size;
   auto ret = sizeof(SerializableTransaction) + vector_mem_size + no_write_pages * sizeof(storage::LargePage) +
              no_evict_extents * sizeof(pageid_t) + no_free_extents * sizeof(storage::ExtentTier);
   return UpAlign(ret, CPU_CACHELINE_SIZE);
@@ -66,10 +61,6 @@ void Transaction::Initialize(TransactionManager *manager, timestamp_t start_time
   state     = State::STARTED;
   start_ts  = start_timestamp;
   commit_ts = 0;
-
-  //--------------------------
-  max_observed_gsn   = std::numeric_limits<timestamp_t>::max();
-  needs_remote_flush = false;
 
   //--------------------------
   to_write_pages_   = storage::LargePageList();

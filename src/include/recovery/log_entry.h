@@ -8,20 +8,6 @@
 #include <atomic>
 #include <limits>
 
-namespace leanstore {
-
-enum class LoggingVariant : u8 {
-  GSN    = 0,
-  RFA    = 1,
-  VECTOR = 2,
-};
-
-inline auto operator==(int lhs, LoggingVariant &&rhs) -> bool { return ToUnderlying(rhs) == lhs; }
-
-inline auto operator!=(int lhs, LoggingVariant &&rhs) -> bool { return ToUnderlying(rhs) != lhs; }
-
-}  // namespace leanstore
-
 namespace leanstore::recovery {
 
 struct LogEntry {

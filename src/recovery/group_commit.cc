@@ -18,8 +18,6 @@
 #include <mutex>
 #include <tuple>
 
-using leanstore::transaction::CommitProtocol;
-
 namespace leanstore::recovery {
 
 GroupCommitExecutor::GroupCommitExecutor(buffer::BufferManager *buffer, LogManager *log_manager, u32 start_wid,
@@ -116,31 +114,9 @@ void GroupCommitExecutor::StartExecution() {
 void GroupCommitExecutor::PhaseOne() {
   for (auto w_i = start_logger_id_; w_i < end_logger_id_; w_i++) { CollectPrecommittedQueue(w_i); }
   for (auto w_i = 0UL; w_i < FLAGS_worker_count; w_i++) { CollectConsistentState(w_i); }
-  /* Persist all WAL to SSD using async IO */
-  if ((FLAGS_txn_commit_variant != CommitProtocol::WORKERS_WRITE_LOG) &&
-      (FLAGS_txn_commit_variant != CommitProtocol::AUTONOMOUS_COMMIT)) {
-    for (auto w_i = start_logger_id_; w_i < end_logger_id_; w_i++) {
-      log_manager_->logger_[w_i].log_buffer.WriteLogBuffer(worker_states_[w_i].last_wal_cursor, BLK_BLOCK_SIZE,
-                                                           [&](u8 *buffer, u64 len) {
-                                                             auto offset = log_manager_->w_offset_.fetch_sub(len);
-                                                             PrepareWrite(buffer, len, offset - len);
-                                                           });
-    }
-    if (submitted_io_cnt_ > 0) {
-      UringSubmit(&ring_, submitted_io_cnt_);
-      submitted_io_cnt_ = 0;
-    }
-  }
+
   /* Fsync() if required */
   if (FLAGS_wal_fsync) { Fsync(); }
-  /* Acknowledge all log entries of other workers are flushed to the storage */
-  if ((FLAGS_txn_commit_variant != CommitProtocol::WORKERS_WRITE_LOG) &&
-      (FLAGS_txn_commit_variant != CommitProtocol::AUTONOMOUS_COMMIT)) {
-    for (size_t w_i = start_logger_id_; w_i < end_logger_id_; w_i++) {
-      log_manager_->logger_[w_i].log_buffer.write_cursor.store(worker_states_[w_i].last_wal_cursor,
-                                                               std::memory_order_release);
-    }
-  }
 }
 
 /**
@@ -186,10 +162,8 @@ void GroupCommitExecutor::PhaseThree() {
     auto committed_txn = 0UL;
     auto loop_bytes    = logger.precommitted_queue.LoopElements(ready_to_commit_cut_[w_i], [&](auto &txn) {
       if (SatisfyCommitConditions(w_i, txn)) {
-        if (txn.state != transaction::Transaction::State::BARRIER) {
-          committed_txn++;
-          CompleteTransaction(txn);
-        }
+        committed_txn++;
+        CompleteTransaction(txn);
         return true;
       }
       return false;
@@ -203,7 +177,6 @@ void GroupCommitExecutor::PhaseThree() {
     committed_txn = 0;
     loop_bytes    = logger.precommitted_queue_rfa.LoopElements(ready_to_commit_rfa_cut_[w_i], [&](auto &txn) {
       if (txn.commit_ts <= worker_states_[w_i].precommitted_tx_commit_ts) [[likely]] {
-        assert(txn.state != transaction::Transaction::State::BARRIER);
         committed_txn++;
         CompleteTransaction(txn);
         return true;
@@ -222,11 +195,7 @@ void GroupCommitExecutor::PhaseThree() {
 void GroupCommitExecutor::Fsync() { fdatasync(log_manager_->wal_fd_); }
 
 void GroupCommitExecutor::CollectConsistentState(wid_t w_i) {
-  if (FLAGS_txn_commit_variant != CommitProtocol::AUTONOMOUS_COMMIT) {
-    worker_states_[w_i].Clone(log_manager_->w_state_[w_i]);
-  } else {
-    worker_states_[w_i].Clone(log_manager_->commit_state_[w_i]);
-  }
+  worker_states_[w_i].Clone(log_manager_->commit_state_[w_i]);
   min_all_workers_gsn_ = std::min<timestamp_t>(min_all_workers_gsn_, worker_states_[w_i].last_gsn);
   max_all_workers_gsn_ = std::max<timestamp_t>(max_all_workers_gsn_, worker_states_[w_i].last_gsn);
   min_hardened_commit_ts_ =
@@ -289,15 +258,6 @@ void GroupCommitExecutor::CompleteTransaction(transaction::SerializableTransacti
 }
 
 auto GroupCommitExecutor::SatisfyCommitConditions(wid_t w_i, const transaction::SerializableTransaction &txn) -> bool {
-  if (FLAGS_wal_variant != LoggingVariant::VECTOR) {
-    /**
-     * @brief In GSN/RFA decentralized logging, there are two conditions for commit operations:
-     * - The transaction didn't see any uncommitted content (from a possible dependency)
-     * - Dependent transactions are hardened, i.e., their logs are persistent, required for Early Lock Release
-     *    + See paper: Scalable and Robust Snapshot Isolation for High-Performance Storage Engines"
-     */
-    return txn.max_observed_gsn <= min_all_workers_gsn_ && txn.commit_ts <= min_hardened_commit_ts_;
-  }
   /**
    * @brief With GSN Vector variant, commit conditions is:
    * - Committed locally (using commit_ts is equivalent to local GSN in this case)

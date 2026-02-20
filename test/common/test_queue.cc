@@ -53,7 +53,6 @@ TEST(TestQueue, ConcurrencyTest) {
         if (loop_items > 10) { return false; }  // Only visit at most 10 objects to shorten the loop
         EXPECT_EQ(txn.state, transaction::Transaction::State::IDLE);
         EXPECT_EQ(txn.commit_ts, 0);
-        EXPECT_EQ(txn.max_observed_gsn, 0);
         loop_items++;
         return true;
       });

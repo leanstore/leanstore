@@ -42,11 +42,7 @@ LeanStore::LeanStore()
   Ensure(FLAGS_worker_count % FLAGS_txn_commit_group_size == 0);
   Ensure(FLAGS_wal_stealing_group_size <= FLAGS_worker_count);
   Ensure(FLAGS_txn_commit_group_size <= FLAGS_worker_count);
-  if (FLAGS_txn_commit_variant == transaction::CommitProtocol::AUTONOMOUS_COMMIT) {
-    Ensure(FLAGS_worker_count % FLAGS_txn_commit_group_size == 0);
-  } else {
-    FLAGS_txn_commit_group_size = FLAGS_worker_count;
-  }
+
 #ifdef DEBUG
   spdlog::set_level(spdlog::level::debug);
 #endif
@@ -117,18 +113,6 @@ LeanStore::LeanStore()
     log_manager->WriteMasterRecord();
   }
 
-  // Group commit
-
-  if ((FLAGS_txn_commit_variant != transaction::CommitProtocol::BASELINE_COMMIT) &&
-      (FLAGS_txn_commit_variant != transaction::CommitProtocol::AUTONOMOUS_COMMIT)) {
-    group_committer = std::thread([&]() {
-      pthread_setname_np(pthread_self(), "group_committer");
-      worker_thread_id = FLAGS_worker_count;
-      log_manager->CommitExecutor(0).StartExecution();
-      std::printf("Halt LeanStore's background GroupCommit thread\n");
-    });
-  }
-
   // Page provider threads
   if (FLAGS_page_provider_thread > 0) { buffer_pool->RunPageProviderThreads(); }
 }
@@ -148,10 +132,6 @@ void LeanStore::Shutdown() {
     if (FLAGS_txn_debug) {
       spdlog::info("Start measuring latency");
       auto wcnt = FLAGS_worker_count;
-      if ((FLAGS_txn_commit_variant != transaction::CommitProtocol::BASELINE_COMMIT) &&
-          (FLAGS_txn_commit_variant != transaction::CommitProtocol::AUTONOMOUS_COMMIT)) {
-        wcnt++;
-      }
       for (auto idx = 1U; idx < wcnt; idx++) {
         std::ranges::copy(statistics::txn_latency[idx], std::back_inserter(statistics::txn_latency[0]));
         std::ranges::copy(statistics::rfa_txn_latency[idx], std::back_inserter(statistics::rfa_txn_latency[0]));
@@ -184,10 +164,9 @@ void LeanStore::Shutdown() {
         "AvgIOLatency({:.4f} us)\n\t"
         "AvgTxnPerCommitRound({:.4f} txns)\n\t99.9thTxnPerRound({} txns)\n\t99.99thTxnPerRound({} txns)",
         Average(statistics::txn_exec[0]) / 1000UL, Average(statistics::txn_queue[0]) / 1000UL,
-        Average(statistics::lat_inc_wait[0]) / 1000UL,
-        Average(statistics::io_latency[0]) / 1000UL,
-        Average(statistics::txn_per_round[0]),
-        Percentile(statistics::txn_per_round[0], 99.9), Percentile(statistics::txn_per_round[0], 99.99));
+        Average(statistics::lat_inc_wait[0]) / 1000UL, Average(statistics::io_latency[0]) / 1000UL,
+        Average(statistics::txn_per_round[0]), Percentile(statistics::txn_per_round[0], 99.9),
+        Percentile(statistics::txn_per_round[0], 99.99));
       std::vector<timestamp_t> summary;
       std::merge(statistics::rfa_txn_latency[0].begin(), statistics::rfa_txn_latency[0].end(),
                  statistics::txn_latency[0].begin(), statistics::txn_latency[0].end(), std::back_inserter(summary));
@@ -197,35 +176,28 @@ void LeanStore::Shutdown() {
 }
 
 void LeanStore::CheckDuringIdle() {
-  if ((FLAGS_txn_commit_variant == transaction::CommitProtocol::WORKERS_WRITE_LOG) ||
-      (FLAGS_txn_commit_variant == transaction::CommitProtocol::AUTONOMOUS_COMMIT)) {
-    assert(FLAGS_wal_max_idle_time_us > 0);
-    /**
-     * @brief A probabilistic model to decide whether to write logs during IDLE
-     *
-     * With original WILO, there are two scenarios that it can't handle:
-     * - 1 write txn then a sequence of read-only transactions
-     * - 1 write txn then system workers become idle for a long time
-     *
-     * To tackle these two issues, we can force WILO to write logs during system idle --
-     *  see PoissonScheduler::Wait() for your information
-     * However, if we force write every time, it's possible that:
-     * - the free time is not enough for 1 write, i.e., idle for 5us, but 1 write causes at least 20us
-     * - we write log excessively, worsening write amplification and decrease throughput
-     *
-     * To fix this, we probabilistically trigger force write according to the maximum allowed idle time
-     */
-    auto avg_idle_time = Average(statistics::worker_idle_ns[worker_thread_id]);
-    auto eval_value    = gen.NoElements() - gen.Rand();
-    if (avg_idle_time >= eval_value) {
-      auto &logger = log_manager->LocalLogWorker();
-      if (FLAGS_wal_variant != LoggingVariant::VECTOR) {
-        logger.last_unharden_commit_ts = transaction_manager->AddBarrierTransaction();
-        logger.PublicCommitTS();
-      }
-      logger.WorkerStealsLog(true);
-      log_manager->TriggerGroupCommit(worker_thread_id / FLAGS_txn_commit_group_size);
-    }
+  assert(FLAGS_wal_max_idle_time_us > 0);
+  /**
+   * @brief A probabilistic model to decide whether to write logs during IDLE
+   *
+   * With original WILO, there are two scenarios that it can't handle:
+   * - 1 write txn then a sequence of read-only transactions
+   * - 1 write txn then system workers become idle for a long time
+   *
+   * To tackle these two issues, we can force WILO to write logs during system idle --
+   *  see PoissonScheduler::Wait() for your information
+   * However, if we force write every time, it's possible that:
+   * - the free time is not enough for 1 write, i.e., idle for 5us, but 1 write causes at least 20us
+   * - we write log excessively, worsening write amplification and decrease throughput
+   *
+   * To fix this, we probabilistically trigger force write according to the maximum allowed idle time
+   */
+  auto avg_idle_time = Average(statistics::worker_idle_ns[worker_thread_id]);
+  auto eval_value    = gen.NoElements() - gen.Rand();
+  if (avg_idle_time >= eval_value) {
+    auto &logger = log_manager->LocalLogWorker();
+    logger.WorkerStealsLog(true);
+    log_manager->TriggerGroupCommit(worker_thread_id / FLAGS_txn_commit_group_size);
   }
 }
 
@@ -291,7 +263,7 @@ void LeanStore::StartProfilingThread() {
   stat_collector  = std::thread([&]() {
     pthread_setname_np(pthread_self(), "stats_collector");
     std::printf(
-      "ts,tx,normal,rfa,commit_rounds,bm_rmb,bm_wmb,bm_evict,log_sz_mb,logio_mb,log_flush_cnt,"
+      "ts,tx,normal,commit_rounds,bm_rmb,bm_wmb,bm_evict,log_sz_mb,logio_mb,log_flush_cnt,"
        "gct_p1_us,gct_p2_us,gct_p3_us,db_size\n");
     auto cnt           = 0UL;
     auto completed_txn = 0UL;
@@ -306,15 +278,13 @@ void LeanStore::StartProfilingThread() {
       auto progress = 0UL;
       // Txn type start
       auto normal_txn = 0UL;
-      auto rfa_txn    = 0UL;
       for (auto idx = 0U; idx <= FLAGS_worker_count; idx++) {
         rounds += statistics::commit_rounds[idx].exchange(0);
         progress += statistics::txn_processed[idx].exchange(0);
         normal_txn += statistics::precommited_txn_processed[idx].exchange(0);
-        rfa_txn += statistics::precommited_rfa_txn_processed[idx].exchange(0);
       }
-      completed_txn += normal_txn + rfa_txn;
-      if (!FLAGS_wal_enable) { progress = normal_txn + rfa_txn; }
+      completed_txn += normal_txn;
+      if (!FLAGS_wal_enable) { progress = normal_txn; }
       statistics::total_committed_txn += progress;
       commit_rounds += rounds;
       // System stats
@@ -339,9 +309,8 @@ void LeanStore::StartProfilingThread() {
       }
       commit_exec += p1_us + p2_us + p3_us;
       // Output
-      std::printf("%lu,%lu,%lu,%lu,%lu,%.4f,%.4f,%lu,%.4f,%.4f,%lu,%lu,%lu,%lu,%.4f\n",
-                  cnt++, progress, normal_txn,
-                   rfa_txn, rounds, r_mb, w_mb, e_cnt, log_sz, log_write, log_flush_cnt, p1_us, p2_us, p3_us, db_sz);
+      std::printf("%lu,%lu,%lu,%lu,%.4f,%.4f,%lu,%.4f,%.4f,%lu,%lu,%lu,%lu,%.4f\n", cnt++, progress, normal_txn, rounds,
+                   r_mb, w_mb, e_cnt, log_sz, log_write, log_flush_cnt, p1_us, p2_us, p3_us, db_sz);
     }
     spdlog::info("Transaction statistics: # completed txns: {} - # committed txns: {}", completed_txn,
                   statistics::total_committed_txn.load());

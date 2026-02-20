@@ -61,14 +61,14 @@ TEST_F(TestPageGuard, NormalOperation) {
   for (int idx = 0; idx < NO_THREADS; idx++) {
     // 50% Write, 50% Read
     if (idx % 2 == 0) {
-      threads[idx] = std::thread([&]() {
-        InitRandTransaction();
+      threads[idx] = std::thread([&, wid = idx]() {
+        InitRandTransaction(wid);
         ExclusiveGuard<storage::Page> guard(buffer_.get(), buffer_->FixExclusive(0));
         counter++;
       });
     } else {
-      threads[idx] = std::thread([&]() {
-        InitRandTransaction();
+      threads[idx] = std::thread([&, wid = idx]() {
+        InitRandTransaction(wid);
         while (true) {
           OptimisticGuard<storage::Page> guard(buffer_.get(), 0);
           EXPECT_TRUE((0 <= counter) && (counter <= NO_THREADS / 2));

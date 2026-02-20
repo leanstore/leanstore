@@ -85,7 +85,6 @@ auto main(int argc, char **argv) -> int {
   ::testing::InitGoogleTest(&argc, argv);
   FLAGS_worker_count = 4;
   FLAGS_wal_enable   = true;
-  FLAGS_wal_variant  = static_cast<u32>(leanstore::LoggingVariant::VECTOR);
 
   google::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();

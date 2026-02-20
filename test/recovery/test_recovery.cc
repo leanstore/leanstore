@@ -159,7 +159,6 @@ auto main(int argc, char **argv) -> int {
   FLAGS_wal_fsync               = true;
   FLAGS_wal_block_size_mb       = 1;
   FLAGS_wal_stealing_group_size = 1;
-  FLAGS_wal_variant             = static_cast<u32>(leanstore::LoggingVariant::VECTOR);
 
   google::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();
