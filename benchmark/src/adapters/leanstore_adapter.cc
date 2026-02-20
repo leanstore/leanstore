@@ -36,11 +36,13 @@ void LeanStoreAdapter<RecordBase>::ScanImpl(const typename RecordBase::Key &r_ke
     return found_record_cb(typed_key, *reinterpret_cast<const RecordBase *>(payload.data()));
   };
 
+  leanstore::OpResult op_ret;
   if (scan_ascending) {
-    tree_->ScanAscending({key, len}, read_cb);
+    op_ret = tree_->ScanAscending({key, len}, read_cb);
   } else {
-    tree_->ScanDescending({key, len}, read_cb);
+    op_ret = tree_->ScanDescending({key, len}, read_cb);
   }
+  if (op_ret == leanstore::OpResult::ABORT_TX) { throw leanstore::ex::AbortTransaction(); }
 }
 
 template <class RecordBase>
@@ -48,9 +50,10 @@ auto LeanStoreAdapter<RecordBase>::LookUp(const typename RecordBase::Key &r_key,
                                           const typename Adapter<RecordBase>::AccessRecordFunc &fn) -> bool {
   u8 key[RecordBase::MaxFoldLength()];
   auto len = RecordBase::FoldKey(key, r_key);
-  bool success =
+  auto op_ret =
     tree_->LookUp({key, len}, [&](std::span<const u8> pl) { fn(*reinterpret_cast<const RecordBase *>(pl.data())); });
-  return success;
+  if (op_ret == leanstore::OpResult::ABORT_TX) { throw leanstore::ex::AbortTransaction(); }
+  return op_ret == leanstore::OpResult::OK;
 }
 
 template <class RecordBase>
@@ -68,23 +71,26 @@ void LeanStoreAdapter<RecordBase>::ScanDesc(const typename RecordBase::Key &key,
 template <class RecordBase>
 void LeanStoreAdapter<RecordBase>::Insert(const typename RecordBase::Key &r_key, const RecordBase &record) {
   u8 key[RecordBase::MaxFoldLength()];
-  auto len = RecordBase::FoldKey(key, r_key);
-  tree_->Insert({key, len}, {reinterpret_cast<const u8 *>(&record), record.PayloadSize()});
+  auto len    = RecordBase::FoldKey(key, r_key);
+  auto op_ret = tree_->Insert({key, len}, {reinterpret_cast<const u8 *>(&record), record.PayloadSize()});
+  if (op_ret == leanstore::OpResult::ABORT_TX) { throw leanstore::ex::AbortTransaction(); }
 }
 
 template <class RecordBase>
 void LeanStoreAdapter<RecordBase>::InsertRawPayload(const typename RecordBase::Key &r_key, std::span<const u8> record) {
   Ensure(record.size() == reinterpret_cast<const RecordBase *>(record.data())->PayloadSize());
   u8 key[RecordBase::MaxFoldLength()];
-  auto len = RecordBase::FoldKey(key, r_key);
-  tree_->Insert({key, len}, record);
+  auto len    = RecordBase::FoldKey(key, r_key);
+  auto op_ret = tree_->Insert({key, len}, record);
+  if (op_ret == leanstore::OpResult::ABORT_TX) { throw leanstore::ex::AbortTransaction(); }
 }
 
 template <class RecordBase>
 void LeanStoreAdapter<RecordBase>::Update(const typename RecordBase::Key &r_key, const RecordBase &record) {
   u8 key[RecordBase::MaxFoldLength()];
-  auto len = RecordBase::FoldKey(key, r_key);
-  tree_->Update({key, len}, {reinterpret_cast<const u8 *>(&record), record.PayloadSize()}, {});
+  auto len    = RecordBase::FoldKey(key, r_key);
+  auto op_ret = tree_->Update({key, len}, {reinterpret_cast<const u8 *>(&record), record.PayloadSize()}, {});
+  if (op_ret == leanstore::OpResult::ABORT_TX) { throw leanstore::ex::AbortTransaction(); }
 }
 
 template <class RecordBase>
@@ -92,9 +98,11 @@ void LeanStoreAdapter<RecordBase>::UpdateRawPayload(const typename RecordBase::K
                                                     const typename Adapter<RecordBase>::AccessRecordFunc &fn) {
   Ensure(record.size() == reinterpret_cast<const RecordBase *>(record.data())->PayloadSize());
   u8 key[RecordBase::MaxFoldLength()];
-  auto len = RecordBase::FoldKey(key, r_key);
-  tree_->Update({key, len}, record,
-                [&](std::span<const u8> payload) { fn(*reinterpret_cast<const RecordBase *>(payload.data())); });
+  auto len    = RecordBase::FoldKey(key, r_key);
+  auto op_ret = tree_->Update({key, len}, record, [&](std::span<const u8> payload) {
+    fn(*reinterpret_cast<const RecordBase *>(payload.data()));
+  });
+  if (op_ret == leanstore::OpResult::ABORT_TX) { throw leanstore::ex::AbortTransaction(); }
 }
 
 template <class RecordBase>
@@ -102,16 +110,20 @@ auto LeanStoreAdapter<RecordBase>::UpdateInPlace(const typename RecordBase::Key 
                                                  const typename Adapter<RecordBase>::ModifyRecordFunc &fn,
                                                  [[maybe_unused]] FixedSizeDelta *delta) -> bool {
   u8 key[RecordBase::MaxFoldLength()];
-  auto len = RecordBase::FoldKey(key, r_key);
-  return tree_->UpdateInPlace(
+  auto len    = RecordBase::FoldKey(key, r_key);
+  auto op_ret = tree_->UpdateInPlace(
     {key, len}, [&](std::span<u8> payload) { fn(*reinterpret_cast<RecordBase *>(payload.data())); }, delta);
+  if (op_ret == leanstore::OpResult::ABORT_TX) { throw leanstore::ex::AbortTransaction(); }
+  return op_ret == leanstore::OpResult::OK;
 }
 
 template <class RecordBase>
 auto LeanStoreAdapter<RecordBase>::Erase(const typename RecordBase::Key &r_key) -> bool {
   u8 key[RecordBase::MaxFoldLength()];
-  auto len = RecordBase::FoldKey(key, r_key);
-  return tree_->Remove({key, len});
+  auto len    = RecordBase::FoldKey(key, r_key);
+  auto op_ret = tree_->Remove({key, len});
+  if (op_ret == leanstore::OpResult::ABORT_TX) { throw leanstore::ex::AbortTransaction(); }
+  return op_ret == leanstore::OpResult::OK;
 }
 
 template <class RecordBase>
@@ -122,18 +134,6 @@ auto LeanStoreAdapter<RecordBase>::Count() -> u64 {
 template <class RecordBase>
 auto LeanStoreAdapter<RecordBase>::RelationSize() -> float {
   return tree_->SizeInMB();
-}
-
-/**
- * @brief Tiny wrapper for transaction execution, help with code reusability
- */
-template <class RecordBase>
-void LeanStoreAdapter<RecordBase>::MiniTransactionWrapper(const std::function<void()> &op, wid_t wid) {
-  db_->worker_pool.ScheduleSyncJob(wid, [&]() {
-    db_->StartTransaction();
-    op();
-    db_->CommitTransaction();
-  });
 }
 
 template <class RecordBase>

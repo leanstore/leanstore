@@ -28,13 +28,13 @@ class BTree : public KVInterface {
   /* All BTree operators */
   // -------------------------------------------------------------------------------------
   /* Public APIs for external use */
-  auto LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> bool override;
-  void Insert(std::span<u8> key, std::span<const u8> payload) override;
-  auto Remove(std::span<u8> key) -> bool override;
-  auto Update(std::span<u8> key, std::span<const u8> payload, const AccessPayloadFunc &func) -> bool override;
-  auto UpdateInPlace(std::span<u8> key, const ModifyPayloadFunc &func, FixedSizeDelta *delta) -> bool override;
-  void ScanAscending(std::span<u8> key, const AccessRecordFunc &fn) override;
-  void ScanDescending(std::span<u8> key, const AccessRecordFunc &fn) override;
+  auto LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> OpResult override;
+  auto Insert(std::span<u8> key, std::span<const u8> payload) -> OpResult override;
+  auto Remove(std::span<u8> key) -> OpResult override;
+  auto Update(std::span<u8> key, std::span<const u8> payload, const AccessPayloadFunc &func) -> OpResult override;
+  auto UpdateInPlace(std::span<u8> key, const ModifyPayloadFunc &func, FixedSizeDelta *delta) -> OpResult override;
+  auto ScanAscending(std::span<u8> key, const AccessRecordFunc &fn) -> OpResult override;
+  auto ScanDescending(std::span<u8> key, const AccessRecordFunc &fn) -> OpResult override;
   auto CountEntries() -> u64 override;
   auto SizeInMB() -> float override;
   auto LookUpBlob(std::span<const u8> blob_key, const ComparisonLambda &cmp, const AccessPayloadFunc &read_cb)
@@ -74,12 +74,15 @@ class BTree : public KVInterface {
 
   /* Access record utility for scan */
   template <typename PageGuard>
-  inline auto AccessRecord(PageGuard &node, u64 pos, const AccessRecordFunc &fn) -> bool {
+  inline auto AccessRecord(PageGuard &node, u64 pos, const AccessRecordFunc &fn) -> OpResult {
     u64 key_len = node->header.prefix_len + node->slots[pos].key_length;
     u8 key[key_len];
     std::memcpy(key, node->GetPrefix(), node->header.prefix_len);
     std::memcpy(key + node->header.prefix_len, node->GetKey(pos), node->slots[pos].key_length);
-    return fn({key, key_len}, node->GetPayload(pos));
+    // Concurrency Control
+    if (!node.TryLockShared(metadata_slotid_, {key, key_len})) { return OpResult::ABORT_TX; }
+    auto ret = fn({key, key_len}, node->GetPayload(pos));
+    return (ret) ? OpResult::OK : OpResult::STOP_SCAN;
   }
 
   /* Core properties */

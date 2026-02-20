@@ -91,6 +91,7 @@ void TransactionManager::CommitTransaction() {
 /**
  * @brief TODO(XXX): Implement AbortTransaction -- rollback changes
  * Should also handle cases when logs are already flushed to the storage, and being overwritten in memory
+ * Maybe, for simplicity, we simply treat this as a no-op and do not create any CLR
  */
 void TransactionManager::AbortTransaction() {
   throw leanstore::ex::TODO("Undo is not yet implemented");

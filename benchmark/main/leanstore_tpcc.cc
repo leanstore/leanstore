@@ -92,8 +92,13 @@ auto main(int argc, char **argv) -> int {
         int w_id = (FLAGS_tpcc_warehouse_affinity) ? (thread_id % FLAGS_tpcc_warehouse_count) + 1
                                                    : UniformRand(1, FLAGS_tpcc_warehouse_count);
         db->StartTransaction(tpcc->NextTransactionArrivalTime([&]() { db->CheckDuringIdle(); }));
-        tpcc->ExecuteTransaction(w_id);
-        db->CommitTransaction();
+
+        try {
+          tpcc->ExecuteTransaction(w_id);
+          db->CommitTransaction();  // success path
+        } catch (leanstore::ex::AbortTransaction &e) {
+          db->AbortTransaction();  // failure path
+        }
       }
     });
   }

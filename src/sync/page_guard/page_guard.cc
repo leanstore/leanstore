@@ -3,6 +3,7 @@
 #include "storage/btree/node.h"
 #include "storage/page.h"
 #include "sync/page_state.h"
+#include "transaction/lockable_tuple.h"
 
 #include <stdexcept>
 
@@ -40,6 +41,39 @@ auto PageGuard<PageClass>::PageID() -> pageid_t {
 template <class PageClass>
 auto PageGuard<PageClass>::GSN() -> timestamp_t {
   return Ptr()->p_gsn;
+}
+
+template <class PageClass>
+auto PageGuard<PageClass>::TryLockShared(leng_t tree_id, std::span<u8> key) -> bool {
+  auto &txn = TM::active_txn;
+  Ensure(txn.IsRunning());
+  if (txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
+    LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
+    return txn.LockManager()->TryLockShared(txn.start_ts, lockable);
+  }
+  return true;
+}
+
+template <class PageClass>
+auto PageGuard<PageClass>::TryLock(leng_t tree_id, std::span<u8> key) -> bool {
+  auto &txn = TM::active_txn;
+  Ensure(txn.IsRunning());
+  if (txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
+    LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
+    return txn.LockManager()->TryLock(txn.start_ts, lockable);
+  }
+  return true;
+}
+
+template <class PageClass>
+auto PageGuard<PageClass>::TryUpgradeLock(leng_t tree_id, std::span<u8> key) -> bool {
+  auto &txn = TM::active_txn;
+  Ensure(txn.IsRunning());
+  if (txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
+    LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
+    return txn.LockManager()->TryUpgradeLock(txn.start_ts, lockable);
+  }
+  return true;
 }
 
 template <class PageClass>

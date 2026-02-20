@@ -257,22 +257,23 @@ void BTree::EnsureUnderfullInnersForMerge(BTreeNode *to_merge) {
   }
 }
 
-auto BTree::LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> bool {
+auto BTree::LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> OpResult {
   while (true) {
     try {
       OptimisticGuard<BTreeNode> node = FindLeafOptimistic(key);
       bool found;
       leng_t pos = node->LowerBound(key, found, cmp_lambda_);
-      if (!found) { return false; }
+      if (!found) { return OpResult::NOT_FOUND; }
 
+      if (!node.TryLockShared(metadata_slotid_, key)) { return OpResult::ABORT_TX; }
       auto payload = node->GetPayload(pos);
       read_cb(payload);
-      return true;
+      return OpResult::OK;
     } catch (const sync::RestartException &) {}
   }
 }
 
-void BTree::Insert(std::span<u8> key, std::span<const u8> payload) {
+auto BTree::Insert(std::span<u8> key, std::span<const u8> payload) -> OpResult {
   assert((key.size() + payload.size()) <= BTreeNode::MAX_RECORD_SIZE);
 
   while (true) {
@@ -288,6 +289,9 @@ void BTree::Insert(std::span<u8> key, std::span<const u8> payload) {
 
       // Found the leaf node to insert new data
       if (node->HasSpaceForKV(key.size(), payload.size())) {
+        // Concurrency control
+        if (!node.TryLock(metadata_slotid_, key)) { return OpResult::ABORT_TX; }
+
         /* Alternative WAL cycle - automatically append WAL entry when the scope ends */
         auto defer_log = DeferLog<BTreeNode>();
 
@@ -301,7 +305,7 @@ void BTree::Insert(std::span<u8> key, std::span<const u8> payload) {
           if (FLAGS_wal_enable) { defer_log.Construct<WALInsert>(node_locked, key, payload); }
         }
 
-        return;  // success
+        return OpResult::OK;  // success
       }
 
       // The leaf node doesn't have enough space, we have to split it
@@ -314,7 +318,7 @@ void BTree::Insert(std::span<u8> key, std::span<const u8> payload) {
   }
 }
 
-auto BTree::Remove(std::span<u8> key) -> bool {
+auto BTree::Remove(std::span<u8> key) -> OpResult {
   while (true) {
     try {
       OptimisticGuard<BTreeNode> parent(buffer_, METADATA_PAGE_ID);
@@ -327,9 +331,13 @@ auto BTree::Remove(std::span<u8> key) -> bool {
         node   = OptimisticGuard<BTreeNode>(buffer_, parent->FindChild(key, node_pos, cmp_lambda_), parent);
       }
 
+      // Lookup key
       bool found;
       auto slot_id = node->LowerBound(key, found, cmp_lambda_);
-      if (!found) { return false; }
+      if (!found) { return OpResult::NOT_FOUND; }
+
+      // Concurrency control
+      if (!node.TryLock(metadata_slotid_, key)) { return OpResult::ABORT_TX; }
 
       auto payload      = node->GetPayload(slot_id);
       leng_t entry_size = node->slots[slot_id].key_length + payload.size();
@@ -369,7 +377,7 @@ auto BTree::Remove(std::span<u8> key) -> bool {
         }
         // --------------------------------------------------------------------------
       }
-      return true;
+      return OpResult::OK;
     } catch (const sync::RestartException &) {}
   }
 }
@@ -380,7 +388,7 @@ auto BTree::Remove(std::span<u8> key) -> bool {
  *
  * If `func` is provided, then func(previous payload) is triggered
  */
-auto BTree::Update(std::span<u8> key, std::span<const u8> payload, const AccessPayloadFunc &func) -> bool {
+auto BTree::Update(std::span<u8> key, std::span<const u8> payload, const AccessPayloadFunc &func) -> OpResult {
   assert((key.size() + payload.size()) <= BTreeNode::MAX_RECORD_SIZE);
 
   while (true) {
@@ -394,11 +402,15 @@ auto BTree::Update(std::span<u8> key, std::span<const u8> payload, const AccessP
         node   = OptimisticGuard<BTreeNode>(buffer_, parent->FindChild(key, cmp_lambda_), parent);
       }
 
+      // Lookup key
       bool found;
       auto slot_id = node->LowerBound(key, found, cmp_lambda_);
-      if (!found) { return false; }
-      auto curr_payload = node->GetPayload(slot_id);
+      if (!found) { return OpResult::NOT_FOUND; }
 
+      // Concurrency control
+      if (!node.TryLock(metadata_slotid_, key)) { return OpResult::ABORT_TX; }
+
+      auto curr_payload = node->GetPayload(slot_id);
       // Found the leaf node to insert new data
       if (payload.size() <= curr_payload.size() ||
           node->HasSpaceForKV(key.size(), payload.size() - curr_payload.size())) {
@@ -419,7 +431,7 @@ auto BTree::Update(std::span<u8> key, std::span<const u8> payload, const AccessP
         node_locked->InsertKeyValue(key, payload, cmp_lambda_);
         if (FLAGS_wal_enable) { GenerateWAL<ExclusiveGuard<BTreeNode>, WALInsert>(node_locked, key, payload); }
         // --------------------------------------------------------------------------
-        return true;  // success
+        return OpResult::OK;  // success
       }
 
       // The leaf node doesn't have enough space, we have to split it
@@ -432,13 +444,16 @@ auto BTree::Update(std::span<u8> key, std::span<const u8> payload, const AccessP
   }
 }
 
-auto BTree::UpdateInPlace(std::span<u8> key, const ModifyPayloadFunc &func, FixedSizeDelta *delta) -> bool {
+auto BTree::UpdateInPlace(std::span<u8> key, const ModifyPayloadFunc &func, FixedSizeDelta *delta) -> OpResult {
   while (true) {
     try {
       auto node = FindLeafOptimistic(key);
       bool found;
       auto pos = node->LowerBound(key, found, cmp_lambda_);
-      if (!found) { return false; }
+      if (!found) { return OpResult::NOT_FOUND; }
+
+      // Concurrency control
+      if (!node.TryLock(metadata_slotid_, key)) { return OpResult::ABORT_TX; }
 
       /* Alternative WAL cycle - automatically append WAL entry when the scope ends */
       auto defer_log = DeferLog<BTreeNode>();
@@ -462,28 +477,30 @@ auto BTree::UpdateInPlace(std::span<u8> key, const ModifyPayloadFunc &func, Fixe
         }
       }
 
-      return true;
+      return OpResult::OK;
     } catch (const sync::RestartException &) {}
   }
 }
 
-void BTree::ScanAscending(std::span<u8> key, const AccessRecordFunc &fn) {
+auto BTree::ScanAscending(std::span<u8> key, const AccessRecordFunc &fn) -> OpResult {
   auto node = FindLeafShared(key);
   bool unused;
   auto pos = node->LowerBound(key, unused, cmp_lambda_);
   while (true) {
     if (pos < node->header.count) {
-      if (!AccessRecord(node, pos, fn)) { return; }
+      auto op_ret = AccessRecord(node, pos, fn);
+      if (op_ret == OpResult::ABORT_TX) { return op_ret; }
+      if (op_ret == OpResult::STOP_SCAN) { return OpResult::OK; }
       pos++;
     } else {
-      if (!node->header.HasRightNeighbor()) { return; }
+      if (!node->header.HasRightNeighbor()) { return OpResult::OK; }
       pos  = 0;
       node = SharedGuard<BTreeNode>(buffer_, node->header.next_leaf_node);
     }
   }
 }
 
-void BTree::ScanDescending(std::span<u8> key, const AccessRecordFunc &fn) {
+auto BTree::ScanDescending(std::span<u8> key, const AccessRecordFunc &fn) -> OpResult {
   auto node = FindLeafShared(key);
   bool found;
   int pos = static_cast<int>(node->LowerBound(key, found, cmp_lambda_));
@@ -494,11 +511,13 @@ void BTree::ScanDescending(std::span<u8> key, const AccessRecordFunc &fn) {
   while (true) {
     while (pos >= 0) {
       if (pos < node->header.count) {
-        if (!AccessRecord(node, pos, fn)) { return; }
+        auto op_ret = AccessRecord(node, pos, fn);
+        if (op_ret == OpResult::ABORT_TX) { return op_ret; }
+        if (op_ret == OpResult::STOP_SCAN) { return OpResult::OK; }
       }
       pos--;
     }
-    if (node->header.IsLowerFenceInfinity()) { return; }
+    if (node->header.IsLowerFenceInfinity()) { return OpResult::OK; }
     node = FindLeafShared(node->GetLowerFence());
     pos  = node->header.count - 1;
   }

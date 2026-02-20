@@ -63,7 +63,7 @@ TEST_F(TestBTree, InsertAndQuery) {
       EXPECT_EQ(payload.size(), data.size());
       for (size_t idx = 0; idx < data.size(); idx++) { EXPECT_EQ(payload[idx], data[idx]); }
     });
-    ASSERT_TRUE(found);
+    ASSERT_EQ(found, OpResult::OK);
   }
 }
 
@@ -82,15 +82,15 @@ TEST_F(TestBTree, RemoveAndQuery) {
 
     if (!removed_f[int_key]) {
       auto success = tree_->Remove(key);
-      ASSERT_TRUE(success);
+      ASSERT_EQ(success, OpResult::OK);
       removed_f[int_key] = true;
     } else {
       auto success = tree_->Remove(key);
-      ASSERT_FALSE(success);
+      ASSERT_NE(success, OpResult::OK);
     }
 
     auto found = tree_->LookUp(key, {});
-    ASSERT_FALSE(found);
+    ASSERT_NE(found, OpResult::OK);
   }
 
   // Now remove all
@@ -99,9 +99,9 @@ TEST_F(TestBTree, RemoveAndQuery) {
       int ordered_key = __builtin_bswap32(idx);
       std::span key{reinterpret_cast<u8 *>(&ordered_key), sizeof(int)};
       auto success = tree_->Remove(key);
-      ASSERT_TRUE(success);
+      ASSERT_EQ(success, OpResult::OK);
       auto found = tree_->LookUp(key, {});
-      ASSERT_FALSE(found);
+      ASSERT_NE(found, OpResult::OK);
     }
   }
 
@@ -129,13 +129,13 @@ TEST_F(TestBTree, UpdateAndQuery) {
       EXPECT_EQ(prev_num, validation[int_key]);
     });
     validation[int_key] = idx;
-    ASSERT_TRUE(success);
+    ASSERT_EQ(success, OpResult::OK);
 
     auto found = tree_->LookUp(key, [&payload](std::span<const u8> found_payload) {
       EXPECT_EQ(payload.size(), found_payload.size());
       for (size_t idx = 0; idx < found_payload.size(); idx++) { EXPECT_EQ(payload[idx], found_payload[idx]); }
     });
-    ASSERT_TRUE(found);
+    ASSERT_EQ(found, OpResult::OK);
   }
 
   ASSERT_EQ(tree_->CountEntries(), NO_RECORDS);
@@ -207,7 +207,7 @@ TEST_F(TestBTree, ConcurrentInsertAndSearch) {
           auto found = tree_->LookUp(
             key, [&found_data](std::span<const u8> data) { std::memcpy(&found_data, data.data(), data.size()); });
           EXPECT_EQ(found_data, data[search_pos].second);
-          ASSERT_TRUE(found);
+          ASSERT_EQ(found, OpResult::OK);
         }
       }
     });

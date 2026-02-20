@@ -55,12 +55,12 @@ void Transaction::Initialize(TransactionManager *manager, timestamp_t start_time
   is_read_only_ = true;
   type_         = txn_type;
   mode_         = txn_mode;
-  iso_level_    = level;
 
   //--------------------------
   state     = State::STARTED;
   start_ts  = start_timestamp;
   commit_ts = 0;
+  iso_level = level;
 
   //--------------------------
   to_write_pages_   = storage::LargePageList();
@@ -82,6 +82,8 @@ auto Transaction::SerializedSize() const -> u64 {
 auto Transaction::LogWorker() -> recovery::LogWorker & { return manager_->log_manager_->LocalLogWorker(); }
 
 auto Transaction::BufferPool() -> buffer::BufferManager * { return manager_->buffer_; }
+
+auto Transaction::LockManager() -> transaction::ILockManager * { return manager_->lock_manager_; }
 
 /**
  * @brief Serialize the txn's GSN into a buffer

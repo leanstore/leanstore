@@ -26,7 +26,6 @@ struct LeanStoreAdapter : Adapter<RecordBase> {
   /** Misc APIs */
   void SetComparisonOperator(leanstore::ComparisonOperator cmp);
   auto RelationSize() -> float;
-  void MiniTransactionWrapper(const std::function<void()> &op, wid_t wid = 0);
 
   // -------------------------------------------------------------------------------------
   void Scan(const typename RecordBase::Key &key,

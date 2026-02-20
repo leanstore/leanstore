@@ -39,7 +39,10 @@ class PageGuard {
   auto PageID() -> pageid_t;
   auto GSN() -> timestamp_t;
 
-  /**** Transaction utilities *****/
+  // Transaction utilities
+  auto TryLockShared(leng_t tree_id, std::span<u8> key) -> bool;
+  auto TryLock(leng_t tree_id, std::span<u8> key) -> bool;
+  auto TryUpgradeLock(leng_t tree_id, std::span<u8> key) -> bool;
 
   // Logging utilities
   void DetectGSNDependency();

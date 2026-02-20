@@ -7,6 +7,7 @@
 #include "recovery/log_entry.h"
 #include "storage/extent/large_page.h"
 #include "sync/epoch_handler.h"
+#include "transaction/lock_manager_interface.h"
 
 #include "gtest/gtest_prod.h"
 
@@ -57,6 +58,7 @@ class Transaction {
   State state{State::IDLE};
   timestamp_t start_ts;
   timestamp_t commit_ts;
+  IsolationLevel iso_level;
   std::unordered_map<wid_t, timestamp_t> gsn_vector;  // Dependency vector
 
 #ifdef ENABLE_TESTING
@@ -69,6 +71,7 @@ class Transaction {
   auto SerializedSize() const -> u64;
   auto LogWorker() -> recovery::LogWorker &;
   auto BufferPool() -> buffer::BufferManager *;
+  auto LockManager() -> transaction::ILockManager *;
 
   // Txn context - public interfaces
   auto TxnID() -> txnid_t { return start_ts; }
@@ -77,6 +80,7 @@ class Transaction {
   auto IsRunning() -> bool;
   void MarkAsWrite();
   auto HasBLOB() -> bool;
+  auto IsolationSemantic() -> IsolationLevel;
 
   // GSN Vector utility
   auto SerializeGSNVector(u8 *buffer) const -> u64;
@@ -100,7 +104,6 @@ class Transaction {
   bool is_read_only_;
   Type type_;
   Mode mode_;
-  IsolationLevel iso_level_;
 
   // Required async-write these extents
   storage::LargePageList to_write_pages_;

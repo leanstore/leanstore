@@ -284,7 +284,7 @@ TEST_F(TestTreeRecovery, InstantRecovery) {
       EXPECT_EQ(payload.size(), data.size());
       for (size_t idx = 0; idx < data.size(); idx++) { EXPECT_EQ(payload[idx], data[idx]); }
     });
-    ASSERT_TRUE(found);
+    ASSERT_EQ(found, OpResult::OK);
   }
 
   /* Evaluate raw page content */

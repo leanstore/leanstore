@@ -38,7 +38,7 @@ class TransactionManager {
 
   buffer::BufferManager *buffer_;
   recovery::LogManager *log_manager_;
-  svcc::LockManager *lock_manager_;
+  ILockManager *lock_manager_;
 };
 
 }  // namespace leanstore::transaction
