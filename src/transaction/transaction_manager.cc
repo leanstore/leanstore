@@ -52,8 +52,7 @@ void TransactionManager::StartTransaction(Transaction::Type next_tx_type, timest
   if (next_tx_isolation_level > IsolationLevel::READ_UNCOMMITTED) { throw leanstore::ex::TODO("Not implemented yet"); }
 }
 
-/* At the moment, `must_not_ack` is only used for testing purpose */
-void TransactionManager::CommitTransaction(bool must_not_ack) {
+void TransactionManager::CommitTransaction() {
   auto &logger = log_manager_->LocalLogWorker();
 
   Ensure(active_txn.state == Transaction::State::STARTED);
@@ -77,10 +76,8 @@ void TransactionManager::CommitTransaction(bool must_not_ack) {
     QueueTransaction(active_txn);
 
     // Try to trigger group commit directly within the worker
-    if (!must_not_ack) {
-      if (should_commit || (Rand(BitLength(FLAGS_worker_count + 1)) == 0)) {
-        log_manager_->TriggerGroupCommit(LeanStore::worker_thread_id / FLAGS_txn_commit_group_size);
-      }
+    if (should_commit || (FLAGS_wal_force_log_flush && (Rand(BitLength(FLAGS_worker_count + 1)) == 0))) {
+      log_manager_->TriggerGroupCommit(LeanStore::worker_thread_id / FLAGS_txn_commit_group_size);
     }
   }
 

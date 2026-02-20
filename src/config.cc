@@ -27,6 +27,7 @@ DEFINE_bool(bm_enable_fair_eviction, true,
 DEFINE_bool(wal_enable, true, "Whether to enable WAL logging or not");
 DEFINE_bool(wal_debug, false, "Enable debugging for WAL ops");
 DEFINE_bool(wal_fsync, true, "Force FSync for WAL");
+DEFINE_bool(wal_force_log_flush, true, "Whether to enable WAL force log flush or not");
 DEFINE_uint64(wal_buffer_size_mb, 10, "Size of WAL log buffer in MB");
 
 /* Configuration for commit protocols */
@@ -46,6 +47,10 @@ DEFINE_uint32(wal_recovery_threads, 1, "Number of threads used for recovery");
 // -----------------------------------------------------------------------------------
 /* Transaction */
 DEFINE_bool(txn_debug, false, "Enable debugging for transaction ops, including commit latency info");
+DEFINE_bool(txn_svcc, false,
+            "Use Single-Version CC if true; Multi-Version otherwise"
+            "For SVCC, 2PL Wait-Die is implemented"
+            "For MVCC, .... is implemented");
 DEFINE_string(txn_default_isolation_level, "ru",
               "The serializable mode used in LeanStore"
               "(ru: READ_UNCOMMITTED, rc: READ_COMMITTED, si: SNAPSHOT_ISOLATION, ser: SERIALIZABLE)");

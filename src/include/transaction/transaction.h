@@ -6,6 +6,7 @@
 #include "common/utils.h"
 #include "recovery/log_entry.h"
 #include "storage/extent/large_page.h"
+#include "sync/epoch_handler.h"
 
 #include "gtest/gtest_prod.h"
 

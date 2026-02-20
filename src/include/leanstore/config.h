@@ -20,6 +20,7 @@ DECLARE_bool(wal_enable);
 DECLARE_uint32(wal_variant);
 DECLARE_bool(wal_debug);
 DECLARE_bool(wal_fsync);
+DECLARE_bool(wal_force_log_flush);
 DECLARE_uint64(wal_buffer_size_mb);
 DECLARE_uint32(wal_batch_write_kb);
 DECLARE_uint32(wal_block_size_mb);
@@ -30,6 +31,7 @@ DECLARE_bool(wal_instant_recovery);
 DECLARE_uint32(wal_recovery_threads);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(txn_debug);
+DECLARE_bool(txn_svcc);
 DECLARE_int32(txn_commit_variant);
 DECLARE_uint32(txn_commit_group_size);
 DECLARE_uint32(txn_queue_size_mb);

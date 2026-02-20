@@ -64,7 +64,7 @@ TEST_F(TestTransaction, TransactionLifeTime) {
     EXPECT_EQ(buffer.TotalFreeSpace(), FLAGS_wal_buffer_size_mb * MB - sizeof(recovery::LogMetaEntry));
     EXPECT_EQ(x_txn.state, Transaction::State::STARTED);
     EXPECT_EQ(&x_txn.LogWorker(), &x_logger);
-    txn_man_->CommitTransaction(true);
+    txn_man_->CommitTransaction();
 
     EXPECT_EQ(x_logger.precommitted_queue.CurrentTail(), sizeof(SerializableTransaction));
     EXPECT_EQ(x_txn.is_read_only_, false);
@@ -72,7 +72,7 @@ TEST_F(TestTransaction, TransactionLifeTime) {
   });
   thread.join();
 
-  txn_man_->CommitTransaction(true);
+  txn_man_->CommitTransaction();
   EXPECT_EQ(logger.precommitted_queue.CurrentTail(), sizeof(SerializableTransaction));
   EXPECT_EQ(txn.is_read_only_, false);
   EXPECT_FALSE(txn.HasBLOB());
@@ -83,8 +83,10 @@ TEST_F(TestTransaction, TransactionLifeTime) {
 
 auto main(int argc, char **argv) -> int {
   ::testing::InitGoogleTest(&argc, argv);
-  FLAGS_worker_count = 4;
-  FLAGS_wal_enable   = true;
+  FLAGS_worker_count        = 4;
+  FLAGS_wal_enable          = true;
+  FLAGS_wal_batch_write_kb  = 1024 * 1024;  // Very large to prevent group commit from being triggered
+  FLAGS_wal_force_log_flush = false;
 
   google::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();

@@ -2,6 +2,7 @@
 
 #include "buffer/buffer_manager.h"
 #include "recovery/log_manager.h"
+#include "transaction/svcc/lock_manager.h"
 #include "transaction/transaction.h"
 
 #include <atomic>
@@ -23,8 +24,7 @@ class TransactionManager {
   void StartTransaction(Transaction::Type next_tx_type, timestamp_t next_tx_arrival_time = 0,
                         IsolationLevel next_tx_isolation_level = ParseIsolationLevel(FLAGS_txn_default_isolation_level),
                         Transaction::Mode next_tx_mode         = Transaction::Mode::OLTP);
-
-  void CommitTransaction(bool must_not_ack = false);
+  void CommitTransaction();
   void AbortTransaction();
   auto AddBarrierTransaction() -> timestamp_t;
 
@@ -38,6 +38,7 @@ class TransactionManager {
 
   buffer::BufferManager *buffer_;
   recovery::LogManager *log_manager_;
+  svcc::LockManager *lock_manager_;
 };
 
 }  // namespace leanstore::transaction
