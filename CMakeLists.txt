@@ -52,7 +52,7 @@ find_package(GTest REQUIRED)
 find_package(gflags REQUIRED)
 find_package(benchmark REQUIRED)
 
-set(DB_CLIENT_LIBS wiredtiger sqlite3 pqxx mysqlcppconn rocksdb)
+set(DB_CLIENT_LIBS wiredtiger sqlite3)
 set(COMPRESS_LIBS zstd lz4 fsst)
 set(CORE_LIBS
     Threads::Threads

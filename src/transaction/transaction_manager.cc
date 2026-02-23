@@ -23,8 +23,10 @@ TransactionManager::TransactionManager(buffer::BufferManager *buffer_manager, Lo
 
 auto TransactionManager::ParseIsolationLevel(const std::string &str) -> IsolationLevel {
   if (str == "ser") { return IsolationLevel::SERIALIZABLE; }
-  // if (str == "si") { return IsolationLevel::SNAPSHOT_ISOLATION; }
-  // if (str == "rc") { return IsolationLevel::READ_COMMITTED; }
+  if (str == "si") {
+    if (!FLAGS_txn_mvcc) { throw ex::EnsureFailed("Only support snapshot isolation when using MVCC"); }
+    return IsolationLevel::SNAPSHOT_ISOLATION;
+  }
   Ensure(str == "ru");
   return IsolationLevel::READ_UNCOMMITTED;
 }

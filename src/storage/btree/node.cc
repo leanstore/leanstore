@@ -1,12 +1,15 @@
 #include "storage/btree/node.h"
 #include "common/exceptions.h"
 #include "common/utils.h"
+#include "transaction/transaction_manager.h"
 
 #include "fmt/ranges.h"
 #include "spdlog/spdlog.h"
 
 #include <algorithm>
 #include <cstring>
+
+#define KV_HAS_TIMESTAMP(node) ((FLAGS_txn_mvcc && (node).header.is_leaf))
 
 namespace leanstore::storage {
 
@@ -187,7 +190,7 @@ auto BTreeNodeImpl<NodeHeader>::FreeSpaceAfterCompaction() -> leng_t {
 
 template <class NodeHeader>
 auto BTreeNodeImpl<NodeHeader>::SpaceRequiredForKV(leng_t key_len, leng_t payload_len) -> leng_t {
-  return sizeof(PageSlot) + (key_len - header.prefix_len) + payload_len;
+  return sizeof(PageSlot) + (key_len - header.prefix_len) + payload_len + KV_HAS_TIMESTAMP(*this) * sizeof(timestamp_t);
 }
 
 template <class NodeHeader>
@@ -201,10 +204,18 @@ auto BTreeNodeImpl<NodeHeader>::GetKey(leng_t slot_id) -> u8 * {
   return Ptr() + slots[slot_id].offset;
 }
 
+template <class NodeHeader>
+auto BTreeNodeImpl<NodeHeader>::GetTimestamp(leng_t slot_id) -> timestamp_t {
+  assert(KV_HAS_TIMESTAMP(*this));
+  auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
+  return LoadUnaligned<timestamp_t>(Ptr() + ts_offset);
+}
+
 /* Return memory addr of the payload */
 template <class NodeHeader>
 auto BTreeNodeImpl<NodeHeader>::GetPayload(leng_t slot_id) -> std::span<u8> {
-  return {Ptr() + slots[slot_id].offset + slots[slot_id].key_length, slots[slot_id].payload_length};
+  auto data_offset = slots[slot_id].offset + slots[slot_id].key_length + KV_HAS_TIMESTAMP(*this) * sizeof(timestamp_t);
+  return {Ptr() + data_offset, slots[slot_id].payload_length};
 }
 
 template <class NodeHeader>
@@ -325,7 +336,7 @@ template <class NodeHeader>
 void BTreeNodeImpl<NodeHeader>::StoreRecordDataWithoutPrefix(leng_t slot_id, std::span<u8> key_no_prefix,
                                                              std::span<const u8> payload) {
   u8 *key             = key_no_prefix.data();
-  auto required_space = key_no_prefix.size() + payload.size();
+  auto required_space = key_no_prefix.size() + payload.size() + KV_HAS_TIMESTAMP(*this) * sizeof(timestamp_t);
   // update page metadata
   header.data_offset -= required_space;
   header.space_used += required_space;
@@ -335,6 +346,13 @@ void BTreeNodeImpl<NodeHeader>::StoreRecordDataWithoutPrefix(leng_t slot_id, std
   assert(GetKey(slot_id) >= reinterpret_cast<u8 *>(&slots[slot_id]));
   // copy record content into the page
   std::memcpy(GetKey(slot_id), key, key_no_prefix.size());
+  if (KV_HAS_TIMESTAMP(*this)) {
+    // KeyValue insertion must only be done during commit ops
+    assert(transaction::TransactionManager::active_txn.commit_ts > 0);
+    auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
+    std::memcpy(Ptr() + ts_offset, &(transaction::TransactionManager::active_txn.commit_ts), sizeof(timestamp_t));
+  }
+  assert(KV_HAS_TIMESTAMP(*this));
   std::memcpy(GetPayload(slot_id).data(), payload.data(), payload.size());
 }
 

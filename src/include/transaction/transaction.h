@@ -30,12 +30,12 @@ namespace leanstore::transaction {
 
 class TransactionManager;
 
-// TODO: Do not support anything beside READ_UNCOMMITTED and SERIALIZABLE
+// TODO: Do not support READ_COMMITTED for now
 enum class IsolationLevel : u8 {
   READ_UNCOMMITTED = 0,
   // READ_COMMITTED     = 1,
-  // SNAPSHOT_ISOLATION = 2,
-  SERIALIZABLE = 3,
+  SNAPSHOT_ISOLATION = 2,
+  SERIALIZABLE       = 3,
 };
 
 struct SerializableTransaction;

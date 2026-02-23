@@ -26,7 +26,6 @@ class TransactionManager {
                         Transaction::Mode next_tx_mode         = Transaction::Mode::OLTP);
   void CommitTransaction();
   void AbortTransaction();
-  auto AddBarrierTransaction() -> timestamp_t;
 
   template <class T>
   static void DurableCommit(T &txn, timestamp_t queue_phase_start);

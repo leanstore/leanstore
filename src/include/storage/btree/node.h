@@ -34,6 +34,7 @@ namespace leanstore::storage {
 **  The relationship between parent's separators and children are depicted as below
 **  Note that both children are leaf nodes.
 **  For inner nodes, both left's keys vs X vs right's keys are exclusive, i.e. left's keys < X < right's keys
+**  Inside a node, LowerFences <= all keys < UpperFence
 **
 **                    |------------------|
 **                    |      parent      |
@@ -46,7 +47,32 @@ namespace leanstore::storage {
 **         |   keys < X  |          |  keys >= X   |
 **         |-------------|          |--------------|
 **
-**  Inside a node, LowerFences <= all keys < UpperFence
+**
+**  Prefix compression:
+**  The node stores a common key prefix in its metadata (BTreeNodeHeader::prefix).
+**  Keys inside the payload area only store the remaining suffix:
+**
+**      full_key = node.prefix || key_suffix
+**
+**  Timestamp (optional):
+**  If KV_HAS_TIMESTAMP(node) (defined in node.cc) evaluates to true, a 64-bit timestamp
+**  is stored between the key suffix and the payload.
+**  Otherwise, the timestamp field is omitted and the payload follows the key suffix directly.
+**
+**  Visualization of record layouts
+**  Without timestamp:
+**
+**      |<--- key_len - prefix_len --->|<--- payload_len -->|
+**      |------------------------------|--------------------|
+**      |          key_suffix          |      payload       |
+**      |------------------------------|--------------------|
+**
+**  With timestamp:
+**
+**      |<--- key_len - prefix_len --->|<----8--->|<--- payload_len -->|
+**      |------------------------------|----------|--------------------|
+**      |          key_suffix          | ts (u64) |      payload       |
+**      |------------------------------|----------|--------------------|
 */
 
 // -------------------------------------------------------------------------------------
@@ -152,6 +178,7 @@ class alignas(PAGE_SIZE) BTreeNodeImpl : public PageHeader {
 
   // Get data utilities
   auto GetKey(leng_t slot_id) -> u8 *;  // NOTE: this won't return the prefix
+  auto GetTimestamp(leng_t slot_id) -> timestamp_t;
   auto GetPayload(leng_t slot_id) -> std::span<u8>;
   auto GetChild(leng_t slot_id) -> pageid_t;
   void GetSeparatorKey(u8 *out_separator_key, const SeparatorInfo &info);
