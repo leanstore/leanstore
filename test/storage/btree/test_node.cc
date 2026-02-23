@@ -84,6 +84,7 @@ TEST_F(TestBTreeNode, Constructor) {
   EXPECT_TRUE(node->header.upper_fence.len == 0);
 }
 
+/** */
 TEST_F(TestBTreeNode, NormalOperation) {
   auto node = new (&mem_) storage::BTreeNode(true);
   std::vector<std::pair<int, int>> data;

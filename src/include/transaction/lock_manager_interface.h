@@ -4,6 +4,7 @@
 #include "transaction/lockable_tuple.h"
 
 #include <cstring>
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -20,7 +21,7 @@ class ILockManager {
  public:
   virtual ~ILockManager() = default;
 
-  virtual void ReleaseAllLocks() = 0;
+  virtual void ReleaseAllLocks(timestamp_t txn_ts, const std::function<void(const LockableTuple *)> &iterate_fn) = 0;
 
   /**
    * Try to acquire a shared (read) lock for a transaction
@@ -28,7 +29,7 @@ class ILockManager {
    * @param key Key to lock
    * @return true if the lock can be acquired immediately, false if blocked
    */
-  virtual bool TryLockShared(u64 txn_ts, const LockableTuple *) = 0;
+  virtual bool TryLockShared(timestamp_t txn_ts, const LockableTuple *) = 0;
 
   /**
    * Try to acquire an exclusive (write) lock for a transaction
@@ -36,7 +37,7 @@ class ILockManager {
    * @param key Key to lock
    * @return true if the lock can be acquired immediately, false if blocked
    */
-  virtual bool TryLock(u64 txn_ts, const LockableTuple *) = 0;
+  virtual bool TryLock(timestamp_t txn_ts, const LockableTuple *) = 0;
 
   /**
    * Try to upgrade a held shared lock to an exclusive lock
@@ -44,21 +45,21 @@ class ILockManager {
    * @param key Key to upgrade lock
    * @return true if the upgrade can be done immediately, false if blocked
    */
-  virtual bool TryUpgradeLock(u64 txn_ts, const LockableTuple *) = 0;
+  virtual bool TryUpgradeLock(timestamp_t txn_ts, const LockableTuple *) = 0;
 
   /**
    * Release a previously acquired exclusive lock
    * @param txn_ts Transaction timestamp
    * @param key Key to unlock
    */
-  virtual void Unlock(u64 txn_ts, const LockableTuple *) = 0;
+  virtual void Unlock(timestamp_t txn_ts, const LockableTuple *) = 0;
 
   /**
    * Release a previously acquired shared lock
    * @param txn_ts Transaction timestamp
    * @param key Key to unlock
    */
-  virtual void UnlockShared(u64 txn_ts, const LockableTuple *) = 0;
+  virtual void UnlockShared(timestamp_t txn_ts, const LockableTuple *) = 0;
 };
 
 }  // namespace leanstore::transaction

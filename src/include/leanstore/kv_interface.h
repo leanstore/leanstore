@@ -50,4 +50,6 @@ class KVInterface {
                           const AccessPayloadFunc &read_cb) -> bool = 0;
 };
 
+using InternalCatalog = std::vector<KVInterface *>;
+
 }  // namespace leanstore

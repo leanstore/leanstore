@@ -112,6 +112,11 @@ auto RecoveryManager::HasRecovered(pageid_t pid) -> bool {
   return (FLAGS_wal_enable_recovery) && ((pid > max_logged_pid_) || (has_recovered_[pid].load()));
 }
 
+/**
+ * @brief TODO(XXX): The current recovery impl does not support MVCC implementation.
+ * That is, to fully support MVCC, we need to properly recover tuple's timestamp.
+ * Reason: Tuple's timestamp is only recorded in the COMMIT_TX log entry, not in data log entries.
+ */
 template <class BTreeNode>
 void RecoveryManager::PerPageRedo(ExclusiveGuard<BTreeNode> &page, pageid_t pid) {
   /* MapReduce */
@@ -158,7 +163,7 @@ void RecoveryManager::Undo() {
    * @brief Unnecessary because LeanStore doesn't support isolations higher than Read uncommitted
    *  => No transaction is aborted
    */
-  throw leanstore::ex::TODO("UNDO is unnecessary at the moment");
+  throw leanstore::ex::TODO("UNDO is not supported at the moment");
 }
 
 // -------------------------------------------------------------------------------------

@@ -52,6 +52,7 @@ class LeanStore {
   // Misc
   ZipfGenerator gen;
   std::unordered_map<std::type_index, std::unique_ptr<KVInterface>> indexes;  // Stupid Catalog
+  InternalCatalog catalog;
 
   LeanStore();
   ~LeanStore();

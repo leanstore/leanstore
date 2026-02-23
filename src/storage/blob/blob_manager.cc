@@ -212,7 +212,6 @@ auto BlobManager::WriteNewDataToLastExtent(transaction::Transaction &txn, std::s
     }
 
     // Only write to the last remaining free bytes of the last extent and mark the Extent for evict
-    // TODO(XXX): Add overhead of normal buffer pool here
     auto write_to_addr =
       reinterpret_cast<u8 *>(buffer_->ToPtr(blob->extents.extent_pid[last_idx])) + last_alloc_sz - remain_free_bytes;
     write_size = std::min(payload.size(), remain_free_bytes);
@@ -255,7 +254,6 @@ auto BlobManager::MoveTailExtent(transaction::Transaction &txn, std::span<const 
   }
 
   // 3. Move the content of new payload to the new allocated extent as well
-  // TODO(XXX): Add overhead of normal buffer pool here
   write_size = std::min(payload.size(), ExtentList::ExtentSize(last_idx) * PAGE_SIZE - tail_data_sz);
   std::memcpy(reinterpret_cast<u8 *>(buffer_->ToPtr(pid)) + tail_data_sz, payload.data(), write_size);
   blob->blob_size += write_size;
@@ -408,7 +406,6 @@ auto BlobManager::BlobStateCompareWithString(const void *a, const void *b) -> in
     }
     u64 extent_size      = ExtentList::ExtentSize(idx) * PAGE_SIZE;
     auto to_compare_size = std::min(b_length - offset, extent_size);
-    // TODO(XXX): Add overhead of normal Buffer Pool here
     ret = std::memcmp(buffer_->ToPtr(lhs->extents.extent_pid[idx]), rhs->blob.data() + offset, to_compare_size);
     if (ret != 0) { return ret; }
     offset += extent_size;
@@ -444,7 +441,6 @@ auto BlobManager::BlobStateComparison(const void *a, const void *b) -> int {
     prefix_size = ExtentList::TotalSizeExtents(idx);
     LoadBlobContent(lhs, prefix_size);
     LoadBlobContent(rhs, prefix_size);
-    // TODO(XXX): Add overhead of normal Buffer Pool here
     ret = std::memcmp(buffer_->ToPtr(lhs->extents.extent_pid[idx]), buffer_->ToPtr(rhs->extents.extent_pid[idx]),
                       ExtentList::ExtentSize(idx) * PAGE_SIZE);
     if (ret != 0) { return ret; }

@@ -27,7 +27,8 @@ thread_local wid_t LeanStore::worker_thread_id = -1;  // The ID of current worke
 LeanStore::LeanStore()
     : buffer_pool(std::make_unique<buffer::BufferManager>(is_running)),
       log_manager(std::make_unique<recovery::LogManager>(is_running)),
-      transaction_manager(std::make_unique<transaction::TransactionManager>(buffer_pool.get(), log_manager.get())),
+      transaction_manager(
+        std::make_unique<transaction::TransactionManager>(buffer_pool.get(), log_manager.get(), is_running)),
       blob_manager(std::make_unique<storage::blob::BlobManager>(buffer_pool.get())),
       recovery(std::make_unique<recovery::RecoveryManager>(buffer_pool.get())),
       worker_pool(is_running,
@@ -209,6 +210,8 @@ void LeanStore::RegisterTable(const std::type_index &relation, uint32_t relation
   worker_pool.ScheduleSyncJob(0, [&]() {
     transaction_manager->StartTransaction(leanstore::transaction::Transaction::Type::SYSTEM);
     indexes.try_emplace(relation, std::make_unique<storage::BTree>(buffer_pool.get(), recovery.get(), relation_idx));
+    if (relation_idx >= catalog.size()) { catalog.resize(relation_idx + 1); }
+    catalog[relation_idx] = indexes.at(relation).get();
     CommitTransaction();
   });
 }
@@ -226,7 +229,11 @@ void LeanStore::StartTransaction(timestamp_t txn_arrival_time, Transaction::Mode
 }
 
 void LeanStore::CommitTransaction() {
-  transaction_manager->CommitTransaction();
+  if (!transaction_manager->ValidateReadSet(catalog)) {
+    AbortTransaction();
+    return;
+  }
+  transaction_manager->CommitTransaction(catalog);
   blob_manager->UnloadAllBlobs();
 }
 

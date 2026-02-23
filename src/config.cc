@@ -50,7 +50,8 @@ DEFINE_bool(txn_debug, false, "Enable debugging for transaction ops, including c
 DEFINE_bool(txn_mvcc, false,
             "Use Multi-Version CC if true; Single-Version otherwise"
             "For SVCC, 2PL Wait-Die is implemented"
-            "For MVCC, Hyper-style MVCC with OCC validation is implemented");
+            "For MVCC, Hyper-style MVCC with OCC validation (no predicate locking) is implemented"
+            "Note that, this MVCC impl suffers from phantom read -- it is acceptable for a simple prototype");
 DEFINE_string(txn_default_isolation_level, "ru",
               "The serializable mode used in LeanStore"
               "(ru: READ_UNCOMMITTED, si: SNAPSHOT_ISOLATION, ser: SERIALIZABLE)");

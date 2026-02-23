@@ -347,12 +347,11 @@ void BTreeNodeImpl<NodeHeader>::StoreRecordDataWithoutPrefix(leng_t slot_id, std
   // copy record content into the page
   std::memcpy(GetKey(slot_id), key, key_no_prefix.size());
   if (KV_HAS_TIMESTAMP(*this)) {
-    // KeyValue insertion must only be done during commit ops
-    assert(transaction::TransactionManager::active_txn.commit_ts > 0);
+    // In-place update
+    assert(transaction::TransactionManager::active_txn.commit_ts == transaction::TransactionManager::INVALID_TS);
     auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
     std::memcpy(Ptr() + ts_offset, &(transaction::TransactionManager::active_txn.commit_ts), sizeof(timestamp_t));
   }
-  assert(KV_HAS_TIMESTAMP(*this));
   std::memcpy(GetPayload(slot_id).data(), payload.data(), payload.size());
 }
 
@@ -392,6 +391,13 @@ auto BTreeNodeImpl<NodeHeader>::RemoveKey(std::span<u8> key, const ComparisonLam
   bool found;
   auto slot_id = LowerBound(key, found, cmp);
   return (found) ? RemoveSlot(slot_id) : false;
+}
+
+template <class NodeHeader>
+void BTreeNodeImpl<NodeHeader>::UpdateTimestamp(leng_t slot_id, timestamp_t commit_ts) {
+  assert(KV_HAS_TIMESTAMP(*this));
+  auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
+  std::memcpy(Ptr() + ts_offset, &commit_ts, sizeof(timestamp_t));
 }
 
 // -------------------------------------------------------------------------------------

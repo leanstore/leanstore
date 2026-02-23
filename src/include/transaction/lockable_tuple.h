@@ -3,6 +3,7 @@
 #include "common/typedefs.h"
 
 #include <alloca.h>
+#include <cstddef>
 #include <cstring>
 #include <map>
 #include <memory>

@@ -6,8 +6,14 @@
 #include "leanstore/leanstore.h"
 #include "leanstore/statistics.h"
 #include "recovery/log_entry.h"
+#include "storage/btree/tree.h"
+#include "transaction/mvcc/lock_manager.h"
+#include "transaction/svcc/lock_manager.h"
 
 #include "share_headers/time.h"
+
+#include <chrono>
+#include <thread>
 
 using LogManager = leanstore::recovery::LogManager;
 using LogEntry   = leanstore::recovery::LogEntry;
@@ -18,8 +24,29 @@ namespace leanstore::transaction {
 thread_local Transaction TransactionManager::active_txn              = Transaction();
 thread_local timestamp_t TransactionManager::previous_completed_time = 0;
 
-TransactionManager::TransactionManager(buffer::BufferManager *buffer_manager, LogManager *log_manager)
-    : buffer_(buffer_manager), log_manager_(log_manager) {};
+TransactionManager::TransactionManager(buffer::BufferManager *buffer_manager, LogManager *log_manager,
+                                       std::atomic<bool> &is_running)
+    : buffer_(buffer_manager), log_manager_(log_manager) {
+  if (FLAGS_txn_mvcc) {
+    version_manager_       = std::make_unique<mvcc::VersionManager>();
+    lock_manager_          = std::make_unique<mvcc::LockManager>();
+    background_version_gc_ = std::thread([&]() {
+      while (is_running.load(std::memory_order_relaxed)) {
+        version_manager_->Sweep();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+    });
+  } else {
+    lock_manager_          = std::make_unique<svcc::LockManager>();
+    background_version_gc_ = std::thread();
+  }
+};
+
+TransactionManager::~TransactionManager() {
+  if (background_version_gc_.joinable()) {
+    background_version_gc_.join();  // blocks until thread finishes
+  }
+}
 
 auto TransactionManager::ParseIsolationLevel(const std::string &str) -> IsolationLevel {
   if (str == "ser") { return IsolationLevel::SERIALIZABLE; }
@@ -51,10 +78,9 @@ void TransactionManager::StartTransaction(Transaction::Type next_tx_type, timest
   }
 
   logger.rfa_gsn_flushed = LogManager::global_min_gsn_flushed.load();
-  if (next_tx_isolation_level > IsolationLevel::READ_UNCOMMITTED) { throw leanstore::ex::TODO("Not implemented yet"); }
 }
 
-void TransactionManager::CommitTransaction() {
+void TransactionManager::CommitTransaction(const InternalCatalog &catalog) {
   auto &logger = log_manager_->LocalLogWorker();
 
   Ensure(active_txn.state == Transaction::State::STARTED);
@@ -64,6 +90,15 @@ void TransactionManager::CommitTransaction() {
   if (FLAGS_txn_debug) {
     active_txn.stats.precommit = tsctime::ReadTSC();
     previous_completed_time    = active_txn.stats.precommit;
+  }
+
+  // Release locks according to Concurrency Control
+  if (active_txn.iso_level > IsolationLevel::READ_UNCOMMITTED) {
+    lock_manager_->ReleaseAllLocks(active_txn.start_ts, [&](const LockableTuple *tuple) {
+      // This lambda -- Updating tuple's TS -- will only be triggered by MVCC impl
+      auto index = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
+      index->UpdateTimestamp({const_cast<u8 *>(tuple->key), tuple->key_len}, active_txn.commit_ts);
+    });
   }
 
   // Append txn object to the pre-commit queue
@@ -88,6 +123,18 @@ void TransactionManager::CommitTransaction() {
     DurableCommit(active_txn, active_txn.stats.precommit);
     if (start_profiling) { statistics::precommited_txn_processed[LeanStore::worker_thread_id] += 1; }
   }
+
+  // Advance safe commit ts in version manager
+  if (FLAGS_txn_mvcc) { version_manager_->AdvanceLocalTimestamp(LeanStore::worker_thread_id, active_txn.commit_ts); }
+}
+
+auto TransactionManager::ValidateReadSet(const InternalCatalog &catalog) -> bool {
+  if (!FLAGS_txn_mvcc || active_txn.iso_level < IsolationLevel::SERIALIZABLE) {
+    // Only validate read set if running under SERIALIZABLE level with MVCC
+    return true;
+  }
+  // TODO(XXX): Implement here: validate read set of transactions
+  return true;
 }
 
 /**

@@ -549,6 +549,24 @@ auto BTree::CountPages() -> u64 {
   return IterateAllNodes(node, [](BTreeNode &) { return 1; }, [](BTreeNode &) { return 1; });
 }
 
+void BTree::UpdateTimestamp(std::span<u8> key, timestamp_t commit_ts) {
+  while (true) {
+    try {
+      auto node = FindLeafOptimistic(key);
+      bool found;
+      auto pos = node->LowerBound(key, found, cmp_lambda_);
+      assert(found);  // Key must be presented
+                      // Invalid TS -- not exposing to concurrent txns
+      assert(node->GetTimestamp(pos) == transaction::TransactionManager::INVALID_TS);
+      assert(node.TryLock(metadata_slotid_, key));  // Current txn must be currently holding the X-lock on this key
+
+      // Update commit ts of the modified tuple
+      ExclusiveGuard<BTreeNode> node_locked(std::move(node));
+      node_locked->UpdateTimestamp(pos, commit_ts);
+    } catch (const sync::RestartException &) {}
+  }
+}
+
 auto BTree::SizeInMB() -> float { return CountPages() * static_cast<float>(PAGE_SIZE) / MB; }
 
 /**

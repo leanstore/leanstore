@@ -2,10 +2,30 @@
 
 namespace leanstore::transaction::svcc {
 
-thread_local std::unordered_map<const LockableTuple *, LockType, LockableTuple::HashPtr, LockableTuple::EqualPtr>
-  LockManager::rws_;
+thread_local LockManager::LocalReadWriteSet LockManager::rws_;
 
-void LockManager::ReleaseAllLocks() {}
+void LockManager::ReleaseAllLocks(timestamp_t txn_ts,
+                                  [[maybe_unused]] const std::function<void(const LockableTuple *)> &iterate_fn) {
+  std::erase_if(LockManager::rws_, [&](const auto &kv) {
+    const auto &[tuple, lock_type] = kv;
+
+    // Lookup the WaitDieLock in the internal map
+    InternalHashMap::accessor acc;
+    if (!internal_.find(acc, const_cast<LockableTuple *>(tuple))) {
+      throw std::runtime_error("ReleaseAllLocks: Lock object missing in internal map");
+    }
+
+    // Release the exclusive lock
+    if (lock_type == LockType::SHARED) {
+      acc->second.UnlockShared(txn_ts);
+    } else {
+      assert(lock_type == LockType::EXCLUSIVE);
+      acc->second.Unlock(txn_ts);
+    }
+
+    return true;  // remove everything
+  });
+}
 
 bool LockManager::TryLockShared(u64 txn_ts, const LockableTuple *key) {
   // Already hold an lock on the tuple, return
@@ -69,7 +89,7 @@ void LockManager::Unlock(u64 txn_ts, const LockableTuple *key) {
   // Lookup the WaitDieLock in the internal map
   InternalHashMap::accessor acc;
   if (!internal_.find(acc, const_cast<LockableTuple *>(key))) {
-    throw std::runtime_error("Lock object missing in internal map");
+    throw std::runtime_error("Unlock: Lock object missing in internal map");
   }
 
   // Release the exclusive lock & Remove from thread-local map
@@ -87,7 +107,7 @@ void LockManager::UnlockShared(u64 txn_ts, const LockableTuple *key) {
   // Lookup the WaitDieLock in the internal map
   InternalHashMap::accessor acc;
   if (!internal_.find(acc, const_cast<LockableTuple *>(key))) {
-    throw std::runtime_error("Lock object missing in internal map");
+    throw std::runtime_error("UnlockShared: Lock object missing in internal map");
   }
 
   // Release the shared lock & Remove from thread-local map

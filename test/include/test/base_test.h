@@ -1,4 +1,5 @@
 #include "leanstore/config.h"
+#include "leanstore/kv_interface.h"
 #include "leanstore/leanstore.h"
 #include "recovery/log_manager.h"
 #include "storage/blob/blob_manager.h"
@@ -72,7 +73,7 @@ class BaseTest : public ::testing::Test {
 #endif
     buffer_   = std::make_unique<buffer::BufferManager>(N_PAGES, PHYSICAL_CAP, EXTRA_NO_PG, EVICT_SIZE, is_running_);
     log_      = std::make_unique<recovery::LogManager>(is_running_);
-    txn_man_  = std::make_unique<transaction::TransactionManager>(buffer_.get(), log_.get());
+    txn_man_  = std::make_unique<transaction::TransactionManager>(buffer_.get(), log_.get(), is_running_);
     recovery_ = std::make_unique<recovery::RecoveryManager>(buffer_.get());
 
     // Allocate metadata page (page 0)
@@ -105,11 +106,12 @@ class BaseTest : public ::testing::Test {
     transaction::TransactionManager::active_txn.MarkAsWrite();
   }
 
-  void ConvenientTxnWrapper(const std::function<void()> &fn) {
+  // Most of the tests will not require explicit catalog management
+  void ConvenientTxnWrapper(const std::function<void()> &fn, const InternalCatalog &catalog = {}) {
     txn_man_->StartTransaction(transaction::Transaction::Type::USER, 0, transaction::IsolationLevel::READ_UNCOMMITTED,
                                transaction::Transaction::Mode::OLTP);
     fn();
-    txn_man_->CommitTransaction();
+    txn_man_->CommitTransaction(catalog);
   }
 };
 

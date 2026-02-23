@@ -198,6 +198,7 @@ class alignas(PAGE_SIZE) BTreeNodeImpl : public PageHeader {
   void InsertKeyValue(std::span<u8> key, std::span<const u8> payload, const ComparisonLambda &cmp);
   auto RemoveSlot(leng_t slot_id) -> bool;
   auto RemoveKey(std::span<u8> key, const ComparisonLambda &cmp) -> bool;
+  void UpdateTimestamp(leng_t slot_id, timestamp_t commit_ts);
 
   // Clone utilities
   static void CopyNodeContent(BTreeNodeImpl *dst, BTreeNodeImpl *src);

@@ -59,7 +59,7 @@ void Transaction::Initialize(TransactionManager *manager, timestamp_t start_time
   //--------------------------
   state     = State::STARTED;
   start_ts  = start_timestamp;
-  commit_ts = 0;
+  commit_ts = TransactionManager::INVALID_TS;
   iso_level = level;
 
   //--------------------------
@@ -83,7 +83,7 @@ auto Transaction::LogWorker() -> recovery::LogWorker & { return manager_->log_ma
 
 auto Transaction::BufferPool() -> buffer::BufferManager * { return manager_->buffer_; }
 
-auto Transaction::LockManager() -> transaction::ILockManager * { return manager_->lock_manager_; }
+auto Transaction::LockManager() -> transaction::ILockManager * { return manager_->lock_manager_.get(); }
 
 /**
  * @brief Serialize the txn's GSN into a buffer

@@ -64,7 +64,7 @@ TEST_F(TestTransaction, TransactionLifeTime) {
     EXPECT_EQ(buffer.TotalFreeSpace(), FLAGS_wal_buffer_size_mb * MB - sizeof(recovery::LogMetaEntry));
     EXPECT_EQ(x_txn.state, Transaction::State::STARTED);
     EXPECT_EQ(&x_txn.LogWorker(), &x_logger);
-    txn_man_->CommitTransaction();
+    txn_man_->CommitTransaction({});
 
     EXPECT_EQ(x_logger.precommitted_queue.CurrentTail(), sizeof(SerializableTransaction));
     EXPECT_EQ(x_txn.is_read_only_, false);
@@ -72,7 +72,7 @@ TEST_F(TestTransaction, TransactionLifeTime) {
   });
   thread.join();
 
-  txn_man_->CommitTransaction();
+  txn_man_->CommitTransaction({});
   EXPECT_EQ(logger.precommitted_queue.CurrentTail(), sizeof(SerializableTransaction));
   EXPECT_EQ(txn.is_read_only_, false);
   EXPECT_FALSE(txn.HasBLOB());
