@@ -10,7 +10,7 @@
 #include <functional>
 #include <type_traits>
 
-using TM = leanstore::transaction::TransactionManager;
+using TM = leanstore::transaction::Transaction;
 
 namespace leanstore::buffer {
 class BufferManager;
@@ -41,14 +41,7 @@ class PageGuard {
 
   // Transaction utilities
   auto TryLockShared(leng_t tree_id, std::span<u8> key) -> bool;
-  auto TryLock(leng_t tree_id, std::span<u8> key) -> bool;
-  auto TryUpgradeLock(leng_t tree_id, std::span<u8> key) -> bool;
-
-  // Version chain utilities
-  void UpdateTupleReadTS(leng_t tree_id, std::span<u8> key, timestamp_t tuple_ts);
-  auto TupleIsOlderThanTxn(timestamp_t tuple_ts) -> bool;
-  auto LookupVersionChain(leng_t tree_id, std::span<u8> key, const AccessPayloadFunc &read_cb,
-                          timestamp_t &out_tuple_ts) -> bool;
+  auto TryLock(leng_t tree_id, timestamp_t tuple_read_ts, std::span<u8> key) -> bool;
 
   // Logging utilities
   void DetectGSNDependency();

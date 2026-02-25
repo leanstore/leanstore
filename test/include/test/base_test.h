@@ -69,7 +69,7 @@ class BaseTest : public ::testing::Test {
     LeanStore::worker_thread_id = 0;
     is_running_                 = true;
 #ifdef ENABLE_TESTING
-    transaction::TransactionManager::active_txn.ResetState();
+    transaction::Transaction::active_txn.ResetState();
 #endif
     buffer_   = std::make_unique<buffer::BufferManager>(N_PAGES, PHYSICAL_CAP, EXTRA_NO_PG, EVICT_SIZE, is_running_);
     log_      = std::make_unique<recovery::LogManager>(is_running_);
@@ -103,7 +103,7 @@ class BaseTest : public ::testing::Test {
     log_->LocalLogWorker().backend.Connect();
     txn_man_->StartTransaction(transaction::Transaction::Type::USER, 0, transaction::IsolationLevel::READ_UNCOMMITTED,
                                transaction::Transaction::Mode::OLTP);
-    transaction::TransactionManager::active_txn.MarkAsWrite();
+    transaction::Transaction::active_txn.MarkAsWrite();
   }
 
   // Most of the tests will not require explicit catalog management

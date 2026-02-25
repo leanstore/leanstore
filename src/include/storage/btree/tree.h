@@ -74,6 +74,14 @@ class BTree : public KVInterface {
     }
   }
 
+  template <typename PageGuard>
+  inline auto GetLatestTS(PageGuard &node, std::span<u8> key) {
+    bool found;
+    auto pos = node->LowerBound(key, found, cmp_lambda_);
+    if (!found) { return transaction::INVALID_TS; }
+    return node->GetTimestamp(pos);
+  }
+
   /* Access record utility for scan */
   template <typename PageGuard>
   inline auto AccessRecord(PageGuard &node, u64 pos, const AccessRecordFunc &fn) -> OpResult {
@@ -81,9 +89,34 @@ class BTree : public KVInterface {
     u8 key[key_len];
     std::memcpy(key, node->GetPrefix(), node->header.prefix_len);
     std::memcpy(key + node->header.prefix_len, node->GetKey(pos), node->slots[pos].key_length);
+    auto key_span = std::span<u8>{key, key_len};
     // Concurrency Control
-    if (!node.TryLockShared(metadata_slotid_, {key, key_len})) { return OpResult::ABORT_TX; }
-    auto ret = fn({key, key_len}, node->GetPayload(pos));
+    if (!node.TryLockShared(metadata_slotid_, key_span)) { return OpResult::ABORT_TX; }
+
+    // Actual scan read
+    auto payload = node->GetPayload(pos);
+    auto &txn    = transaction::Transaction::active_txn;
+    if (FLAGS_txn_mvcc && txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
+      auto latest_tuple_ts = node->GetTimestamp(pos);
+      if (txn.start_ts < latest_tuple_ts) {
+        LOCKABLE_TUPLE_STACK(lockable, key_span, metadata_slotid_);
+        auto read_success = txn.LookupVersionChain(
+          lockable,
+          [&](std::span<const u8> tuple_data) {
+            payload = std::span<u8>(const_cast<u8 *>(tuple_data.data()), tuple_data.size());
+          },
+          latest_tuple_ts);
+        txn.UpdateTupleReadTS(lockable, latest_tuple_ts);
+        // TODO(XXX): What should we do if this tuple version is a deleted one?
+        if (read_success) {
+          auto ret = fn(key_span, payload);
+          return (ret) ? OpResult::OK : OpResult::STOP_SCAN;
+        } else {
+          return OpResult::OK;
+        }
+      }
+    }
+    auto ret = fn(key_span, payload);
     return (ret) ? OpResult::OK : OpResult::STOP_SCAN;
   }
 

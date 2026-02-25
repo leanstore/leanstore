@@ -80,6 +80,9 @@ struct LockableTuple {
   };
 };
 
+/**
+ * @brief Allocate LockableTuple() in the stack
+ */
 #define LOCKABLE_TUPLE_STACK(name, key_span, tree_id_val)                                               \
   size_t name##_total_size = sizeof(transaction::LockableTuple) + (key_span).size();                    \
   auto name                = reinterpret_cast<transaction::LockableTuple *>(alloca(name##_total_size)); \

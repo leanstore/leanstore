@@ -39,44 +39,34 @@ bool LockManager::TryLockShared(u64 txn_ts, const LockableTuple *key) {
   return granted;
 }
 
-bool LockManager::TryLock(u64 txn_ts, const LockableTuple *key) {
-  // If already hold an exclusive lock on this tuple, return true immediately
+bool LockManager::TryLock(u64 txn_ts, [[maybe_unused]] timestamp_t tuple_ts, const LockableTuple *key) {
+  InternalHashMap::accessor acc;
+
+  // If already hold a lock on this tuple
   auto it = rws_.find(key);
   if (it != rws_.end()) {
     // If we already hold the lock, make sure it is exclusive
     if (it->second == LockType::EXCLUSIVE) { return true; }
 
     // Otherwise, try upgrade the lock
-    return TryUpgradeLock(txn_ts, key);
+    assert(it->second == LockType::SHARED);
+    if (!internal_.find(acc, const_cast<LockableTuple *>(key))) {
+      throw std::runtime_error("TryLock: This lock must be already held in SHARED mode");
+    }
+
+    // Try to upgrade using WaitDieLock
+    bool upgraded = acc->second.TryLockUpgrade(txn_ts);
+    if (upgraded) { it->second = LockType::EXCLUSIVE; }
+    return upgraded;
   }
-  // Lookup or insert WaitDieLock in the internal map
-  InternalHashMap::accessor acc;
+
+  // Otherwise, insert WaitDieLock to the internal map
   GetOrInsert(key, acc);
   // Try to acquire exclusive lock
   bool granted = acc->second.TryLock(txn_ts);
   // If granted, track it in thread-local map
   if (granted) { rws_.emplace(key, LockType::EXCLUSIVE); }
   return granted;
-}
-
-bool LockManager::TryUpgradeLock(u64 txn_ts, const LockableTuple *key) {
-  // Check if we currently hold a shared lock
-  auto it = rws_.find(key);
-  // If we already hold the lock, make sure it is exclusive
-  if (it != rws_.end() && it->second == LockType::EXCLUSIVE) { return true; }
-  // Cannot upgrade if we don't hold a shared lock
-  if (it == rws_.end() || it->second != LockType::SHARED) { return false; }
-
-  // Lookup the WaitDieLock in the internal map
-  InternalHashMap::accessor acc;
-  if (!internal_.find(acc, const_cast<LockableTuple *>(key))) {
-    throw std::runtime_error("This lock must be already held in SHARED mode");
-  }
-
-  // Try to upgrade using WaitDieLock
-  bool upgraded = acc->second.TryLockUpgrade(txn_ts);
-  if (upgraded) { it->second = LockType::EXCLUSIVE; }
-  return upgraded;
 }
 
 void LockManager::Unlock(u64 txn_ts, const LockableTuple *key) {

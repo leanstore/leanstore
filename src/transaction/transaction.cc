@@ -11,43 +11,7 @@
 
 namespace leanstore::transaction {
 
-void SerializableTransaction::Construct(const Transaction &txn) {
-  state     = txn.state;
-  stats     = txn.stats;
-  start_ts  = txn.start_ts;
-  commit_ts = txn.commit_ts;
-  txn.SerializeGSNVector(content);
-  vector_size      = txn.gsn_vector.size();
-  no_write_pages   = txn.to_write_pages_.size();
-  no_evict_extents = txn.to_evict_extents_.size();
-  no_free_extents  = txn.to_free_extents_.size();
-  std::memcpy(&content[OffsetWritePages()], txn.to_write_pages_.data(), no_write_pages * sizeof(storage::LargePage));
-  std::memcpy(&content[OffsetEvictExtents()], txn.to_evict_extents_.data(), no_evict_extents * sizeof(pageid_t));
-  std::memcpy(&content[OffsetFreeExtents()], txn.to_free_extents_.data(),
-              no_free_extents * sizeof(storage::ExtentTier));
-  Ensure(MemorySize() == txn.SerializedSize());
-}
-
-auto SerializableTransaction::Dependencies() const -> std::span<const wid_t> {
-  return {reinterpret_cast<const wid_t *>(content), vector_size};
-}
-
-auto SerializableTransaction::DepGSN() const -> std::span<const timestamp_t> {
-  return {reinterpret_cast<const timestamp_t *>(&content[sizeof(wid_t) * vector_size]), vector_size};
-}
-
-/** Whether the given byte buffer does not store a valid SerializableTransaction */
-auto SerializableTransaction::InvalidByteBuffer(const u8 *buffer) -> bool { return buffer[0] == NULL_ITEM; }
-
-/* Should be in-sync with Transaction::SerializedSize() */
-auto SerializableTransaction::MemorySize() -> u16 {
-  auto vector_mem_size = Transaction::VECTOR_KEY_SIZE * vector_size;
-  auto ret = sizeof(SerializableTransaction) + vector_mem_size + no_write_pages * sizeof(storage::LargePage) +
-             no_evict_extents * sizeof(pageid_t) + no_free_extents * sizeof(storage::ExtentTier);
-  return UpAlign(ret, CPU_CACHELINE_SIZE);
-}
-
-// -------------------------------------------------------------------------------------
+thread_local Transaction Transaction::active_txn = Transaction();
 
 void Transaction::Initialize(TransactionManager *manager, timestamp_t start_timestamp, Type txn_type,
                              IsolationLevel level, Mode txn_mode) {
@@ -93,7 +57,7 @@ auto Transaction::LookupVersionChain(const LockableTuple *key, const AccessPaylo
 }
 
 void Transaction::UpdateTupleReadTS(const LockableTuple *key, timestamp_t tuple_ts) {
-  Ensure(FLAGS_txn_mvcc);
+  Ensure(FLAGS_txn_mvcc && IsRunning());
   reinterpret_cast<mvcc::LockManager *>(LockManager())->SetTupleTimestamp(key, tuple_ts);
 }
 
@@ -144,5 +108,43 @@ auto Transaction::ToFlushedLargePages() -> storage::LargePageList & { return to_
 auto Transaction::ToEvictedExtents() -> std::vector<pageid_t> & { return to_evict_extents_; }
 
 auto Transaction::ToFreeExtents() -> storage::TierList & { return to_free_extents_; }
+
+// -------------------------------------------------------------------------------------
+
+void SerializableTransaction::Construct(const Transaction &txn) {
+  state     = txn.state;
+  stats     = txn.stats;
+  start_ts  = txn.start_ts;
+  commit_ts = txn.commit_ts;
+  txn.SerializeGSNVector(content);
+  vector_size      = txn.gsn_vector.size();
+  no_write_pages   = txn.to_write_pages_.size();
+  no_evict_extents = txn.to_evict_extents_.size();
+  no_free_extents  = txn.to_free_extents_.size();
+  std::memcpy(&content[OffsetWritePages()], txn.to_write_pages_.data(), no_write_pages * sizeof(storage::LargePage));
+  std::memcpy(&content[OffsetEvictExtents()], txn.to_evict_extents_.data(), no_evict_extents * sizeof(pageid_t));
+  std::memcpy(&content[OffsetFreeExtents()], txn.to_free_extents_.data(),
+              no_free_extents * sizeof(storage::ExtentTier));
+  Ensure(MemorySize() == txn.SerializedSize());
+}
+
+auto SerializableTransaction::Dependencies() const -> std::span<const wid_t> {
+  return {reinterpret_cast<const wid_t *>(content), vector_size};
+}
+
+auto SerializableTransaction::DepGSN() const -> std::span<const timestamp_t> {
+  return {reinterpret_cast<const timestamp_t *>(&content[sizeof(wid_t) * vector_size]), vector_size};
+}
+
+/** Whether the given byte buffer does not store a valid SerializableTransaction */
+auto SerializableTransaction::InvalidByteBuffer(const u8 *buffer) -> bool { return buffer[0] == NULL_ITEM; }
+
+/* Should be in-sync with Transaction::SerializedSize() */
+auto SerializableTransaction::MemorySize() -> u16 {
+  auto vector_mem_size = Transaction::VECTOR_KEY_SIZE * vector_size;
+  auto ret = sizeof(SerializableTransaction) + vector_mem_size + no_write_pages * sizeof(storage::LargePage) +
+             no_evict_extents * sizeof(pageid_t) + no_free_extents * sizeof(storage::ExtentTier);
+  return UpAlign(ret, CPU_CACHELINE_SIZE);
+}
 
 }  // namespace leanstore::transaction

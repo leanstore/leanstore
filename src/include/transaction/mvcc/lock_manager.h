@@ -27,8 +27,7 @@ class LockManager : public ILockManager {
 
   // Lock APIs
   bool TryLockShared(timestamp_t txn_ts, const LockableTuple *) override;
-  bool TryLock(timestamp_t txn_ts, const LockableTuple *) override;
-  bool TryUpgradeLock(timestamp_t txn_ts, const LockableTuple *) override;
+  bool TryLock(timestamp_t txn_ts, timestamp_t latest_tuple_ts, const LockableTuple *) override;
   void Unlock(timestamp_t txn_ts, const LockableTuple *) override;
   void UnlockShared(timestamp_t txn_ts, const LockableTuple *) override;
 

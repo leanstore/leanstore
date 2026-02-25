@@ -23,7 +23,7 @@ class TestTransaction : public BaseTest {
 
 TEST_F(TestTransaction, SerializableTransaction) {
   InitRandTransaction();
-  auto &txn = TransactionManager::active_txn;
+  auto &txn = Transaction::active_txn;
   txn.gsn_vector.emplace(100, 200);
   txn.gsn_vector.emplace(300, 100);
 
@@ -40,7 +40,7 @@ TEST_F(TestTransaction, SerializableTransaction) {
 
 TEST_F(TestTransaction, TransactionLifeTime) {
   InitRandTransaction();
-  auto &txn    = TransactionManager::active_txn;
+  auto &txn    = Transaction::active_txn;
   auto &logger = log_->LocalLogWorker();
   auto &buffer = logger.log_buffer;
 
@@ -55,7 +55,7 @@ TEST_F(TestTransaction, TransactionLifeTime) {
     // Concurrently init another txn
     InitRandTransaction(1);
 
-    auto &x_txn    = TransactionManager::active_txn;
+    auto &x_txn    = Transaction::active_txn;
     auto &x_logger = log_->LocalLogWorker();
 
     EXPECT_NE(&txn, &x_txn);

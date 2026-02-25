@@ -50,7 +50,7 @@ class TestBTreeNodeWithBlob : public BaseTest, public ::testing::WithParamInterf
 };
 
 TEST_P(TestBTreeNodeWithBlob, NormalOperation) {
-  auto &txn                     = transaction::TransactionManager::active_txn;
+  auto &txn                     = transaction::Transaction::active_txn;
   FLAGS_blob_normal_buffer_pool = GetParam();
 
   // Initialization
@@ -130,7 +130,7 @@ TEST_P(TestBTreeNodeWithBlob, NormalOperation) {
 }
 
 TEST_P(TestBTreeNodeWithBlob, TestSplitAndMerge) {
-  auto &txn                     = transaction::TransactionManager::active_txn;
+  auto &txn                     = transaction::Transaction::active_txn;
   FLAGS_blob_normal_buffer_pool = GetParam();
 
   // Initialization

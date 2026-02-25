@@ -6,7 +6,7 @@
 #include "leanstore/leanstore.h"
 #include "leanstore/statistics.h"
 #include "recovery/log_entry.h"
-#include "transaction/transaction_manager.h"
+#include "transaction/transaction.h"
 
 #include "share_headers/time.h"
 
@@ -14,7 +14,7 @@
 #include <cstring>
 #include <thread>
 
-using leanstore::transaction::TransactionManager;
+using TM = leanstore::transaction::Transaction;
 
 namespace leanstore::recovery {
 
@@ -111,7 +111,7 @@ auto LogWorker::PrepareDataLogEntry(u8 *buffer, u64 payload_size, pageid_t pid) 
   log_entry->type    = LogEntry::Type::DATA_ENTRY;
   log_entry->pid     = pid;
   log_entry->rc.w_id = LeanStore::worker_thread_id;
-  log_entry->rc.txn  = transaction::TransactionManager::active_txn.TxnID();
+  log_entry->rc.txn  = TM::active_txn.TxnID();
   log_entry->rc.gsn  = GetCurrentGSN();
   return *log_entry;
 }
@@ -137,7 +137,7 @@ auto LogWorker::ReserveLogMetaEntry() -> LogMetaEntry & {
   auto log_entry     = reinterpret_cast<LogMetaEntry *>(active_log);
   log_entry->size    = sizeof(LogMetaEntry);
   log_entry->rc.w_id = LeanStore::worker_thread_id;
-  log_entry->rc.txn  = transaction::TransactionManager::active_txn.TxnID();
+  log_entry->rc.txn  = TM::active_txn.TxnID();
   log_entry->rc.gsn  = GetCurrentGSN();
   return static_cast<LogMetaEntry &>(*active_log);
 }
@@ -151,9 +151,9 @@ auto LogWorker::ReserveLogCommitEntry(u64 payload_size) -> TxnCommitEntry & {
   log_entry->type    = LogEntry::Type::TX_COMMIT;
   log_entry->size    = total_size;
   log_entry->rc.w_id = LeanStore::worker_thread_id;
-  log_entry->rc.txn  = transaction::TransactionManager::active_txn.TxnID();
+  log_entry->rc.txn  = TM::active_txn.TxnID();
   log_entry->rc.gsn  = GetCurrentGSN();
-  auto vector_sz     = transaction::TransactionManager::active_txn.SerializeGSNVector(log_entry->payload);
+  auto vector_sz     = TM::active_txn.SerializeGSNVector(log_entry->payload);
   Ensure(vector_sz == payload_size);
   return static_cast<TxnCommitEntry &>(*active_log);
 }
@@ -169,7 +169,7 @@ auto LogWorker::ReserveDataLog(u64 payload_size, pageid_t pid) -> DataEntry & {
   log_entry->type    = LogEntry::Type::DATA_ENTRY;
   log_entry->pid     = pid;
   log_entry->rc.w_id = LeanStore::worker_thread_id;
-  log_entry->rc.txn  = transaction::TransactionManager::active_txn.TxnID();
+  log_entry->rc.txn  = TM::active_txn.TxnID();
   log_entry->rc.gsn  = GetCurrentGSN();
   return *log_entry;
 }
@@ -186,7 +186,7 @@ auto LogWorker::ReservePageImageLog(u64 payload_size, pageid_t pid) -> PageImgEn
   log_entry->type    = LogEntry::Type::PAGE_IMG;
   log_entry->pid     = pid;
   log_entry->rc.w_id = LeanStore::worker_thread_id;
-  log_entry->rc.txn  = transaction::TransactionManager::active_txn.TxnID();
+  log_entry->rc.txn  = TM::active_txn.TxnID();
   log_entry->rc.gsn  = GetCurrentGSN();
   return *log_entry;
 }
@@ -203,7 +203,7 @@ auto LogWorker::ReserveFreeExtentLogEntry(bool to_free, pageid_t start_pid, page
   log_entry->start_pid = start_pid;
   log_entry->lp_size   = size;
   log_entry->rc.w_id   = LeanStore::worker_thread_id;
-  log_entry->rc.txn    = transaction::TransactionManager::active_txn.TxnID();
+  log_entry->rc.txn    = TM::active_txn.TxnID();
   log_entry->rc.gsn    = GetCurrentGSN();
   return *log_entry;
 }
@@ -221,7 +221,7 @@ auto LogWorker::SubmitActiveLogEntry() -> bool {
   log_buffer.wal_cursor += active_log->size;
 
   if (active_log->type == LogEntry::Type::TX_COMMIT) {
-    last_unharden_commit_ts = TransactionManager::active_txn.commit_ts;
+    last_unharden_commit_ts = transaction::Transaction::active_txn.commit_ts;
 
     /* Normal variants only published commit timestamp -> group commit execute the ack */
     /* If we can steal log, then do it. Otherwise, follow traditional WILO */

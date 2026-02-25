@@ -56,57 +56,17 @@ auto PageGuard<PageClass>::TryLockShared(leng_t tree_id, std::span<u8> key) -> b
 }
 
 template <class PageClass>
-auto PageGuard<PageClass>::TryLock(leng_t tree_id, std::span<u8> key) -> bool {
+auto PageGuard<PageClass>::TryLock(leng_t tree_id, timestamp_t latest_tuple_ts, std::span<u8> key) -> bool {
   auto &txn = TM::active_txn;
   Ensure(txn.IsRunning());
+  if (txn.start_ts < latest_tuple_ts) {
+    return false;
+  }  // Fast path: the latest tuple was modified by a future txn, return false
   if (txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
     LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
-    return txn.LockManager()->TryLock(txn.start_ts, lockable);
+    return txn.LockManager()->TryLock(txn.start_ts, latest_tuple_ts, lockable);
   }
   return true;
-}
-
-template <class PageClass>
-auto PageGuard<PageClass>::TryUpgradeLock(leng_t tree_id, std::span<u8> key) -> bool {
-  auto &txn = TM::active_txn;
-  Ensure(txn.IsRunning());
-  if (txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
-    LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
-    return txn.LockManager()->TryUpgradeLock(txn.start_ts, lockable);
-  }
-  return true;
-}
-
-template <class PageClass>
-auto PageGuard<PageClass>::TupleIsOlderThanTxn(timestamp_t tuple_ts) -> bool {
-  Ensure(FLAGS_txn_mvcc);
-  auto &txn = TM::active_txn;
-  Ensure(txn.IsRunning());
-  return tuple_ts > txn.start_ts;
-}
-
-template <class PageClass>
-void PageGuard<PageClass>::UpdateTupleReadTS(leng_t tree_id, std::span<u8> key, timestamp_t tuple_ts) {
-  Ensure(FLAGS_txn_mvcc);
-  auto &txn = TM::active_txn;
-  Ensure(txn.IsRunning());
-  LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
-  txn.UpdateTupleReadTS(lockable, tuple_ts);
-}
-
-template <class PageClass>
-auto PageGuard<PageClass>::LookupVersionChain(leng_t tree_id, std::span<u8> key, const AccessPayloadFunc &read_cb,
-                                              timestamp_t &out_tuple_ts) -> bool {
-  auto &txn = TM::active_txn;
-  Ensure(txn.IsRunning() && FLAGS_txn_mvcc);
-  // Only went here under READ_UNCOMMITTED when the tuple was deleted
-  if (txn.iso_level == transaction::IsolationLevel::READ_UNCOMMITTED) { return false; }
-  // Lookup previous version only happens with two conditions
-  // - System is running in MVCC mode
-  // - Isolation level is >= READ COMMITTED
-  assert(txn.iso_level > transaction::IsolationLevel::READ_UNCOMMITTED);
-  LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
-  return txn.LookupVersionChain(lockable, read_cb, out_tuple_ts);
 }
 
 template <class PageClass>

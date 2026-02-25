@@ -1,8 +1,9 @@
 #include "storage/blob/blob_manager.h"
 #include "leanstore/statistics.h"
+#include "recovery/log_worker.h"
 #include "storage/blob/aliasing_guard.h"
 #include "storage/free_storage.h"
-#include "transaction/transaction_manager.h"
+#include "transaction/transaction.h"
 
 #include <algorithm>
 #include <span>
@@ -300,7 +301,7 @@ auto BlobManager::AllocateBlob(std::span<const u8> payload, const BlobState *pre
   Ensure(FLAGS_wal_enable);
 
   // This should be run inside an active txn
-  auto &current_txn = transaction::TransactionManager::active_txn;
+  auto &current_txn = transaction::Transaction::active_txn;
   Ensure(current_txn.IsRunning());
 
   // If this is a growing operator, load the content of previous blob into memory
@@ -361,7 +362,7 @@ auto BlobManager::AllocateBlob(std::span<const u8> payload, const BlobState *pre
  * @brief Remember to remove all references to this BlobState first before calling this func
  */
 void BlobManager::RemoveBlob(BlobState *blob) {
-  auto &txn = transaction::TransactionManager::active_txn;
+  auto &txn = transaction::Transaction::active_txn;
   Ensure(txn.IsRunning());
   for (size_t idx = 0; idx < blob->extents.NumberOfExtents(); idx++) {
     buffer_->FreeStorageManager()->PrepareFreeTier(blob->extents.extent_pid[idx], idx);

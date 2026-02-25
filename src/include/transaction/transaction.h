@@ -7,8 +7,7 @@
 #include "leanstore/kv_interface.h"
 #include "recovery/log_entry.h"
 #include "storage/extent/large_page.h"
-#include "sync/epoch_handler.h"
-#include "transaction/lock_manager_interface.h"
+#include "transaction/lockable_tuple.h"
 
 #include "gtest/gtest_prod.h"
 
@@ -30,19 +29,20 @@ class GroupCommitExecutor;
 namespace leanstore::transaction {
 
 class TransactionManager;
+class ILockManager;
 
-// TODO: Do not support READ_COMMITTED for now
 enum class IsolationLevel : u8 {
   READ_UNCOMMITTED = 0,
   // READ_COMMITTED     = 1,
-  SNAPSHOT_ISOLATION = 2,
-  SERIALIZABLE       = 3,
+  // SNAPSHOT_ISOLATION = 2,
+  SERIALIZABLE = 3,
 };
 
 struct SerializableTransaction;
 
 class Transaction {
  public:
+  static thread_local Transaction active_txn;
   static constexpr size_t VECTOR_KEY_SIZE = sizeof(wid_t) + sizeof(timestamp_t);
   enum class Type : u8 { USER, SYSTEM };
   enum class Mode : u8 { OLTP, OLAP };

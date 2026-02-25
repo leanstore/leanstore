@@ -7,7 +7,8 @@ thread_local LockManager::LocalReadSet LockManager::read_set_;
 thread_local LockManager::LocalWriteSet LockManager::write_set_;
 
 void LockManager::SetTupleTimestamp(const LockableTuple *key, timestamp_t tuple_ts) {
-  Ensure(read_set_.contains(key));
+  auto it = read_set_.find(key);
+  Ensure(it != read_set_.end() && ((it->second == INVALID_TS) || (it->second == tuple_ts)));
   read_set_[key] = tuple_ts;
 }
 
@@ -35,29 +36,35 @@ void LockManager::ValidateReadSet(const std::function<void(const LockableTuple *
 // - we never acquire shared lock on a tuple.
 // - After calling this fn, we always call SetTupleTimestamp()
 bool LockManager::TryLockShared([[maybe_unused]] timestamp_t txn_ts, const LockableTuple *key) {
-  if (!read_set_.contains(key)) {
-    read_set_.insert({key, INVALID_TS});
-    // The correct timestamp will be updated later using SetTupleTimestamp()
-  }
+  // The correct timestamp will be updated later using SetTupleTimestamp()
+  if (!read_set_.contains(key)) { read_set_.insert({key, INVALID_TS}); }
   return true;
 }
 
-bool LockManager::TryLock([[maybe_unused]] timestamp_t txn_ts, const LockableTuple *key) {
+bool LockManager::TryLock([[maybe_unused]] timestamp_t txn_ts, timestamp_t latest_tuple_ts, const LockableTuple *key) {
+  assert(txn_ts >= latest_tuple_ts);
   // If already hold an exclusive lock on this tuple, return true immediately
   if (write_set_.contains(key)) { return true; }
-  // Lookup or insert into the internal map to acquire X-lock
-  InternalHashMap::accessor acc;
-  auto granted = GetOrInsert(key, acc);
-  if (granted) { write_set_.emplace(key); }
-  return granted;
-}
 
-bool LockManager::TryUpgradeLock(timestamp_t txn_ts, const LockableTuple *key) {
-  // TODO(XXX): Need to make sure
-  // - Key is in read_set_
-  // - Its associated tuple_ts is the latest one -- this step must be done after TryLock() returns successfully
-  // Otherwise, return false to abort txn
-  return TryLock(txn_ts, key);
+  InternalHashMap::accessor acc;
+  // Lookup or insert into the internal map to acquire X-lock
+  auto granted = GetOrInsert(key, acc);
+  if (granted) {
+    // If we already read this key, need to double check if we are reading the latest value
+    auto it = read_set_.find(key);
+    if (it != read_set_.end()) {
+      if (it->second != latest_tuple_ts) {
+        // We read previous version, hence release the current lock and abort txn
+        read_set_.erase(it);
+        internal_.erase(const_cast<LockableTuple *>(key));
+        return false;
+      }
+      read_set_.erase(it);  // This txn reads the latest version, move this tuple to write set
+    }
+    // Acquire successfully
+    write_set_.emplace(key);
+  }
+  return granted;
 }
 
 void LockManager::Unlock([[maybe_unused]] timestamp_t txn_ts, const LockableTuple *key) {

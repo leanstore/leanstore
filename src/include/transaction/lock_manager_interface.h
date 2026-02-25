@@ -34,18 +34,11 @@ class ILockManager {
   /**
    * Try to acquire an exclusive (write) lock for a transaction
    * @param txn_ts Transaction timestamp
+   * @param tuple_ts The latest timestamp of the tuple, only used for MVCC scheme
    * @param key Key to lock
    * @return true if the lock can be acquired immediately, false if blocked
    */
-  virtual bool TryLock(timestamp_t txn_ts, const LockableTuple *) = 0;
-
-  /**
-   * Try to upgrade a held shared lock to an exclusive lock
-   * @param txn_ts Transaction timestamp
-   * @param key Key to upgrade lock
-   * @return true if the upgrade can be done immediately, false if blocked
-   */
-  virtual bool TryUpgradeLock(timestamp_t txn_ts, const LockableTuple *) = 0;
+  virtual bool TryLock(timestamp_t txn_ts, timestamp_t tuple_ts, const LockableTuple *) = 0;
 
   /**
    * Release a previously acquired exclusive lock

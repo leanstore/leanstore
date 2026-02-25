@@ -80,7 +80,7 @@ TYPED_TEST(TestBlobManager, InsertNewBlob) {
   FLAGS_blob_normal_buffer_pool = true;  // Safer testing, i.e. no possible OS kernel panic from AliasingGuard
 
   auto blob_likely_grow = TypeParam::BlobLikelyGrow();
-  auto &txn             = transaction::TransactionManager::active_txn;
+  auto &txn             = transaction::Transaction::active_txn;
 
   auto blob_payload = std::span<u8>{this->random_blob_[0], this->BLOB_SIZE};
   auto blob_h       = this->blob_manager_->AllocateBlob(blob_payload, nullptr, blob_likely_grow);
@@ -166,7 +166,7 @@ TYPED_TEST(TestBlobManager, GrowExistingBlob) {
   FLAGS_blob_normal_buffer_pool = true;  // Safer testing, i.e. no possible OS kernel panic from AliasingGuard
 
   auto blob_likely_grow = TypeParam::BlobLikelyGrow();
-  auto &txn             = transaction::TransactionManager::active_txn;
+  auto &txn             = transaction::Transaction::active_txn;
 
   // Allocate a blob first
   u8 root_blob_storage[BlobState::MAX_MALLOC_SIZE];
@@ -211,16 +211,15 @@ TYPED_TEST(TestBlobManager, GrowExistingBlob) {
   if (blob_likely_grow) {
     // Start txn log entry + PageImgEntry log entry
     auto exp_cursor = sizeof(recovery::LogMetaEntry) + sizeof(recovery::PageImgEntry) + PAGE_SIZE / 2;
-    EXPECT_EQ(transaction::TransactionManager::active_txn.LogWorker().log_buffer.wal_cursor, exp_cursor);
+    EXPECT_EQ(transaction::Transaction::active_txn.LogWorker().log_buffer.wal_cursor, exp_cursor);
     // Evaluate Log value
     auto log_offset = sizeof(recovery::LogMetaEntry) + sizeof(recovery::PageImgEntry);
-    auto log_entry  = &transaction::TransactionManager::active_txn.LogWorker().log_buffer.wal_buffer[log_offset];
+    auto log_entry  = &transaction::Transaction::active_txn.LogWorker().log_buffer.wal_buffer[log_offset];
     EXPECT_EQ(std::memcmp(log_entry, this->random_blob_[0], PAGE_SIZE / 2), 0);  // full of random_blob_[0][1]
   } else {
     // A whole new extent is allocated to store the content of the special block
     // Therefore, no log should be appended, i.e. only Start txn log entry if the log buffer
-    EXPECT_EQ(transaction::TransactionManager::active_txn.LogWorker().log_buffer.wal_cursor,
-              sizeof(recovery::LogMetaEntry));
+    EXPECT_EQ(transaction::Transaction::active_txn.LogWorker().log_buffer.wal_cursor, sizeof(recovery::LogMetaEntry));
   }
 
   // Appending existing blob requires loading all of its extents into the buffer manager

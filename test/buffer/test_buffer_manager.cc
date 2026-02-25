@@ -85,7 +85,7 @@ TEST_F(TestBufferManager, BasicTest) {
 
 TEST_F(TestBufferManager, BasicTestWithExtent) {
   InitRandTransaction();
-  auto &txn         = transaction::TransactionManager::active_txn;
+  auto &txn         = transaction::Transaction::active_txn;
   auto extent_count = 6U;
 
   // Initially, all pages should be in UNLOCKED mode, i.e. not yet initialized

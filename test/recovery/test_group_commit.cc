@@ -44,7 +44,7 @@ TEST_F(TestGroupCommit, BlobSupportVariant) {
   auto gct = std::make_unique<GroupCommitExecutor>(buffer_.get(), log_.get(), 0, FLAGS_worker_count, keep_running_);
 
   InitRandTransaction();
-  auto &txn    = transaction::TransactionManager::active_txn;
+  auto &txn    = transaction::Transaction::active_txn;
   auto payload = std::span(random_blob_, BLOB_SIZE);
   txn.state    = transaction::Transaction::State::STARTED;
 

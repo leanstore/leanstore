@@ -53,8 +53,8 @@ DEFINE_bool(txn_mvcc, false,
             "For MVCC, Hyper-style MVCC with OCC validation (no predicate locking) is implemented"
             "Note that, this MVCC impl suffers from phantom read -- it is acceptable for a simple prototype");
 DEFINE_string(txn_default_isolation_level, "ru",
-              "The serializable mode used in LeanStore"
-              "(ru: READ_UNCOMMITTED, si: SNAPSHOT_ISOLATION, ser: SERIALIZABLE)");
+              "The serializable mode used in LeanStore, only support two following modes"
+              "(ru: READ_UNCOMMITTED, ser: SERIALIZABLE)");
 
 /* Configuration for commit processing subsystem */
 DEFINE_uint32(txn_commit_group_size, 2,

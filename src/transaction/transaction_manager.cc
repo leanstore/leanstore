@@ -21,7 +21,6 @@ using DataEntry  = leanstore::recovery::DataEntry;
 
 namespace leanstore::transaction {
 
-thread_local Transaction TransactionManager::active_txn              = Transaction();
 thread_local timestamp_t TransactionManager::previous_completed_time = 0;
 
 TransactionManager::TransactionManager(buffer::BufferManager *buffer_manager, LogManager *log_manager,
@@ -50,24 +49,21 @@ TransactionManager::~TransactionManager() {
 
 auto TransactionManager::ParseIsolationLevel(const std::string &str) -> IsolationLevel {
   if (str == "ser") { return IsolationLevel::SERIALIZABLE; }
-  if (str == "si") {
-    if (!FLAGS_txn_mvcc) { throw ex::EnsureFailed("Only support snapshot isolation when using MVCC"); }
-    return IsolationLevel::SNAPSHOT_ISOLATION;
-  }
   Ensure(str == "ru");
   return IsolationLevel::READ_UNCOMMITTED;
 }
 
 void TransactionManager::StartTransaction(Transaction::Type next_tx_type, timestamp_t next_tx_arrival_time,
                                           IsolationLevel next_tx_isolation_level, Transaction::Mode next_tx_mode) {
-  Ensure(!active_txn.IsRunning());
-  active_txn.Initialize(this, global_clock++, next_tx_type, next_tx_isolation_level, next_tx_mode);
+  auto &txn = Transaction::active_txn;
+  Ensure(!txn.IsRunning());
+  txn.Initialize(this, global_clock++, next_tx_type, next_tx_isolation_level, next_tx_mode);
   if (FLAGS_txn_debug) {
-    active_txn.stats.start        = tsctime::ReadTSC();
-    active_txn.stats.arrival_time = (next_tx_arrival_time > 0) ? next_tx_arrival_time : active_txn.stats.start;
-    assert(next_tx_arrival_time <= active_txn.stats.start);
+    txn.stats.start        = tsctime::ReadTSC();
+    txn.stats.arrival_time = (next_tx_arrival_time > 0) ? next_tx_arrival_time : txn.stats.start;
+    assert(next_tx_arrival_time <= txn.stats.start);
     statistics::worker_idle_ns[LeanStore::worker_thread_id][Rand(SAMPLING_SIZE)] =
-      active_txn.stats.arrival_time - previous_completed_time;
+      txn.stats.arrival_time - previous_completed_time;
   }
   // Propagate WAL-related run-time context for this active transaction
   auto &logger          = log_manager_->LocalLogWorker();
@@ -82,35 +78,36 @@ void TransactionManager::StartTransaction(Transaction::Type next_tx_type, timest
 
 void TransactionManager::CommitTransaction(const InternalCatalog &catalog) {
   auto &logger = log_manager_->LocalLogWorker();
+  auto &txn    = Transaction::active_txn;
 
-  Ensure(active_txn.state == Transaction::State::STARTED);
+  Ensure(txn.state == Transaction::State::STARTED);
   // Update transactional context of current txn
-  active_txn.commit_ts = global_clock++;
-  active_txn.state     = Transaction::State::READY_TO_COMMIT;
+  txn.commit_ts = global_clock++;
+  txn.state     = Transaction::State::READY_TO_COMMIT;
   if (FLAGS_txn_debug) {
-    active_txn.stats.precommit = tsctime::ReadTSC();
-    previous_completed_time    = active_txn.stats.precommit;
+    txn.stats.precommit     = tsctime::ReadTSC();
+    previous_completed_time = txn.stats.precommit;
   }
 
   // Release locks according to Concurrency Control
-  if (active_txn.iso_level > IsolationLevel::READ_UNCOMMITTED) {
-    lock_manager_->ReleaseAllLocks(active_txn.start_ts, [&](const LockableTuple *tuple) {
+  if (txn.iso_level > IsolationLevel::READ_UNCOMMITTED) {
+    lock_manager_->ReleaseAllLocks(txn.start_ts, [&](const LockableTuple *tuple) {
       // This lambda -- Updating tuple's TS -- will only be triggered by MVCC impl
       auto index = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
-      index->UpdateTimestamp({const_cast<u8 *>(tuple->key), tuple->key_len}, active_txn.commit_ts);
+      index->UpdateTimestamp({const_cast<u8 *>(tuple->key), tuple->key_len}, txn.commit_ts);
     });
   }
 
   // Append txn object to the pre-commit queue
   if (FLAGS_wal_enable) {
     // Insert commit log entry to WAL
-    active_txn.MarkAsWrite();
-    auto &entry        = logger.ReserveLogCommitEntry(active_txn.SerializedVectorSize());
-    entry.vector_size  = active_txn.gsn_vector.size();
+    txn.MarkAsWrite();
+    auto &entry        = logger.ReserveLogCommitEntry(txn.SerializedVectorSize());
+    entry.vector_size  = txn.gsn_vector.size();
     auto should_commit = logger.SubmitActiveLogEntry();
 
     // Push the txn to the pre-commit queue
-    QueueTransaction(active_txn);
+    QueueTransaction(txn);
 
     // Try to trigger group commit directly within the worker
     if (should_commit || (FLAGS_wal_force_log_flush && (Rand(BitLength(FLAGS_worker_count + 1)) == 0))) {
@@ -120,17 +117,19 @@ void TransactionManager::CommitTransaction(const InternalCatalog &catalog) {
 
   // If log is disabled, update the statistics manually
   if (!FLAGS_wal_enable) {
-    DurableCommit(active_txn, active_txn.stats.precommit);
+    DurableCommit(txn, txn.stats.precommit);
     if (start_profiling) { statistics::precommited_txn_processed[LeanStore::worker_thread_id] += 1; }
   }
 
   // Advance safe commit ts in version manager
-  if (FLAGS_txn_mvcc) { version_manager_->AdvanceLocalTimestamp(LeanStore::worker_thread_id, active_txn.commit_ts); }
+  if (FLAGS_txn_mvcc) { version_manager_->AdvanceLocalTimestamp(LeanStore::worker_thread_id, txn.commit_ts); }
 }
 
 auto TransactionManager::ValidateReadSet(const InternalCatalog &catalog) -> bool {
+  auto &txn = Transaction::active_txn;
+
   // Only validate read set if running under SERIALIZABLE level with MVCC
-  if (!FLAGS_txn_mvcc || active_txn.iso_level < IsolationLevel::SERIALIZABLE) { return true; }
+  if (!FLAGS_txn_mvcc || txn.iso_level < IsolationLevel::SERIALIZABLE) { return true; }
   auto mvcc_lock_manager = reinterpret_cast<mvcc::LockManager *>(lock_manager_.get());
   auto satisfy_occ       = true;
   // TODO(XXX): Implement the follow atomic-way
@@ -150,14 +149,15 @@ auto TransactionManager::ValidateReadSet(const InternalCatalog &catalog) -> bool
  */
 void TransactionManager::AbortTransaction() {
   throw leanstore::ex::TODO("Undo is not yet implemented");
+  auto &txn = Transaction::active_txn;
 
   // Only support abort txn if WAL is enabled
   Ensure(FLAGS_wal_enable);
   // A transaction was initialized, and it should be running
-  Ensure(active_txn.IsRunning());
-  active_txn.state = Transaction::State::ABORTED;
+  Ensure(txn.IsRunning());
+  txn.state = Transaction::State::ABORTED;
   // If current transaction is read-only, abort transaction'll be a no-op
-  if (active_txn.ReadOnly()) { return; }
+  if (txn.ReadOnly()) { return; }
 
   // Run-time context
   auto &logger = log_manager_->LocalLogWorker();
