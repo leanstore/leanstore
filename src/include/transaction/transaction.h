@@ -4,6 +4,7 @@
 #include "common/exceptions.h"
 #include "common/typedefs.h"
 #include "common/utils.h"
+#include "leanstore/kv_interface.h"
 #include "recovery/log_entry.h"
 #include "storage/extent/large_page.h"
 #include "sync/epoch_handler.h"
@@ -80,7 +81,11 @@ class Transaction {
   auto IsRunning() -> bool;
   void MarkAsWrite();
   auto HasBLOB() -> bool;
-  auto IsolationSemantic() -> IsolationLevel;
+
+  // MVCC utilities
+  void UpdateTupleReadTS(const LockableTuple *key, timestamp_t tuple_ts);
+  auto LookupVersionChain(const LockableTuple *key, const AccessPayloadFunc &read_cb, timestamp_t &out_tuple_ts)
+    -> bool;
 
   // GSN Vector utility
   auto SerializeGSNVector(u8 *buffer) const -> u64;

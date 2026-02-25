@@ -5,6 +5,7 @@
 #include <alloca.h>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -13,6 +14,8 @@
 #include <unordered_map>
 
 namespace leanstore::transaction {
+
+static constexpr timestamp_t INVALID_TS = std::numeric_limits<timestamp_t>::max();
 
 struct LockableTuple {
   leng_t tree_id;  // B-tree identifier

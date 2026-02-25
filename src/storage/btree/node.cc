@@ -348,7 +348,7 @@ void BTreeNodeImpl<NodeHeader>::StoreRecordDataWithoutPrefix(leng_t slot_id, std
   std::memcpy(GetKey(slot_id), key, key_no_prefix.size());
   if (KV_HAS_TIMESTAMP(*this)) {
     // In-place update
-    assert(transaction::TransactionManager::active_txn.commit_ts == transaction::TransactionManager::INVALID_TS);
+    assert(transaction::TransactionManager::active_txn.commit_ts == transaction::INVALID_TS);
     auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
     std::memcpy(Ptr() + ts_offset, &(transaction::TransactionManager::active_txn.commit_ts), sizeof(timestamp_t));
   }

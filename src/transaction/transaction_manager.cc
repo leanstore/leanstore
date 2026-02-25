@@ -129,12 +129,18 @@ void TransactionManager::CommitTransaction(const InternalCatalog &catalog) {
 }
 
 auto TransactionManager::ValidateReadSet(const InternalCatalog &catalog) -> bool {
-  if (!FLAGS_txn_mvcc || active_txn.iso_level < IsolationLevel::SERIALIZABLE) {
-    // Only validate read set if running under SERIALIZABLE level with MVCC
-    return true;
-  }
-  // TODO(XXX): Implement here: validate read set of transactions
-  return true;
+  // Only validate read set if running under SERIALIZABLE level with MVCC
+  if (!FLAGS_txn_mvcc || active_txn.iso_level < IsolationLevel::SERIALIZABLE) { return true; }
+  auto mvcc_lock_manager = reinterpret_cast<mvcc::LockManager *>(lock_manager_.get());
+  auto satisfy_occ       = true;
+  // TODO(XXX): Implement the follow atomic-way
+  // Yes: https://pages.cs.wisc.edu/~yxy/cs764-f20/slides/L24.pdf - Slide 10
+  mvcc_lock_manager->ValidateReadSet([&](const LockableTuple *tuple, timestamp_t tuple_ts) {
+    auto index            = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
+    auto current_tuple_ts = index->GetTimestamp({const_cast<u8 *>(tuple->key), tuple->key_len});
+    if (current_tuple_ts != tuple_ts) { satisfy_occ = false; }
+  });
+  return satisfy_occ;
 }
 
 /**

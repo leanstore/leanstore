@@ -15,7 +15,6 @@ namespace leanstore::transaction {
 
 class TransactionManager {
  public:
-  static constexpr timestamp_t INVALID_TS = std::numeric_limits<timestamp_t>::max();
   static thread_local Transaction active_txn;
   static thread_local timestamp_t previous_completed_time;
   inline static std::atomic<timestamp_t> global_clock = 1;  // Valid timestamp always >= 1

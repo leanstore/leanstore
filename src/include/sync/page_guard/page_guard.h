@@ -44,6 +44,12 @@ class PageGuard {
   auto TryLock(leng_t tree_id, std::span<u8> key) -> bool;
   auto TryUpgradeLock(leng_t tree_id, std::span<u8> key) -> bool;
 
+  // Version chain utilities
+  void UpdateTupleReadTS(leng_t tree_id, std::span<u8> key, timestamp_t tuple_ts);
+  auto TupleIsOlderThanTxn(timestamp_t tuple_ts) -> bool;
+  auto LookupVersionChain(leng_t tree_id, std::span<u8> key, const AccessPayloadFunc &read_cb,
+                          timestamp_t &out_tuple_ts) -> bool;
+
   // Logging utilities
   void DetectGSNDependency();
   void AdvanceGSN();

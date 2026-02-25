@@ -44,6 +44,7 @@ class BTree : public KVInterface {
   /* APIs for use within LeanStore */
   auto IsNotEmpty() -> bool;
   auto CountPages() -> u64;
+  auto GetTimestamp(std::span<u8> key) -> timestamp_t;
   void UpdateTimestamp(std::span<u8> key, timestamp_t commit_ts);
 
  private:

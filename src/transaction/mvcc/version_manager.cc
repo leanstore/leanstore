@@ -5,16 +5,19 @@ namespace leanstore::transaction::mvcc {
 
 VersionManager::VersionManager() : local_timestamp_(FLAGS_worker_count) {}
 
-void VersionManager::ReadValidVersion(timestamp_t ts, const LockableTuple *key, const AccessPayloadFunc &read_cb) {
+auto VersionManager::ReadValidVersion(timestamp_t ts, const LockableTuple *key, const AccessPayloadFunc &read_cb,
+                                      timestamp_t &out_tuple_ts) -> bool {
   std::span<const u8> payload;
   {
     VersionHashMap::accessor acc;
     if (!version_.find(acc, const_cast<LockableTuple *>(key))) {
       throw std::runtime_error("ReadValidVersion: Lock object missing in internal map");
     }
-    payload = acc->second.FindCorrectVersion(ts);
+    payload = acc->second.FindCorrectVersion(out_tuple_ts, ts);
   }
+  if (payload.empty()) { return false; }
   read_cb(payload);
+  return true;
 }
 
 void VersionManager::AppendVersion(timestamp_t ts, const LockableTuple *key, const std::span<u8> &payload) {

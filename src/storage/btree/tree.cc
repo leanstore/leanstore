@@ -261,18 +261,41 @@ auto BTree::LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> OpRes
   while (true) {
     try {
       OptimisticGuard<BTreeNode> node = FindLeafOptimistic(key);
-      bool found;
-      leng_t pos = node->LowerBound(key, found, cmp_lambda_);
-      if (!found) { return OpResult::NOT_FOUND; }
-
       if (!node.TryLockShared(metadata_slotid_, key)) { return OpResult::ABORT_TX; }
+
+      // Looking up key
+      bool found;
+      timestamp_t tuple_ts;
+      leng_t pos = node->LowerBound(key, found, cmp_lambda_);
+      // Key not found, looking up version chain in case it was deleted
+      if (!found) {
+        if (FLAGS_txn_mvcc) {
+          timestamp_t tuple_ts;
+          auto read_success = node.LookupVersionChain(metadata_slotid_, key, read_cb, tuple_ts);
+          node.UpdateTupleReadTS(metadata_slotid_, key, tuple_ts);
+          return (read_success) ? OpResult::OK : OpResult::NOT_FOUND;
+        }
+        return OpResult::NOT_FOUND;
+      }
+      // Key exists, check if it violates txn's timestamp and also check version if it is the case
+      if (FLAGS_txn_mvcc) {
+        tuple_ts = node->GetTimestamp(pos);
+        if (node.TupleIsOlderThanTxn(tuple_ts)) {
+          auto read_success = node.LookupVersionChain(metadata_slotid_, key, read_cb, tuple_ts);
+          node.UpdateTupleReadTS(metadata_slotid_, key, tuple_ts);
+          return (read_success) ? OpResult::OK : OpResult::NOT_FOUND;
+        }
+      }
+      // Happy path, just read the tuple
       auto payload = node->GetPayload(pos);
+      if (FLAGS_txn_mvcc) { node.UpdateTupleReadTS(metadata_slotid_, key, tuple_ts); }
       read_cb(payload);
       return OpResult::OK;
     } catch (const sync::RestartException &) {}
   }
 }
 
+// TODO: Integrate MVCC across this tree impl. All APIs that return OpResult
 auto BTree::Insert(std::span<u8> key, std::span<const u8> payload) -> OpResult {
   assert((key.size() + payload.size()) <= BTreeNode::MAX_RECORD_SIZE);
 
@@ -549,6 +572,18 @@ auto BTree::CountPages() -> u64 {
   return IterateAllNodes(node, [](BTreeNode &) { return 1; }, [](BTreeNode &) { return 1; });
 }
 
+auto BTree::GetTimestamp(std::span<u8> key) -> timestamp_t {
+  while (true) {
+    try {
+      auto node = FindLeafOptimistic(key);
+      bool found;
+      auto pos = node->LowerBound(key, found, cmp_lambda_);
+      if (!found) { return transaction::INVALID_TS; }
+      return node->GetTimestamp(pos);
+    } catch (const sync::RestartException &) {}
+  }
+}
+
 void BTree::UpdateTimestamp(std::span<u8> key, timestamp_t commit_ts) {
   while (true) {
     try {
@@ -557,7 +592,7 @@ void BTree::UpdateTimestamp(std::span<u8> key, timestamp_t commit_ts) {
       auto pos = node->LowerBound(key, found, cmp_lambda_);
       assert(found);  // Key must be presented
                       // Invalid TS -- not exposing to concurrent txns
-      assert(node->GetTimestamp(pos) == transaction::TransactionManager::INVALID_TS);
+      assert(node->GetTimestamp(pos) == transaction::INVALID_TS);
       assert(node.TryLock(metadata_slotid_, key));  // Current txn must be currently holding the X-lock on this key
 
       // Update commit ts of the modified tuple

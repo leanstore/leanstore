@@ -4,6 +4,7 @@
 #include "leanstore/statistics.h"
 #include "storage/btree/node.h"
 #include "storage/page.h"
+#include "transaction/mvcc/lock_manager.h"
 #include "transaction/transaction_manager.h"
 
 #include <cstring>
@@ -59,7 +60,7 @@ void Transaction::Initialize(TransactionManager *manager, timestamp_t start_time
   //--------------------------
   state     = State::STARTED;
   start_ts  = start_timestamp;
-  commit_ts = TransactionManager::INVALID_TS;
+  commit_ts = INVALID_TS;
   iso_level = level;
 
   //--------------------------
@@ -84,6 +85,17 @@ auto Transaction::LogWorker() -> recovery::LogWorker & { return manager_->log_ma
 auto Transaction::BufferPool() -> buffer::BufferManager * { return manager_->buffer_; }
 
 auto Transaction::LockManager() -> transaction::ILockManager * { return manager_->lock_manager_.get(); }
+
+auto Transaction::LookupVersionChain(const LockableTuple *key, const AccessPayloadFunc &read_cb,
+                                     timestamp_t &out_tuple_ts) -> bool {
+  Ensure(FLAGS_txn_mvcc);
+  return manager_->version_manager_->ReadValidVersion(start_ts, key, read_cb, out_tuple_ts);
+}
+
+void Transaction::UpdateTupleReadTS(const LockableTuple *key, timestamp_t tuple_ts) {
+  Ensure(FLAGS_txn_mvcc);
+  reinterpret_cast<mvcc::LockManager *>(LockManager())->SetTupleTimestamp(key, tuple_ts);
+}
 
 /**
  * @brief Serialize the txn's GSN into a buffer

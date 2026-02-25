@@ -1,8 +1,15 @@
 #include "transaction/mvcc/lock_manager.h"
+#include "common/exceptions.h"
 
 namespace leanstore::transaction::mvcc {
 
+thread_local LockManager::LocalReadSet LockManager::read_set_;
 thread_local LockManager::LocalWriteSet LockManager::write_set_;
+
+void LockManager::SetTupleTimestamp(const LockableTuple *key, timestamp_t tuple_ts) {
+  Ensure(read_set_.contains(key));
+  read_set_[key] = tuple_ts;
+}
 
 void LockManager::ReleaseAllLocks([[maybe_unused]] timestamp_t txn_ts,
                                   const std::function<void(const LockableTuple *)> &iterate_fn) {
@@ -16,8 +23,22 @@ void LockManager::ReleaseAllLocks([[maybe_unused]] timestamp_t txn_ts,
   });
 }
 
-// For MVCC, we never acquire shared lock on a tuple
-bool LockManager::TryLockShared([[maybe_unused]] timestamp_t txn_ts, [[maybe_unused]] const LockableTuple *key) {
+void LockManager::ValidateReadSet(const std::function<void(const LockableTuple *, timestamp_t)> &validate_fn) {
+  std::erase_if(LockManager::read_set_, [&](const auto &tuple) {
+    Ensure(tuple.second != INVALID_TS);
+    validate_fn(tuple.first, tuple.second);
+    return true;  // remove everything
+  });
+}
+
+// For MVCC:
+// - we never acquire shared lock on a tuple.
+// - After calling this fn, we always call SetTupleTimestamp()
+bool LockManager::TryLockShared([[maybe_unused]] timestamp_t txn_ts, const LockableTuple *key) {
+  if (!read_set_.contains(key)) {
+    read_set_.insert({key, INVALID_TS});
+    // The correct timestamp will be updated later using SetTupleTimestamp()
+  }
   return true;
 }
 
@@ -31,7 +52,13 @@ bool LockManager::TryLock([[maybe_unused]] timestamp_t txn_ts, const LockableTup
   return granted;
 }
 
-bool LockManager::TryUpgradeLock(timestamp_t txn_ts, const LockableTuple *key) { return TryLock(txn_ts, key); }
+bool LockManager::TryUpgradeLock(timestamp_t txn_ts, const LockableTuple *key) {
+  // TODO(XXX): Need to make sure
+  // - Key is in read_set_
+  // - Its associated tuple_ts is the latest one -- this step must be done after TryLock() returns successfully
+  // Otherwise, return false to abort txn
+  return TryLock(txn_ts, key);
+}
 
 void LockManager::Unlock([[maybe_unused]] timestamp_t txn_ts, const LockableTuple *key) {
   // Check if we currently hold the lock
