@@ -23,7 +23,8 @@ class LockManager : public ILockManager {
 
   // Commit APIs
   void ValidateReadSet(const std::function<void(const LockableTuple *, timestamp_t)> &validate_fn);
-  void ReleaseAllLocks(timestamp_t txn_ts, const std::function<void(const LockableTuple *)> &iterate_fn) override;
+  void ReleaseAllLocks(timestamp_t txn_ts,
+                       const std::function<void(const LockableTuple *)> &update_tuple_ts_fn) override;
 
   // Lock APIs
   bool TryLockShared(timestamp_t txn_ts, const LockableTuple *) override;

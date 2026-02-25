@@ -13,9 +13,9 @@ void LockManager::SetTupleTimestamp(const LockableTuple *key, timestamp_t tuple_
 }
 
 void LockManager::ReleaseAllLocks([[maybe_unused]] timestamp_t txn_ts,
-                                  const std::function<void(const LockableTuple *)> &iterate_fn) {
+                                  const std::function<void(const LockableTuple *)> &update_tuple_ts_fn) {
   std::erase_if(LockManager::write_set_, [&](const auto &tuple) {
-    iterate_fn(tuple);
+    update_tuple_ts_fn(tuple);
     // Lookup the WaitDieLock in the internal map
     if (!internal_.erase(const_cast<LockableTuple *>(tuple))) {
       throw std::runtime_error("ReleaseAllLocks: Lock object missing in internal map");

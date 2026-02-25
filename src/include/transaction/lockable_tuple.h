@@ -19,7 +19,7 @@ static constexpr timestamp_t INVALID_TS = std::numeric_limits<timestamp_t>::max(
 
 struct LockableTuple {
   leng_t tree_id;  // B-tree identifier
-  u8 key_len;
+  u16 key_len;
   u8 key[];  // Key as byte array
 
   LockableTuple(std::span<u8> key_span, u64 tree_id) = delete;
@@ -32,7 +32,7 @@ struct LockableTuple {
 
     // Initialize fields
     ptr->tree_id = tree_id;
-    ptr->key_len = static_cast<u8>(key_span.size());
+    ptr->key_len = static_cast<u16>(key_span.size());
     std::memcpy(ptr->key, key_span.data(), key_span.size());
 
     // Wrap in unique_ptr with custom deleter
@@ -51,7 +51,7 @@ struct LockableTuple {
     return ptr;
   }
 
-  static void Release(LockableTuple *ptr) { ::operator delete(ptr); }
+  static void Release(void *ptr) { ::operator delete(ptr); }
 
   static inline auto HashCore(const LockableTuple *ptr) -> size_t {
     size_t h = std::hash<uint64_t>{}(ptr->tree_id);
@@ -83,11 +83,11 @@ struct LockableTuple {
 /**
  * @brief Allocate LockableTuple() in the stack
  */
-#define LOCKABLE_TUPLE_STACK(name, key_span, tree_id_val)                                               \
-  size_t name##_total_size = sizeof(transaction::LockableTuple) + (key_span).size();                    \
-  auto name                = reinterpret_cast<transaction::LockableTuple *>(alloca(name##_total_size)); \
-  name->tree_id            = (tree_id_val);                                                             \
-  name->key_len            = static_cast<u8>((key_span).size());                                        \
+#define LOCKABLE_TUPLE_STACK(name, key_span, tree_id_val)                                                            \
+  size_t name##_total_size = sizeof(leanstore::transaction::LockableTuple) + (key_span).size();                      \
+  auto name                = reinterpret_cast<leanstore::transaction::LockableTuple *>(::alloca(name##_total_size)); \
+  name->tree_id            = (tree_id_val);                                                                          \
+  name->key_len            = static_cast<u16>((key_span).size());                                                    \
   std::memcpy(name->key, (key_span).data(), (key_span).size());
 
 }  // namespace leanstore::transaction

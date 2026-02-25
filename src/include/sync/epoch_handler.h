@@ -10,6 +10,14 @@
 
 namespace leanstore::sync {
 
+struct EpochEntry {
+  void *ptr;
+  u64 epoch;
+  void (*deleter)(void *);
+
+  EpochEntry(void *ptr, u64 epoch, void (*d)(void *));
+};
+
 struct EpochHandler {
   static constexpr u64 MAX_VALUE = ~0ULL;
 
@@ -17,13 +25,13 @@ struct EpochHandler {
   ~EpochHandler();
 
   void EpochOperation(wid_t wid);
-  void DeferFreePointer(wid_t wid, void *ptr);
+  void DeferFreePointer(wid_t wid, void *ptr, void (*d)(void *));
 
   /* Epoch-based ptr reclaimation */
   const u64 no_threads;
   std::atomic<u64> global_epoch;
   std::vector<std::atomic<u64>> local_epoch;
-  std::array<std::vector<std::pair<void *, u64>>, MAX_NUMBER_OF_WORKER> to_free_ptr = {};
+  std::array<std::vector<EpochEntry>, MAX_NUMBER_OF_WORKER> to_free_ptr = {};
 };
 
 class EpochGuard {

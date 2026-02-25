@@ -206,13 +206,15 @@ class WaitDieLock {
     /**
      * STATE -> ACTION
      *
-     * owner(I), no waiter -> add to owner_list_, change it's op to E, unlock latch and return
-     *true
+     * owner(I), no waiter ->
+     *  add to owner_list_
+     *  change it's op to E,
+     *  unlock latch and return true
      *
      * owner(I), waiter -> add to waiter_list_, unlock latch and spin
      *
-     * owner(S, E) -> compare with min ts of owner with this ts, if this ts is smaller, add to
-     *waiter_list_, unlock latch and spin else unlock latch and return false
+     * owner(S, E) -> compare with min ts of owner with this ts
+     * if this ts is smaller, add to waiter_list_, unlock latch and spin; else unlock latch and return false
      *
      **/
     bool no_waiter = waiter_list_.Empty();

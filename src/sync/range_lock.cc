@@ -124,7 +124,7 @@ void RangeLock::UnlockRange(u64 start) {
       guard.UpgradeOptimisticToExclusive();
       Ensure(q->start == start);
       for (auto k = 0; k <= level_ && (p = preds[k])->forward[k] == q; k++) { p->forward[k] = q->forward[k]; }
-      epoch_.DeferFreePointer(LeanStore::worker_thread_id, q);
+      epoch_.DeferFreePointer(LeanStore::worker_thread_id, q, free);
 
       /* Adjust skip list level */
       while (root_->forward[level_] == nullptr && level_ > 0) { level_--; }

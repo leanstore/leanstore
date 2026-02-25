@@ -21,7 +21,8 @@ class ILockManager {
  public:
   virtual ~ILockManager() = default;
 
-  virtual void ReleaseAllLocks(timestamp_t txn_ts, const std::function<void(const LockableTuple *)> &iterate_fn) = 0;
+  virtual void ReleaseAllLocks(timestamp_t txn_ts,
+                               const std::function<void(const LockableTuple *)> &update_tuple_ts_fn) = 0;
 
   /**
    * Try to acquire a shared (read) lock for a transaction
