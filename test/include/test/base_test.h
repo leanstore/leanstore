@@ -106,12 +106,11 @@ class BaseTest : public ::testing::Test {
     transaction::Transaction::active_txn.MarkAsWrite();
   }
 
-  // Most of the tests will not require explicit catalog management
-  void ConvenientTxnWrapper(const std::function<void()> &fn, const InternalCatalog &catalog = {}) {
+  void ConvenientTxnWrapper(const std::function<void()> &fn) {
     txn_man_->StartTransaction(transaction::Transaction::Type::USER, 0, transaction::IsolationLevel::READ_UNCOMMITTED,
                                transaction::Transaction::Mode::OLTP);
     fn();
-    txn_man_->CommitTransaction(catalog);
+    txn_man_->CommitTransaction();
   }
 };
 

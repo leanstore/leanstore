@@ -14,15 +14,14 @@
 
 namespace leanstore::transaction {
 
-enum class LockType { SHARED, EXCLUSIVE };
+using WriteSetCallback = std::function<void(const LockableTuple *, timestamp_t, std::span<const u8>)>;
 
 // Abstract lock manager interface
 class ILockManager {
  public:
   virtual ~ILockManager() = default;
 
-  virtual void ReleaseAllLocks(timestamp_t txn_ts,
-                               const std::function<void(const LockableTuple *)> &update_tuple_ts_fn) = 0;
+  virtual void ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &write_set_cb) = 0;
 
   /**
    * Try to acquire a shared (read) lock for a transaction
@@ -35,11 +34,11 @@ class ILockManager {
   /**
    * Try to acquire an exclusive (write) lock for a transaction
    * @param txn_ts Transaction timestamp
-   * @param tuple_ts The latest timestamp of the tuple, only used for MVCC scheme
+   * @param undo_payload The prev payload, used for undo
    * @param key Key to lock
    * @return true if the lock can be acquired immediately, false if blocked
    */
-  virtual bool TryLock(timestamp_t txn_ts, timestamp_t tuple_ts, const LockableTuple *) = 0;
+  virtual bool TryLock(timestamp_t txn_ts, std::span<u8> undo_payload, const LockableTuple *) = 0;
 
   /**
    * Release a previously acquired exclusive lock

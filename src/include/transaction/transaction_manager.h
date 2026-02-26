@@ -27,8 +27,8 @@ class TransactionManager {
   void StartTransaction(Transaction::Type next_tx_type, timestamp_t next_tx_arrival_time = 0,
                         IsolationLevel next_tx_isolation_level = ParseIsolationLevel(FLAGS_txn_default_isolation_level),
                         Transaction::Mode next_tx_mode         = Transaction::Mode::OLTP);
-  void CommitTransaction(const InternalCatalog &catalog);
-  auto ValidateReadSet(const InternalCatalog &catalog) -> bool;
+  void CommitTransaction();
+  auto ValidateReadSet() -> bool;
   void AbortTransaction();
 
   template <class T>

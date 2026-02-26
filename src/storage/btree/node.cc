@@ -352,7 +352,12 @@ void BTreeNodeImpl<NodeHeader>::StoreRecordDataWithoutPrefix(leng_t slot_id, std
     // In-place update
     assert(TM::active_txn.commit_ts == transaction::INVALID_TS);
     auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
-    std::memcpy(Ptr() + ts_offset, &transaction::INVALID_TS, sizeof(timestamp_t));
+    // Trick: only in two scenarios that the execution path comes here
+    // - Normal key-value insertion before commit. This case, TUPLE_UNDO_TIMESTAMP == INVALID_TS
+    // - During undo phase that we need to store back previous tuple's timestamp.
+    //   This case, TUPLE_UNDO_TIMESTAMP == previous timestamp of the updated tuple
+    // In both scenarios, TUPLE_UNDO_TIMESTAMP contains the correct value.
+    std::memcpy(Ptr() + ts_offset, &TM::TUPLE_UNDO_TIMESTAMP, sizeof(timestamp_t));
   }
   std::memcpy(GetPayload(slot_id).data(), payload.data(), payload.size());
 }

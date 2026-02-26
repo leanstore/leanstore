@@ -74,14 +74,6 @@ class BTree : public KVInterface {
     }
   }
 
-  template <typename PageGuard>
-  inline auto GetLatestTS(PageGuard &node, std::span<u8> key) {
-    bool found;
-    auto pos = node->LowerBound(key, found, cmp_lambda_);
-    if (!found) { return transaction::INVALID_TS; }
-    return node->GetTimestamp(pos);
-  }
-
   /* Access record utility for scan */
   template <typename PageGuard>
   inline auto AccessRecord(PageGuard &node, u64 pos, const AccessRecordFunc &fn) -> OpResult {
@@ -96,7 +88,7 @@ class BTree : public KVInterface {
     // Actual scan read
     auto payload = node->GetPayload(pos);
     auto &txn    = transaction::Transaction::active_txn;
-    if (FLAGS_txn_mvcc && txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
+    if (FLAGS_txn_mvcc && txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
       auto latest_tuple_ts = node->GetTimestamp(pos);
       if (txn.start_ts < latest_tuple_ts) {
         LOCKABLE_TUPLE_STACK(lockable, key_span, metadata_slotid_);

@@ -49,6 +49,7 @@ TransactionManager::~TransactionManager() {
 
 auto TransactionManager::ParseIsolationLevel(const std::string &str) -> IsolationLevel {
   if (str == "ser") { return IsolationLevel::SERIALIZABLE; }
+  if (str == "si") { return IsolationLevel::SNAPSHOT_ISOLATION; }
   Ensure(str == "ru");
   return IsolationLevel::READ_UNCOMMITTED;
 }
@@ -76,7 +77,7 @@ void TransactionManager::StartTransaction(Transaction::Type next_tx_type, timest
   logger.rfa_gsn_flushed = LogManager::global_min_gsn_flushed.load();
 }
 
-void TransactionManager::CommitTransaction(const InternalCatalog &catalog) {
+void TransactionManager::CommitTransaction() {
   auto &logger = log_manager_->LocalLogWorker();
   auto &txn    = Transaction::active_txn;
 
@@ -91,7 +92,7 @@ void TransactionManager::CommitTransaction(const InternalCatalog &catalog) {
 
   // Release locks according to Concurrency Control
   if (txn.iso_level > IsolationLevel::READ_UNCOMMITTED) {
-    lock_manager_->ReleaseAllLocks(txn.start_ts, [&](const LockableTuple *tuple) {
+    lock_manager_->ReleaseAllLocks(txn.start_ts, [&](const LockableTuple *tuple, timestamp_t, std::span<const u8>) {
       // This lambda -- Updating tuple's TS -- will only be triggered by MVCC impl
       auto index = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
       index->UpdateTimestamp({const_cast<u8 *>(tuple->key), tuple->key_len}, txn.commit_ts);
@@ -118,14 +119,14 @@ void TransactionManager::CommitTransaction(const InternalCatalog &catalog) {
   // If log is disabled, update the statistics manually
   if (!FLAGS_wal_enable) {
     DurableCommit(txn, txn.stats.precommit);
-    if (start_profiling) { statistics::precommited_txn_processed[LeanStore::worker_thread_id] += 1; }
+    if (start_profiling) { statistics::precommited_txn[LeanStore::worker_thread_id] += 1; }
   }
 
   // Advance safe commit ts in version manager
   if (FLAGS_txn_mvcc) { version_manager_->AdvanceLocalTimestamp(LeanStore::worker_thread_id, txn.commit_ts); }
 }
 
-auto TransactionManager::ValidateReadSet(const InternalCatalog &catalog) -> bool {
+auto TransactionManager::ValidateReadSet() -> bool {
   auto &txn = Transaction::active_txn;
 
   // Only validate read set if running under SERIALIZABLE level with MVCC
@@ -148,33 +149,58 @@ auto TransactionManager::ValidateReadSet(const InternalCatalog &catalog) -> bool
  * Maybe, for simplicity, we simply treat this as a no-op and do not create any CLR
  */
 void TransactionManager::AbortTransaction() {
-  throw leanstore::ex::TODO("Undo is not yet implemented");
-  auto &txn = Transaction::active_txn;
+  auto &txn    = Transaction::active_txn;
+  auto &logger = log_manager_->LocalLogWorker();
 
-  // Only support abort txn if WAL is enabled
-  Ensure(FLAGS_wal_enable);
   // A transaction was initialized, and it should be running
   Ensure(txn.IsRunning());
   txn.state = Transaction::State::ABORTED;
-  // If current transaction is read-only, abort transaction'll be a no-op
-  if (txn.ReadOnly()) { return; }
+  if (FLAGS_txn_debug) {
+    txn.stats.precommit     = tsctime::ReadTSC();
+    previous_completed_time = txn.stats.precommit;
+  }
 
-  // Run-time context
-  auto &logger = log_manager_->LocalLogWorker();
+  // TODO(XXX): Undo txn here
+  // Iterate through lock_manager.write_set_ and re-install undo payload
+  // If the undo payload is empty -> prev version does not exist, call tree delete
+  // Otherwise, call tree update
+  // Release locks according to Concurrency Control
+  if (txn.iso_level > IsolationLevel::READ_UNCOMMITTED) {
+    lock_manager_->ReleaseAllLocks(txn.start_ts,
+                                   [&](const LockableTuple *tuple, timestamp_t undo_ts, std::span<const u8> payload) {
+                                     // This lambda -- Updating tuple's TS -- will only be triggered by MVCC impl
+                                     auto index = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
+                                     OpResult ret;
+                                     Transaction::TUPLE_UNDO_TIMESTAMP = undo_ts;
+                                     if (payload.empty()) {
+                                       ret = index->Remove({const_cast<u8 *>(tuple->key), tuple->key_len});
+                                     } else {
+                                       ret = index->Update({const_cast<u8 *>(tuple->key), tuple->key_len}, payload, {});
+                                     }
+                                     assert(ret == OpResult::OK);
+                                   });
+  }
 
-  // Revert back all modifications using WAL
-  std::vector<const LogEntry *> entries;
-  logger.IterateActiveTxnEntries([&](const LogEntry &entry) {
-    if (entry.type == LogEntry::Type::DATA_ENTRY) { entries.push_back(&entry); }
-  });
-  std::for_each(entries.rbegin(), entries.rend(), [&](const LogEntry *entry) {
-    [[maybe_unused]] const auto &data_entry = *reinterpret_cast<const DataEntry *>(entry);  // NOLINT
-    throw leanstore::ex::TODO("Undo is not yet implemented");
-  });
-  // Insert abort log entry to WAL
-  auto &entry = logger.ReserveLogMetaEntry();
-  entry.type  = LogEntry::Type::TX_ABORT;
-  logger.SubmitActiveLogEntry();
+  // TODO(XXX): To fully support recovery, need to generate CLRs (compensation log record) here
+  // before generating TX_ABORT log entry
+
+  // Append txn object to the pre-commit queue
+  if (FLAGS_wal_enable) {
+    // Insert abort log entry to WAL
+    txn.MarkAsWrite();
+    auto &entry       = logger.ReserveLogCommitEntry(txn.SerializedVectorSize());
+    entry.vector_size = txn.gsn_vector.size();
+    entry.type        = LogEntry::Type::TX_ABORT;
+    logger.SubmitActiveLogEntry();
+
+    // Push the txn to the pre-commit queue
+    QueueTransaction(txn);
+  }
+
+  // if WAl is disabled, simply ack the txn
+  if (!FLAGS_wal_enable) {
+    if (start_profiling) { statistics::precommited_txn[LeanStore::worker_thread_id] += 1; }
+  }
 }
 
 template <class T>
@@ -201,7 +227,7 @@ void TransactionManager::QueueTransaction(Transaction &txn) {
 
   /* Enabling lock-free queue */
   logger.precommitted_queue.Push(txn);
-  if (start_profiling) { statistics::precommited_txn_processed[LeanStore::worker_thread_id] += 1; }
+  if (start_profiling) { statistics::precommited_txn[LeanStore::worker_thread_id] += 1; }
 }
 
 template void TransactionManager::DurableCommit<transaction::SerializableTransaction>(

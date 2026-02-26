@@ -12,10 +12,9 @@ void LockManager::SetTupleTimestamp(const LockableTuple *key, timestamp_t tuple_
   read_set_[key] = tuple_ts;
 }
 
-void LockManager::ReleaseAllLocks([[maybe_unused]] timestamp_t txn_ts,
-                                  const std::function<void(const LockableTuple *)> &update_tuple_ts_fn) {
+void LockManager::ReleaseAllLocks([[maybe_unused]] timestamp_t txn_ts, const WriteSetCallback &write_set_cb) {
   std::erase_if(LockManager::write_set_, [&](const auto &tuple) {
-    update_tuple_ts_fn(tuple);
+    write_set_cb(tuple, 0, {});  // TODO(XXX): Fix this later when working on MVCC
     // Lookup the WaitDieLock in the internal map
     if (!internal_.erase(const_cast<LockableTuple *>(tuple))) {
       throw std::runtime_error("ReleaseAllLocks: Lock object missing in internal map");
@@ -41,8 +40,7 @@ bool LockManager::TryLockShared([[maybe_unused]] timestamp_t txn_ts, const Locka
   return true;
 }
 
-bool LockManager::TryLock([[maybe_unused]] timestamp_t txn_ts, timestamp_t latest_tuple_ts, const LockableTuple *key) {
-  assert(txn_ts >= latest_tuple_ts);
+bool LockManager::TryLock(timestamp_t txn_ts, [[maybe_unused]] std::span<u8> undo_payload, const LockableTuple *key) {
   // If already hold an exclusive lock on this tuple, return true immediately
   if (write_set_.contains(key)) { return true; }
 
@@ -53,12 +51,7 @@ bool LockManager::TryLock([[maybe_unused]] timestamp_t txn_ts, timestamp_t lates
     // If we already read this key, need to double check if we are reading the latest value
     auto it = read_set_.find(key);
     if (it != read_set_.end()) {
-      if (it->second != latest_tuple_ts) {
-        // We read previous version, hence release the current lock and abort txn
-        read_set_.erase(it);
-        internal_.erase(const_cast<LockableTuple *>(key));
-        return false;
-      }
+      assert(it->second <= txn_ts);
       read_set_.erase(it);  // This txn reads the latest version, move this tuple to write set
     }
     // Acquire successfully

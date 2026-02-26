@@ -8,7 +8,10 @@
 
 #include "tbb/concurrent_hash_map.h"
 
+#include <span>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace leanstore::transaction::svcc {
 
@@ -18,19 +21,19 @@ namespace leanstore::transaction::svcc {
  */
 class LockManager : public ILockManager {
  public:
-  using LocalReadWriteSet =
-    std::unordered_map<const LockableTuple *, LockType, LockableTuple::HashPtr, LockableTuple::EqualPtr>;
+  using LocalReadSet = std::unordered_set<const LockableTuple *, LockableTuple::HashPtr, LockableTuple::EqualPtr>;
+  using LocalWriteSet =
+    std::unordered_map<const LockableTuple *, std::vector<u8>, LockableTuple::HashPtr, LockableTuple::EqualPtr>;
   using InternalHashMap = tbb::concurrent_hash_map<LockableTuple *, WaitDieLock *, LockableTuple::HashTBB>;
 
   LockManager()  = default;
   ~LockManager() = default;
 
-  void ReleaseAllLocks(timestamp_t txn_ts,
-                       const std::function<void(const LockableTuple *)> &update_tuple_ts_fn) override;
+  void ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &write_set_cb) override;
 
   // Lock APIs
   bool TryLockShared(timestamp_t txn_ts, const LockableTuple *) override;
-  bool TryLock(timestamp_t txn_ts, timestamp_t tuple_ts, const LockableTuple *) override;
+  bool TryLock(timestamp_t txn_ts, std::span<u8> undo_payload, const LockableTuple *) override;
   void Unlock(timestamp_t txn_ts, const LockableTuple *) override;
   void UnlockShared(timestamp_t txn_ts, const LockableTuple *) override;
 
@@ -38,7 +41,8 @@ class LockManager : public ILockManager {
   auto GetOrInsert(const LockableTuple *key) -> WaitDieLock *;
 
   // Thread-local set of currently held locks (read/write)
-  static thread_local LocalReadWriteSet rws_;
+  static thread_local LocalReadSet read_set_;
+  static thread_local LocalWriteSet write_set_;
 
   // Internal lock table mapping keys to WaitDieLocks
   InternalHashMap internal_;

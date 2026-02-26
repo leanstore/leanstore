@@ -73,7 +73,7 @@ TEST_F(TestGroupCommit, BlobSupportVariant) {
   EXPECT_TRUE(gct->completed_lp_.contains(start_pid));
 
   // Commit current txn
-  txn_man_->CommitTransaction({});
+  txn_man_->CommitTransaction();
 
   // Serialized txn
   auto s1_txn = new (buffer) transaction::SerializableTransaction();

@@ -273,7 +273,7 @@ auto BTree::LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> OpRes
       leng_t pos    = node->LowerBound(key, found, cmp_lambda_);
       // Key not found, looking up version chain in case it was deleted
       if (!found) {
-        if (FLAGS_txn_mvcc && txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
+        if (FLAGS_txn_mvcc && txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
           timestamp_t tuple_ts;
           LOCKABLE_TUPLE_STACK(lockable, key, metadata_slotid_);
           auto read_success = txn.LookupVersionChain(lockable, read_cb, tuple_ts);
@@ -283,7 +283,7 @@ auto BTree::LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> OpRes
         return OpResult::NOT_FOUND;
       }
       // Key exists, check if it violates txn's timestamp and also check version if it is the case
-      if (FLAGS_txn_mvcc && txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
+      if (FLAGS_txn_mvcc && txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
         tuple_ts = node->GetTimestamp(pos);
         if (txn.start_ts < tuple_ts) {
           LOCKABLE_TUPLE_STACK(lockable, key, metadata_slotid_);
@@ -294,7 +294,7 @@ auto BTree::LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> OpRes
       }
       // Happy path, just read the tuple
       auto payload = node->GetPayload(pos);
-      if (FLAGS_txn_mvcc && txn.iso_level == transaction::IsolationLevel::SERIALIZABLE) {
+      if (FLAGS_txn_mvcc && txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
         assert(tuple_ts != transaction::INVALID_TS);
         LOCKABLE_TUPLE_STACK(lockable, key, metadata_slotid_);
         txn.UpdateTupleReadTS(lockable, tuple_ts);
@@ -329,9 +329,12 @@ auto BTree::Insert(std::span<u8> key, std::span<const u8> payload) -> OpResult {
           ExclusiveGuard<BTreeNode> node_locked(std::move(node));
           parent.ValidateOrRestart();
 
-          // Concurrency control
-          if (!node_locked.TryLock(metadata_slotid_, GetLatestTS(node_locked, key), key)) { return OpResult::ABORT_TX; }
-
+          /* Check if current key exists or not */
+          bool found;
+          node_locked->LowerBound(key, found, cmp_lambda_);
+          if (found) { return OpResult::DUPLICATE; }
+          /* Concurrency control */
+          if (!node_locked.TryLock(metadata_slotid_, {}, key)) { return OpResult::ABORT_TX; }
           /* Insert Key-Value & Generate the log entry */
           node_locked->InsertKeyValue(key, payload, cmp_lambda_);
           if (FLAGS_wal_enable) { defer_log.Construct<WALInsert>(node_locked, key, payload); }
@@ -382,7 +385,7 @@ auto BTree::Remove(std::span<u8> key) -> OpResult {
         ExclusiveGuard<BTreeNode> node_locked(std::move(node));
         ExclusiveGuard<BTreeNode> right_locked(buffer_, parent_locked->GetChild(node_pos + 1));
         // Concurrency control
-        if (!node_locked.TryLock(metadata_slotid_, GetLatestTS(node_locked, key), key)) { return OpResult::ABORT_TX; }
+        if (!node_locked.TryLock(metadata_slotid_, payload, key)) { return OpResult::ABORT_TX; }
         // Update by remove then insert
         node_locked->RemoveSlot(slot_id);
         // --------------------------------------------------------------------------
@@ -401,8 +404,8 @@ auto BTree::Remove(std::span<u8> key) -> OpResult {
         ExclusiveGuard<BTreeNode> node_locked(std::move(node));
         parent.ValidateOrRestart();
         // Concurrency control
-        if (!node_locked.TryLock(metadata_slotid_, GetLatestTS(node_locked, key), key)) { return OpResult::ABORT_TX; }
-
+        if (!node_locked.TryLock(metadata_slotid_, payload, key)) { return OpResult::ABORT_TX; }
+        // Update by remove then insert
         node_locked->RemoveSlot(slot_id);
         // --------------------------------------------------------------------------
         // WAL Remove
@@ -451,7 +454,7 @@ auto BTree::Update(std::span<u8> key, std::span<const u8> payload, const AccessP
         ExclusiveGuard<BTreeNode> node_locked(std::move(node));
         parent.ValidateOrRestart();
         // Concurrency control
-        if (!node_locked.TryLock(metadata_slotid_, GetLatestTS(node_locked, key), key)) { return OpResult::ABORT_TX; }
+        if (!node_locked.TryLock(metadata_slotid_, curr_payload, key)) { return OpResult::ABORT_TX; }
         // Log previous payload, trigger func utility if provided, and remove the entry
         if (FLAGS_wal_enable) {
           auto &entry   = node_locked.PrepareWalEntry<WALRemove>(0);
@@ -491,12 +494,12 @@ auto BTree::UpdateInPlace(std::span<u8> key, const ModifyPayloadFunc &func, Fixe
 
       {
         ExclusiveGuard<BTreeNode> node_locked(std::move(node));
+        auto payload = node_locked->GetPayload(pos);
         /* Concurrency control */
-        if (!node_locked.TryLock(metadata_slotid_, GetLatestTS(node_locked, key), key)) { return OpResult::ABORT_TX; }
+        if (!node_locked.TryLock(metadata_slotid_, payload, key)) { return OpResult::ABORT_TX; }
         /* Modify the record, and store the after-value */
-        auto record = node_locked->GetPayload(pos);
-        func(record);
-        if (FLAGS_wal_enable && delta != nullptr) { delta->UpdateDeltaPayload(record); }
+        func(payload);
+        if (FLAGS_wal_enable && delta != nullptr) { delta->UpdateDeltaPayload(payload); }
 
         /* Generate the delta record */
         if (FLAGS_wal_enable) {
@@ -504,7 +507,7 @@ auto BTree::UpdateInPlace(std::span<u8> key, const ModifyPayloadFunc &func, Fixe
             defer_log.Construct<WALDeltaImage>(node_locked, key,
                                                std::span<u8>(reinterpret_cast<u8 *>(delta), delta->size));
           } else {
-            defer_log.Construct<WALAfterImage>(node_locked, key, record);
+            defer_log.Construct<WALAfterImage>(node_locked, key, payload);
           }
         }
       }
@@ -585,7 +588,10 @@ auto BTree::GetTimestamp(std::span<u8> key) -> timestamp_t {
   while (true) {
     try {
       auto node = FindLeafOptimistic(key);
-      return GetLatestTS(node, key);
+      bool found;
+      auto pos = node->LowerBound(key, found, cmp_lambda_);
+      if (!found) { return transaction::INVALID_TS; }
+      return node->GetTimestamp(pos);
     } catch (const sync::RestartException &) {}
   }
 }

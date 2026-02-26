@@ -9,10 +9,11 @@
 namespace leanstore::statistics {
 
 extern std::atomic<u64> total_committed_txn;
-extern std::atomic<u64> txn_processed[MAX_NUMBER_OF_WORKER];
 extern std::atomic<u64> commit_rounds[MAX_NUMBER_OF_WORKER];
 extern std::vector<u64> txn_per_round[MAX_NUMBER_OF_WORKER];
-extern std::atomic<u64> precommited_txn_processed[MAX_NUMBER_OF_WORKER];
+extern std::atomic<u64> precommited_txn[MAX_NUMBER_OF_WORKER];
+extern std::atomic<u64> aborted_txn[MAX_NUMBER_OF_WORKER];
+extern std::atomic<u64> committed_txn[MAX_NUMBER_OF_WORKER];
 extern std::vector<u64> txn_latency[MAX_NUMBER_OF_WORKER];
 extern std::vector<u64> rfa_txn_latency[MAX_NUMBER_OF_WORKER];
 extern std::vector<u64> lat_inc_wait[MAX_NUMBER_OF_WORKER];

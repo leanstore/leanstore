@@ -27,7 +27,7 @@ class TestTreeRecovery : public BaseTest {
   void InitializeTree() {
     InitRandTransaction();
     tree_ = std::make_unique<storage::BTree>(buffer_.get(), recovery_.get(), 0);
-    txn_man_->CommitTransaction({});
+    txn_man_->CommitTransaction();
   }
 
   void TearDown() override {
@@ -62,7 +62,7 @@ class TestTreeRecovery : public BaseTest {
           logger_->log_buffer.LogFlush(logger_, false);
         }
       }
-      txn_man_->CommitTransaction({});
+      txn_man_->CommitTransaction();
       ForcePersistLogs();
       ConvenientTxnWrapper([&]() { Ensure(tree_->IsNotEmpty()); });
     }
@@ -174,7 +174,7 @@ TEST_F(TestTreeRecovery, MixWorkloads) {
         nullptr);
     }
   }
-  txn_man_->CommitTransaction({});
+  txn_man_->CommitTransaction();
 
   /* Should be no change from UpdateInPlace */
   ConvenientTxnWrapper([&]() { no_pages = tree_->CountPages(); });
@@ -191,7 +191,7 @@ TEST_F(TestTreeRecovery, MixWorkloads) {
   }
   no_pages = tree_->CountPages();
   EXPECT_LT(no_pages, 342);
-  txn_man_->CommitTransaction({});
+  txn_man_->CommitTransaction();
 
   /* Force write logs if there are dirty ones */
   ForcePersistLogs();

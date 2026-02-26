@@ -229,11 +229,11 @@ void LeanStore::StartTransaction(timestamp_t txn_arrival_time, Transaction::Mode
 }
 
 void LeanStore::CommitTransaction() {
-  if (!transaction_manager->ValidateReadSet(catalog)) {
+  if (!transaction_manager->ValidateReadSet()) {
     AbortTransaction();
     return;
   }
-  transaction_manager->CommitTransaction(catalog);
+  transaction_manager->CommitTransaction();
   blob_manager->UnloadAllBlobs();
 }
 
@@ -270,10 +270,9 @@ void LeanStore::StartProfilingThread() {
   stat_collector  = std::thread([&]() {
     pthread_setname_np(pthread_self(), "stats_collector");
     std::printf(
-      "ts,tx,normal,commit_rounds,bm_rmb,bm_wmb,bm_evict,log_sz_mb,logio_mb,log_flush_cnt,"
+      "ts,committed_tx,aborted_tx,precommited_tx,commit_rounds,bm_rmb,bm_wmb,bm_evict,log_sz_mb,logio_mb,log_flush_cnt,"
        "gct_p1_us,gct_p2_us,gct_p3_us,db_size\n");
     auto cnt           = 0UL;
-    auto completed_txn = 0UL;
     auto commit_exec   = 0UL;
     auto commit_rounds = 0UL;
 
@@ -281,18 +280,18 @@ void LeanStore::StartProfilingThread() {
       std::this_thread::sleep_for(std::chrono::seconds(1));
       if (!start_profiling_latency) { start_profiling_latency = true; }
       // Progress stats
-      auto rounds   = 0UL;
-      auto progress = 0UL;
-      // Txn type start
-      auto normal_txn = 0UL;
+      auto rounds         = 0UL;
+      auto committed_tx   = 0UL;
+      auto aborted_tx     = 0UL;
+      auto precommited_tx = 0UL;
       for (auto idx = 0U; idx <= FLAGS_worker_count; idx++) {
         rounds += statistics::commit_rounds[idx].exchange(0);
-        progress += statistics::txn_processed[idx].exchange(0);
-        normal_txn += statistics::precommited_txn_processed[idx].exchange(0);
+        committed_tx += statistics::committed_txn[idx].exchange(0);
+        aborted_tx += statistics::aborted_txn[idx].exchange(0);
+        precommited_tx += statistics::precommited_txn[idx].exchange(0);
       }
-      completed_txn += normal_txn;
-      if (!FLAGS_wal_enable) { progress = normal_txn; }
-      statistics::total_committed_txn += progress;
+      if (!FLAGS_wal_enable) { committed_tx = precommited_tx; }
+      statistics::total_committed_txn += committed_tx;
       commit_rounds += rounds;
       // System stats
       auto r_mb  = static_cast<float>(statistics::buffer::read_cnt.exchange(0) * PAGE_SIZE) / MB;
@@ -316,11 +315,11 @@ void LeanStore::StartProfilingThread() {
       }
       commit_exec += p1_us + p2_us + p3_us;
       // Output
-      std::printf("%lu,%lu,%lu,%lu,%.4f,%.4f,%lu,%.4f,%.4f,%lu,%lu,%lu,%lu,%.4f\n", cnt++, progress, normal_txn, rounds,
-                   r_mb, w_mb, e_cnt, log_sz, log_write, log_flush_cnt, p1_us, p2_us, p3_us, db_sz);
+      std::printf("%lu,%lu,%lu,%lu,%lu,%.4f,%.4f,%lu,%.4f,%.4f,%lu,%lu,%lu,%lu,%.4f\n", cnt++, committed_tx, aborted_tx,
+                   precommited_tx, rounds, r_mb, w_mb, e_cnt, log_sz, log_write, log_flush_cnt, p1_us, p2_us, p3_us,
+                   db_sz);
     }
-    spdlog::info("Transaction statistics: # completed txns: {} - # committed txns: {}", completed_txn,
-                  statistics::total_committed_txn.load());
+    spdlog::info("Transaction statistics: # committed txns: {}", statistics::total_committed_txn.load());
     spdlog::info("AvgGroupCommitTime: {:.4f}us - No rounds {} - Txn per round {:.4f}",
                   static_cast<double>(commit_exec) / commit_rounds, commit_rounds,
                   static_cast<double>(statistics::total_committed_txn) / commit_rounds);

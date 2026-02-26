@@ -4,15 +4,14 @@
 
 namespace leanstore::transaction::svcc {
 
-thread_local LockManager::LocalReadWriteSet LockManager::rws_;
+thread_local LockManager::LocalReadSet LockManager::read_set_;
+thread_local LockManager::LocalWriteSet LockManager::write_set_;
 
-void LockManager::ReleaseAllLocks(
-  timestamp_t txn_ts, [[maybe_unused]] const std::function<void(const LockableTuple *)> &update_tuple_ts_fn) {
-  std::erase_if(LockManager::rws_, [&](const auto &kv) {
-    const auto &[tuple, lock_type] = kv;
+void LockManager::ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &write_set_cb) {
+  WaitDieLock *lock;
 
+  std::erase_if(LockManager::read_set_, [&](const auto &tuple) {
     // Lookup the WaitDieLock in the internal map
-    WaitDieLock *lock;
     {
       InternalHashMap::const_accessor acc;
       if (!internal_.find(acc, const_cast<LockableTuple *>(tuple))) {
@@ -22,38 +21,49 @@ void LockManager::ReleaseAllLocks(
     }
 
     // Release the lock
-    if (lock_type == LockType::SHARED) {
-      lock->UnlockShared(txn_ts);
-    } else {
-      assert(lock_type == LockType::EXCLUSIVE);
-      lock->Unlock(txn_ts);
+    lock->UnlockShared(txn_ts);
+    return true;
+  });
+
+  std::erase_if(LockManager::write_set_, [&](const auto &kv) {
+    const auto &[tuple, payload] = kv;
+
+    // Lookup the WaitDieLock in the internal map
+    {
+      InternalHashMap::const_accessor acc;
+      if (!internal_.find(acc, const_cast<LockableTuple *>(tuple))) {
+        throw std::runtime_error("ReleaseAllLocks: Lock object missing in internal map");
+      }
+      lock = acc->second;
     }
+
+    // Release the lock. SVCC doesn't need tuple timestamp for both commit/abort
+    write_set_cb(tuple, INVALID_TS, std::span(payload));
+    lock->Unlock(txn_ts);
     return true;
   });
 }
 
 bool LockManager::TryLockShared(u64 txn_ts, const LockableTuple *key) {
   // Already hold an lock on the tuple, return
-  if (LockManager::rws_.contains(key)) { return true; }
+  if (LockManager::read_set_.contains(key) || LockManager::write_set_.contains(key)) { return true; }
   // Haven't locked the tuple before, insert a new WaitDieLock in the internal map
   auto lock = GetOrInsert(key);
   // trying to lock it in shared mode
   bool granted = lock->TryLockShared(txn_ts);
-  if (granted) { rws_.emplace(key, LockType::SHARED); }
+  if (granted) { read_set_.emplace(key); }
   return granted;
 }
 
-bool LockManager::TryLock(u64 txn_ts, [[maybe_unused]] timestamp_t tuple_ts, const LockableTuple *key) {
+bool LockManager::TryLock(u64 txn_ts, std::span<u8> undo_payload, const LockableTuple *key) {
   WaitDieLock *lock = nullptr;
 
-  // If already hold a lock on this tuple
-  auto it = rws_.find(key);
-  if (it != rws_.end()) {
-    // If we already hold the lock, make sure it is exclusive
-    if (it->second == LockType::EXCLUSIVE) { return true; }
-    assert(it->second == LockType::SHARED);
+  // If we already hold exclusive lock, return
+  if (write_set_.contains(key)) { return true; }
 
-    // Otherwise, try upgrade the lock
+  // If already hold a shared lock on this tuple, upgrade
+  auto it = read_set_.find(key);
+  if (it != read_set_.end()) {
     {
       InternalHashMap::const_accessor acc;
       if (!internal_.find(acc, const_cast<LockableTuple *>(key))) {
@@ -64,7 +74,10 @@ bool LockManager::TryLock(u64 txn_ts, [[maybe_unused]] timestamp_t tuple_ts, con
 
     // Try to upgrade using WaitDieLock
     bool upgraded = lock->TryLockUpgrade(txn_ts);
-    if (upgraded) { it->second = LockType::EXCLUSIVE; }
+    if (upgraded) {
+      read_set_.erase(it);
+      write_set_.emplace(key, std::vector<u8>(undo_payload.begin(), undo_payload.end()));
+    }
     return upgraded;
   }
 
@@ -73,16 +86,14 @@ bool LockManager::TryLock(u64 txn_ts, [[maybe_unused]] timestamp_t tuple_ts, con
   // Try to acquire exclusive lock
   bool granted = lock->TryLock(txn_ts);
   // If granted, track it in thread-local map
-  if (granted) { rws_.emplace(key, LockType::EXCLUSIVE); }
+  if (granted) { write_set_.emplace(key, std::vector<u8>(undo_payload.begin(), undo_payload.end())); }
   return granted;
 }
 
 void LockManager::Unlock(u64 txn_ts, const LockableTuple *key) {
   // Check if we currently hold the lock
-  auto it = rws_.find(key);
-  if (it == rws_.end() || it->second != LockType::EXCLUSIVE) {
-    throw std::runtime_error("Unlock called without holding an exclusive lock");
-  }
+  auto it = write_set_.find(key);
+  if (it == write_set_.end()) { throw std::runtime_error("Unlock called without holding an exclusive lock"); }
 
   // Lookup the WaitDieLock in the internal map
   WaitDieLock *lock;
@@ -96,15 +107,13 @@ void LockManager::Unlock(u64 txn_ts, const LockableTuple *key) {
 
   // Release the exclusive lock & Remove from thread-local map
   lock->Unlock(txn_ts);
-  rws_.erase(it);
+  write_set_.erase(it);
 }
 
 void LockManager::UnlockShared(u64 txn_ts, const LockableTuple *key) {
   // Check if we currently hold a shared lock
-  auto it = rws_.find(key);
-  if (it == rws_.end() || it->second != LockType::SHARED) {
-    throw std::runtime_error("UnlockShared called without holding a shared lock");
-  }
+  auto it = read_set_.find(key);
+  if (it == read_set_.end()) { throw std::runtime_error("UnlockShared called without holding a shared lock"); }
 
   // Lookup the WaitDieLock in the internal map
   WaitDieLock *lock;
@@ -118,7 +127,7 @@ void LockManager::UnlockShared(u64 txn_ts, const LockableTuple *key) {
 
   // Release the shared lock & Remove from thread-local map
   lock->UnlockShared(txn_ts);
-  rws_.erase(it);
+  read_set_.erase(it);
 }
 
 auto LockManager::GetOrInsert(const LockableTuple *key) -> WaitDieLock * {

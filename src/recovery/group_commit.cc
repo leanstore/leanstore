@@ -54,7 +54,6 @@ void GroupCommitExecutor::CompleteRound() {
 
   // Update statistics
   if (start_profiling) {
-    statistics::txn_processed[LeanStore::worker_thread_id] += completed_txn_;
     statistics::commit_rounds[LeanStore::worker_thread_id]++;
     statistics::txn_per_round[LeanStore::worker_thread_id].emplace_back(completed_txn_);
     statistics::recovery::gct_phase_1_ns[LeanStore::worker_thread_id] +=

@@ -34,14 +34,15 @@ class ILockManager;
 enum class IsolationLevel : u8 {
   READ_UNCOMMITTED = 0,
   // READ_COMMITTED     = 1,
-  // SNAPSHOT_ISOLATION = 2,
-  SERIALIZABLE = 3,
+  SNAPSHOT_ISOLATION = 2,
+  SERIALIZABLE       = 3,
 };
 
 struct SerializableTransaction;
 
 class Transaction {
  public:
+  static thread_local timestamp_t TUPLE_UNDO_TIMESTAMP;
   static thread_local Transaction active_txn;
   static constexpr size_t VECTOR_KEY_SIZE = sizeof(wid_t) + sizeof(timestamp_t);
   enum class Type : u8 { USER, SYSTEM };
