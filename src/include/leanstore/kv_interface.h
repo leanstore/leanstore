@@ -24,7 +24,7 @@ struct ComparisonLambda {
   std::function<int(const void *, const void *, size_t)> func;
 };
 
-enum class OpResult : u8 { OK = 0, NOT_FOUND = 1, DUPLICATE = 2, ABORT_TX = 3, STOP_SCAN = 4 };
+enum class OpResult : u8 { OK = 0, NOT_FOUND = 1, DUPLICATE = 2, ABORT_TX = 3, STOP_SCAN = 4, NEED_SPLIT = 5 };
 
 class KVInterface {
  public:
@@ -51,6 +51,6 @@ class KVInterface {
 };
 
 using InternalCatalog = std::vector<KVInterface *>;
-static InternalCatalog catalog;
+extern InternalCatalog catalog;
 
 }  // namespace leanstore

@@ -37,7 +37,7 @@ class TestBTreeLocking : public BaseTest {
   void SetUp() override {
     BaseTest::SetupTestFile();
     InitRandTransaction();
-    tree_ = std::make_unique<BTree>(buffer_.get(), recovery_.get(), 0);
+    tree_ = std::make_unique<BTree>(buffer_.get(), 0);
   }
 
   void TearDown() override {

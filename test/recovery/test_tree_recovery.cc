@@ -26,7 +26,7 @@ class TestTreeRecovery : public BaseTest {
 
   void InitializeTree() {
     InitRandTransaction();
-    tree_ = std::make_unique<storage::BTree>(buffer_.get(), recovery_.get(), 0);
+    tree_ = std::make_unique<storage::BTree>(buffer_.get(), 0);
     txn_man_->CommitTransaction();
   }
 
@@ -227,68 +227,6 @@ TEST_F(TestTreeRecovery, MixWorkloads) {
   for (auto pid = 1U; pid <= no_pages; pid++) {
     sync::ExclusiveGuard<storage::BTreeNode> page(buffer_.get(), pid);
     recovery_->PerPageRedo(page, pid);
-    auto &lhs = *reinterpret_cast<storage::BTreeNode *>(&expected_result[pid]);
-    auto &rhs = *reinterpret_cast<storage::BTreeNode *>(buffer_->ToPtr(pid));
-    EXPECT_EQ(lhs.ToString(), rhs.ToString());
-  }
-}
-
-TEST_F(TestTreeRecovery, InstantRecovery) {
-  FLAGS_wal_enable_recovery  = false;
-  FLAGS_wal_instant_recovery = true;
-
-  /* Initialize recovery env */
-  log_->WriteMasterRecord();
-  spdlog::info("signature {}", leanstore::LeanStore::signature);
-  InitializeTree();
-  std::vector<std::pair<int, __uint128_t>> data;
-  PrepareData<__uint128_t>(data, true);
-  auto no_pages = 0UL;
-  ConvenientTxnWrapper([&]() { no_pages = tree_->CountPages(); });
-  EXPECT_EQ(no_pages, 342);
-
-  /* Make a clone of the current buffer pool */
-  auto expected_result = reinterpret_cast<storage::Page *>(AllocHuge(PAGE_SIZE * (no_pages + 1)));
-  std::memcpy(expected_result, buffer_->ToPtr(0), PAGE_SIZE * (no_pages + 1));
-
-  /* Reset the state and enable recovery */
-  TearDown();
-  FLAGS_wal_enable_recovery = true;
-  SetUp();
-  InitializeTree();
-
-  /* Load written log segments into the recovery manager */
-  recovery_->RecoveryPreparation();
-  recovery_->MaterializeLogs();
-  recovery_->Analysis();
-  EXPECT_EQ(recovery_->page_log_[0].size(), no_pages + 1);
-  EXPECT_EQ(recovery_->tl_winners_[0].size(), 3);  // TXN 0 and TXN 2
-  EXPECT_EQ(recovery_->tl_losers_[0].size(), 0);
-  auto max_pid = std::max_element(std::begin(recovery_->page_log_[0]), std::end(recovery_->page_log_[0]),
-                                  [](const auto &p1, const auto &p2) { return p1.first < p2.first; });
-  EXPECT_EQ((*max_pid).first, 342);
-
-  /* Try to evaluate recovered page data to the current page data */
-  EvaluateLogData(no_pages);
-
-  /* Try to redo every page */
-  InitRandTransaction();
-  recovery_->PrepareRedoEnv();
-
-  /* Instant recovery */
-  for (auto &pair : data) {
-    std::span key{reinterpret_cast<u8 *>(&pair.first), sizeof(int)};
-    std::span payload{reinterpret_cast<u8 *>(&pair.second), sizeof(__uint128_t)};
-
-    auto found = tree_->LookUp(key, [&payload](std::span<const u8> data) {
-      EXPECT_EQ(payload.size(), data.size());
-      for (size_t idx = 0; idx < data.size(); idx++) { EXPECT_EQ(payload[idx], data[idx]); }
-    });
-    ASSERT_EQ(found, OpResult::OK);
-  }
-
-  /* Evaluate raw page content */
-  for (auto pid = 1U; pid <= no_pages; pid++) {
     auto &lhs = *reinterpret_cast<storage::BTreeNode *>(&expected_result[pid]);
     auto &rhs = *reinterpret_cast<storage::BTreeNode *>(buffer_->ToPtr(pid));
     EXPECT_EQ(lhs.ToString(), rhs.ToString());

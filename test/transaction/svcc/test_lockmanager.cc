@@ -166,7 +166,7 @@ TEST(LockManagerTest, ReleaseAllLocksTest) {
   EXPECT_TRUE(lock_mgr.TryLock(10, {}, key2));
 
   // Release all
-  lock_mgr.ReleaseAllLocks(10, nullptr);
+  lock_mgr.ReleaseAllLocks(10, [](auto, auto, auto) {});
 
   // Should be able to acquire now
   EXPECT_TRUE(lock_mgr.TryLockShared(20, key1));

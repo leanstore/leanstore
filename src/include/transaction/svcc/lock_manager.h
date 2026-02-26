@@ -11,6 +11,7 @@
 #include <span>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace leanstore::transaction::svcc {
@@ -29,6 +30,7 @@ class LockManager : public ILockManager {
   LockManager()  = default;
   ~LockManager() = default;
 
+  bool EmptyLocalSet();
   void ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &write_set_cb) override;
 
   // Lock APIs
@@ -38,7 +40,7 @@ class LockManager : public ILockManager {
   void UnlockShared(timestamp_t txn_ts, const LockableTuple *) override;
 
  private:
-  auto GetOrInsert(const LockableTuple *key) -> WaitDieLock *;
+  auto GetOrInsert(const LockableTuple *key) -> std::pair<LockableTuple *, WaitDieLock *>;
 
   // Thread-local set of currently held locks (read/write)
   static thread_local LocalReadSet read_set_;

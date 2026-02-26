@@ -7,6 +7,8 @@ namespace leanstore::transaction::svcc {
 thread_local LockManager::LocalReadSet LockManager::read_set_;
 thread_local LockManager::LocalWriteSet LockManager::write_set_;
 
+bool LockManager::EmptyLocalSet() { return read_set_.empty() && write_set_.empty(); }
+
 void LockManager::ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &write_set_cb) {
   WaitDieLock *lock;
 
@@ -15,7 +17,7 @@ void LockManager::ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &wr
     {
       InternalHashMap::const_accessor acc;
       if (!internal_.find(acc, const_cast<LockableTuple *>(tuple))) {
-        throw std::runtime_error("ReleaseAllLocks: Lock object missing in internal map");
+        throw std::runtime_error("ReleaseAllLocks: S-Lock object missing in internal map");
       }
       lock = acc->second;
     }
@@ -32,7 +34,7 @@ void LockManager::ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &wr
     {
       InternalHashMap::const_accessor acc;
       if (!internal_.find(acc, const_cast<LockableTuple *>(tuple))) {
-        throw std::runtime_error("ReleaseAllLocks: Lock object missing in internal map");
+        throw std::runtime_error("ReleaseAllLocks: X-Lock object missing in internal map");
       }
       lock = acc->second;
     }
@@ -48,14 +50,15 @@ bool LockManager::TryLockShared(u64 txn_ts, const LockableTuple *key) {
   // Already hold an lock on the tuple, return
   if (LockManager::read_set_.contains(key) || LockManager::write_set_.contains(key)) { return true; }
   // Haven't locked the tuple before, insert a new WaitDieLock in the internal map
-  auto lock = GetOrInsert(key);
+  auto [tuple, lock] = GetOrInsert(key);
   // trying to lock it in shared mode
   bool granted = lock->TryLockShared(txn_ts);
-  if (granted) { read_set_.emplace(key); }
+  if (granted) { read_set_.emplace(tuple); }
   return granted;
 }
 
 bool LockManager::TryLock(u64 txn_ts, std::span<u8> undo_payload, const LockableTuple *key) {
+  LockableTuple *tuple;
   WaitDieLock *lock = nullptr;
 
   // If we already hold exclusive lock, return
@@ -69,24 +72,25 @@ bool LockManager::TryLock(u64 txn_ts, std::span<u8> undo_payload, const Lockable
       if (!internal_.find(acc, const_cast<LockableTuple *>(key))) {
         throw std::runtime_error("TryLock: This lock must be already held in SHARED mode");
       }
-      lock = acc->second;
+      tuple = acc->first;
+      lock  = acc->second;
     }
 
     // Try to upgrade using WaitDieLock
     bool upgraded = lock->TryLockUpgrade(txn_ts);
     if (upgraded) {
       read_set_.erase(it);
-      write_set_.emplace(key, std::vector<u8>(undo_payload.begin(), undo_payload.end()));
+      write_set_.emplace(tuple, std::vector<u8>(undo_payload.begin(), undo_payload.end()));
     }
     return upgraded;
   }
 
   // Otherwise, insert WaitDieLock to the internal map
-  lock = GetOrInsert(key);
+  std::tie(tuple, lock) = GetOrInsert(key);
   // Try to acquire exclusive lock
   bool granted = lock->TryLock(txn_ts);
   // If granted, track it in thread-local map
-  if (granted) { write_set_.emplace(key, std::vector<u8>(undo_payload.begin(), undo_payload.end())); }
+  if (granted) { write_set_.emplace(tuple, std::vector<u8>(undo_payload.begin(), undo_payload.end())); }
   return granted;
 }
 
@@ -130,16 +134,17 @@ void LockManager::UnlockShared(u64 txn_ts, const LockableTuple *key) {
   read_set_.erase(it);
 }
 
-auto LockManager::GetOrInsert(const LockableTuple *key) -> WaitDieLock * {
+auto LockManager::GetOrInsert(const LockableTuple *key) -> std::pair<LockableTuple *, WaitDieLock *> {
   InternalHashMap::accessor acc;
   auto new_key = LockableTuple::Constructor(*key);  // allocate new key on the heap as tbb::hash will use the ptr as key
+  fmt::println("Insert to internal_: {}", fmt::ptr(new_key));
   auto success = internal_.insert(acc, new_key);
   if (success) {
     acc->second = new WaitDieLock();
   } else {
     LockableTuple::Release(new_key);
   }
-  return acc->second;
+  return std::make_pair(acc->first, acc->second);
 }
 
 }  // namespace leanstore::transaction::svcc

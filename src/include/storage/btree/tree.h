@@ -19,7 +19,7 @@ namespace leanstore::storage {
 
 class BTree : public KVInterface {
  public:
-  BTree(buffer::BufferManager *buffer_pool, recovery::RecoveryManager *recovery, u32 tree_slot);
+  BTree(buffer::BufferManager *buffer_pool, u32 tree_slot);
   ~BTree() override = default;
 
   /* BTree config*/
@@ -31,6 +31,7 @@ class BTree : public KVInterface {
   auto LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> OpResult override;
   auto Insert(std::span<u8> key, std::span<const u8> payload) -> OpResult override;
   auto Remove(std::span<u8> key) -> OpResult override;
+  auto Upsert(std::span<u8> key, std::span<const u8> payload) -> OpResult;
   auto Update(std::span<u8> key, std::span<const u8> payload, const AccessPayloadFunc &func) -> OpResult override;
   auto UpdateInPlace(std::span<u8> key, const ModifyPayloadFunc &func, FixedSizeDelta *delta) -> OpResult override;
   auto ScanAscending(std::span<u8> key, const AccessRecordFunc &fn) -> OpResult override;
@@ -55,6 +56,8 @@ class BTree : public KVInterface {
                      const std::function<bool(BTreeNode &)> &leaf_fn) -> bool;
 
   /* Find Leaf Node storing the key */
+  auto FindLeafOptimisticWithParent(std::span<u8> key)
+    -> std::pair<sync::OptimisticGuard<BTreeNode>, sync::OptimisticGuard<BTreeNode>>;
   auto FindLeafOptimistic(std::span<u8> key) -> sync::OptimisticGuard<BTreeNode>;
   auto FindLeafShared(std::span<u8> key) -> sync::SharedGuard<BTreeNode>;
 
@@ -65,14 +68,11 @@ class BTree : public KVInterface {
                 sync::ExclusiveGuard<BTreeNode> &&right, leng_t left_pos);
   void EnsureUnderfullInnersForMerge(BTreeNode *to_merge);
 
-  /* Instant recovery */
-  inline void InstantRecovery(pageid_t pid) {
-    if (FLAGS_wal_enable_recovery && !recovery_->HasRecovered(pid)) [[unlikely]] {
-      sync::ExclusiveGuard<BTreeNode> page(buffer_, pid);
-      // While waiting for the page latch, the page may already be recovered by another worker
-      if (!recovery_->HasRecovered(pid)) { recovery_->PerPageRedo(page, pid); }
-    }
-  }
+  /* Insert/Update utilities */
+  auto InsertIntoLeaf(sync::OptimisticGuard<BTreeNode> &parent, sync::OptimisticGuard<BTreeNode> &node,
+                      std::span<u8> key, std::span<const u8> payload) -> OpResult;
+  auto UpdateLeafEntry(sync::OptimisticGuard<BTreeNode> &parent, sync::OptimisticGuard<BTreeNode> &node, u16 slot_id,
+                       std::span<u8> key, std::span<const u8> payload, const AccessPayloadFunc &func) -> OpResult;
 
   /* Access record utility for scan */
   template <typename PageGuard>
@@ -114,7 +114,6 @@ class BTree : public KVInterface {
 
   /* Core properties */
   buffer::BufferManager *buffer_;
-  recovery::RecoveryManager *recovery_;
   leng_t metadata_slotid_;
 
   /* Comparison properties */

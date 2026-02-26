@@ -6,6 +6,8 @@ namespace leanstore::transaction::mvcc {
 thread_local LockManager::LocalReadSet LockManager::read_set_;
 thread_local LockManager::LocalWriteSet LockManager::write_set_;
 
+bool LockManager::EmptyLocalSet() { return read_set_.empty() && write_set_.empty(); }
+
 void LockManager::SetTupleTimestamp(const LockableTuple *key, timestamp_t tuple_ts) {
   auto it = read_set_.find(key);
   Ensure(it != read_set_.end() && ((it->second == INVALID_TS) || (it->second == tuple_ts)));

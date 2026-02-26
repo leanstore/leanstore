@@ -153,11 +153,20 @@ auto PageTableSize() -> std::string {
 }
 
 auto StorageCapacity(const char *path) -> u64 {
-  int fd = open(path, 0, 0666);
-  size_t storage_size;
-  int rc = ioctl(fd, BLKGETSIZE64, &storage_size);
+  struct stat st;
+  Ensure(stat(path, &st) == 0);
+
+  if (!S_ISBLK(st.st_mode)) {
+    // Regular file
+    return std::filesystem::file_size(path);
+  }
+  // It's a block device
+  int fd   = open(path, O_RDONLY);
+  u64 size = 0;
+  int rc   = ioctl(fd, BLKGETSIZE64, &size);
+  close(fd);
   Ensure(rc == 0);
-  return storage_size;
+  return size;
 }
 
 // ---------------------------------------------------------------------------

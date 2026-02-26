@@ -20,6 +20,7 @@
 
 namespace leanstore {
 
+InternalCatalog catalog;
 u32 LeanStore::signature = 0;
 std::vector<buffer::BufferManager *> LeanStore::all_buffer_pools;
 thread_local wid_t LeanStore::worker_thread_id = -1;  // The ID of current worker (min wid is 0)
@@ -91,16 +92,14 @@ LeanStore::LeanStore()
 
     // 3rd phase
     worker_pool.ScheduleSyncJob(0, [&]() { recovery->PrepareRedoEnv(); });
-    if (!FLAGS_wal_instant_recovery) {
-      for (auto idx = 0U; idx < FLAGS_wal_recovery_threads; idx++) {
-        worker_pool.ScheduleAsyncJob(idx, [&]() {
-          transaction_manager->StartTransaction(leanstore::transaction::Transaction::Type::SYSTEM);
-          recovery->Redo();
-          CommitTransaction();
-        });
-      }
-      for (auto idx = 0U; idx < FLAGS_wal_recovery_threads; idx++) { worker_pool.JoinWorker(idx); }
+    for (auto idx = 0U; idx < FLAGS_wal_recovery_threads; idx++) {
+      worker_pool.ScheduleAsyncJob(idx, [&]() {
+        transaction_manager->StartTransaction(leanstore::transaction::Transaction::Type::SYSTEM);
+        recovery->Redo();
+        CommitTransaction();
+      });
     }
+    for (auto idx = 0U; idx < FLAGS_wal_recovery_threads; idx++) { worker_pool.JoinWorker(idx); }
 
     // recovery end
     auto recovery_end = tsctime::ReadTSC();
@@ -209,7 +208,7 @@ void LeanStore::RegisterTable(const std::type_index &relation, uint32_t relation
   if (FLAGS_wal_enable_recovery) { Ensure(recovery->HasRecovered(METADATA_PAGE_ID)); }
   worker_pool.ScheduleSyncJob(0, [&]() {
     transaction_manager->StartTransaction(leanstore::transaction::Transaction::Type::SYSTEM);
-    indexes.try_emplace(relation, std::make_unique<storage::BTree>(buffer_pool.get(), recovery.get(), relation_idx));
+    indexes.try_emplace(relation, std::make_unique<storage::BTree>(buffer_pool.get(), relation_idx));
     if (relation_idx >= catalog.size()) { catalog.resize(relation_idx + 1); }
     catalog[relation_idx] = indexes.at(relation).get();
     CommitTransaction();

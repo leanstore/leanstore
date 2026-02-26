@@ -21,6 +21,7 @@ class ILockManager {
  public:
   virtual ~ILockManager() = default;
 
+  virtual bool EmptyLocalSet()                                                           = 0;
   virtual void ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &write_set_cb) = 0;
 
   /**

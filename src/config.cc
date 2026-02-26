@@ -42,7 +42,6 @@ DEFINE_uint32(wal_stealing_group_size, 8,
 
 /* Recovery */
 DEFINE_bool(wal_enable_recovery, false, "Whether to run recovery before 'boot up' the system");
-DEFINE_bool(wal_instant_recovery, false, "Whether to use normal 3-phase recovery or instant recovery");
 DEFINE_uint32(wal_recovery_threads, 1, "Number of threads used for recovery");
 // -----------------------------------------------------------------------------------
 /* Transaction */

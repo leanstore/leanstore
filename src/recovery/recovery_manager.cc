@@ -28,7 +28,9 @@ namespace leanstore::recovery {
 
 /**
  * @brief TODO(XXX): For now, assume that the recovery session and the previous LeanStore session
- *    have the same number of workers
+ *  have the same number of workers
+ * Also, recovery was tested with READ UNCOMMITTED, and not yet support recover sessions
+ *  that include higher isolation level
  */
 RecoveryManager::RecoveryManager(buffer::BufferManager *buffer_pool)
     : buffer_(buffer_pool), backend_(buffer_), max_logged_pid_(0) {}
@@ -148,7 +150,7 @@ void RecoveryManager::PerPageRedo(ExclusiveGuard<BTreeNode> &page, pageid_t pid)
 }
 
 void RecoveryManager::Redo() {
-  if (FLAGS_wal_instant_recovery || max_logged_pid_ == 0) { return; }
+  if (max_logged_pid_ == 0) { return; }
   for (auto pid = 1U; pid <= max_logged_pid_; pid++) {
     if (pid % FLAGS_wal_recovery_threads == LeanStore::worker_thread_id) {
       ExclusiveGuard<storage::BTreeNode> page(buffer_, pid);
@@ -158,7 +160,6 @@ void RecoveryManager::Redo() {
 }
 
 void RecoveryManager::Undo() {
-  if (FLAGS_wal_instant_recovery) { return; }
   /**
    * @brief Unnecessary because LeanStore doesn't support isolations higher than Read uncommitted
    *  => No transaction is aborted

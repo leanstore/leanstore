@@ -13,9 +13,13 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
+#include <barrier>
 #include <cassert>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <memory>
 #include <new>
 
 namespace fs = std::filesystem;
@@ -42,11 +46,13 @@ class BaseTest : public ::testing::Test {
   static constexpr u64 EXTRA_NO_PG  = 16;
   static constexpr u64 PHYSICAL_CAP = 1024;
   static constexpr u64 EVICT_SIZE   = 8;
+  static constexpr u64 WAL_SIZE     = 1 * GB;
 
  protected:
   // Env
   int test_file_fd_;
   std::atomic<bool> is_running_;
+  fs::path tmp_db_path;
 
   // All components of LeanStore
   std::unique_ptr<buffer::BufferManager> buffer_;
@@ -58,14 +64,20 @@ class BaseTest : public ::testing::Test {
   std::function<bool(pageid_t)> accept_all_lbd_ = []([[maybe_unused]] pageid_t pid) { return true; };
 
   void SetupTestFile(bool setup_fd = false) {
+    fs::path tmp_file = fs::temp_directory_path() / "mockdb.wal";
+    tmp_db_path       = tmp_file.string();
+    truncate(tmp_db_path.c_str(), N_PAGES * PAGE_SIZE + 1 * GB + WAL_SIZE);  // DB + buffer + WAL
+    std::ofstream(tmp_db_path).close();                                      // touch the file
+
     // Reset DB file for testing
     if (setup_fd) {
       test_file_fd_ = open(FLAGS_db_path.c_str(), O_RDWR | O_DIRECT, S_IRWXU);
       assert(test_file_fd_ > 0);
     }
-    FLAGS_blob_buffer_pool_gb = 0;
 
-    // Reset all run-time here
+    // Reset env
+    FLAGS_blob_buffer_pool_gb   = 0;
+    FLAGS_db_path               = tmp_db_path;
     LeanStore::worker_thread_id = 0;
     is_running_                 = true;
 #ifdef ENABLE_TESTING
@@ -90,6 +102,11 @@ class BaseTest : public ::testing::Test {
     log_.reset();
     buffer_.reset();
     test_file_fd_ = 0;
+    if (!tmp_db_path.empty()) {
+      std::filesystem::remove(tmp_db_path);
+      tmp_db_path.clear();
+    }
+    catalog.clear();
   }
 
   void ModifyPageContent(storage::Page *page) {

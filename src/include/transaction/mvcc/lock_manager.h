@@ -22,6 +22,7 @@ class LockManager : public ILockManager {
   void SetTupleTimestamp(const LockableTuple *, timestamp_t tuple_ts);
 
   // Commit APIs
+  bool EmptyLocalSet();
   void ValidateReadSet(const std::function<void(const LockableTuple *, timestamp_t)> &validate_fn);
   void ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &write_set_cb) override;
 

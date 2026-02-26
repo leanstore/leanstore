@@ -18,8 +18,7 @@ using leanstore::transaction::Transaction;
 
 namespace leanstore::storage {
 
-BTree::BTree(buffer::BufferManager *buffer_pool, recovery::RecoveryManager *recovery, u32 tree_slot)
-    : buffer_(buffer_pool), recovery_(recovery), metadata_slotid_(tree_slot) {
+BTree::BTree(buffer::BufferManager *buffer_pool, u32 tree_slot) : buffer_(buffer_pool), metadata_slotid_(tree_slot) {
   if (!FLAGS_wal_enable_recovery) {
     ExclusiveGuard<MetadataPage> meta_page(buffer_, METADATA_PAGE_ID);
     ExclusiveGuard<BTreeNode> root_page(buffer_, buffer_->AllocPage());
@@ -42,11 +41,9 @@ auto BTree::IterateAllNodes(OptimisticGuard<BTreeNode> &node, const std::functio
   u64 res = inner_fn(*(node.Ptr()));
   for (auto idx = 0; idx < node->header.count; idx++) {
     auto child_pid = node->GetChild(idx);
-    InstantRecovery(child_pid);
     OptimisticGuard<BTreeNode> child(buffer_, child_pid);
     res += IterateAllNodes(child, inner_fn, leaf_fn);
   }
-  InstantRecovery(node->header.right_most_child);
   OptimisticGuard<BTreeNode> child(buffer_, node->header.right_most_child);
   res += IterateAllNodes(child, inner_fn, leaf_fn);
   return res;
@@ -73,16 +70,28 @@ auto BTree::IterateUntils(OptimisticGuard<BTreeNode> &node, const std::function<
 }
 
 // -------------------------------------------------------------------------------------
+auto BTree::FindLeafOptimisticWithParent(std::span<u8> key)
+  -> std::pair<sync::OptimisticGuard<BTreeNode>, sync::OptimisticGuard<BTreeNode>> {
+  OptimisticGuard<BTreeNode> parent(buffer_, METADATA_PAGE_ID);
+  OptimisticGuard<BTreeNode> node(buffer_, reinterpret_cast<MetadataPage *>(parent.Ptr())->GetRoot(metadata_slotid_),
+                                  parent);
+
+  while (node->IsInner()) {
+    parent = std::move(node);
+    node   = OptimisticGuard<BTreeNode>(buffer_, parent->FindChild(key, cmp_lambda_), parent);
+  }
+
+  return {std::move(parent), std::move(node)};
+}
+
 auto BTree::FindLeafOptimistic(std::span<u8> key) -> OptimisticGuard<BTreeNode> {
   OptimisticGuard<MetadataPage> meta(buffer_, METADATA_PAGE_ID);
   auto root_pid = meta->GetRoot(metadata_slotid_);
-  InstantRecovery(root_pid);
   OptimisticGuard<BTreeNode> node(buffer_, root_pid, meta);
 
   while (node->IsInner()) {
     auto next_pid = node->FindChild(key, cmp_lambda_);
-    InstantRecovery(next_pid);
-    node = OptimisticGuard<BTreeNode>(buffer_, next_pid, node);
+    node          = OptimisticGuard<BTreeNode>(buffer_, next_pid, node);
   }
   return node;
 }
@@ -92,13 +101,11 @@ auto BTree::FindLeafShared(std::span<u8> key) -> SharedGuard<BTreeNode> {
     try {
       OptimisticGuard<MetadataPage> meta(buffer_, METADATA_PAGE_ID);
       auto root_pid = meta->GetRoot(metadata_slotid_);
-      InstantRecovery(root_pid);
       OptimisticGuard<BTreeNode> node(buffer_, root_pid, meta);
 
       while (node->IsInner()) {
         auto next_pid = node->FindChild(key, cmp_lambda_);
-        InstantRecovery(next_pid);
-        node = OptimisticGuard<BTreeNode>(buffer_, next_pid, node);
+        node          = OptimisticGuard<BTreeNode>(buffer_, next_pid, node);
       }
       return SharedGuard<BTreeNode>(std::move(node));
     } catch (const sync::RestartException &) {}
@@ -259,6 +266,60 @@ void BTree::EnsureUnderfullInnersForMerge(BTreeNode *to_merge) {
   }
 }
 
+auto BTree::InsertIntoLeaf(OptimisticGuard<BTreeNode> &parent, OptimisticGuard<BTreeNode> &node, std::span<u8> key,
+                           std::span<const u8> payload) -> OpResult {
+  if (!node->HasSpaceForKV(key.size(), payload.size())) { return OpResult::NEED_SPLIT; }
+
+  /* Alternative WAL cycle - automatically append WAL entry when the scope ends */
+  auto defer_log = DeferLog<BTreeNode>();
+
+  /* Leaf node has enough space -> only latch leaf node */
+  {
+    ExclusiveGuard<BTreeNode> node_locked(std::move(node));
+    parent.ValidateOrRestart();
+
+    /* Check if current key exists or not */
+    bool found;
+    node_locked->LowerBound(key, found, cmp_lambda_);
+    if (found) { return OpResult::DUPLICATE; }
+    /* Concurrency control */
+    if (!node_locked.TryLock(metadata_slotid_, {}, key)) { return OpResult::ABORT_TX; }
+    /* Insert Key-Value & Generate the log entry */
+    node_locked->InsertKeyValue(key, payload, cmp_lambda_);
+    if (FLAGS_wal_enable) { defer_log.Construct<WALInsert>(node_locked, key, payload); }
+  }
+
+  return OpResult::OK;
+}
+
+auto BTree::UpdateLeafEntry(OptimisticGuard<BTreeNode> &parent, OptimisticGuard<BTreeNode> &node, u16 slot_id,
+                            std::span<u8> key, std::span<const u8> payload, const AccessPayloadFunc &func) -> OpResult {
+  auto curr_payload = node->GetPayload(slot_id);
+  if (payload.size() > curr_payload.size() && !node->HasSpaceForKV(key.size(), payload.size() - curr_payload.size())) {
+    return OpResult::NEED_SPLIT;
+  }
+  // only lock leaf
+  ExclusiveGuard<BTreeNode> node_locked(std::move(node));
+  parent.ValidateOrRestart();
+  // Concurrency control
+  if (!node_locked.TryLock(metadata_slotid_, curr_payload, key)) { return OpResult::ABORT_TX; }
+  // Log previous payload, trigger func utility if provided, and remove the entry
+  if (FLAGS_wal_enable) {
+    auto &entry   = node_locked.PrepareWalEntry<WALRemove>(0);
+    entry.slot_id = slot_id;
+    node_locked.SubmitActiveWalEntry();
+  }
+  if (func) { func(curr_payload); }
+  node_locked->RemoveSlot(slot_id);
+
+  // Insert new payload and add log entry
+  node_locked->InsertKeyValue(key, payload, cmp_lambda_);
+  if (FLAGS_wal_enable) { GenerateWAL<ExclusiveGuard<BTreeNode>, WALInsert>(node_locked, key, payload); }
+  // --------------------------------------------------------------------------
+  return OpResult::OK;  // success
+}
+
+// -------------------------------------------------------------------------------------
 auto BTree::LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> OpResult {
   auto &txn = Transaction::active_txn;
 
@@ -310,37 +371,41 @@ auto BTree::Insert(std::span<u8> key, std::span<const u8> payload) -> OpResult {
 
   while (true) {
     try {
-      OptimisticGuard<BTreeNode> parent(buffer_, METADATA_PAGE_ID);
-      OptimisticGuard<BTreeNode> node(
-        buffer_, reinterpret_cast<MetadataPage *>(parent.Ptr())->GetRoot(metadata_slotid_), parent);
-
-      while (node->IsInner()) {
-        parent = std::move(node);
-        node   = OptimisticGuard<BTreeNode>(buffer_, parent->FindChild(key, cmp_lambda_), parent);
-      }
+      auto [parent, node] = FindLeafOptimisticWithParent(key);
 
       // Found the leaf node to insert new data
-      if (node->HasSpaceForKV(key.size(), payload.size())) {
-        /* Alternative WAL cycle - automatically append WAL entry when the scope ends */
-        auto defer_log = DeferLog<BTreeNode>();
+      auto op_ret = InsertIntoLeaf(parent, node, key, payload);
+      if (op_ret != OpResult::NEED_SPLIT) { return op_ret; }
 
-        /* Leaf node has enough space -> only latch leaf node */
-        {
-          ExclusiveGuard<BTreeNode> node_locked(std::move(node));
-          parent.ValidateOrRestart();
+      // The leaf node doesn't have enough space, we have to split it
+      ExclusiveGuard<BTreeNode> parent_locked(std::move(parent));
+      ExclusiveGuard<BTreeNode> node_locked(std::move(node));
+      TrySplit(std::move(parent_locked), std::move(node_locked));
 
-          /* Check if current key exists or not */
-          bool found;
-          node_locked->LowerBound(key, found, cmp_lambda_);
-          if (found) { return OpResult::DUPLICATE; }
-          /* Concurrency control */
-          if (!node_locked.TryLock(metadata_slotid_, {}, key)) { return OpResult::ABORT_TX; }
-          /* Insert Key-Value & Generate the log entry */
-          node_locked->InsertKeyValue(key, payload, cmp_lambda_);
-          if (FLAGS_wal_enable) { defer_log.Construct<WALInsert>(node_locked, key, payload); }
-        }
+      // We haven't run the insertion yet, so we run the loop again to insert the record
+    } catch (const sync::RestartException &) {}
+  }
+}
 
-        return OpResult::OK;  // success
+// This API is mostly used for UNDO during transaction abort
+// It has many duplicated code with Insert/Update -- we should refactor it later
+auto BTree::Upsert(std::span<u8> key, std::span<const u8> payload) -> OpResult {
+  assert((key.size() + payload.size()) <= BTreeNode::MAX_RECORD_SIZE);
+
+  while (true) {
+    try {
+      auto [parent, node] = FindLeafOptimisticWithParent(key);
+
+      // Lookup key
+      bool found;
+      auto slot_id = node->LowerBound(key, found, cmp_lambda_);
+      if (!found) {
+        // Try to insert the key-value
+        auto op_ret = InsertIntoLeaf(parent, node, key, payload);
+        if (op_ret != OpResult::NEED_SPLIT) { return op_ret; }
+      } else {
+        auto op_ret = UpdateLeafEntry(parent, node, slot_id, key, payload, {});
+        if (op_ret != OpResult::NEED_SPLIT) { return op_ret; }
       }
 
       // The leaf node doesn't have enough space, we have to split it
@@ -432,44 +497,16 @@ auto BTree::Update(std::span<u8> key, std::span<const u8> payload, const AccessP
 
   while (true) {
     try {
-      OptimisticGuard<BTreeNode> parent(buffer_, METADATA_PAGE_ID);
-      OptimisticGuard<BTreeNode> node(
-        buffer_, reinterpret_cast<MetadataPage *>(parent.Ptr())->GetRoot(metadata_slotid_), parent);
-
-      while (node->IsInner()) {
-        parent = std::move(node);
-        node   = OptimisticGuard<BTreeNode>(buffer_, parent->FindChild(key, cmp_lambda_), parent);
-      }
+      auto [parent, node] = FindLeafOptimisticWithParent(key);
 
       // Lookup key
       bool found;
       auto slot_id = node->LowerBound(key, found, cmp_lambda_);
       if (!found) { return OpResult::NOT_FOUND; }
 
-      auto curr_payload = node->GetPayload(slot_id);
-      // Found the leaf node to insert new data
-      if (payload.size() <= curr_payload.size() ||
-          node->HasSpaceForKV(key.size(), payload.size() - curr_payload.size())) {
-        // only lock leaf
-        ExclusiveGuard<BTreeNode> node_locked(std::move(node));
-        parent.ValidateOrRestart();
-        // Concurrency control
-        if (!node_locked.TryLock(metadata_slotid_, curr_payload, key)) { return OpResult::ABORT_TX; }
-        // Log previous payload, trigger func utility if provided, and remove the entry
-        if (FLAGS_wal_enable) {
-          auto &entry   = node_locked.PrepareWalEntry<WALRemove>(0);
-          entry.slot_id = slot_id;
-          node_locked.SubmitActiveWalEntry();
-        }
-        if (func) { func(curr_payload); }
-        node_locked->RemoveSlot(slot_id);
-
-        // Insert new payload and add log entry
-        node_locked->InsertKeyValue(key, payload, cmp_lambda_);
-        if (FLAGS_wal_enable) { GenerateWAL<ExclusiveGuard<BTreeNode>, WALInsert>(node_locked, key, payload); }
-        // --------------------------------------------------------------------------
-        return OpResult::OK;  // success
-      }
+      // Try update
+      auto op_ret = UpdateLeafEntry(parent, node, slot_id, key, payload, func);
+      if (op_ret != OpResult::NEED_SPLIT) { return op_ret; }
 
       // The leaf node doesn't have enough space, we have to split it
       ExclusiveGuard<BTreeNode> parent_locked(std::move(parent));
@@ -561,7 +598,6 @@ auto BTree::ScanDescending(std::span<u8> key, const AccessRecordFunc &fn) -> OpR
 auto BTree::CountEntries() -> u64 {
   OptimisticGuard<MetadataPage> meta(buffer_, METADATA_PAGE_ID);
   auto root_pid = meta->GetRoot(metadata_slotid_);
-  InstantRecovery(root_pid);
   OptimisticGuard<BTreeNode> node(buffer_, root_pid, meta);
 
   return IterateAllNodes(node, [](BTreeNode &) { return 0; }, [](BTreeNode &node) { return node.header.count; });

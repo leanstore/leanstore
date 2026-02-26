@@ -1,5 +1,0 @@
-# TODO: Pin versions.
-# TODO: Do we even still need this file?
-dia
-sphinx-rtd-theme
-myst-parser

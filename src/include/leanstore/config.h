@@ -27,7 +27,6 @@ DECLARE_uint32(wal_block_size_mb);
 DECLARE_uint32(wal_max_idle_time_us);
 DECLARE_uint32(wal_stealing_group_size);
 DECLARE_bool(wal_enable_recovery);
-DECLARE_bool(wal_instant_recovery);
 DECLARE_uint32(wal_recovery_threads);
 // -------------------------------------------------------------------------------------
 DECLARE_bool(txn_debug);

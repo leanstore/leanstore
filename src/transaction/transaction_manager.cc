@@ -80,23 +80,26 @@ void TransactionManager::StartTransaction(Transaction::Type next_tx_type, timest
 void TransactionManager::CommitTransaction() {
   auto &logger = log_manager_->LocalLogWorker();
   auto &txn    = Transaction::active_txn;
-
   Ensure(txn.state == Transaction::State::STARTED);
-  // Update transactional context of current txn
-  txn.commit_ts = global_clock++;
-  txn.state     = Transaction::State::READY_TO_COMMIT;
-  if (FLAGS_txn_debug) {
-    txn.stats.precommit     = tsctime::ReadTSC();
-    previous_completed_time = txn.stats.precommit;
-  }
 
-  // Release locks according to Concurrency Control
+  // Assign timestamp and Release locks according to Concurrency Control
+  txn.commit_ts = global_clock++;
   if (txn.iso_level > IsolationLevel::READ_UNCOMMITTED) {
     lock_manager_->ReleaseAllLocks(txn.start_ts, [&](const LockableTuple *tuple, timestamp_t, std::span<const u8>) {
       // This lambda -- Updating tuple's TS -- will only be triggered by MVCC impl
-      auto index = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
-      index->UpdateTimestamp({const_cast<u8 *>(tuple->key), tuple->key_len}, txn.commit_ts);
+      if (FLAGS_txn_mvcc) {
+        auto index = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
+        index->UpdateTimestamp({const_cast<u8 *>(tuple->key), tuple->key_len}, txn.commit_ts);
+      }
     });
+  }
+  assert(lock_manager_->EmptyLocalSet());
+
+  // Update transactional context of current txn
+  txn.state = Transaction::State::READY_TO_COMMIT;
+  if (FLAGS_txn_debug) {
+    txn.stats.precommit     = tsctime::ReadTSC();
+    previous_completed_time = txn.stats.precommit;
   }
 
   // Append txn object to the pre-commit queue
@@ -151,38 +154,36 @@ auto TransactionManager::ValidateReadSet() -> bool {
 void TransactionManager::AbortTransaction() {
   auto &txn    = Transaction::active_txn;
   auto &logger = log_manager_->LocalLogWorker();
-
-  // A transaction was initialized, and it should be running
   Ensure(txn.IsRunning());
+
+  // Iterate through lock_manager.write_set_ and re-install undo payload
+  // If the undo payload is empty -> prev version does not exist, call tree delete
+  // Otherwise, call tree update
+  if (txn.iso_level > IsolationLevel::READ_UNCOMMITTED) {
+    lock_manager_->ReleaseAllLocks(txn.start_ts, [&](const LockableTuple *tuple, auto undo_ts, auto payload) {
+      // This lambda -- Updating tuple's TS -- will only be triggered by MVCC impl
+      auto index = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
+      OpResult ret;
+      Transaction::TUPLE_UNDO_TIMESTAMP = undo_ts;
+      if (payload.empty()) {
+        ret = index->Remove({const_cast<u8 *>(tuple->key), tuple->key_len});
+      } else {
+        ret = index->Upsert({const_cast<u8 *>(tuple->key), tuple->key_len}, payload);
+      }
+      assert(ret == OpResult::OK);
+    });
+  }
+  assert(lock_manager_->EmptyLocalSet());
+
+  // TODO(XXX): To fully support recovery, need to generate CLRs (compensation log record) here
+  // before generating TX_ABORT log entry
+
+  // Now, mark the transaction as aborted
   txn.state = Transaction::State::ABORTED;
   if (FLAGS_txn_debug) {
     txn.stats.precommit     = tsctime::ReadTSC();
     previous_completed_time = txn.stats.precommit;
   }
-
-  // TODO(XXX): Undo txn here
-  // Iterate through lock_manager.write_set_ and re-install undo payload
-  // If the undo payload is empty -> prev version does not exist, call tree delete
-  // Otherwise, call tree update
-  // Release locks according to Concurrency Control
-  if (txn.iso_level > IsolationLevel::READ_UNCOMMITTED) {
-    lock_manager_->ReleaseAllLocks(txn.start_ts,
-                                   [&](const LockableTuple *tuple, timestamp_t undo_ts, std::span<const u8> payload) {
-                                     // This lambda -- Updating tuple's TS -- will only be triggered by MVCC impl
-                                     auto index = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
-                                     OpResult ret;
-                                     Transaction::TUPLE_UNDO_TIMESTAMP = undo_ts;
-                                     if (payload.empty()) {
-                                       ret = index->Remove({const_cast<u8 *>(tuple->key), tuple->key_len});
-                                     } else {
-                                       ret = index->Update({const_cast<u8 *>(tuple->key), tuple->key_len}, payload, {});
-                                     }
-                                     assert(ret == OpResult::OK);
-                                   });
-  }
-
-  // TODO(XXX): To fully support recovery, need to generate CLRs (compensation log record) here
-  // before generating TX_ABORT log entry
 
   // Append txn object to the pre-commit queue
   if (FLAGS_wal_enable) {
