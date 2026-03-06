@@ -17,7 +17,7 @@ auto VersionManager::ReadValidVersion(timestamp_t ts, const LockableTuple *key, 
     }
     chain = acc->second;
   }
-  auto payload = chain->FindCorrectVersion(out_tuple_ts, ts);
+  auto payload = chain->FindCorrectVersion(ts, out_tuple_ts);
   if (payload.empty()) { return false; }
   read_cb(payload);
   return true;
