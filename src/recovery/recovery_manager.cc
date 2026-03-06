@@ -271,7 +271,7 @@ void RecoveryManager::RedoLog(ExclusiveGuard<storage::BTreeNode> &page, const re
     } break;
     case WalType::REMOVE: {
       auto rm = reinterpret_cast<const WALRemove *>(entry);
-      page->RemoveSlot(rm->slot_id);
+      page->RemoveSlot(rm->slot_id, false);
     } break;
     case WalType::AFTER_IMAGE: {
       auto ai = reinterpret_cast<const WALAfterImage *>(entry);

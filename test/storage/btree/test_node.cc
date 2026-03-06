@@ -133,7 +133,7 @@ TEST_F(TestBTreeNode, NormalOperation) {
 
     auto slot_id = node->LowerBound(key, exact_found, cmp_);
     EXPECT_TRUE(exact_found);
-    EXPECT_TRUE(node->RemoveSlot(slot_id));
+    EXPECT_TRUE(node->RemoveSlot(slot_id, false));
     EXPECT_FALSE(node->RemoveKey(key, cmp_));
   }
 }

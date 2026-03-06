@@ -196,7 +196,7 @@ class alignas(PAGE_SIZE) BTreeNodeImpl : public PageHeader {
   void StoreRecordData(leng_t slot_id, std::span<u8> key, std::span<const u8> payload);
   void StoreRecordDataWithoutPrefix(leng_t slot_id, std::span<u8> key, std::span<const u8> payload);
   void InsertKeyValue(std::span<u8> key, std::span<const u8> payload, const ComparisonLambda &cmp);
-  auto RemoveSlot(leng_t slot_id) -> bool;
+  auto RemoveSlot(leng_t slot_id, bool soft_delete) -> bool;
   auto RemoveKey(std::span<u8> key, const ComparisonLambda &cmp) -> bool;
   void UpdateTimestamp(leng_t slot_id, timestamp_t commit_ts);
 

@@ -312,9 +312,8 @@ auto BTree::UpdateLeafEntry(OptimisticGuard<BTreeNode> &parent, OptimisticGuard<
     node_locked.SubmitActiveWalEntry();
   }
   if (func) { func(curr_payload); }
-  node_locked->RemoveSlot(slot_id);
-
-  // Insert new payload and add log entry
+  // Update key-value
+  node_locked->RemoveSlot(slot_id, false);
   node_locked->InsertKeyValue(key, payload, cmp_lambda_);
   if (FLAGS_wal_enable) { GenerateWAL<ExclusiveGuard<BTreeNode>, WALInsert>(node_locked, key, payload); }
   // --------------------------------------------------------------------------
@@ -322,46 +321,47 @@ auto BTree::UpdateLeafEntry(OptimisticGuard<BTreeNode> &parent, OptimisticGuard<
 }
 
 // -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
 auto BTree::LookUp(std::span<u8> key, const AccessPayloadFunc &read_cb) -> OpResult {
   auto &txn = Transaction::active_txn;
+  const bool needs_version_chain =
+      FLAGS_txn_mvcc && txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION;
 
   while (true) {
     try {
       OptimisticGuard<BTreeNode> node = FindLeafOptimistic(key);
       if (!node.TryLockShared(metadata_slotid_, key)) { return OpResult::ABORT_TX; }
-
-      // Looking up key
       bool found;
-      auto tuple_ts = transaction::INVALID_TS;
-      leng_t pos    = node->LowerBound(key, found, cmp_lambda_);
-      // Key not found, looking up version chain in case it was deleted
-      if (!found) {
-        if (FLAGS_txn_mvcc && txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
-          timestamp_t tuple_ts;
-          LOCKABLE_TUPLE_STACK(lockable, key, metadata_slotid_);
+      leng_t pos = node->LowerBound(key, found, cmp_lambda_);
+
+      // Own write is always visible regardless of isolation level
+      if (FLAGS_txn_mvcc && node.OwnTuple(metadata_slotid_, key)) {
+        Ensure(found);
+        read_cb(node->GetPayload(pos));
+        return OpResult::OK;
+      }
+
+      // MVCC: check if we need to access version chain
+      if (needs_version_chain) {
+        LOCKABLE_TUPLE_STACK(lockable, key, metadata_slotid_);
+        auto tuple_ts = found ? node->GetTimestamp(pos) : transaction::INVALID_TS;
+
+        // Key missing or current version too new for our snapshot -- walk version chain
+        if (!found || txn.start_ts < tuple_ts) {
           auto read_success = txn.LookupVersionChain(lockable, read_cb, tuple_ts);
           txn.UpdateTupleReadTS(lockable, tuple_ts);
-          return (read_success) ? OpResult::OK : OpResult::NOT_FOUND;
+          return read_success ? OpResult::OK : OpResult::NOT_FOUND;
         }
+
+        // Current version visible -- record read TS for validation, then fall through
+        txn.UpdateTupleReadTS(lockable, tuple_ts);
+      } else if (!found) {
         return OpResult::NOT_FOUND;
       }
-      // Key exists, check if it violates txn's timestamp and also check version if it is the case
-      if (FLAGS_txn_mvcc && txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
-        tuple_ts = node->GetTimestamp(pos);
-        if (txn.start_ts < tuple_ts) {
-          LOCKABLE_TUPLE_STACK(lockable, key, metadata_slotid_);
-          auto read_success = txn.LookupVersionChain(lockable, read_cb, tuple_ts);
-          txn.UpdateTupleReadTS(lockable, tuple_ts);
-          return (read_success) ? OpResult::OK : OpResult::NOT_FOUND;
-        }
-      }
-      // Happy path, just read the tuple
+
+      // Happy path
       auto payload = node->GetPayload(pos);
-      if (FLAGS_txn_mvcc && txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
-        assert(tuple_ts != transaction::INVALID_TS);
-        LOCKABLE_TUPLE_STACK(lockable, key, metadata_slotid_);
-        txn.UpdateTupleReadTS(lockable, tuple_ts);
-      }
+      if (FLAGS_txn_mvcc && payload.empty()) { return OpResult::NOT_FOUND; }
       read_cb(payload);
       return OpResult::OK;
     } catch (const sync::RestartException &) {}
@@ -456,7 +456,7 @@ auto BTree::Remove(std::span<u8> key) -> OpResult {
           return OpResult::ABORT_TX;
         }
         // Update by remove then insert
-        node_locked->RemoveSlot(slot_id);
+        node_locked->RemoveSlot(slot_id, FLAGS_txn_mvcc);
         // --------------------------------------------------------------------------
         // WAL Remove
         if (FLAGS_wal_enable) {
@@ -477,7 +477,7 @@ auto BTree::Remove(std::span<u8> key) -> OpResult {
           return OpResult::ABORT_TX;
         }
         // Update by remove then insert
-        node_locked->RemoveSlot(slot_id);
+        node_locked->RemoveSlot(slot_id, FLAGS_txn_mvcc);
         // --------------------------------------------------------------------------
         // WAL Remove
         if (FLAGS_wal_enable) {
@@ -608,7 +608,15 @@ auto BTree::CountEntries() -> u64 {
   auto root_pid = meta->GetRoot(metadata_slotid_);
   OptimisticGuard<BTreeNode> node(buffer_, root_pid, meta);
 
-  return IterateAllNodes(node, [](BTreeNode &) { return 0; }, [](BTreeNode &node) { return node.header.count; });
+  return IterateAllNodes(
+    node, [](BTreeNode &) { return 0; },
+    [](BTreeNode &node) {
+      auto ret = node.header.count;
+      for (auto idx = 0; idx < node.header.count; idx++) {
+        if (node.slots[idx].payload_length == 0) { ret--; }
+      }
+      return ret;
+    });
 }
 
 // -------------------------------------------------------------------------------------
@@ -647,14 +655,15 @@ void BTree::UpdateTimestamp(std::span<u8> key, timestamp_t commit_ts) {
       auto node = FindLeafOptimistic(key);
       bool found;
       auto pos = node->LowerBound(key, found, cmp_lambda_);
-      assert(found);  // Key must be presented
-                      // Invalid TS -- not exposing to concurrent txns
-      assert(node->GetTimestamp(pos) == transaction::INVALID_TS);
+      if (found) {
+        assert(node->GetTimestamp(pos) == transaction::INVALID_TS);
 
-      // Update commit ts of the modified tuple
-      ExclusiveGuard<BTreeNode> node_locked(std::move(node));
-      node_locked->UpdateTimestamp(pos, commit_ts);
-    } catch (const sync::RestartException &) {}
+        // Update commit ts of the modified tuple
+        ExclusiveGuard<BTreeNode> node_locked(std::move(node));
+        node_locked->UpdateTimestamp(pos, commit_ts);
+      }
+      return;
+    } catch (const sync::RestartException &) { fmt::println("Restart"); }
   }
 }
 

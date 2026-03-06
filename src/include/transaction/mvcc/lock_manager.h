@@ -8,13 +8,13 @@
 #include "tbb/concurrent_hash_map.h"
 
 #include <unordered_map>
-#include <unordered_set>
 
 namespace leanstore::transaction::mvcc {
 
 class LockManager : public ILockManager {
  public:
-  using LocalWriteSet = std::unordered_set<const LockableTuple *, LockableTuple::HashPtr, LockableTuple::EqualPtr>;
+  using LocalWriteSet =
+    std::unordered_map<const LockableTuple *, TupleVersion *, LockableTuple::HashPtr, LockableTuple::EqualPtr>;
   using LocalReadSet =
     std::unordered_map<const LockableTuple *, timestamp_t, LockableTuple::HashPtr, LockableTuple::EqualPtr>;
   using InternalHashMap = tbb::concurrent_hash_map<LockableTuple *, bool, LockableTuple::HashTBB>;
@@ -29,13 +29,14 @@ class LockManager : public ILockManager {
   void ReleaseAllLocks(timestamp_t txn_ts, const WriteSetCallback &write_set_cb) override;
 
   // Lock APIs
+  static auto OwnTuple(const LockableTuple *) -> bool;
   bool TryLockShared(timestamp_t txn_ts, const LockableTuple *) override;
   bool TryLock(timestamp_t txn_ts, timestamp_t undo_ts, std::span<u8> undo_payload, const LockableTuple *) override;
   void Unlock(timestamp_t txn_ts, const LockableTuple *) override;
   void UnlockShared(timestamp_t txn_ts, const LockableTuple *) override;
 
  private:
-  auto GetOrInsert(const LockableTuple *key, InternalHashMap::accessor &out_acc) -> bool;
+  auto GetOrInsert(const LockableTuple *key) -> std::pair<bool, LockableTuple *>;
 
   // Thread-local read sets, for validating reads at commit time
   static thread_local LocalReadSet read_set_;

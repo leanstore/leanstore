@@ -9,7 +9,7 @@ namespace leanstore {
 using ::testing::ElementsAreArray;
 using transaction::IsolationLevel;
 
-class TestTransactionManager : public BaseTest {
+class TestSVCCTransactionManager : public BaseTest {
  protected:
   std::unique_ptr<storage::BTree> tree_;
 
@@ -27,7 +27,7 @@ class TestTransactionManager : public BaseTest {
   }
 };
 
-TEST_F(TestTransactionManager, CommitPersistsMultipleInserts) {
+TEST_F(TestSVCCTransactionManager, CommitPersistsMultipleInserts) {
   std::vector<std::vector<u8>> keys   = {{1}, {2}, {3}};
   std::vector<std::vector<u8>> values = {{10}, {20}, {30}};
 
@@ -47,7 +47,7 @@ TEST_F(TestTransactionManager, CommitPersistsMultipleInserts) {
   txn_man_->CommitTransaction();
 }
 
-TEST_F(TestTransactionManager, AbortUndoMultipleInserts) {
+TEST_F(TestSVCCTransactionManager, AbortUndoMultipleInserts) {
   std::vector<std::vector<u8>> keys   = {{5}, {6}, {7}};
   std::vector<std::vector<u8>> values = {{50}, {60}, {70}};
 
@@ -66,7 +66,7 @@ TEST_F(TestTransactionManager, AbortUndoMultipleInserts) {
   txn_man_->CommitTransaction();
 }
 
-TEST_F(TestTransactionManager, CommitPersistsMultipleUpdates) {
+TEST_F(TestSVCCTransactionManager, CommitPersistsMultipleUpdates) {
   std::vector<std::vector<u8>> keys    = {{1}, {2}, {3}};
   std::vector<std::vector<u8>> initial = {{10}, {20}, {30}};
   std::vector<std::vector<u8>> updated = {{11}, {21}, {31}};
@@ -91,7 +91,7 @@ TEST_F(TestTransactionManager, CommitPersistsMultipleUpdates) {
   txn_man_->CommitTransaction();
 }
 
-TEST_F(TestTransactionManager, AbortMultipleUpdates) {
+TEST_F(TestSVCCTransactionManager, AbortMultipleUpdates) {
   std::vector<std::vector<u8>> keys    = {{7}, {8}, {9}};
   std::vector<std::vector<u8>> initial = {{1}, {2}, {3}};
   std::vector<std::vector<u8>> updated = {{10}, {20}, {30}};
@@ -116,7 +116,7 @@ TEST_F(TestTransactionManager, AbortMultipleUpdates) {
   txn_man_->CommitTransaction();
 }
 
-TEST_F(TestTransactionManager, AbortMixedOperationsMultipleTuples) {
+TEST_F(TestSVCCTransactionManager, AbortMixedOperationsMultipleTuples) {
   std::vector<u8> k1 = {1};
   std::vector<u8> k2 = {2};
   std::vector<u8> k3 = {3};
@@ -146,7 +146,7 @@ TEST_F(TestTransactionManager, AbortMixedOperationsMultipleTuples) {
   txn_man_->CommitTransaction();
 }
 
-TEST_F(TestTransactionManager, CommitMixedOperationsMultipleTuples) {
+TEST_F(TestSVCCTransactionManager, CommitMixedOperationsMultipleTuples) {
   std::vector<u8> k1 = {1};
   std::vector<u8> k2 = {2};
   std::vector<u8> k3 = {3};

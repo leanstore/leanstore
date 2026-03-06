@@ -44,11 +44,12 @@ VersionChain::VersionChain()
 
 VersionChain::~VersionChain() { Sweep(std::numeric_limits<timestamp_t>::max()); }
 
-void VersionChain::Append(timestamp_t ts, const std::span<u8> &payload) {
+auto VersionChain::Append(timestamp_t ts, const std::span<u8> &payload) -> TupleVersion * {
   auto old_tail = tail_.load();
   assert(ts >= old_tail->ts);
   auto node = TupleVersion::Create(old_tail, ts, payload.data(), payload.size());
   tail_     = node;
+  return node;
 }
 
 auto VersionChain::FindCorrectVersion(timestamp_t read_ts, timestamp_t &out_tuple_ts) -> std::span<const u8> {

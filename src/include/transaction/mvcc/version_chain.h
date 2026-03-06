@@ -38,7 +38,7 @@ class VersionChain {
   ~VersionChain();
 
   // Append new version to the version chain, requires the caller to already hold an X-lock.
-  void Append(timestamp_t ts, const std::span<u8> &payload);
+  auto Append(timestamp_t ts, const std::span<u8> &payload) -> TupleVersion *;
 
   // Iterate from tail backward to find first node with ts <= read_ts.
   auto FindCorrectVersion(timestamp_t read_ts, timestamp_t &out_tuple_ts) -> std::span<const u8>;

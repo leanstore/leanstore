@@ -92,8 +92,8 @@ void TransactionManager::CommitTransaction() {
         index->UpdateTimestamp({const_cast<u8 *>(tuple->key), tuple->key_len}, txn.commit_ts);
       }
     });
+    assert(lock_manager_->EmptyLocalSet());
   }
-  assert(lock_manager_->EmptyLocalSet());
 
   // Update transactional context of current txn
   txn.state = Transaction::State::READY_TO_COMMIT;

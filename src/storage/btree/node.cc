@@ -384,12 +384,23 @@ void BTreeNodeImpl<NodeHeader>::InsertKeyValue(std::span<u8> key, std::span<cons
 }
 
 template <class NodeHeader>
-auto BTreeNodeImpl<NodeHeader>::RemoveSlot(leng_t slot_id) -> bool {
-  header.space_used -= slots[slot_id].key_length;
-  header.space_used -= slots[slot_id].payload_length;
-  std::move(&slots[slot_id + 1], &slots[header.count], &slots[slot_id]);
-  header.count--;
-  MakeHint();
+auto BTreeNodeImpl<NodeHeader>::RemoveSlot(leng_t slot_id, bool soft_delete) -> bool {
+  if (soft_delete) {
+    // We only trigger soft delete under MVCC, i.e., mark tombstone
+    assert(KV_HAS_TIMESTAMP(*this));
+    header.space_used -= slots[slot_id].payload_length;
+    slots[slot_id].payload_length = 0;
+    // Mark commit ts; similar trick to StoreRecordDataWithoutPrefix()
+    assert(TM::active_txn.commit_ts == transaction::INVALID_TS);
+    auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
+    std::memcpy(Ptr() + ts_offset, &TM::TUPLE_UNDO_TIMESTAMP, sizeof(timestamp_t));
+  } else {
+    header.space_used -= slots[slot_id].key_length;
+    header.space_used -= slots[slot_id].payload_length;
+    std::move(&slots[slot_id + 1], &slots[header.count], &slots[slot_id]);
+    header.count--;
+    MakeHint();
+  }
   return true;
 }
 
@@ -397,7 +408,7 @@ template <class NodeHeader>
 auto BTreeNodeImpl<NodeHeader>::RemoveKey(std::span<u8> key, const ComparisonLambda &cmp) -> bool {
   bool found;
   auto slot_id = LowerBound(key, found, cmp);
-  return (found) ? RemoveSlot(slot_id) : false;
+  return (found) ? RemoveSlot(slot_id, false) : false;
 }
 
 template <class NodeHeader>
@@ -613,7 +624,7 @@ auto BTreeNodeImpl<NodeHeader>::MergeNodes(leng_t left_slot_id, BTreeNodeImpl<No
   tmp.MakeHint();
   CopyNodeContent(right, &tmp);
   // update parent's entries
-  parent->RemoveSlot(left_slot_id);
+  parent->RemoveSlot(left_slot_id, false);
   return true;
 }
 

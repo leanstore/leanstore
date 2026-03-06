@@ -4,6 +4,7 @@
 #include "storage/page.h"
 #include "sync/page_state.h"
 #include "transaction/lockable_tuple.h"
+#include "transaction/mvcc/lock_manager.h"
 
 #include <stdexcept>
 #include <type_traits>
@@ -42,6 +43,17 @@ auto PageGuard<PageClass>::PageID() -> pageid_t {
 template <class PageClass>
 auto PageGuard<PageClass>::GSN() -> timestamp_t {
   return Ptr()->p_gsn;
+}
+
+template <class PageClass>
+auto PageGuard<PageClass>::OwnTuple(leng_t tree_id, std::span<u8> key) -> bool {
+  auto &txn = TM::active_txn;
+  Ensure(txn.IsRunning());
+  if (FLAGS_txn_mvcc) {
+    LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
+    return transaction::mvcc::LockManager::OwnTuple(lockable);
+  }
+  return false;  // SVCC does not use this API
 }
 
 template <class PageClass>

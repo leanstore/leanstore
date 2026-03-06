@@ -23,9 +23,10 @@ auto VersionManager::ReadValidVersion(timestamp_t ts, const LockableTuple *key, 
   return true;
 }
 
-void VersionManager::AppendVersion(timestamp_t ts, const LockableTuple *key, const std::span<u8> &payload) {
+auto VersionManager::AppendVersion(timestamp_t ts, const LockableTuple *key, const std::span<u8> &payload)
+  -> TupleVersion * {
   auto [_, version_chain] = GetOrInsert(key);
-  version_chain->Append(ts, payload);
+  return version_chain->Append(ts, payload);
 }
 
 void VersionManager::AdvanceLocalTimestamp(wid_t w_id, timestamp_t ts) {
