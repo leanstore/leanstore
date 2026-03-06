@@ -57,7 +57,8 @@ bool LockManager::TryLockShared(u64 txn_ts, const LockableTuple *key) {
   return granted;
 }
 
-bool LockManager::TryLock(u64 txn_ts, std::span<u8> undo_payload, const LockableTuple *key) {
+bool LockManager::TryLock(u64 txn_ts, [[maybe_unused]] timestamp_t undo_ts, std::span<u8> undo_payload,
+                          const LockableTuple *key) {
   LockableTuple *tuple;
   WaitDieLock *lock = nullptr;
 

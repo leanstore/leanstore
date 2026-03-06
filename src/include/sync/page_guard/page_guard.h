@@ -41,7 +41,7 @@ class PageGuard {
 
   // Transaction utilities
   auto TryLockShared(leng_t tree_id, std::span<u8> key) -> bool;
-  auto TryLock(leng_t tree_id, std::span<u8> undo_payload, std::span<u8> key) -> bool;
+  auto TryLock(leng_t tree_id, timestamp_t tuple_ts, std::span<u8> undo_payload, std::span<u8> key) -> bool;
 
   // Logging utilities
   void DetectGSNDependency();

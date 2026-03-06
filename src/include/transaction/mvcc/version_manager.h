@@ -28,10 +28,12 @@ namespace leanstore::transaction::mvcc {
  *  - Appending new versions using `AppendVersion()`.
  *  - Reclaiming memory by cleaning up old versions in `Sweep()`.
  *  - Tracking per-thread local timestamps in `local_timestamp_`.
+ *
+ * TODO(XXX): Implement a memory reclaimation for the VersionHashMap.
  */
 class VersionManager {
  public:
-  using VersionHashMap = tbb::concurrent_hash_map<LockableTuple *, VersionChain, LockableTuple::HashTBB>;
+  using VersionHashMap = tbb::concurrent_hash_map<LockableTuple *, VersionChain *, LockableTuple::HashTBB>;
 
   VersionManager();
   ~VersionManager() = default;
@@ -43,6 +45,8 @@ class VersionManager {
   void Sweep();
 
  private:
+  auto GetOrInsert(const LockableTuple *key) -> std::pair<LockableTuple *, VersionChain *>;
+
   VersionHashMap version_;
   AtomicArray<timestamp_t> local_timestamp_;
 };

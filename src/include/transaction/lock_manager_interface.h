@@ -34,12 +34,13 @@ class ILockManager {
 
   /**
    * Try to acquire an exclusive (write) lock for a transaction
-   * @param txn_ts Transaction timestamp
+   * @param txn_ts Transaction start timestamp
+   * @param undo_ts The tuple's timestamp
    * @param undo_payload The prev payload, used for undo
    * @param key Key to lock
    * @return true if the lock can be acquired immediately, false if blocked
    */
-  virtual bool TryLock(timestamp_t txn_ts, std::span<u8> undo_payload, const LockableTuple *) = 0;
+  virtual bool TryLock(timestamp_t txn_ts, timestamp_t undo_ts, std::span<u8> undo_payload, const LockableTuple *) = 0;
 
   /**
    * Release a previously acquired exclusive lock

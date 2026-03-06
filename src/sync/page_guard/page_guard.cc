@@ -56,12 +56,13 @@ auto PageGuard<PageClass>::TryLockShared(leng_t tree_id, std::span<u8> key) -> b
 }
 
 template <class PageClass>
-auto PageGuard<PageClass>::TryLock(leng_t tree_id, std::span<u8> undo_payload, std::span<u8> key) -> bool {
+auto PageGuard<PageClass>::TryLock(leng_t tree_id, timestamp_t tuple_ts, std::span<u8> undo_payload, std::span<u8> key)
+  -> bool {
   auto &txn = TM::active_txn;
   Ensure(txn.IsRunning());
   if (txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
     LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
-    return txn.LockManager()->TryLock(txn.start_ts, undo_payload, lockable);
+    return txn.LockManager()->TryLock(txn.start_ts, tuple_ts, undo_payload, lockable);
   }
   return true;
 }

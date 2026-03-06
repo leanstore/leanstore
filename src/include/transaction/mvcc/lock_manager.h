@@ -3,6 +3,7 @@
 #include "common/typedefs.h"
 #include "transaction/lock_manager_interface.h"
 #include "transaction/lockable_tuple.h"
+#include "transaction/mvcc/version_manager.h"
 
 #include "tbb/concurrent_hash_map.h"
 
@@ -19,6 +20,7 @@ class LockManager : public ILockManager {
   using InternalHashMap = tbb::concurrent_hash_map<LockableTuple *, bool, LockableTuple::HashTBB>;
 
   // Misc helpers
+  LockManager(VersionManager *ver_);
   void SetTupleTimestamp(const LockableTuple *, timestamp_t tuple_ts);
 
   // Commit APIs
@@ -28,7 +30,7 @@ class LockManager : public ILockManager {
 
   // Lock APIs
   bool TryLockShared(timestamp_t txn_ts, const LockableTuple *) override;
-  bool TryLock(timestamp_t txn_ts, std::span<u8> undo_payload, const LockableTuple *) override;
+  bool TryLock(timestamp_t txn_ts, timestamp_t undo_ts, std::span<u8> undo_payload, const LockableTuple *) override;
   void Unlock(timestamp_t txn_ts, const LockableTuple *) override;
   void UnlockShared(timestamp_t txn_ts, const LockableTuple *) override;
 
@@ -42,6 +44,7 @@ class LockManager : public ILockManager {
   static thread_local LocalWriteSet write_set_;
 
   // Internal lock table mapping keys to WaitDieLocks
+  VersionManager *version_manager_;
   InternalHashMap internal_;
 };
 

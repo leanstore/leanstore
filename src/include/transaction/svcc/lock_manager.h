@@ -35,7 +35,7 @@ class LockManager : public ILockManager {
 
   // Lock APIs
   bool TryLockShared(timestamp_t txn_ts, const LockableTuple *) override;
-  bool TryLock(timestamp_t txn_ts, std::span<u8> undo_payload, const LockableTuple *) override;
+  bool TryLock(timestamp_t txn_ts, timestamp_t undo_ts, std::span<u8> undo_payload, const LockableTuple *) override;
   void Unlock(timestamp_t txn_ts, const LockableTuple *) override;
   void UnlockShared(timestamp_t txn_ts, const LockableTuple *) override;
 

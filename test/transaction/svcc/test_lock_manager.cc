@@ -39,7 +39,7 @@ TEST(LockManagerTest, MixedSharedExclusiveUpgrade) {
     sync_point.arrive_and_wait();
 
     // Upgrade key1 to exclusive
-    EXPECT_TRUE(lock_mgr.TryLock(10, {}, key1));
+    EXPECT_TRUE(lock_mgr.TryLock(10, 0, {}, key1));
     lock_mgr.Unlock(10, key1);
     lock_mgr.UnlockShared(10, key2);
   });
@@ -48,8 +48,8 @@ TEST(LockManagerTest, MixedSharedExclusiveUpgrade) {
     LeanStore::worker_thread_id = 1;
     sync_point.arrive_and_wait();
     // Younger tries exclusive on key1 and shared on key2
-    bool k1_granted = lock_mgr.TryLock(20, {}, key1);    // May fail by Wait-Die
-    bool k2_granted = lock_mgr.TryLockShared(20, key2);  // Should succeed eventually
+    bool k1_granted = lock_mgr.TryLock(20, 0, {}, key1);  // May fail by Wait-Die
+    bool k2_granted = lock_mgr.TryLockShared(20, key2);   // Should succeed eventually
     if (k1_granted) lock_mgr.Unlock(20, key1);
     if (k2_granted) lock_mgr.UnlockShared(20, key2);
     t1_done.store(k1_granted && k2_granted);
@@ -69,7 +69,7 @@ TEST(LockManagerTest, MixedSharedExclusiveUpgrade) {
     sync_point.arrive_and_wait();
     // Upgrade on independent tuple
     EXPECT_TRUE(lock_mgr.TryLockShared(5, key3));
-    EXPECT_TRUE(lock_mgr.TryLock(5, {}, key3));  // Upgrade lock
+    EXPECT_TRUE(lock_mgr.TryLock(5, 0, {}, key3));  // Upgrade lock
     lock_mgr.Unlock(5, key3);
     t3_done.store(true);
   });
@@ -122,7 +122,7 @@ TEST(LockManagerTest, StressTestMultipleKeys) {
         bool want_upgrade   = ts % 20 == 0;
 
         if (want_exclusive) {
-          if (lock_mgr.TryLock(ts, {}, tup)) {
+          if (lock_mgr.TryLock(ts, 0, {}, tup)) {
             success[idx]++;
             std::this_thread::sleep_for(std::chrono::microseconds(50));
             lock_mgr.Unlock(ts, tup);
@@ -131,7 +131,7 @@ TEST(LockManagerTest, StressTestMultipleKeys) {
           if (lock_mgr.TryLockShared(ts, tup)) {
             success[idx]++;
             std::this_thread::sleep_for(std::chrono::microseconds(20));
-            if (want_upgrade && lock_mgr.TryLock(ts, {}, tup)) {
+            if (want_upgrade && lock_mgr.TryLock(ts, 0, {}, tup)) {
               lock_mgr.Unlock(ts, tup);
             } else {
               lock_mgr.UnlockShared(ts, tup);
@@ -163,7 +163,7 @@ TEST(LockManagerTest, ReleaseAllLocksTest) {
 
   // Acquire locks
   EXPECT_TRUE(lock_mgr.TryLockShared(10, key1));
-  EXPECT_TRUE(lock_mgr.TryLock(10, {}, key2));
+  EXPECT_TRUE(lock_mgr.TryLock(10, 0, {}, key2));
 
   // Release all
   lock_mgr.ReleaseAllLocks(10, [](auto, auto, auto) {});
@@ -172,7 +172,7 @@ TEST(LockManagerTest, ReleaseAllLocksTest) {
   EXPECT_TRUE(lock_mgr.TryLockShared(20, key1));
   lock_mgr.UnlockShared(20, key1);
 
-  EXPECT_TRUE(lock_mgr.TryLock(20, {}, key2));
+  EXPECT_TRUE(lock_mgr.TryLock(20, 0, {}, key2));
   lock_mgr.Unlock(20, key2);
 }
 
@@ -190,9 +190,9 @@ TEST(LockManagerTest, WaitDieDeadlockCheck) {
 
   std::thread t1([&]() {
     LeanStore::worker_thread_id = 0;
-    EXPECT_TRUE(lock_mgr.TryLock(10, {}, key1));
+    EXPECT_TRUE(lock_mgr.TryLock(10, 0, {}, key1));
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    EXPECT_TRUE(lock_mgr.TryLock(10, {}, key2));
+    EXPECT_TRUE(lock_mgr.TryLock(10, 0, {}, key2));
     lock_mgr.Unlock(10, key2);
     lock_mgr.Unlock(10, key1);
     t1_done.store(true);
@@ -201,7 +201,7 @@ TEST(LockManagerTest, WaitDieDeadlockCheck) {
   std::thread t2([&]() {
     LeanStore::worker_thread_id = 1;
     std::this_thread::sleep_for(std::chrono::milliseconds(10));  // start later, younger
-    bool success = lock_mgr.TryLock(20, {}, key2);               // Should die due to Wait-Die
+    bool success = lock_mgr.TryLock(20, 0, {}, key2);            // Should die due to Wait-Die
     if (success) lock_mgr.Unlock(20, key2);
     t2_done.store(true);
   });

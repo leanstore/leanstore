@@ -208,7 +208,7 @@ auto BTreeNodeImpl<NodeHeader>::GetKey(leng_t slot_id) -> u8 * {
 
 template <class NodeHeader>
 auto BTreeNodeImpl<NodeHeader>::GetTimestamp(leng_t slot_id) -> timestamp_t {
-  assert(KV_HAS_TIMESTAMP(*this));
+  if (!KV_HAS_TIMESTAMP(*this)) { return transaction::INVALID_TS; }
   auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
   return LoadUnaligned<timestamp_t>(Ptr() + ts_offset);
 }

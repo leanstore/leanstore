@@ -280,10 +280,10 @@ auto BTree::InsertIntoLeaf(OptimisticGuard<BTreeNode> &parent, OptimisticGuard<B
 
     /* Check if current key exists or not */
     bool found;
-    node_locked->LowerBound(key, found, cmp_lambda_);
+    auto pos = node_locked->LowerBound(key, found, cmp_lambda_);
     if (found) { return OpResult::DUPLICATE; }
     /* Concurrency control */
-    if (!node_locked.TryLock(metadata_slotid_, {}, key)) { return OpResult::ABORT_TX; }
+    if (!node_locked.TryLock(metadata_slotid_, node_locked->GetTimestamp(pos), {}, key)) { return OpResult::ABORT_TX; }
     /* Insert Key-Value & Generate the log entry */
     node_locked->InsertKeyValue(key, payload, cmp_lambda_);
     if (FLAGS_wal_enable) { defer_log.Construct<WALInsert>(node_locked, key, payload); }
@@ -302,7 +302,9 @@ auto BTree::UpdateLeafEntry(OptimisticGuard<BTreeNode> &parent, OptimisticGuard<
   ExclusiveGuard<BTreeNode> node_locked(std::move(node));
   parent.ValidateOrRestart();
   // Concurrency control
-  if (!node_locked.TryLock(metadata_slotid_, curr_payload, key)) { return OpResult::ABORT_TX; }
+  if (!node_locked.TryLock(metadata_slotid_, node_locked->GetTimestamp(slot_id), curr_payload, key)) {
+    return OpResult::ABORT_TX;
+  }
   // Log previous payload, trigger func utility if provided, and remove the entry
   if (FLAGS_wal_enable) {
     auto &entry   = node_locked.PrepareWalEntry<WALRemove>(0);
@@ -450,7 +452,9 @@ auto BTree::Remove(std::span<u8> key) -> OpResult {
         ExclusiveGuard<BTreeNode> node_locked(std::move(node));
         ExclusiveGuard<BTreeNode> right_locked(buffer_, parent_locked->GetChild(node_pos + 1));
         // Concurrency control
-        if (!node_locked.TryLock(metadata_slotid_, payload, key)) { return OpResult::ABORT_TX; }
+        if (!node_locked.TryLock(metadata_slotid_, node_locked->GetTimestamp(slot_id), payload, key)) {
+          return OpResult::ABORT_TX;
+        }
         // Update by remove then insert
         node_locked->RemoveSlot(slot_id);
         // --------------------------------------------------------------------------
@@ -469,7 +473,9 @@ auto BTree::Remove(std::span<u8> key) -> OpResult {
         ExclusiveGuard<BTreeNode> node_locked(std::move(node));
         parent.ValidateOrRestart();
         // Concurrency control
-        if (!node_locked.TryLock(metadata_slotid_, payload, key)) { return OpResult::ABORT_TX; }
+        if (!node_locked.TryLock(metadata_slotid_, node_locked->GetTimestamp(slot_id), payload, key)) {
+          return OpResult::ABORT_TX;
+        }
         // Update by remove then insert
         node_locked->RemoveSlot(slot_id);
         // --------------------------------------------------------------------------
@@ -533,7 +539,9 @@ auto BTree::UpdateInPlace(std::span<u8> key, const ModifyPayloadFunc &func, Fixe
         ExclusiveGuard<BTreeNode> node_locked(std::move(node));
         auto payload = node_locked->GetPayload(pos);
         /* Concurrency control */
-        if (!node_locked.TryLock(metadata_slotid_, payload, key)) { return OpResult::ABORT_TX; }
+        if (!node_locked.TryLock(metadata_slotid_, node_locked->GetTimestamp(pos), payload, key)) {
+          return OpResult::ABORT_TX;
+        }
         /* Modify the record, and store the after-value */
         func(payload);
         if (FLAGS_wal_enable && delta != nullptr) { delta->UpdateDeltaPayload(payload); }

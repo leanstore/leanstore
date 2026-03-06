@@ -6,23 +6,31 @@ namespace leanstore::transaction::mvcc {
 thread_local LockManager::LocalReadSet LockManager::read_set_;
 thread_local LockManager::LocalWriteSet LockManager::write_set_;
 
+LockManager::LockManager(VersionManager *ver_) : version_manager_(ver_), internal_() {}
+
 bool LockManager::EmptyLocalSet() { return read_set_.empty() && write_set_.empty(); }
 
+/* IMPORTANT: `tuple_ts <= transaction's start ts` must always hold */
 void LockManager::SetTupleTimestamp(const LockableTuple *key, timestamp_t tuple_ts) {
   auto it = read_set_.find(key);
-  Ensure(it != read_set_.end() && ((it->second == INVALID_TS) || (it->second == tuple_ts)));
-  read_set_[key] = tuple_ts;
+  Ensure(it != read_set_.end());
+  if (it->second == INVALID_TS) {
+    it->second = tuple_ts;
+  } else {
+    Ensure(it->second == tuple_ts);
+  }
 }
 
 void LockManager::ReleaseAllLocks([[maybe_unused]] timestamp_t txn_ts, const WriteSetCallback &write_set_cb) {
   std::erase_if(LockManager::write_set_, [&](const auto &tuple) {
-    write_set_cb(tuple, 0, {});  // TODO(XXX): Fix this later when working on MVCC
-    // Lookup the WaitDieLock in the internal map
+    write_set_cb(tuple, 0, {});
     if (!internal_.erase(const_cast<LockableTuple *>(tuple))) {
       throw std::runtime_error("ReleaseAllLocks: Lock object missing in internal map");
     }
     return true;  // remove everything
   });
+  // remove everything from read_set
+  LockManager::read_set_.clear();
 }
 
 void LockManager::ValidateReadSet(const std::function<void(const LockableTuple *, timestamp_t)> &validate_fn) {
@@ -38,11 +46,14 @@ void LockManager::ValidateReadSet(const std::function<void(const LockableTuple *
 // - After calling this fn, we always call SetTupleTimestamp()
 bool LockManager::TryLockShared([[maybe_unused]] timestamp_t txn_ts, const LockableTuple *key) {
   // The correct timestamp will be updated later using SetTupleTimestamp()
-  if (!read_set_.contains(key)) { read_set_.insert({key, INVALID_TS}); }
+  // It's fine for the below to fail
+  read_set_.insert({key, INVALID_TS});
+  // Always success for MVCC
   return true;
 }
 
-bool LockManager::TryLock(timestamp_t txn_ts, [[maybe_unused]] std::span<u8> undo_payload, const LockableTuple *key) {
+bool LockManager::TryLock(timestamp_t txn_ts, timestamp_t undo_ts, std::span<u8> undo_payload,
+                          const LockableTuple *key) {
   // If already hold an exclusive lock on this tuple, return true immediately
   if (write_set_.contains(key)) { return true; }
 
@@ -50,6 +61,8 @@ bool LockManager::TryLock(timestamp_t txn_ts, [[maybe_unused]] std::span<u8> und
   // Lookup or insert into the internal map to acquire X-lock
   auto granted = GetOrInsert(key, acc);
   if (granted) {
+    // Only append undo version upon acquiring successfully
+    version_manager_->AppendVersion(undo_ts, key, undo_payload);
     // If we already read this key, need to double check if we are reading the latest value
     auto it = read_set_.find(key);
     if (it != read_set_.end()) {
