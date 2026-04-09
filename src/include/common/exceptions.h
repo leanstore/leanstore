@@ -19,8 +19,9 @@ namespace leanstore::ex {
 GENERIC_EXCEPTION(GenericException);
 GENERIC_EXCEPTION(EnsureFailed);
 GENERIC_EXCEPTION(Unreachable);
-GENERIC_EXCEPTION(AbortTransaction);
 GENERIC_EXCEPTION(TODO);
+
+struct AbortTransaction : public std::exception {};
 
 }  // namespace leanstore::ex
 

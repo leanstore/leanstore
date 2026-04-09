@@ -18,7 +18,7 @@ class TestTreeRecovery : public BaseTest {
   LogWorker *logger_;
 
   void SetUp() override {
-    BaseTest::SetupTestFile();
+    BaseTest::SetupTestFile(false, true);
     LeanStore::worker_thread_id = 0;
     logger_                     = &(log_->LocalLogWorker());
     logger_->backend.Connect();

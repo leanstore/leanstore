@@ -13,7 +13,8 @@ auto VersionManager::ReadValidVersion(timestamp_t ts, const LockableTuple *key, 
   {
     VersionHashMap::accessor acc;
     if (!version_.find(acc, const_cast<LockableTuple *>(key))) {
-      throw std::runtime_error("ReadValidVersion: Lock object missing in internal map");
+      // There is no version chain for this key, skip this read
+      return false;
     }
     chain = acc->second;
   }
@@ -24,9 +25,9 @@ auto VersionManager::ReadValidVersion(timestamp_t ts, const LockableTuple *key, 
 }
 
 auto VersionManager::AppendVersion(timestamp_t ts, const LockableTuple *key, const std::span<u8> &payload)
-  -> TupleVersion * {
-  auto [_, version_chain] = GetOrInsert(key);
-  return version_chain->Append(ts, payload);
+  -> std::pair<LockableTuple *, TupleVersion *> {
+  auto [real_key, version_chain] = GetOrInsert(key);
+  return std::make_pair(real_key, version_chain->Append(ts, payload));
 }
 
 void VersionManager::AdvanceLocalTimestamp(wid_t w_id, timestamp_t ts) {
@@ -49,7 +50,6 @@ void VersionManager::Sweep() {
 auto VersionManager::GetOrInsert(const LockableTuple *key) -> std::pair<LockableTuple *, VersionChain *> {
   VersionHashMap::accessor acc;
   auto new_key = LockableTuple::Constructor(*key);  // allocate new key on the heap as tbb::hash will use the ptr as key
-  fmt::println("VersionManager -- Insert to internal: {}", fmt::ptr(new_key));
   auto success = version_.insert(acc, new_key);
   if (success) {
     acc->second = new VersionChain();

@@ -63,11 +63,14 @@ class BaseTest : public ::testing::Test {
   // Misc shared properties
   std::function<bool(pageid_t)> accept_all_lbd_ = []([[maybe_unused]] pageid_t pid) { return true; };
 
-  void SetupTestFile(bool setup_fd = false) {
+  void SetupTestFile(bool setup_fd = false, bool remain_db_for_recovery = false) {
     fs::path tmp_file = fs::temp_directory_path() / "mockdb.wal";
     tmp_db_path       = tmp_file.string();
-    truncate(tmp_db_path.c_str(), N_PAGES * PAGE_SIZE + 1 * GB + WAL_SIZE);  // DB + buffer + WAL
-    std::ofstream(tmp_db_path).close();                                      // touch the file
+    int fd            = open(tmp_db_path.c_str(), O_CREAT | O_RDWR, 0644);
+    assert(fd >= 0);
+    auto ret = ftruncate(fd, N_PAGES * PAGE_SIZE + 1ULL * GB + WAL_SIZE);  // DB + buffer + WAL
+    assert(ret >= 0);
+    close(fd);
 
     // Reset DB file for testing
     if (setup_fd) {
@@ -94,6 +97,9 @@ class BaseTest : public ::testing::Test {
 
     // Dirty works
     log_->InitializeCommitExecutor(buffer_.get(), is_running_);
+
+    // Shouldn't delete the file after the test ends
+    if (remain_db_for_recovery) { tmp_db_path.clear(); }
   }
 
   void TearDown() override {

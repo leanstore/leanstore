@@ -213,10 +213,7 @@ void TPCCWorkload<AdapterType>::Delivery(Integer w_id, Integer carrier_id, Times
           (key.ol_w_id == w_id && key.ol_d_id == d_id && key.ol_o_id == o_id && key.ol_number == ol_cnt);
         return false;
       });
-      if (!is_safe_to_continue) {
-        spdlog::debug("WARNING(4): Isolation chk failed for warehouse(%d), district(%d)", w_id, d_id);
-        continue;
-      }
+      if (!is_safe_to_continue) { continue; }
     }
 
     // Update the OrderLine relation
@@ -543,7 +540,7 @@ void TPCCWorkload<AdapterType>::LoadOrder(Integer w_id, Integer d_id) {
 
 template <template <typename> class AdapterType>
 void TPCCWorkload<AdapterType>::LoadItem() {
-  spdlog::debug("Load %u items", ITEMS_CNT);
+  spdlog::debug("Load {} items", ITEMS_CNT);
   for (Integer idx = 1; idx <= ITEMS_CNT; idx++) {
     auto i_data = RandomString<50>(25, 50);
     if (Rand(10) == 0) {
@@ -557,7 +554,7 @@ void TPCCWorkload<AdapterType>::LoadItem() {
 
 template <template <typename> class AdapterType>
 void TPCCWorkload<AdapterType>::LoadWarehouse() {
-  spdlog::debug("Load %u warehouses", ITEMS_CNT);
+  spdlog::debug("Load {} warehouses", ITEMS_CNT);
   for (Integer idx = 1; idx <= warehouse_count; idx++) {
     warehouse.Insert(
       {idx}, {RandomString<10>(6, 10), RandomString<20>(10, 20), RandomString<20>(10, 20), RandomString<20>(10, 20),

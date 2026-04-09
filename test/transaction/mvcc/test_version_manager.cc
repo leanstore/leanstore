@@ -70,11 +70,12 @@ TEST_F(VersionManagerTest, Read_MissingKey_Throws) {
   std::array<u8, 4> k{'n', 'o', 'p', 'e'};
   LOCKABLE_TUPLE_STACK(key, k, 1);
 
+  bool called    = false;
   timestamp_t ts = 0;
-  EXPECT_THROW(vm_->ReadValidVersion(
-                 10, key, [](std::span<const u8>) {}, ts),
-               std::runtime_error)
-    << "ReadValidVersion on unknown key must throw std::runtime_error";
+  bool ok        = vm_->ReadValidVersion(10, key, [&](std::span<const u8>) { called = true; }, ts);
+
+  EXPECT_FALSE(ok) << "ReadValidVersion on unknown key must return false";
+  EXPECT_FALSE(called) << "Callback must not be invoked for unknown key";
 }
 
 // ---------------------------------------------------------------------------

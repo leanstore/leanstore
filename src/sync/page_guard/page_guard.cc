@@ -62,7 +62,8 @@ auto PageGuard<PageClass>::TryLockShared(leng_t tree_id, std::span<u8> key) -> b
   Ensure(txn.IsRunning());
   if (txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
     LOCKABLE_TUPLE_STACK(lockable, key, tree_id);
-    return txn.LockManager()->TryLockShared(txn.start_ts, lockable);
+    return (FLAGS_txn_mvcc && transaction::mvcc::LockManager::OwnTuple(lockable)) ||
+           txn.LockManager()->TryLockShared(txn.start_ts, lockable);
   }
   return true;
 }

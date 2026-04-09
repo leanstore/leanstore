@@ -146,11 +146,6 @@ auto TransactionManager::ValidateReadSet() -> bool {
   return satisfy_occ;
 }
 
-/**
- * @brief TODO(XXX): Implement AbortTransaction -- rollback changes
- * Should also handle cases when logs are already flushed to the storage, and being overwritten in memory
- * Maybe, for simplicity, we simply treat this as a no-op and do not create any CLR
- */
 void TransactionManager::AbortTransaction() {
   auto &txn    = Transaction::active_txn;
   auto &logger = log_manager_->LocalLogWorker();
@@ -159,19 +154,18 @@ void TransactionManager::AbortTransaction() {
   // Iterate through lock_manager.write_set_ and re-install undo payload
   // If the undo payload is empty -> prev version does not exist, call tree delete
   // Otherwise, call tree update
+  txn.commit_ts = global_clock++;
   if (txn.iso_level > IsolationLevel::READ_UNCOMMITTED) {
-    lock_manager_->ReleaseAllLocks(txn.start_ts, [&](const LockableTuple *tuple, auto undo_ts, auto payload) {
-      // This lambda -- Updating tuple's TS -- will only be triggered by MVCC impl
-      auto index = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
-      OpResult ret;
-      Transaction::TUPLE_UNDO_TIMESTAMP = undo_ts;
-      if (payload.empty()) {
-        ret = index->Remove({const_cast<u8 *>(tuple->key), tuple->key_len});
-      } else {
-        ret = index->Upsert({const_cast<u8 *>(tuple->key), tuple->key_len}, payload);
-      }
-      assert(ret == OpResult::OK);
-    });
+    lock_manager_->ReleaseAllLocks(
+      txn.start_ts, [&](const LockableTuple *tuple, auto undo_ts, std::span<const u8> payload) {
+        // This lambda -- Updating tuple's TS -- will only be triggered by MVCC impl
+        auto index                        = reinterpret_cast<storage::BTree *>(catalog[tuple->tree_id]);
+        Transaction::TUPLE_UNDO_TIMESTAMP = undo_ts;
+        [[maybe_unused]] auto ret         = (payload.empty())
+                                              ? index->Remove({const_cast<u8 *>(tuple->key), tuple->key_len})
+                                              : index->Upsert({const_cast<u8 *>(tuple->key), tuple->key_len}, payload);
+        assert(ret == OpResult::OK);
+      });
   }
   assert(lock_manager_->EmptyLocalSet());
 
@@ -189,13 +183,18 @@ void TransactionManager::AbortTransaction() {
   if (FLAGS_wal_enable) {
     // Insert abort log entry to WAL
     txn.MarkAsWrite();
-    auto &entry       = logger.ReserveLogCommitEntry(txn.SerializedVectorSize());
-    entry.vector_size = txn.gsn_vector.size();
-    entry.type        = LogEntry::Type::TX_ABORT;
-    logger.SubmitActiveLogEntry();
+    auto &entry        = logger.ReserveLogCommitEntry(txn.SerializedVectorSize());
+    entry.vector_size  = txn.gsn_vector.size();
+    entry.type         = LogEntry::Type::TX_ABORT;
+    auto should_commit = logger.SubmitActiveLogEntry();
 
     // Push the txn to the pre-commit queue
     QueueTransaction(txn);
+
+    // Try to trigger group commit directly within the worker
+    if (should_commit || (FLAGS_wal_force_log_flush && (Rand(BitLength(FLAGS_worker_count + 1)) == 0))) {
+      log_manager_->TriggerGroupCommit(LeanStore::worker_thread_id / FLAGS_txn_commit_group_size);
+    }
   }
 
   // if WAl is disabled, simply ack the txn

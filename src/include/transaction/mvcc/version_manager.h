@@ -40,7 +40,8 @@ class VersionManager {
 
   auto ReadValidVersion(timestamp_t ts, const LockableTuple *key, const AccessPayloadFunc &read_cb,
                         timestamp_t &out_tuple_ts) -> bool;
-  auto AppendVersion(timestamp_t ts, const LockableTuple *key, const std::span<u8> &payload) -> TupleVersion *;
+  auto AppendVersion(timestamp_t ts, const LockableTuple *key, const std::span<u8> &payload)
+    -> std::pair<LockableTuple *, TupleVersion *>;
   void AdvanceLocalTimestamp(wid_t w_id, timestamp_t ts);
   void Sweep();
 

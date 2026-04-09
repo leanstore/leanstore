@@ -59,7 +59,6 @@ class BTree : public KVInterface {
   auto FindLeafOptimisticWithParent(std::span<u8> key)
     -> std::pair<sync::OptimisticGuard<BTreeNode>, sync::OptimisticGuard<BTreeNode>>;
   auto FindLeafOptimistic(std::span<u8> key) -> sync::OptimisticGuard<BTreeNode>;
-  auto FindLeafShared(std::span<u8> key) -> sync::SharedGuard<BTreeNode>;
 
   /* Split/Merge utilities */
   void TrySplit(sync::ExclusiveGuard<BTreeNode> &&parent, sync::ExclusiveGuard<BTreeNode> &&node);
@@ -86,12 +85,12 @@ class BTree : public KVInterface {
     if (!node.TryLockShared(metadata_slotid_, key_span)) { return OpResult::ABORT_TX; }
 
     // Actual scan read
+    LOCKABLE_TUPLE_STACK(lockable, key_span, metadata_slotid_);
     auto payload = node->GetPayload(pos);
     auto &txn    = transaction::Transaction::active_txn;
     if (FLAGS_txn_mvcc && txn.iso_level >= transaction::IsolationLevel::SNAPSHOT_ISOLATION) {
       auto latest_tuple_ts = node->GetTimestamp(pos);
       if (txn.start_ts < latest_tuple_ts) {
-        LOCKABLE_TUPLE_STACK(lockable, key_span, metadata_slotid_);
         auto read_success = txn.LookupVersionChain(
           lockable,
           [&](std::span<const u8> tuple_data) {
@@ -107,8 +106,10 @@ class BTree : public KVInterface {
           return OpResult::OK;
         }
       }
+      txn.UpdateTupleReadTS(lockable, latest_tuple_ts);
     }
     auto ret = fn(key_span, payload);
+    node.ValidateOrRestart(false);
     return (ret) ? OpResult::OK : OpResult::STOP_SCAN;
   }
 

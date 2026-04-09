@@ -138,7 +138,6 @@ void LockManager::UnlockShared(u64 txn_ts, const LockableTuple *key) {
 auto LockManager::GetOrInsert(const LockableTuple *key) -> std::pair<LockableTuple *, WaitDieLock *> {
   InternalHashMap::accessor acc;
   auto new_key = LockableTuple::Constructor(*key);  // allocate new key on the heap as tbb::hash will use the ptr as key
-  fmt::println("Insert to internal_: {}", fmt::ptr(new_key));
   auto success = internal_.insert(acc, new_key);
   if (success) {
     acc->second = new WaitDieLock();

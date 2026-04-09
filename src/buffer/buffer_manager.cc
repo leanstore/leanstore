@@ -284,7 +284,7 @@ void BufferManager::HandlePageFault(pageid_t page_id) {
 }
 
 void BufferManager::ReadPage(pageid_t page_id) {
-  int ret = pread(blockfd_, ToPtr(page_id), PAGE_SIZE, page_id * PAGE_SIZE);
+  [[maybe_unused]] int ret = pread(blockfd_, ToPtr(page_id), PAGE_SIZE, page_id * PAGE_SIZE);
   assert(ret == PAGE_SIZE);
   statistics::buffer::read_cnt++;
 }

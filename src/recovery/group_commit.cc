@@ -42,6 +42,8 @@ void GroupCommitExecutor::InitializeRound() {
   already_prep_.clear();
   submitted_io_cnt_       = 0;
   completed_txn_          = 0;
+  aborted_txn_            = 0;
+  committed_txn_          = 0;
   min_all_workers_gsn_    = std::numeric_limits<timestamp_t>::max();
   max_all_workers_gsn_    = 0;
   min_hardened_commit_ts_ = std::numeric_limits<timestamp_t>::max();
@@ -54,8 +56,11 @@ void GroupCommitExecutor::CompleteRound() {
 
   // Update statistics
   if (start_profiling) {
+    assert(completed_txn_ == committed_txn_ + aborted_txn_);
     statistics::commit_rounds[LeanStore::worker_thread_id]++;
     statistics::txn_per_round[LeanStore::worker_thread_id].emplace_back(completed_txn_);
+    statistics::aborted_txn[LeanStore::worker_thread_id] += aborted_txn_;
+    statistics::committed_txn[LeanStore::worker_thread_id] += committed_txn_;
     statistics::recovery::gct_phase_1_ns[LeanStore::worker_thread_id] +=
       tsctime::TscDifferenceNs(phase_1_begin_, phase_2_begin_);
     statistics::recovery::gct_phase_2_ns[LeanStore::worker_thread_id] +=
@@ -158,34 +163,26 @@ void GroupCommitExecutor::PhaseThree() {
     auto &logger = log_manager_->logger_[w_i];
 
     /* Complete normal-transaction queue */
-    auto committed_txn = 0UL;
-    auto loop_bytes    = logger.precommitted_queue.LoopElements(ready_to_commit_cut_[w_i], [&](auto &txn) {
+    auto loop_bytes = logger.precommitted_queue.LoopElements(ready_to_commit_cut_[w_i], [&](auto &txn) {
       if (SatisfyCommitConditions(w_i, txn)) {
-        committed_txn++;
+        completed_txn_++;
         CompleteTransaction(txn);
         return true;
       }
       return false;
     });
-    if (loop_bytes > 0) {
-      logger.precommitted_queue.Erase(loop_bytes);
-      completed_txn_ += committed_txn;
-    }
+    if (loop_bytes > 0) { logger.precommitted_queue.Erase(loop_bytes); }
 
     /* Process RFA-transaction queue */
-    committed_txn = 0;
-    loop_bytes    = logger.precommitted_queue_rfa.LoopElements(ready_to_commit_rfa_cut_[w_i], [&](auto &txn) {
+    loop_bytes = logger.precommitted_queue_rfa.LoopElements(ready_to_commit_rfa_cut_[w_i], [&](auto &txn) {
       if (txn.commit_ts <= worker_states_[w_i].precommitted_tx_commit_ts) [[likely]] {
-        committed_txn++;
+        completed_txn_++;
         CompleteTransaction(txn);
         return true;
       }
       return false;
     });
-    if (loop_bytes > 0) {
-      logger.precommitted_queue_rfa.Erase(loop_bytes);
-      completed_txn_ += committed_txn;
-    }
+    if (loop_bytes > 0) { logger.precommitted_queue_rfa.Erase(loop_bytes); }
   }
 }
 
@@ -248,7 +245,13 @@ void GroupCommitExecutor::PrepareLargePageWrite(const transaction::SerializableT
 }
 
 void GroupCommitExecutor::CompleteTransaction(transaction::SerializableTransaction &txn) {
-  Ensure(txn.state == transaction::Transaction::State::READY_TO_COMMIT);
+  Ensure((txn.state == transaction::Transaction::State::READY_TO_COMMIT) ||
+         (txn.state == transaction::Transaction::State::ABORTED));
+  if (txn.state == transaction::Transaction::State::ABORTED) {
+    aborted_txn_++;
+  } else {
+    committed_txn_++;
+  }
   if (FLAGS_blob_enable) {
     for (auto &lp : txn.ToFlushedLargePages()) { completed_lp_.remove(lp.start_pid); }
     buffer_->FreeStorageManager()->PublicFreeExtents(txn.ToFreeExtents());

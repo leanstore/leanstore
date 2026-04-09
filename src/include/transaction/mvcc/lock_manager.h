@@ -17,11 +17,11 @@ class LockManager : public ILockManager {
     std::unordered_map<const LockableTuple *, TupleVersion *, LockableTuple::HashPtr, LockableTuple::EqualPtr>;
   using LocalReadSet =
     std::unordered_map<const LockableTuple *, timestamp_t, LockableTuple::HashPtr, LockableTuple::EqualPtr>;
-  using InternalHashMap = tbb::concurrent_hash_map<LockableTuple *, bool, LockableTuple::HashTBB>;
 
   // Misc helpers
   LockManager(VersionManager *ver_);
-  void SetTupleTimestamp(const LockableTuple *, timestamp_t tuple_ts);
+  void SetTupleTimestamp(const LockableTuple *, timestamp_t tuple_ts, bool require_serializable);
+  auto GetTupleTimestamp(const LockableTuple *) -> timestamp_t;
 
   // Commit APIs
   bool EmptyLocalSet();
@@ -36,8 +36,6 @@ class LockManager : public ILockManager {
   void UnlockShared(timestamp_t txn_ts, const LockableTuple *) override;
 
  private:
-  auto GetOrInsert(const LockableTuple *key) -> std::pair<bool, LockableTuple *>;
-
   // Thread-local read sets, for validating reads at commit time
   static thread_local LocalReadSet read_set_;
 
@@ -46,7 +44,6 @@ class LockManager : public ILockManager {
 
   // Internal lock table mapping keys to WaitDieLocks
   VersionManager *version_manager_;
-  InternalHashMap internal_;
 };
 
 }  // namespace leanstore::transaction::mvcc

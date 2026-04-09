@@ -69,10 +69,10 @@ namespace leanstore::storage {
 **
 **  With timestamp:
 **
-**      |<--- key_len - prefix_len --->|<----8--->|<--- payload_len -->|
-**      |------------------------------|----------|--------------------|
-**      |          key_suffix          | ts (u64) |      payload       |
-**      |------------------------------|----------|--------------------|
+**      |<--- key_len - prefix_len --->|<---8 bytes--->|<--- payload_len -->|
+**      |------------------------------|---------------|--------------------|
+**      |          key_suffix          |    ts (u64)   |      payload       |
+**      |------------------------------|---------------|--------------------|
 */
 
 // -------------------------------------------------------------------------------------
@@ -195,7 +195,7 @@ class alignas(PAGE_SIZE) BTreeNodeImpl : public PageHeader {
   // Store/Insert/Remove utilities
   void StoreRecordData(leng_t slot_id, std::span<u8> key, std::span<const u8> payload);
   void StoreRecordDataWithoutPrefix(leng_t slot_id, std::span<u8> key, std::span<const u8> payload);
-  void InsertKeyValue(std::span<u8> key, std::span<const u8> payload, const ComparisonLambda &cmp);
+  auto InsertKeyValue(std::span<u8> key, std::span<const u8> payload, const ComparisonLambda &cmp) -> leng_t;
   auto RemoveSlot(leng_t slot_id, bool soft_delete) -> bool;
   auto RemoveKey(std::span<u8> key, const ComparisonLambda &cmp) -> bool;
   void UpdateTimestamp(leng_t slot_id, timestamp_t commit_ts);

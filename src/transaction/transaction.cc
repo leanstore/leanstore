@@ -16,7 +16,7 @@ thread_local Transaction Transaction::active_txn = Transaction();
 
 void Transaction::Initialize(TransactionManager *manager, timestamp_t start_timestamp, Type txn_type,
                              IsolationLevel level, Mode txn_mode) {
-  TUPLE_UNDO_TIMESTAMP = INVALID_TS;
+  TUPLE_UNDO_TIMESTAMP = INVALID_TS;  // Reset undo timestamp for normal processing
 
   //--------------------------
   manager_      = manager;
@@ -61,7 +61,8 @@ auto Transaction::LookupVersionChain(const LockableTuple *key, const AccessPaylo
 
 void Transaction::UpdateTupleReadTS(const LockableTuple *key, timestamp_t tuple_ts) {
   Ensure(FLAGS_txn_mvcc && IsRunning());
-  reinterpret_cast<mvcc::LockManager *>(LockManager())->SetTupleTimestamp(key, tuple_ts);
+  reinterpret_cast<mvcc::LockManager *>(LockManager())
+    ->SetTupleTimestamp(key, tuple_ts, iso_level == IsolationLevel::SERIALIZABLE);
 }
 
 /**

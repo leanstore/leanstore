@@ -88,6 +88,8 @@ class GroupCommitExecutor {
   timestamp_t phase_3_begin_;
   timestamp_t phase_3_end_;
   u64 completed_txn_;
+  u64 committed_txn_;
+  u64 aborted_txn_;
 };
 
 }  // namespace leanstore::recovery

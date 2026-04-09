@@ -30,7 +30,6 @@ TupleVersion *TupleVersion::Create(TupleVersion *prev, timestamp_t ts, const u8 
 // static
 void TupleVersion::Destroy(TupleVersion *v) {
   if (v == nullptr) { return; }
-  fmt::println("Destroy {}", fmt::ptr(v));
   v->~TupleVersion();    // run destructor (releases atomics, etc.)
   ::operator delete(v);  // free the raw block allocated in Create()
 }
@@ -66,7 +65,6 @@ void VersionChain::Sweep(timestamp_t sweep_ts) {
   auto curr = tail_.load();
   for (; (curr != sentinel_) && (curr->ts >= sweep_ts); curr = curr->prev.load(std::memory_order_relaxed)) {}
   if (curr == sentinel_) { return; }  // Always maintain at least one tail node at the end
-  fmt::println("Sweeping");
   for (auto it = curr->prev.load(std::memory_order_relaxed); it != sentinel_;) {
     auto tmp = it->prev.load(std::memory_order_relaxed);
     TupleVersion::Destroy(it);

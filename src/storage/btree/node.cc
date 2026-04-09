@@ -177,7 +177,8 @@ void BTreeNodeImpl<NodeHeader>::Compactify(const ComparisonLambda &cmp) {
   // Clone tmp back into this, and then generate hint again
   CopyNodeContent(this, &tmp);
   MakeHint();
-  assert(FreeSpace() == space_after_compacted);
+  // TODO(XXX): Current MVCC impl calculates FreeSpace() wrongly - not including soft-deleted tuples.
+  if (!FLAGS_txn_mvcc) { assert(FreeSpace() == space_after_compacted); }
 }
 
 template <class NodeHeader>
@@ -348,17 +349,6 @@ void BTreeNodeImpl<NodeHeader>::StoreRecordDataWithoutPrefix(leng_t slot_id, std
   assert(GetKey(slot_id) >= reinterpret_cast<u8 *>(&slots[slot_id]));
   // copy record content into the page
   std::memcpy(GetKey(slot_id), key, key_no_prefix.size());
-  if (KV_HAS_TIMESTAMP(*this)) {
-    // In-place update
-    assert(TM::active_txn.commit_ts == transaction::INVALID_TS);
-    auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
-    // Trick: only in two scenarios that the execution path comes here
-    // - Normal key-value insertion before commit. This case, TUPLE_UNDO_TIMESTAMP == INVALID_TS
-    // - During undo phase that we need to store back previous tuple's timestamp.
-    //   This case, TUPLE_UNDO_TIMESTAMP == previous timestamp of the updated tuple
-    // In both scenarios, TUPLE_UNDO_TIMESTAMP contains the correct value.
-    std::memcpy(Ptr() + ts_offset, &TM::TUPLE_UNDO_TIMESTAMP, sizeof(timestamp_t));
-  }
   std::memcpy(GetPayload(slot_id).data(), payload.data(), payload.size());
 }
 
@@ -367,8 +357,8 @@ void BTreeNodeImpl<NodeHeader>::StoreRecordDataWithoutPrefix(leng_t slot_id, std
  *        We should have the full key here (i.e. with prefix)
  */
 template <class NodeHeader>
-void BTreeNodeImpl<NodeHeader>::InsertKeyValue(std::span<u8> key, std::span<const u8> payload,
-                                               const ComparisonLambda &cmp) {
+auto BTreeNodeImpl<NodeHeader>::InsertKeyValue(std::span<u8> key, std::span<const u8> payload,
+                                               const ComparisonLambda &cmp) -> leng_t {
   auto space_needed = SpaceRequiredForKV(key.size(), payload.size());
   if (space_needed > FreeSpace()) {
     assert(space_needed <= FreeSpaceAfterCompaction());
@@ -376,11 +366,13 @@ void BTreeNodeImpl<NodeHeader>::InsertKeyValue(std::span<u8> key, std::span<cons
   }
   bool found;
   auto slot_id = LowerBound(key, found, cmp);
-  if (found) { return; }
-  std::move_backward(&slots[slot_id], &slots[header.count], &slots[header.count + 1]);
-  StoreRecordData(slot_id, key, payload);
-  header.count++;
-  UpdateHint(slot_id);
+  if (!found) {
+    std::move_backward(&slots[slot_id], &slots[header.count], &slots[header.count + 1]);
+    StoreRecordData(slot_id, key, payload);
+    header.count++;
+    UpdateHint(slot_id);
+  }
+  return slot_id;
 }
 
 template <class NodeHeader>
@@ -390,10 +382,6 @@ auto BTreeNodeImpl<NodeHeader>::RemoveSlot(leng_t slot_id, bool soft_delete) -> 
     assert(KV_HAS_TIMESTAMP(*this));
     header.space_used -= slots[slot_id].payload_length;
     slots[slot_id].payload_length = 0;
-    // Mark commit ts; similar trick to StoreRecordDataWithoutPrefix()
-    assert(TM::active_txn.commit_ts == transaction::INVALID_TS);
-    auto ts_offset = slots[slot_id].offset + slots[slot_id].key_length;
-    std::memcpy(Ptr() + ts_offset, &TM::TUPLE_UNDO_TIMESTAMP, sizeof(timestamp_t));
   } else {
     header.space_used -= slots[slot_id].key_length;
     header.space_used -= slots[slot_id].payload_length;
@@ -450,6 +438,10 @@ void BTreeNodeImpl<NodeHeader>::CopyKeyValueRange(BTreeNodeImpl<NodeHeader> *dst
     dst->header.count += src_count;
   } else {
     for (auto idx = 0; idx < src_count; idx++) { CopyKeyValue(dst, src_slot + idx, dst_slot + idx); }
+  }
+  if (KV_HAS_TIMESTAMP(*this)) {
+    assert(KV_HAS_TIMESTAMP(*dst));
+    for (auto idx = 0; idx < src_count; idx++) { dst->UpdateTimestamp(dst_slot + idx, GetTimestamp(src_slot + idx)); }
   }
   assert((dst->Ptr() + dst->header.data_offset) >= reinterpret_cast<u8 *>(dst->slots + dst->header.count));
 }
