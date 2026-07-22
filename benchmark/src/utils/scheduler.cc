@@ -12,7 +12,7 @@ thread_local std::mt19937 PoissonScheduler::generator{std::hash<std::thread::id>
 
 /* Convert rate: txn per second -> txn per timestamp counter*/
 PoissonScheduler::PoissonScheduler(double txn_per_sec)
-    : rate_(txn_per_sec), dist_(txn_per_sec / (1000000000UL * tsctime::TSC_PER_NS)) {}
+    : rate_(txn_per_sec), dist_(txn_per_sec > 0 ? txn_per_sec / (1000000000UL * tsctime::TSC_PER_NS) : 1.0) {}
 
 auto PoissonScheduler::IsEnable() -> bool { return rate_ != 0; }
 
