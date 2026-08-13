@@ -48,7 +48,7 @@ ZipfGenerator::ZipfGenerator(double theta, int n_elements) : n_elements_(n_eleme
   norm_c_ = 0;
   for (auto i = 1; i <= n_elements; ++i) { norm_c_ += 1.0 / pow(static_cast<double>(i), theta); }
   norm_c_ = 1.0 / norm_c_;
-  sum_prob_.reserve(n_elements + 1);
+  sum_prob_.resize(n_elements + 1);
   sum_prob_[0] = 0;
   for (int i = 1; i <= n_elements; ++i) {
     sum_prob_[i] = sum_prob_[i - 1] + norm_c_ / pow(static_cast<double>(i), theta);

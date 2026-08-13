@@ -184,10 +184,9 @@ void LeanStore::Shutdown() {
         "AvgIOLatency({:.4f} us)\n\t"
         "AvgTxnPerCommitRound({:.4f} txns)\n\t99.9thTxnPerRound({} txns)\n\t99.99thTxnPerRound({} txns)",
         Average(statistics::txn_exec[0]) / 1000UL, Average(statistics::txn_queue[0]) / 1000UL,
-        Average(statistics::lat_inc_wait[0]) / 1000UL,
-        Average(statistics::io_latency[0]) / 1000UL,
-        Average(statistics::txn_per_round[0]),
-        Percentile(statistics::txn_per_round[0], 99.9), Percentile(statistics::txn_per_round[0], 99.99));
+        Average(statistics::lat_inc_wait[0]) / 1000UL, Average(statistics::io_latency[0]) / 1000UL,
+        Average(statistics::txn_per_round[0]), Percentile(statistics::txn_per_round[0], 99.9),
+        Percentile(statistics::txn_per_round[0], 99.99));
       std::vector<timestamp_t> summary;
       std::merge(statistics::rfa_txn_latency[0].begin(), statistics::rfa_txn_latency[0].end(),
                  statistics::txn_latency[0].begin(), statistics::txn_latency[0].end(), std::back_inserter(summary));
@@ -339,8 +338,7 @@ void LeanStore::StartProfilingThread() {
       }
       commit_exec += p1_us + p2_us + p3_us;
       // Output
-      std::printf("%lu,%lu,%lu,%lu,%lu,%.4f,%.4f,%lu,%.4f,%.4f,%lu,%lu,%lu,%lu,%.4f\n",
-                  cnt++, progress, normal_txn,
+      std::printf("%lu,%lu,%lu,%lu,%lu,%.4f,%.4f,%lu,%.4f,%.4f,%lu,%lu,%lu,%lu,%.4f\n", cnt++, progress, normal_txn,
                    rfa_txn, rounds, r_mb, w_mb, e_cnt, log_sz, log_write, log_flush_cnt, p1_us, p2_us, p3_us, db_sz);
     }
     spdlog::info("Transaction statistics: # completed txns: {} - # committed txns: {}", completed_txn,

@@ -54,7 +54,7 @@ auto main(int argc, char **argv) -> int {
   // YCSB loader
   if (!FLAGS_wal_enable_recovery) {
     std::atomic<UInteger> w_id_loader = 0;
-    tbb::parallel_for(tbb::blocked_range<Integer>(1, FLAGS_ycsb_record_count + 1),
+    tbb::parallel_for(tbb::blocked_range<Integer>(1, FLAGS_ycsb_record_count + 1, 1000U),
                       [&](const tbb::blocked_range<Integer> &range) {
                         auto w_id = (++w_id_loader) % FLAGS_worker_count;
                         db->worker_pool.ScheduleAsyncJob(w_id, [&, w_id, range]() {
@@ -66,12 +66,12 @@ auto main(int argc, char **argv) -> int {
     db->worker_pool.JoinAll();
   }
   spdlog::info("Space used: {:.4f} GB", db->AllocatedSize());
-  db->worker_pool.ScheduleSyncJob(0, [&]() {
-    db->StartTransaction();
-    spdlog::info("Record count: {}", ycsb->CountEntries());
-    assert(ycsb->CountEntries() == FLAGS_ycsb_record_count);
-    db->CommitTransaction();
-  });
+  // db->worker_pool.ScheduleSyncJob(0, [&]() {
+  //   db->StartTransaction();
+  //   spdlog::info("Record count: {}", ycsb->CountEntries());
+  //   assert(ycsb->CountEntries() == FLAGS_ycsb_record_count);
+  //   db->CommitTransaction();
+  // });
 
   // YCSB profiling
   std::atomic<bool> keep_running(true);

@@ -124,9 +124,11 @@ auto Transaction::IsRunning() -> bool { return state == State::STARTED; }
 void Transaction::MarkAsWrite() {
   if (is_read_only_) {
     is_read_only_ = false;
-    auto &entry   = LogWorker().ReserveLogMetaEntry();
-    entry.type    = recovery::LogEntry::Type::TX_START;
-    LogWorker().SubmitActiveLogEntry();
+    if (FLAGS_wal_enable) {
+      auto &entry   = LogWorker().ReserveLogMetaEntry();
+      entry.type    = recovery::LogEntry::Type::TX_START;
+      LogWorker().SubmitActiveLogEntry();
+    }
   }
 }
 

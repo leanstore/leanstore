@@ -21,6 +21,7 @@
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
+#include <iostream>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -338,7 +339,9 @@ void BufferManager::Evict() {
              *    (note that blob pages don't associate with any log record, hence this condition doesn't apply)
              * - prevents the page from entering (EXCLUSIVE, MARKED, EVICTED) state
              */
-            if ((IsExtent(pid) || page->p_gsn <= flushed_log_gsn) && (ps.TryLockShared(v))) { to_write.push_back(pid); }
+            if ((IsExtent(pid) || (!FLAGS_wal_enable || page->p_gsn <= flushed_log_gsn)) && (ps.TryLockShared(v))) {
+              to_write.push_back(pid);
+            }
           } else {
             /**
              * @brief In the case of blob page, eviction reaches this stage only when the blob content is flushed
