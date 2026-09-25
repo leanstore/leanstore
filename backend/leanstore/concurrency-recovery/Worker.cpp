@@ -51,6 +51,8 @@ Worker::Worker(u64 worker_id, Worker** all_workers, u64 workers_count, HistoryTr
 }
 Worker::~Worker()
 {
+   std::free(logging.wal_buffer);
+   logging.wal_buffer = nullptr;
    delete[] cc.commit_tree.array;
 }
 // -------------------------------------------------------------------------------------
