@@ -332,7 +332,7 @@ class BTreePessimisticIterator : public BTreePessimisticIteratorInterface
             if (is_equal) {
                return OP_RESULT::OK;
             } else if (cur > 0) {
-               cur -= 1;
+               cur -= 1; return OP_RESULT::OK;
             } else {
                continue;
             }
