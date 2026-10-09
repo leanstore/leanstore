@@ -59,10 +59,8 @@ BufferManager::BufferManager(s32 ssd_fd) : ssd_fd(ssd_fd)
       // -------------------------------------------------------------------------------------
       utils::Parallelize::parallelRange(dram_total_size, [&](u64 begin, u64 end) { memset(reinterpret_cast<u8*>(bfs) + begin, 0, end - begin); });
       utils::Parallelize::parallelRange(dram_pool_size, [&](u64 bf_b, u64 bf_e) {
-         u64 p_i = 0;
          for (u64 bf_i = bf_b; bf_i < bf_e; bf_i++) {
-            getPartition(p_i).dram_free_list.push(*new (bfs + bf_i) BufferFrame());
-            p_i = (p_i + 1) % partitions_count;
+            getPartition(bf_i % partitions_count).dram_free_list.push(*new (bfs + bf_i) BufferFrame());
          }
       });
    }
