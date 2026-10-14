@@ -133,16 +133,8 @@ struct alignas(CPU_CACHELINE_SIZE) SerializableTransaction {
 
   Transaction::State state = {Transaction::State::IDLE};
 
-  union {
-    // Used for GSN/RFA variants
-    struct {
-      bool needs_remote_flush : 1;
-      timestamp_t max_observed_gsn : 63;
-    };
-
-    // Used for VECTOR variant
-    size_t vector_size;
-  };
+  bool needs_remote_flush : 1;
+  timestamp_t max_observed_gsn : 63;
 
   Transaction::Statistics stats;
   timestamp_t start_ts;
@@ -173,17 +165,8 @@ struct alignas(CPU_CACHELINE_SIZE) SerializableTransaction {
     return {reinterpret_cast<const storage::ExtentTier *>(&content[OffsetFreeExtents()]), no_free_extents};
   }
 
-  // -------------------------------------------------------------------------------------
-  auto Dependencies() const -> std::span<const wid_t>;
-  auto DepGSN() const -> std::span<const timestamp_t>;
-
  private:
-  auto OffsetWritePages() const -> u64 {
-    if (FLAGS_wal_variant != LoggingVariant::VECTOR) { return 0; }
-    return vector_size * Transaction::VECTOR_KEY_SIZE;
-  }
-
-  auto OffsetEvictExtents() const -> u64 { return OffsetWritePages() + no_write_pages * sizeof(storage::LargePage); }
+  auto OffsetEvictExtents() const -> u64 { return no_write_pages * sizeof(storage::LargePage); }
 
   auto OffsetFreeExtents() const -> u64 { return OffsetEvictExtents() + no_evict_extents * sizeof(pageid_t); }
 };

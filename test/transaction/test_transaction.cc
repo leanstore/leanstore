@@ -2,7 +2,6 @@
 #include "sync/page_state.h"
 #include "test/base_test.h"
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include <future>
@@ -31,11 +30,9 @@ TEST_F(TestTransaction, SerializableTransaction) {
   u8 buffer[128];
   auto s = new (&buffer) SerializableTransaction;
   s->Construct(txn);
-  EXPECT_EQ(s->vector_size, 2);
-
-  // Deserialization
-  for (auto &wid : s->Dependencies()) { EXPECT_THAT(wid, ::testing::AnyOf(100, 300)); }
-  for (auto &ts : s->DepGSN()) { EXPECT_THAT(ts, ::testing::AnyOf(200, 100)); }
+  EXPECT_EQ(s->start_ts, txn.start_ts);
+  EXPECT_EQ(s->MemorySize(), sizeof(SerializableTransaction));
+  EXPECT_EQ(txn.SerializedSize(), sizeof(SerializableTransaction));
 }
 
 TEST_F(TestTransaction, TransactionLifeTime) {
