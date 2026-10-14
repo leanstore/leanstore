@@ -11,6 +11,8 @@
 #include "share_headers/time.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -85,7 +87,7 @@ void LogManager::TriggerGroupCommit(u32 commit_idx) {
 
 /**
  * @brief VECTOR variant: advance the stable prefix of every worker
- * `durable` holds each worker's durable commit timestamp.
+ * `durable` holds the commit timestamp and GSN of each worker's last durable commit.
  * The new stable prefixes are the largest durable prefixes which are closed under dependencies.
  * Waiting instead for each dependency's worker to acknowledge it would deadlock on a cycle of dependencies
  */
@@ -94,26 +96,36 @@ void LogManager::AdvanceStablePrefix(std::span<const WorkerConsistentState> dura
   if (!guard.owns_lock()) { return; }
 
   /* Only this function pops from `pending`, and push_back() keeps references to the other elements valid */
-  auto prefix = std::vector<std::vector<const PendingCommit *>>(FLAGS_worker_count);
+  auto dependent   = std::vector<std::vector<const PendingCommit *>>(FLAGS_worker_count);
+  auto durable_gsn = std::vector<timestamp_t>(FLAGS_worker_count);
   for (auto w_i = 0U; w_i < FLAGS_worker_count; w_i++) {
-    auto &stable = logger_[w_i].stable;
+    durable_gsn[w_i] = durable[w_i].precommitted_tx_commit_gsn;
+    auto &stable     = logger_[w_i].stable;
     std::scoped_lock lock(stable.pending_mutex);
     for (const auto &commit : stable.pending) {
       if (commit.commit_ts > durable[w_i].precommitted_tx_commit_ts) { break; }
-      prefix[w_i].push_back(&commit);
+      dependent[w_i].push_back(&commit);
     }
   }
 
-  CutToClosedPrefixes(std::span{prefix}, [&](wid_t w_i) { return logger_[w_i].stable.gsn.load(); });
+  const auto cut = CutToClosedPrefixes(std::span<const std::vector<const PendingCommit *>>{dependent},
+                                       std::span<const timestamp_t>{durable_gsn});
 
+  /* UpdateMax(): another executor may have advanced the prefixes from a newer snapshot of `durable` */
   auto min_stable_gsn = std::numeric_limits<timestamp_t>::max();
   for (auto w_i = 0U; w_i < FLAGS_worker_count; w_i++) {
     auto &stable = logger_[w_i].stable;
-    if (!prefix[w_i].empty()) {
-      stable.gsn.store(prefix[w_i].back()->commit_gsn);
-      stable.commit_ts.store(prefix[w_i].back()->commit_ts);
+    if (cut[w_i] < dependent[w_i].size()) {
+      UpdateMax(stable.gsn, dependent[w_i][cut[w_i]]->prev_commit_gsn);
+      UpdateMax(stable.commit_ts, dependent[w_i][cut[w_i]]->prev_commit_ts);
+    } else {
+      UpdateMax(stable.gsn, durable_gsn[w_i]);
+      UpdateMax(stable.commit_ts, durable[w_i].precommitted_tx_commit_ts);
+    }
+    if (cut[w_i] > 0) {
       std::scoped_lock lock(stable.pending_mutex);
-      stable.pending.erase(stable.pending.begin(), stable.pending.begin() + std::ssize(prefix[w_i]));
+      stable.pending.erase(stable.pending.begin(),
+                           std::next(stable.pending.begin(), static_cast<std::ptrdiff_t>(cut[w_i])));
     }
     min_stable_gsn = std::min(min_stable_gsn, stable.gsn.load());
   }

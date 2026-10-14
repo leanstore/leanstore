@@ -88,7 +88,7 @@ void TransactionManager::CommitTransaction(bool must_not_ack) {
     } else {
       auto &entry       = logger.ReserveLogCommitEntry(active_txn.SerializedVectorSize());
       entry.vector_size = active_txn.gsn_vector.size();
-      logger.AppendPendingCommit(entry.rc.gsn, active_txn);
+      logger.AppendPendingCommit(active_txn);
     }
     auto should_commit = logger.SubmitActiveLogEntry();
 

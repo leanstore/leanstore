@@ -82,6 +82,7 @@ class RecoveryManager {
     txnid_t txn;
     timestamp_t commit_gsn;
     std::vector<std::pair<wid_t, timestamp_t>> dependencies;
+    timestamp_t prev_commit_gsn = 0;
   };
 
   void DetectLosers();

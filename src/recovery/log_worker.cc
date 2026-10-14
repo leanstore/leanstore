@@ -25,30 +25,34 @@ void WorkerConsistentState::Clone(WorkerConsistentState &other) {
     try {
       sync::HybridGuard guard(&other.latch, sync::GuardMode::OPTIMISTIC);
       Ensure(precommitted_tx_commit_ts <= other.precommitted_tx_commit_ts);
-      last_gsn                  = other.last_gsn;
-      last_wal_cursor           = other.last_wal_cursor;
-      precommitted_tx_commit_ts = other.precommitted_tx_commit_ts;
+      last_gsn                   = other.last_gsn;
+      last_wal_cursor            = other.last_wal_cursor;
+      precommitted_tx_commit_ts  = other.precommitted_tx_commit_ts;
+      precommitted_tx_commit_gsn = other.precommitted_tx_commit_gsn;
       break;
     } catch (const sync::RestartException &) {}
   }
 }
 
 void WorkerConsistentState::Clone(const ToCommitState &other) {
-  last_gsn                  = other.last_gsn;
-  last_wal_cursor           = other.last_wal_cursor;
-  precommitted_tx_commit_ts = other.precommitted_tx_commit_ts;
+  last_gsn                   = other.last_gsn;
+  last_wal_cursor            = other.last_wal_cursor;
+  precommitted_tx_commit_ts  = other.precommitted_tx_commit_ts;
+  precommitted_tx_commit_gsn = other.precommitted_tx_commit_gsn;
 }
 
 void WorkerConsistentState::Clone(const AsyncCommitState &other) {
-  last_gsn                  = other.last_gsn;
-  last_wal_cursor           = other.last_wal_cursor;
-  precommitted_tx_commit_ts = other.precommitted_tx_commit_ts;
+  last_gsn                   = other.last_gsn;
+  last_wal_cursor            = other.last_wal_cursor;
+  precommitted_tx_commit_ts  = other.precommitted_tx_commit_ts;
+  precommitted_tx_commit_gsn = other.precommitted_tx_commit_gsn;
 }
 
 ToCommitState::ToCommitState(const WorkerConsistentState &base)
     : last_wal_cursor(base.last_wal_cursor),
       last_gsn(base.last_gsn),
-      precommitted_tx_commit_ts(base.precommitted_tx_commit_ts) {}
+      precommitted_tx_commit_ts(base.precommitted_tx_commit_ts),
+      precommitted_tx_commit_gsn(base.precommitted_tx_commit_gsn) {}
 
 auto ToCommitState::operator<(const ToCommitState &r) -> bool {
   return precommitted_tx_commit_ts < r.precommitted_tx_commit_ts;
@@ -58,7 +62,8 @@ AsyncCommitState::AsyncCommitState(const WorkerConsistentState &base, u64 lsn)
     : req_lsn(lsn),
       last_wal_cursor(base.last_wal_cursor),
       last_gsn(base.last_gsn),
-      precommitted_tx_commit_ts(base.precommitted_tx_commit_ts) {}
+      precommitted_tx_commit_ts(base.precommitted_tx_commit_ts),
+      precommitted_tx_commit_gsn(base.precommitted_tx_commit_gsn) {}
 
 auto AsyncCommitState::operator<(const AsyncCommitState &r) const -> bool {
   return precommitted_tx_commit_ts < r.precommitted_tx_commit_ts;
@@ -88,9 +93,10 @@ void LogWorker::PublicLocalGSN() {
 
 void LogWorker::PublicCommitTS() {
   sync::HybridGuard guard(&w_state->latch, sync::GuardMode::EXCLUSIVE);
-  w_state->last_wal_cursor           = log_buffer.wal_cursor;
-  w_state->last_gsn                  = w_gsn_clock;
-  w_state->precommitted_tx_commit_ts = last_unharden_commit_ts;
+  w_state->last_wal_cursor            = log_buffer.wal_cursor;
+  w_state->last_gsn                   = w_gsn_clock;
+  w_state->precommitted_tx_commit_ts  = last_unharden_commit_ts;
+  w_state->precommitted_tx_commit_gsn = last_unharden_commit_gsn;
 }
 
 auto LogWorker::GetCurrentGSN() -> timestamp_t { return w_gsn_clock; }
@@ -120,10 +126,13 @@ auto LogWorker::PrepareDataLogEntry(u8 *buffer, u64 payload_size, pageid_t pid) 
 
 /**
  * @brief VECTOR variant: must run before the commit entry is submitted,
- *  otherwise the commit can be durable before the stable prefix knows about it
+ *  otherwise the commit can be durable before the stable prefix knows about it,
+ *  and the last harden txn is still the one before `txn`
  */
-void LogWorker::AppendPendingCommit(timestamp_t commit_gsn, const transaction::Transaction &txn) {
-  auto commit = PendingCommit{commit_gsn, txn.commit_ts, {txn.gsn_vector.begin(), txn.gsn_vector.end()}};
+void LogWorker::AppendPendingCommit(const transaction::Transaction &txn) {
+  if (txn.gsn_vector.empty()) { return; }
+  auto commit = PendingCommit{
+    last_unharden_commit_gsn, last_unharden_commit_ts, txn.commit_ts, {txn.gsn_vector.begin(), txn.gsn_vector.end()}};
   std::scoped_lock lock(stable.pending_mutex);
   stable.pending.push_back(std::move(commit));
 }
@@ -234,7 +243,8 @@ auto LogWorker::SubmitActiveLogEntry() -> bool {
   log_buffer.wal_cursor += active_log->size;
 
   if (active_log->type == LogEntry::Type::TX_COMMIT) {
-    last_unharden_commit_ts = TransactionManager::active_txn.commit_ts;
+    last_unharden_commit_ts  = TransactionManager::active_txn.commit_ts;
+    last_unharden_commit_gsn = GetCurrentGSN();
 
     /* Normal variants only published commit timestamp -> group commit execute the ack */
     if ((FLAGS_txn_commit_variant != CommitProtocol::WORKERS_WRITE_LOG) &&

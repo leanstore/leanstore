@@ -27,9 +27,10 @@ struct AsyncCommitState;
 
 /* Atomic version of worker's consistent state */
 struct WorkerConsistentState {
-  u64 last_wal_cursor                   = 0;  // wal_cursor
-  timestamp_t last_gsn                  = 0;  // w_gsn_clock
-  timestamp_t precommitted_tx_commit_ts = 0;
+  u64 last_wal_cursor                    = 0;  // wal_cursor
+  timestamp_t last_gsn                   = 0;  // w_gsn_clock
+  timestamp_t precommitted_tx_commit_ts  = 0;
+  timestamp_t precommitted_tx_commit_gsn = 0;
   sync::HybridLatch latch;
 
   void Clone(WorkerConsistentState &other);
@@ -48,9 +49,10 @@ struct WorkerConsistentState {
  * This struct is for that purpose: un-atomic consistent state
  */
 struct ToCommitState {
-  u64 last_wal_cursor                   = 0;  // wal_cursor
-  timestamp_t last_gsn                  = 0;  // w_gsn_clock
-  timestamp_t precommitted_tx_commit_ts = 0;
+  u64 last_wal_cursor                    = 0;  // wal_cursor
+  timestamp_t last_gsn                   = 0;  // w_gsn_clock
+  timestamp_t precommitted_tx_commit_ts  = 0;
+  timestamp_t precommitted_tx_commit_gsn = 0;
 
   auto operator<(const ToCommitState &r) -> bool;
   explicit ToCommitState(const WorkerConsistentState &base);
@@ -61,19 +63,24 @@ struct ToCommitState {
  * This struct is for that purpose: un-atomic consistent state
  */
 struct AsyncCommitState {
-  u64 req_lsn                           = 0;  // the corresponding lsn of write request to cloud log service
-  u64 last_wal_cursor                   = 0;  // wal_cursor
-  timestamp_t last_gsn                  = 0;  // w_gsn_clock
-  timestamp_t precommitted_tx_commit_ts = 0;
+  u64 req_lsn                            = 0;  // the corresponding lsn of write request to cloud log service
+  u64 last_wal_cursor                    = 0;  // wal_cursor
+  timestamp_t last_gsn                   = 0;  // w_gsn_clock
+  timestamp_t precommitted_tx_commit_ts  = 0;
+  timestamp_t precommitted_tx_commit_gsn = 0;
 
   AsyncCommitState() = default;
   AsyncCommitState(const WorkerConsistentState &base, u64 lsn);
   auto operator<(const AsyncCommitState &r) const -> bool;
 };
 
-/* VECTOR variant: a precommitted txn which is not yet part of its worker's stable prefix */
+/**
+ * @brief VECTOR variant: a precommitted txn with dependencies which is not yet part of its worker's stable prefix
+ * `prev_commit_gsn` and `prev_commit_ts` belong to the worker's txn before it, where the prefix ends while it is not
+ */
 struct PendingCommit {
-  timestamp_t commit_gsn;
+  timestamp_t prev_commit_gsn;
+  timestamp_t prev_commit_ts;
   timestamp_t commit_ts;
   std::vector<std::pair<wid_t, timestamp_t>> dependencies;
 };
@@ -85,6 +92,7 @@ struct PendingCommit {
  * `gsn` is the commit GSN of the last stable txn, `commit_ts` its commit timestamp.
  * Every data entry with GSN <= `gsn` belongs to a stable txn, because a txn's entries are stamped
  *  above the commit GSN of the txn before it.
+ * Only txns with dependencies can end the prefix, so `pending` holds no others.
  */
 struct StablePrefix {
   std::atomic<timestamp_t> gsn       = 0;
@@ -124,9 +132,10 @@ struct LogWorker {
   sync::HybridLatch parking_latch;
 
   /* Timestamp management */
-  timestamp_t w_gsn_clock             = 0;  // local copy of gsn, i.e. w_gsn_clock <= gsn.load()
-  timestamp_t rfa_gsn_flushed         = 0;  // local copy of LogManager.global_min_gsn_flushed
-  timestamp_t last_unharden_commit_ts = 0;  // the commit timestamp of last harden transaction
+  timestamp_t w_gsn_clock              = 0;  // local copy of gsn, i.e. w_gsn_clock <= gsn.load()
+  timestamp_t rfa_gsn_flushed          = 0;  // local copy of LogManager.global_min_gsn_flushed
+  timestamp_t last_unharden_commit_ts  = 0;  // the commit timestamp of last harden transaction
+  timestamp_t last_unharden_commit_gsn = 0;  // the commit GSN of last harden transaction
 
   /* Log buffer */
   LogBuffer log_buffer;
@@ -182,7 +191,7 @@ struct LogWorker {
   auto ReserveFreeExtentLogEntry(bool to_free, pageid_t start_pid, pageid_t size) -> FreeExtentEntry &;
   auto ReservePageImageLog(u64 payload_size, pageid_t pid) -> PageImgEntry &;
   auto SubmitActiveLogEntry() -> bool;
-  void AppendPendingCommit(timestamp_t commit_gsn, const transaction::Transaction &txn);
+  void AppendPendingCommit(const transaction::Transaction &txn);
 
   // Log buffer utilities
   auto ShouldStealLog() -> StealDecision;

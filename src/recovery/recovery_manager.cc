@@ -12,6 +12,7 @@
 #include <cstring>
 #include <limits>
 #include <unordered_set>
+#include <utility>
 
 using leanstore::storage::WALAfterImage;
 using leanstore::storage::WALDeltaImage;
@@ -86,11 +87,11 @@ void RecoveryManager::Analysis() {
  */
 void RecoveryManager::DetectLosers() {
   std::unordered_set<txnid_t> committed;
-  auto prefix = std::vector<std::vector<const CommittedTxn *>>(MAX_NUMBER_OF_WORKER);
-  for (const auto &commits : tl_committed_) {
-    for (const auto &commit : commits) {
+  auto commits = std::vector<std::vector<CommittedTxn *>>(MAX_NUMBER_OF_WORKER);
+  for (auto &thread_commits : tl_committed_) {
+    for (auto &commit : thread_commits) {
       committed.insert(commit.txn);
-      prefix[commit.worker].push_back(&commit);
+      commits[commit.worker].push_back(&commit);
     }
   }
 
@@ -105,18 +106,24 @@ void RecoveryManager::DetectLosers() {
   }
 
   /* Txn ids are start timestamps, which increase along each worker's log */
-  auto all_commits = prefix;
+  auto dependent   = std::vector<std::vector<const CommittedTxn *>>(MAX_NUMBER_OF_WORKER);
+  auto durable_gsn = std::vector<timestamp_t>(MAX_NUMBER_OF_WORKER);
   for (auto w_i = 0U; w_i < MAX_NUMBER_OF_WORKER; w_i++) {
-    std::ranges::sort(prefix[w_i], {}, &CommittedTxn::txn);
-    std::erase_if(prefix[w_i], [&](const CommittedTxn *commit) { return commit->txn > first_incomplete[w_i]; });
+    std::ranges::sort(commits[w_i], {}, &CommittedTxn::txn);
+    for (auto *commit : commits[w_i]) {
+      if (commit->txn > first_incomplete[w_i]) { break; }
+      commit->prev_commit_gsn = std::exchange(durable_gsn[w_i], commit->commit_gsn);
+      if (!commit->dependencies.empty()) { dependent[w_i].push_back(commit); }
+    }
   }
-  CutToClosedPrefixes(std::span{prefix}, [](wid_t) -> timestamp_t { return 0; });
+  const auto cut = CutToClosedPrefixes(std::span<const std::vector<const CommittedTxn *>>{dependent},
+                                       std::span<const timestamp_t>{durable_gsn});
 
+  /* Txns without dependencies may share the commit GSN of the txn before them, so cut by txn id */
   for (auto w_i = 0U; w_i < MAX_NUMBER_OF_WORKER; w_i++) {
-    for (const auto *commit : all_commits[w_i]) {
-      if (!std::ranges::binary_search(prefix[w_i], commit->txn, {}, &CommittedTxn::txn)) {
-        losers_.insert(commit->txn);
-      }
+    const auto winners_end = cut[w_i] < dependent[w_i].size() ? dependent[w_i][cut[w_i]]->txn : first_incomplete[w_i];
+    for (const auto *commit : commits[w_i]) {
+      if (commit->txn >= winners_end) { losers_.insert(commit->txn); }
     }
   }
 }

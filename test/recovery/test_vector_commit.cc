@@ -187,6 +187,35 @@ TEST_F(TestVectorCommit, TransitiveLoserIsNotPartiallyRecovered) {
   EXPECT_EQ(last, 0);
 }
 
+/* T4 has no dependencies of its own, but follows T3 on C, so it must wait for T3 */
+TEST_F(TestVectorCommit, CommitWaitsForEarlierCommitOfItsWorker) {
+  static constexpr int NO_KEYS = 2000;
+  static constexpr int FIRST   = 0;
+  static constexpr int LAST    = NO_KEYS - 1;
+  Populate(NO_KEYS);
+
+  StartTxn(WORKER_A);
+  Update(FIRST, 1);
+  CommitWithoutAck();
+
+  StartTxn(WORKER_C);
+  Update(FIRST, 3);
+  CommitWithoutAck();
+
+  StartTxn(WORKER_C);
+  Update(LAST, 4);
+  CommitWithoutAck();
+  Flush(WORKER_C);
+
+  AckRound();
+  EXPECT_EQ(Pending(WORKER_C), 2);
+
+  Flush(WORKER_A);
+  AckRound();
+  EXPECT_EQ(Pending(WORKER_A), 0);
+  EXPECT_EQ(Pending(WORKER_C), 0);
+}
+
 /* Once the head of the chain is durable, every transaction of the chain is acknowledged and recovered */
 TEST_F(TestVectorCommit, TransitiveDependencyResolved) {
   Populate(1);
