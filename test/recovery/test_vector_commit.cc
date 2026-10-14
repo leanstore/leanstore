@@ -153,6 +153,40 @@ TEST_F(TestVectorCommit, TransitiveDependency) {
   if (t3_acked) { EXPECT_EQ(*value, 3); }
 }
 
+/**
+ * Same chain, but T3 also updates a second page alone.
+ * T3 is a loser through T2, so recovery must not redo its update of the second page either
+ */
+TEST_F(TestVectorCommit, TransitiveLoserIsNotPartiallyRecovered) {
+  static constexpr int NO_KEYS = 2000;
+  static constexpr int FIRST   = 0;
+  static constexpr int LAST    = NO_KEYS - 1;
+  Populate(NO_KEYS);
+
+  StartTxn(WORKER_A);
+  Update(FIRST, 1);
+  CommitWithoutAck();
+
+  StartTxn(WORKER_B);
+  Update(FIRST, 2);
+  CommitWithoutAck();
+  Flush(WORKER_B);
+
+  StartTxn(WORKER_C);
+  Update(FIRST, 3);
+  Update(LAST, 3);
+  CommitWithoutAck();
+  Flush(WORKER_C);
+
+  CrashAndRecover();
+  auto first = Read(FIRST);
+  auto last  = Read(LAST);
+  txn_man_->CommitTransaction(true);
+  ResetFlags();
+  EXPECT_EQ(first, 0);
+  EXPECT_EQ(last, 0);
+}
+
 /* Once the head of the chain is durable, every transaction of the chain is acknowledged and recovered */
 TEST_F(TestVectorCommit, TransitiveDependencyResolved) {
   Populate(1);

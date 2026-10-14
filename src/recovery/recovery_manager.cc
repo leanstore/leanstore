@@ -1,13 +1,17 @@
 #include "recovery/recovery_manager.h"
 #include "buffer/buffer_manager.h"
 #include "leanstore/leanstore.h"
+#include "recovery/dependency_closure.h"
 #include "storage/btree/node.h"
 #include "storage/btree/wal.h"
 #include "sync/page_guard/exclusive_guard.h"
 
 #include "fmt/format.h"
 
+#include <algorithm>
 #include <cstring>
+#include <limits>
+#include <unordered_set>
 
 using leanstore::storage::WALAfterImage;
 using leanstore::storage::WALDeltaImage;
@@ -68,28 +72,53 @@ auto RecoveryManager::MaterializeLogs() -> u64 {
   return last_valid_offset;
 }
 
+/* Every recovery thread calls this, the first one detects the losers of all of them */
 void RecoveryManager::Analysis() {
-  std::unordered_set<txnid_t> losers;
+  std::call_once(analysis_once_, [&] { DetectLosers(); });
+}
 
-  /* Detect real losers from possible thread-local losers */
-  for (auto &txn : tl_losers_[LeanStore::worker_thread_id]) {
-    if (!winners_.contains(txn)) { losers.insert(txn); }
+/**
+ * @brief A committed txn is a winner iff it belongs to the largest log prefixes closed under dependencies.
+ * Each worker's prefix ends before its first txn without a durable commit:
+ *  later txns of that worker may have read its writes, which no dependency records.
+ * Checking only the direct dependencies against the durable logs is not enough,
+ *  a txn may depend on a txn with a durable commit which is itself a loser
+ */
+void RecoveryManager::DetectLosers() {
+  std::unordered_set<txnid_t> committed;
+  auto prefix = std::vector<std::vector<const CommittedTxn *>>(MAX_NUMBER_OF_WORKER);
+  for (const auto &commits : tl_committed_) {
+    for (const auto &commit : commits) {
+      committed.insert(commit.txn);
+      prefix[commit.worker].push_back(&commit);
+    }
   }
-  tl_losers_[LeanStore::worker_thread_id].clear();
 
-  /* Detect losers from possible winners, i.e., if they access dirty data from other workers */
-  for (auto &[txn, dep_gsn] : tl_winners_[LeanStore::worker_thread_id]) {
-    /* Check whether it depends on a un-logged data */
-    for (auto &[wid, ts] : dep_gsn) {
-      if (ts > global_durable_gsn_[wid].load()) {
-        losers.insert(txn);
-        break;
+  auto first_incomplete = std::vector<txnid_t>(MAX_NUMBER_OF_WORKER, std::numeric_limits<txnid_t>::max());
+  for (const auto &started : tl_started_) {
+    for (const auto &[worker, txn] : started) {
+      if (!committed.contains(txn)) {
+        losers_.insert(txn);
+        first_incomplete[worker] = std::min(first_incomplete[worker], txn);
       }
     }
   }
 
-  // Bulk insertion to global list
-  losers_.insert(std::begin(losers), std::end(losers));
+  /* Txn ids are start timestamps, which increase along each worker's log */
+  auto all_commits = prefix;
+  for (auto w_i = 0U; w_i < MAX_NUMBER_OF_WORKER; w_i++) {
+    std::ranges::sort(prefix[w_i], {}, &CommittedTxn::txn);
+    std::erase_if(prefix[w_i], [&](const CommittedTxn *commit) { return commit->txn > first_incomplete[w_i]; });
+  }
+  CutToClosedPrefixes(std::span{prefix}, [](wid_t) -> timestamp_t { return 0; });
+
+  for (auto w_i = 0U; w_i < MAX_NUMBER_OF_WORKER; w_i++) {
+    for (const auto *commit : all_commits[w_i]) {
+      if (!std::ranges::binary_search(prefix[w_i], commit->txn, {}, &CommittedTxn::txn)) {
+        losers_.insert(commit->txn);
+      }
+    }
+  }
 }
 
 /* Should only be triggered by one thread */
@@ -168,19 +197,17 @@ void RecoveryManager::AnalyzeLogSegment(const LogIOSegment::Buffer &tmp) {
   std::unordered_map<pageid_t, std::unordered_map<wid_t, LogIOSegment::Buffer>> tmp_analysis;
   tmp.Iterate([&](const LogEntry *log) {
     switch (log->type) {
-      case LogEntry::Type::TX_START:
-        tl_losers_[LeanStore::worker_thread_id].emplace(reinterpret_cast<const LogMetaEntry *>(log)->rc.txn);
-        break;
+      case LogEntry::Type::TX_START: {
+        auto mt = reinterpret_cast<const LogMetaEntry *>(log);
+        tl_started_[LeanStore::worker_thread_id].push_back({mt->rc.w_id, mt->rc.txn});
+      } break;
       case LogEntry::Type::TX_COMMIT: {
         auto mt = reinterpret_cast<const TxnCommitEntry *>(log);
-        winners_.insert(mt->rc.txn);
-        tl_winners_[LeanStore::worker_thread_id].insert({mt->rc.txn, {}});
         /* Materialize the GSN Vector */
-        auto wid = reinterpret_cast<const wid_t *>(mt->payload);
-        auto ts  = reinterpret_cast<const timestamp_t *>(&(mt->payload)[sizeof(wid_t) * mt->vector_size]);
-        UpdateMax(global_durable_gsn_[mt->rc.w_id], mt->rc.gsn); /* Evaluate the maximum global durable GSN */
-        auto &durable_gsn = tl_winners_[LeanStore::worker_thread_id][mt->rc.txn];
-        for (auto idx = 0U; idx < mt->vector_size; idx++) { durable_gsn[wid[idx]] = ts[idx]; }
+        auto wid     = reinterpret_cast<const wid_t *>(mt->payload);
+        auto ts      = reinterpret_cast<const timestamp_t *>(&(mt->payload)[sizeof(wid_t) * mt->vector_size]);
+        auto &commit = tl_committed_[LeanStore::worker_thread_id].emplace_back(mt->rc.w_id, mt->rc.txn, mt->rc.gsn);
+        for (auto idx = 0U; idx < mt->vector_size; idx++) { commit.dependencies.emplace_back(wid[idx], ts[idx]); }
       } break;
       case LogEntry::Type::DATA_ENTRY: {
         auto wal = reinterpret_cast<const DataEntry *>(log);

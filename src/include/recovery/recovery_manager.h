@@ -12,8 +12,10 @@
 
 #include <atomic>
 #include <functional>
+#include <mutex>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace leanstore::buffer {
 class BufferManager;
@@ -70,16 +72,29 @@ class RecoveryManager {
   /* Whether a PID has already been recovered, only used for instant recovery */
   std::unique_ptr<std::atomic<bool>[]> has_recovered_;
 
+  struct StartedTxn {
+    wid_t worker;
+    txnid_t txn;
+  };
+
+  struct CommittedTxn {
+    wid_t worker;
+    txnid_t txn;
+    timestamp_t commit_gsn;
+    std::vector<std::pair<wid_t, timestamp_t>> dependencies;
+  };
+
+  void DetectLosers();
+
   /* Analyzed log info */
   std::atomic<pageid_t> max_logged_pid_;
-  std::atomic<u64> global_durable_gsn_[MAX_NUMBER_OF_WORKER];
   std::unordered_map<pageid_t, std::vector<LogIOSegment::Buffer>> page_log_[MAX_NUMBER_OF_WORKER];
 
-  /* Loser & winner */
-  tbb::concurrent_unordered_set<txnid_t> winners_;
+  /* Loser & winner, the thread-local lists are filled by the materialization threads */
+  std::once_flag analysis_once_;
   tbb::concurrent_unordered_set<txnid_t> losers_;
-  std::unordered_set<txnid_t> tl_losers_[MAX_NUMBER_OF_WORKER];
-  std::unordered_map<txnid_t, std::unordered_map<wid_t, timestamp_t>> tl_winners_[MAX_NUMBER_OF_WORKER];
+  std::vector<StartedTxn> tl_started_[MAX_NUMBER_OF_WORKER];
+  std::vector<CommittedTxn> tl_committed_[MAX_NUMBER_OF_WORKER];
 };
 
 }  // namespace leanstore::recovery

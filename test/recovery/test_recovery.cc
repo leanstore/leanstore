@@ -84,8 +84,8 @@ TEST_F(TestRecovery, SmallChunks) {
   recovery_->RecoveryPreparation();
   recovery_->MaterializeLogs();
   recovery_->Analysis();
-  EXPECT_EQ(recovery_->tl_winners_[0].size(), 1);
-  EXPECT_EQ(recovery_->tl_losers_[0].size(), 0);
+  EXPECT_EQ(recovery_->tl_committed_[0].size(), 5);
+  EXPECT_TRUE(recovery_->losers_.empty());
   EXPECT_EQ(recovery_->page_log_[0].size(), 10);
 
   /* WAL debug */
@@ -123,8 +123,8 @@ TEST_F(TestRecovery, LargeChunk) {
   recovery_->RecoveryPreparation();
   recovery_->MaterializeLogs();
   recovery_->Analysis();
-  EXPECT_EQ(recovery_->tl_winners_[0].size(), 1);
-  EXPECT_EQ(recovery_->tl_losers_[0].size(), 0);
+  EXPECT_EQ(recovery_->tl_committed_[0].size(), 5);
+  EXPECT_TRUE(recovery_->losers_.empty());
   EXPECT_EQ(recovery_->page_log_[0].size(), 10);
 
   /* WAL debug */

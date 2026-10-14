@@ -120,8 +120,8 @@ TEST_F(TestTreeRecovery, BulkInsertRecovery) {
   recovery_->MaterializeLogs();
   recovery_->Analysis();
   EXPECT_EQ(recovery_->page_log_[0].size(), no_pages + 1);
-  EXPECT_EQ(recovery_->tl_winners_[0].size(), 3);  // TXN 0 and TXN 2
-  EXPECT_EQ(recovery_->tl_losers_[0].size(), 0);
+  EXPECT_EQ(recovery_->tl_committed_[0].size(), 3);  // TXN 0 and TXN 2
+  EXPECT_TRUE(recovery_->losers_.empty());
   auto max_pid = std::max_element(std::begin(recovery_->page_log_[0]), std::end(recovery_->page_log_[0]),
                                   [](const auto &p1, const auto &p2) { return p1.first < p2.first; });
   EXPECT_EQ((*max_pid).first, 342);
@@ -210,8 +210,8 @@ TEST_F(TestTreeRecovery, MixWorkloads) {
   recovery_->MaterializeLogs();
   recovery_->Analysis();
   EXPECT_EQ(recovery_->page_log_[0].size(), 343);
-  EXPECT_EQ(recovery_->tl_winners_[0].size(), 8);
-  EXPECT_EQ(recovery_->tl_losers_[0].size(), 0);
+  EXPECT_EQ(recovery_->tl_committed_[0].size(), 8);
+  EXPECT_TRUE(recovery_->losers_.empty());
   auto max_pid = std::max_element(std::begin(recovery_->page_log_[0]), std::end(recovery_->page_log_[0]),
                                   [](const auto &p1, const auto &p2) { return p1.first < p2.first; });
   EXPECT_EQ((*max_pid).first, 342);
@@ -262,8 +262,8 @@ TEST_F(TestTreeRecovery, InstantRecovery) {
   recovery_->MaterializeLogs();
   recovery_->Analysis();
   EXPECT_EQ(recovery_->page_log_[0].size(), no_pages + 1);
-  EXPECT_EQ(recovery_->tl_winners_[0].size(), 3);  // TXN 0 and TXN 2
-  EXPECT_EQ(recovery_->tl_losers_[0].size(), 0);
+  EXPECT_EQ(recovery_->tl_committed_[0].size(), 3);  // TXN 0 and TXN 2
+  EXPECT_TRUE(recovery_->losers_.empty());
   auto max_pid = std::max_element(std::begin(recovery_->page_log_[0]), std::end(recovery_->page_log_[0]),
                                   [](const auto &p1, const auto &p2) { return p1.first < p2.first; });
   EXPECT_EQ((*max_pid).first, 342);
