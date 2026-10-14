@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstring>
 #include <thread>
+#include <utility>
 
 using leanstore::transaction::CommitProtocol;
 using leanstore::transaction::TransactionManager;
@@ -115,6 +116,16 @@ auto LogWorker::PrepareDataLogEntry(u8 *buffer, u64 payload_size, pageid_t pid) 
   log_entry->rc.txn  = transaction::TransactionManager::active_txn.TxnID();
   log_entry->rc.gsn  = GetCurrentGSN();
   return *log_entry;
+}
+
+/**
+ * @brief VECTOR variant: must run before the commit entry is submitted,
+ *  otherwise the commit can be durable before the stable prefix knows about it
+ */
+void LogWorker::AppendPendingCommit(timestamp_t commit_gsn, const transaction::Transaction &txn) {
+  auto commit = PendingCommit{commit_gsn, txn.commit_ts, {txn.gsn_vector.begin(), txn.gsn_vector.end()}};
+  std::scoped_lock lock(stable.pending_mutex);
+  stable.pending.push_back(std::move(commit));
 }
 
 /**

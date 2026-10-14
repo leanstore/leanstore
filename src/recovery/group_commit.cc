@@ -179,6 +179,7 @@ void GroupCommitExecutor::PhaseTwo() {
 }
 
 void GroupCommitExecutor::PhaseThree() {
+  if (FLAGS_wal_variant == LoggingVariant::VECTOR) { log_manager_->AdvanceStablePrefix(worker_states_); }
   for (size_t w_i = start_logger_id_; w_i < end_logger_id_; w_i++) {
     auto &logger = log_manager_->logger_[w_i];
 
@@ -299,16 +300,12 @@ auto GroupCommitExecutor::SatisfyCommitConditions(wid_t w_i, const transaction::
     return txn.max_observed_gsn <= min_all_workers_gsn_ && txn.commit_ts <= min_hardened_commit_ts_;
   }
   /**
-   * @brief With GSN Vector variant, commit conditions is:
-   * - Committed locally (using commit_ts is equivalent to local GSN in this case)
-   * - Dependencies' GSN are lower than the durable GSN of those workers
+   * @brief With GSN Vector variant, a txn commits once it is part of its worker's stable prefix:
+   *  its commit is durable, and so is the commit of every txn it depends on, transitively.
+   * Checking only the direct dependencies against the durable GSNs is not enough:
+   *  a durable dependency may itself depend on a txn whose commit is not yet durable
    */
-  if (txn.commit_ts > worker_states_[w_i].precommitted_tx_commit_ts) { return false; }
-  for (auto idx = 0UL; idx < txn.vector_size; idx++) {
-    auto wid = txn.Dependencies()[idx];
-    if (worker_states_[wid].last_gsn < txn.DepGSN()[idx]) { return false; }
-  }
-  return true;
+  return txn.commit_ts <= log_manager_->logger_[w_i].stable.commit_ts.load();
 }
 
 }  // namespace leanstore::recovery

@@ -11,6 +11,8 @@
 #include "gtest/gtest_prod.h"
 
 #include <atomic>
+#include <mutex>
+#include <span>
 
 namespace leanstore::buffer {
 class BufferManager;
@@ -28,6 +30,8 @@ class LogManager {
  public:
   /* The minimum GSN up to which all logs from all workers have been flushed, used for RFA variant */
   inline static std::atomic<timestamp_t> global_min_gsn_flushed = 0;
+  /* VECTOR variant: every data entry with GSN <= this belongs to a stable txn, see StablePrefix */
+  inline static std::atomic<timestamp_t> global_min_gsn_stable = 0;
   /* Increment the workers' GSN to this value periodically to prevent local GSN from skewing and undermining RFA */
   inline static std::atomic<timestamp_t> global_sync_to_this_gsn = 0;
   static u64 stealing_border;
@@ -45,6 +49,7 @@ class LogManager {
   void TriggerGroupCommit(u32 commit_idx);
   auto WALOffset() -> std::atomic<u64> &;
   void WriteMasterRecord();
+  void AdvanceStablePrefix(std::span<const WorkerConsistentState> durable);
 
  private:
   friend class transaction::TransactionManager;
@@ -71,6 +76,9 @@ class LogManager {
 
   /* For baseline commit & WILO steal, whoever worker acquires X-latch can run group commit */
   std::vector<sync::HybridLatch> commit_latches_;
+
+  /* VECTOR variant: the stable prefixes of all workers are advanced together, by one commit executor at a time */
+  std::mutex stable_mutex_;
 
   /* Autonomous Commit configuration */
   const u64 worker_write_batch_size_; /* Workers trigger log flush when its dirty logs reach this size */

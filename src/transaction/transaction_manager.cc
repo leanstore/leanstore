@@ -55,7 +55,8 @@ void TransactionManager::StartTransaction(Transaction::Type next_tx_type, timest
       active_txn.needs_remote_flush = false;
       break;
     case ToUnderlying(LoggingVariant::VECTOR):
-      logger.rfa_gsn_flushed        = LogManager::global_min_gsn_flushed.load();
+      /* A flushed entry may belong to a txn which is not yet committed, only a stable one can be pruned */
+      logger.rfa_gsn_flushed        = LogManager::global_min_gsn_stable.load();
       active_txn.needs_remote_flush = true;
       break;
     default: UnreachableCode();
@@ -87,6 +88,7 @@ void TransactionManager::CommitTransaction(bool must_not_ack) {
     } else {
       auto &entry       = logger.ReserveLogCommitEntry(active_txn.SerializedVectorSize());
       entry.vector_size = active_txn.gsn_vector.size();
+      logger.AppendPendingCommit(entry.rc.gsn, active_txn);
     }
     auto should_commit = logger.SubmitActiveLogEntry();
 

@@ -12,8 +12,11 @@
 #include "liburing.h"
 
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <mutex>
+#include <utility>
+#include <vector>
 
 namespace leanstore::recovery {
 
@@ -68,6 +71,28 @@ struct AsyncCommitState {
   auto operator<(const AsyncCommitState &r) const -> bool;
 };
 
+/* VECTOR variant: a precommitted txn which is not yet part of its worker's stable prefix */
+struct PendingCommit {
+  timestamp_t commit_gsn;
+  timestamp_t commit_ts;
+  std::vector<std::pair<wid_t, timestamp_t>> dependencies;
+};
+
+/**
+ * @brief VECTOR variant: the stable prefix of a worker's log
+ * A txn is stable if its commit is durable and so is the commit of every txn it depends on, transitively,
+ *  including the earlier txns of its own worker.
+ * `gsn` is the commit GSN of the last stable txn, `commit_ts` its commit timestamp.
+ * Every data entry with GSN <= `gsn` belongs to a stable txn, because a txn's entries are stamped
+ *  above the commit GSN of the txn before it.
+ */
+struct StablePrefix {
+  std::atomic<timestamp_t> gsn       = 0;
+  std::atomic<timestamp_t> commit_ts = 0;
+  std::deque<PendingCommit> pending;
+  std::mutex pending_mutex;
+};
+
 /**
  * Abbreviations:
  *  rfa: Remote flush avoidance
@@ -120,6 +145,9 @@ struct LogWorker {
   LockFreeQueue<transaction::SerializableTransaction> precommitted_queue;
   LockFreeQueue<transaction::SerializableTransaction> precommitted_queue_rfa;
 
+  /* Advanced by LogManager::AdvanceStablePrefix(), which consumes `stable.pending` */
+  StablePrefix stable;
+
   LogWorker(std::atomic<bool> &db_is_running, LogManager *log_manager);
   ~LogWorker();
 
@@ -154,6 +182,7 @@ struct LogWorker {
   auto ReserveFreeExtentLogEntry(bool to_free, pageid_t start_pid, pageid_t size) -> FreeExtentEntry &;
   auto ReservePageImageLog(u64 payload_size, pageid_t pid) -> PageImgEntry &;
   auto SubmitActiveLogEntry() -> bool;
+  void AppendPendingCommit(timestamp_t commit_gsn, const transaction::Transaction &txn);
 
   // Log buffer utilities
   auto ShouldStealLog() -> StealDecision;

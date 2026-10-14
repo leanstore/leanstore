@@ -20,6 +20,7 @@ class TestVectorCommit : public BaseTest {
 
   void SetUp() override {
     LogManager::global_min_gsn_flushed  = 0;
+    LogManager::global_min_gsn_stable   = 0;
     LogManager::global_sync_to_this_gsn = 0;
     BaseTest::SetupTestFile();
     for (wid_t wid = 0; wid < FLAGS_worker_count; wid++) { Logger(wid).backend.Connect(); }
@@ -115,6 +116,118 @@ class TestVectorCommit : public BaseTest {
     FLAGS_wal_instant_recovery = false;
   }
 };
+
+/**
+ * T1 (A) -> T2 (B) -> T3 (C) update the same tuple. B and C write their own logs, A does not.
+ * T3 depends on T1 only through T2, so acknowledging T3 before T1 is durable loses T3 on a crash:
+ *  recovery marks T2 a loser, and the redo of the page stops at T2's entry.
+ */
+TEST_F(TestVectorCommit, TransitiveDependency) {
+  Populate(1);
+
+  StartTxn(WORKER_A);
+  Update(0, 1);
+  CommitWithoutAck();
+
+  StartTxn(WORKER_B);
+  Update(0, 2);
+  CommitWithoutAck();
+  Flush(WORKER_B);
+
+  StartTxn(WORKER_C);
+  Update(0, 3);
+  CommitWithoutAck();
+  Flush(WORKER_C);
+
+  AckRound();
+  EXPECT_EQ(Pending(WORKER_A), 1);
+  EXPECT_EQ(Pending(WORKER_B), 1);
+  EXPECT_EQ(Pending(WORKER_C), 1);
+  const auto t3_acked = Pending(WORKER_C) == 0;
+
+  CrashAndRecover();
+  auto value = Read(0);
+  txn_man_->CommitTransaction(true);
+  ResetFlags();
+  ASSERT_TRUE(value.has_value());
+  if (t3_acked) { EXPECT_EQ(*value, 3); }
+}
+
+/* Once the head of the chain is durable, every transaction of the chain is acknowledged and recovered */
+TEST_F(TestVectorCommit, TransitiveDependencyResolved) {
+  Populate(1);
+
+  StartTxn(WORKER_A);
+  Update(0, 1);
+  CommitWithoutAck();
+
+  StartTxn(WORKER_B);
+  Update(0, 2);
+  CommitWithoutAck();
+  Flush(WORKER_B);
+
+  StartTxn(WORKER_C);
+  Update(0, 3);
+  CommitWithoutAck();
+  Flush(WORKER_C);
+
+  Flush(WORKER_A);
+  AckRound();
+  EXPECT_EQ(Pending(WORKER_A), 0);
+  EXPECT_EQ(Pending(WORKER_B), 0);
+  EXPECT_EQ(Pending(WORKER_C), 0);
+
+  CrashAndRecover();
+  auto value = Read(0);
+  txn_man_->CommitTransaction(true);
+  ResetFlags();
+  ASSERT_TRUE(value.has_value());
+  EXPECT_EQ(*value, 3);
+}
+
+/* A and B update two pages in opposite order, so T1 and T2 depend on each other */
+TEST_F(TestVectorCommit, CyclicDependency) {
+  static constexpr int NO_KEYS = 2000;
+  Populate(NO_KEYS);
+  static constexpr int FIRST = 0;
+  static constexpr int LAST  = NO_KEYS - 1;
+
+  StartTxn(WORKER_A);
+  Update(FIRST, 1);
+  auto t1 = transaction::TransactionManager::active_txn;
+  transaction::TransactionManager::active_txn.ResetState();
+
+  StartTxn(WORKER_B);
+  Update(LAST, 2);
+  Update(FIRST, 2);
+  auto t2 = transaction::TransactionManager::active_txn;
+  transaction::TransactionManager::active_txn.ResetState();
+
+  LeanStore::worker_thread_id                 = WORKER_A;
+  transaction::TransactionManager::active_txn = t1;
+  Update(LAST, 1);
+  ASSERT_TRUE(transaction::TransactionManager::active_txn.gsn_vector.contains(WORKER_B));
+  CommitWithoutAck();
+
+  LeanStore::worker_thread_id                 = WORKER_B;
+  transaction::TransactionManager::active_txn = t2;
+  ASSERT_TRUE(transaction::TransactionManager::active_txn.gsn_vector.contains(WORKER_A));
+  CommitWithoutAck();
+
+  Flush(WORKER_A);
+  Flush(WORKER_B);
+  AckRound();
+  EXPECT_EQ(Pending(WORKER_A), 0);
+  EXPECT_EQ(Pending(WORKER_B), 0);
+
+  CrashAndRecover();
+  auto first = Read(FIRST);
+  auto last  = Read(LAST);
+  txn_man_->CommitTransaction(true);
+  ResetFlags();
+  EXPECT_EQ(first, 2);
+  EXPECT_EQ(last, 1);
+}
 
 /* A transaction depending twice on the same worker must keep the larger GSN */
 TEST_F(TestVectorCommit, DependencyKeepsLargestGSN) {

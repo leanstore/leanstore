@@ -5,11 +5,15 @@
 #include "leanstore/config.h"
 #include "leanstore/leanstore.h"
 #include "leanstore/statistics.h"
+#include "recovery/dependency_closure.h"
 #include "sync/hybrid_guard.h"
 
 #include "share_headers/time.h"
 
+#include <algorithm>
+#include <limits>
 #include <memory>
+#include <mutex>
 #include <new>
 
 using leanstore::transaction::CommitProtocol;
@@ -77,6 +81,43 @@ void LogManager::TriggerGroupCommit(u32 commit_idx) {
     sync::HybridGuard guard(&(commit_latches_[commit_idx]), sync::GuardMode::ADOPT_EXCLUSIVE);
     gc_[commit_idx].ExecuteOneRound();
   }
+}
+
+/**
+ * @brief VECTOR variant: advance the stable prefix of every worker
+ * `durable` holds each worker's durable commit timestamp.
+ * The new stable prefixes are the largest durable prefixes which are closed under dependencies.
+ * Waiting instead for each dependency's worker to acknowledge it would deadlock on a cycle of dependencies
+ */
+void LogManager::AdvanceStablePrefix(std::span<const WorkerConsistentState> durable) {
+  std::unique_lock guard(stable_mutex_, std::try_to_lock);
+  if (!guard.owns_lock()) { return; }
+
+  /* Only this function pops from `pending`, and push_back() keeps references to the other elements valid */
+  auto prefix = std::vector<std::vector<const PendingCommit *>>(FLAGS_worker_count);
+  for (auto w_i = 0U; w_i < FLAGS_worker_count; w_i++) {
+    auto &stable = logger_[w_i].stable;
+    std::scoped_lock lock(stable.pending_mutex);
+    for (const auto &commit : stable.pending) {
+      if (commit.commit_ts > durable[w_i].precommitted_tx_commit_ts) { break; }
+      prefix[w_i].push_back(&commit);
+    }
+  }
+
+  CutToClosedPrefixes(std::span{prefix}, [&](wid_t w_i) { return logger_[w_i].stable.gsn.load(); });
+
+  auto min_stable_gsn = std::numeric_limits<timestamp_t>::max();
+  for (auto w_i = 0U; w_i < FLAGS_worker_count; w_i++) {
+    auto &stable = logger_[w_i].stable;
+    if (!prefix[w_i].empty()) {
+      stable.gsn.store(prefix[w_i].back()->commit_gsn);
+      stable.commit_ts.store(prefix[w_i].back()->commit_ts);
+      std::scoped_lock lock(stable.pending_mutex);
+      stable.pending.erase(stable.pending.begin(), stable.pending.begin() + std::ssize(prefix[w_i]));
+    }
+    min_stable_gsn = std::min(min_stable_gsn, stable.gsn.load());
+  }
+  UpdateMax(global_min_gsn_stable, min_stable_gsn);
 }
 
 /**
