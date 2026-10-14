@@ -88,7 +88,8 @@ void PageGuard<PageClass>::UpdateDependencyVector() {
     auto &txn = TM::active_txn;
     Ensure(txn.IsRunning() && prev_owner_ != LeanStore::worker_thread_id &&
            prev_owner_ != std::numeric_limits<wid_t>::max());
-    txn.gsn_vector[prev_owner_] = prev_gsn_;
+    auto &dep_gsn = txn.gsn_vector[prev_owner_];
+    dep_gsn       = std::max(dep_gsn, prev_gsn_);
   }
 }
 

@@ -53,6 +53,7 @@ class LogManager {
   friend struct LogBuffer;
   friend class LogBackend;
   friend class TestTreeRecovery;
+  friend class TestVectorCommit;
   FRIEND_TEST(TestLogManager, CentralizedLogging);
   FRIEND_TEST(TestRecovery, SmallChunks);
   FRIEND_TEST(TestRecovery, LargeChunk);
